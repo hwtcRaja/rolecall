@@ -171,7 +171,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal-mid
           <div class="section-title">Show Defaults</div>
           <div class="section-sub">These apply to every production below. You can override any of them for an individual show further down.</div>
           <div class="field">
-            <label>Number of Shows *</label>
+            <label>Number of Performances *</label>
             <input type="number" min="0" name="default_number_of_shows" id="default-number-of-shows" required>
             <div class="note">Any performance with an audience beyond those directly involved must be licensed as a paid performance. "Previews" or invited friends-and-family dress rehearsals do not count as unlicensed exceptions.</div>
           </div>
@@ -317,7 +317,7 @@ input:focus,select:focus,textarea:focus{outline:none;border-color:var(--teal-mid
 
         <div class="section">
           <div class="section-title">Productions</div>
-          <div class="section-sub">Add one entry per show you're requesting. Everything above is shared across all of them — use "Customize" on a card if one show needs different ticket prices, show count, performers, or scripts.</div>
+          <div class="section-sub">Add one entry per show you're requesting. Everything above is shared across all of them — use "Customize" on a card if one show needs different ticket prices, performance count, performers, or scripts.</div>
           <div id="shows-container"></div>
           <button type="button" class="add-show-btn" id="add-show-btn">+ Add Another Production</button>
         </div>
@@ -398,12 +398,12 @@ function newShowCardHTML(){
       <label>Additional Requests</label>
       <textarea class="additional-requests-input" rows="3" placeholder="Anything specific to this production — e.g. for Grease, you must request specific song use."></textarea>
     </div>
-    <button type="button" class="toggle-override-btn">+ Customize details for this show (ticket prices, show count, performers, scripts)</button>
+    <button type="button" class="toggle-override-btn">+ Customize details for this show (ticket prices, performance count, performers, scripts)</button>
     <div class="show-overrides">
       <div class="hint" style="margin-bottom:10px">Leave any field blank to use the show default from above.</div>
       <div class="grid">
         <div class="field">
-          <label>Number of Shows</label>
+          <label>Number of Performances</label>
           <input type="number" min="0" class="override-number-of-shows">
         </div>
         <div class="field">
@@ -468,8 +468,50 @@ function renumberShowCards(){
 }
 
 function addShowCard(){
-  document.getElementById('shows-container').insertAdjacentHTML('beforeend', newShowCardHTML());
+  const container = document.getElementById('shows-container');
+  const prevCard = container.lastElementChild;
+  container.insertAdjacentHTML('beforeend', newShowCardHTML());
+  const newCard = container.lastElementChild;
+  if (prevCard) inheritFromPreviousCard(prevCard, newCard);
   renumberShowCards();
+}
+
+// When adding another production, carry over the production type and
+// performance dates from the previous card so staff aren't re-entering the
+// same info for shows running in the same window — everything stays editable.
+function inheritFromPreviousCard(prevCard, newCard){
+  // Production type (+ "Other" text, if that's what was selected)
+  const prevTypeChecked = prevCard.querySelector('[data-radio-group^="production_type_"] input:checked');
+  if (prevTypeChecked) {
+    const newTypeRadio = Array.from(newCard.querySelectorAll('[data-radio-group^="production_type_"] input'))
+      .find(inp => inp.value === prevTypeChecked.value);
+    if (newTypeRadio) {
+      newTypeRadio.checked = true;
+      newTypeRadio.closest('.pill').classList.add('active');
+      if (prevTypeChecked.value === 'Other') {
+        const prevOther = prevCard.querySelector('.production-type-other');
+        const newOther = newCard.querySelector('.production-type-other');
+        if (prevOther && newOther) {
+          newOther.value = prevOther.value;
+          newOther.classList.add('show');
+        }
+      }
+    }
+  }
+
+  // Performance dates
+  const prevDates = Array.from(prevCard.querySelectorAll('.date-list .date-row input[type=date]'))
+    .map(inp => inp.value).filter(Boolean);
+  const newDateList = newCard.querySelector('.date-list');
+  if (prevDates.length) {
+    prevDates.forEach(dateVal => {
+      addDateRowTo(newDateList);
+      const rows = newDateList.querySelectorAll('.date-row input[type=date]');
+      rows[rows.length - 1].value = dateVal;
+    });
+  } else {
+    addDateRowTo(newDateList);
+  }
 }
 
 function addDateRowTo(listEl){
@@ -556,7 +598,7 @@ document.addEventListener('click', (e) => {
     panel.classList.toggle('show');
     t.textContent = panel.classList.contains('show')
       ? '− Hide custom details for this show'
-      : '+ Customize details for this show (ticket prices, show count, performers, scripts)';
+      : '+ Customize details for this show (ticket prices, performance count, performers, scripts)';
     return;
   }
 });

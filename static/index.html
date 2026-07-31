@@ -2661,6 +2661,28 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  oninput="previewNavIcon('hours-store',this.value)"/>
  </div>
  </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-licensing">
+ <span style="font-size:16px">📄</span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Licensing Requests</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-licensing" placeholder="file-text" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('licensing',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-responsibility">
+ <span style="font-size:16px">🗂️</span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Responsibility Grid</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-responsibility" placeholder="grid" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('responsibility',this.value)"/>
+ </div>
+ </div>
  </div>
    </div>
 
@@ -3965,10 +3987,12 @@ const NAV_PERM_MAP = {
  'marquee': 'marquee',
  'productions': 'productions',
  'production-signin':'productions',
- 'licensing': 'productions',
+ 'show-contracts': 'productions',
+ 'licensing': 'licensing',
  'youth': 'youth',
  'youth-programs-page': 'programs',
  'rising-stars-page':'rising_stars',
+ 'step-up-holds': ['rising_stars','youth','productions'],
  'portal-admin': 'portal_admin',
  'youth-signin': 'kiosk',
  'carpools': 'youth',
@@ -3987,8 +4011,24 @@ const NAV_PERM_MAP = {
  'responsibility': 'responsibility_grid',
 }
 
-function canView(section){ return!section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='view' || (currentUser?.permissions||{})[section]==='edit' }
-function canEdit(section){ return!section || currentUser?.role==='admin' || (currentUser?.permissions||{})[section]==='edit' }
+// Mirrors PERM_LEGACY_FALLBACK in app.py - keep the two in sync.
+const PERM_LEGACY_FALLBACK = {
+ 'licensing': 'productions',
+}
+
+function resolvePermLevel(section){
+ if(!section) return null
+ const perms = currentUser?.permissions||{}
+ const level = perms[section]
+ if(level) return level
+ const legacy = PERM_LEGACY_FALLBACK[section]
+ if(legacy && perms[legacy]) return perms[legacy]
+ return null
+}
+function canView(section){ return!section || currentUser?.role==='admin' || ['view','edit'].includes(resolvePermLevel(section)) }
+function canEdit(section){ return!section || currentUser?.role==='admin' || resolvePermLevel(section)==='edit' }
+function canViewAny(sections){ return Array.isArray(sections) ? sections.some(canView): canView(sections) }
+function canEditAny(sections){ return Array.isArray(sections) ? sections.some(canEdit): canEdit(sections) }
 
 function applyPermissionUI(){
  const isAdmin = currentUser?.role==='admin'
@@ -4000,7 +4040,7 @@ function applyPermissionUI(){
  const match = onclick.match(/navTo\('([^']+)'/)
  const pageKey = match ? match[1]: null
  const section = pageKey ? NAV_PERM_MAP[pageKey]: null
- const visible = canView(section)
+ const visible = canViewAny(section)
  nav.style.display = visible ? '': 'none'
  })
 
@@ -8306,7 +8346,7 @@ const NAV_ICON_DEFAULTS = {
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
  board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
- oncall:'📞', 'hours-store':'🏪', responsibility:'🗂️'
+ oncall:'📞', 'hours-store':'🏪', responsibility:'🗂️', licensing:'📄'
 }
 
 let _currentNavIcons = {}
@@ -14616,6 +14656,7 @@ const PERM_SECTIONS = [
  {key:'oncall', label:'On-Call Schedule', desc:'Manage who answers calls & texts to the Twilio number'},
  {key:'hours_store', label:'Hours Store', desc:'Manage store items, exchange rate, and redemption requests'},
  {key:'responsibility_grid', label:'Responsibility Grid', desc:'RACI grid, process flows, and org chart across all board & committee roles'},
+ {key:'licensing', label:'Licensing Requests', desc:'Show licensing requests & contract/renewal tracking (falls back to Productions access if not set)'},
 ]
 
 

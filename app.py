@@ -15644,7 +15644,7 @@ def square_create_and_publish_invoice(order_id, customer_id, amount_cents, due_d
                 'delivery_method': 'EMAIL',
                 'title': title[:255],
                 'description': description[:2000] if description else '',
-                'accepted_payment_methods': {'card': True, 'square_gift_card': False, 'bank_transfer': False, 'buy_now_pay_later': False},
+                'accepted_payment_methods': {'card': True, 'square_gift_card': False, 'buy_now_pay_later': False},
             },
         }
         r = requests.post(f'{SQUARE_API_BASE}/v2/invoices', json=create_payload, headers=square_headers(), timeout=15)

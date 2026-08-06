@@ -10940,6 +10940,8 @@ def _fire_scheduled_report(r):
 def after_request_cron(response):
     try: maybe_run_scheduled_reports()
     except Exception: pass
+    try: maybe_send_due_rental_invoices()
+    except Exception: pass
     return response
 
 # ─────────────────────────────────────────────
@@ -21226,6 +21228,8 @@ def get_rental_requests():
             (SELECT COUNT(*) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND square_invoice_status='PAID') AS installment_paid_count,
             (SELECT COALESCE(SUM(amount_cents),0) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment') AS installment_total_cents,
             (SELECT COALESCE(SUM(amount_cents),0) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND square_invoice_status='PAID') AS installment_paid_cents,
+            (SELECT COUNT(*) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND sent_at IS NULL) AS installment_unsent_count,
+            (SELECT MIN(due_date) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND sent_at IS NULL) AS installment_next_unsent_due_date,
             (SELECT MIN(due_date) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND square_invoice_status!='PAID') AS installment_next_due_date
             FROM rental_requests rr
             LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
@@ -22740,12 +22744,88 @@ def create_final_invoice(aid):
         return jsonify({'error': payment_err or 'Could not generate the final payment invoice'}), 400
     return jsonify({'ok': True, 'id': pid, 'warning': payment_err})
 
+RENTAL_INVOICE_LEAD_DAYS = 7  # auto-send each installment's Square invoice this many days before its due date
+
+def _send_scheduled_rental_invoice(conn, payment_id, created_by):
+    """Create the Square order + invoice for an installment that was saved
+    as 'scheduled' (no Square objects yet), then mark it sent. Used both
+    for a staff-initiated 'Send Now' and for the automatic pre-due-date
+    sweep in maybe_send_due_rental_invoices()."""
+    payment = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (payment_id,))
+    if not payment:
+        return False, 'Invoice not found'
+    if payment.get('sent_at'):
+        return False, 'This invoice has already been sent'
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (payment['agreement_id'],))
+    if not agr:
+        return False, 'Agreement not found'
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_name AS partner_contact,
+        rp.contact_email AS partner_email, rp.contact_phone AS partner_phone
+        FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE rr.id=%s''', (agr['request_id'],))
+    if not req:
+        return False, 'Rental request not found'
+    if not req.get('partner_email'):
+        return False, 'This partner has no contact email on file'
+    amount_cents = payment.get('amount_cents') or 0
+    if amount_cents <= 0:
+        return False, 'Invalid amount on this installment'
+
+    customer_id = square_find_or_create_customer(req['partner_email'], req.get('partner_contact') or req.get('partner_name') or '', req.get('partner_phone') or '')
+    if not customer_id:
+        return False, 'Could not create/find a Square customer for this partner'
+
+    label = payment.get('installment_label') or 'Payment'
+    item_name = f'{label} — {req.get("title","")}'
+    order_id = square_create_order(item_name, amount_cents, reference_id=payment['agreement_id'])
+    if not order_id:
+        return False, 'Could not create the Square order for this invoice'
+
+    invoice_id, public_url, status, err = square_create_and_publish_invoice(
+        order_id, customer_id, amount_cents, payment.get('due_date') or date.today().isoformat(), item_name,
+        f'{label} for the Artistic Partnership and Studio Use Agreement — {req.get("title","")}')
+    if err and not invoice_id:
+        return False, err
+
+    execute(conn, '''UPDATE rental_payments SET square_order_id=%s, square_invoice_id=%s,
+        square_invoice_status=%s, public_url=%s, sent_at=NOW(), created_by=%s WHERE id=%s''',
+        (order_id, invoice_id or '', status or 'DRAFT', public_url or '', created_by, payment_id))
+    conn.commit()
+    return True, err  # err may be a non-fatal warning even though the invoice was sent
+
+_last_rental_invoice_cron_check = [None]
+def maybe_send_due_rental_invoices():
+    """Cron-style sweep (same pattern as maybe_run_scheduled_reports —
+    checked opportunistically on each request, throttled to once an hour):
+    auto-sends any scheduled installment whose due date is within
+    RENTAL_INVOICE_LEAD_DAYS, so partners get their Square invoice with
+    advance notice without staff having to remember to send it."""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    last = _last_rental_invoice_cron_check[0]
+    if last and (now - last).total_seconds() < 3600: return
+    _last_rental_invoice_cron_check[0] = now
+    try:
+        conn = get_db()
+        cutoff = (_dt.date.today() + _dt.timedelta(days=RENTAL_INVOICE_LEAD_DAYS)).isoformat()
+        due = fetchall(conn, """SELECT id FROM rental_payments
+            WHERE payment_type='installment' AND sent_at IS NULL AND due_date<=%s""", (cutoff,)) or []
+        for row in due:
+            try:
+                _send_scheduled_rental_invoice(conn, row['id'], 'RoleCall (auto-send)')
+            except Exception as e:
+                app.logger.error(f'Auto-send installment invoice error {row["id"]}: {e}')
+        conn.close()
+    except Exception as e:
+        app.logger.error(f'Rental invoice cron check error: {e}')
+
 @app.route('/api/rental/agreements/<aid>/payment-plan', methods=['POST'])
 def create_rental_payment_plan(aid):
-    """Generate a full monthly installment schedule upfront — one Square
-    invoice per installment, each with its own amount/due date/label.
-    Every installment is created immediately (not chained), so an unpaid
-    one can simply be voided in Square if the partnership ends early."""
+    """Save a monthly installment schedule. Each installment is recorded as
+    'scheduled' right away — no Square invoice or email goes out yet.
+    Invoices are auto-sent about a week before their due date (see
+    maybe_send_due_rental_invoices), or staff can send any of them early
+    from the Invoices list."""
     err = require_permission('rentals')
     if err: return err
     d = request.json or {}
@@ -22771,13 +22851,13 @@ def create_rental_payment_plan(aid):
         if amount_cents <= 0 or not due_date:
             failures.append({'label': label, 'error': 'Missing amount or due date'})
             continue
-        pid, payment_err = _generate_rental_invoice(conn, aid, 'installment', amount_cents, due_date, created_by, label=label)
-        if pid:
-            created_ids.append(pid)
-            if payment_err:
-                failures.append({'label': label, 'error': payment_err, 'created': True})
-        else:
-            failures.append({'label': label, 'error': payment_err or 'Could not create this invoice'})
+        pid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO rental_payments
+            (id, agreement_id, payment_type, amount_cents, due_date, square_invoice_status, created_by, installment_label)
+            VALUES (%s,%s,'installment',%s,%s,'scheduled',%s,%s)''',
+            (pid, aid, amount_cents, due_date, created_by, label))
+        created_ids.append(pid)
+    conn.commit()
     payment_plan_url = None
     if created_ids:
         # Email the partner a link to the full schedule — this is what the
@@ -22793,16 +22873,31 @@ def create_rental_payment_plan(aid):
                 try:
                     send_email(req['partner_email'], f'Payment Plan — {req.get("title","")}',
                         f'Hi {req.get("partner_contact") or req.get("partner_name") or ""},<br><br>'
-                        f'Here is the payment schedule for <strong>{req.get("title","")}</strong>: {len(created_ids)} installment(s), '
-                        f'each invoiced separately by Square with its own due date.<br><br>'
+                        f'Here is the payment schedule for <strong>{req.get("title","")}</strong>: {len(created_ids)} installment(s). '
+                        f'Each will be invoiced separately by Square, automatically emailed to you about a week before its due date.<br><br>'
                         f'<a href="{payment_plan_url}">View the full Payment Plan</a><br><br>'
                         f'Horizon West Theater Company')
                 except Exception as e:
                     app.logger.warning(f'Payment plan email to partner failed: {e}')
     conn.close()
     if not created_ids:
-        return jsonify({'error': 'Could not create any installment invoices', 'failures': failures}), 400
+        return jsonify({'error': 'Could not save any installments', 'failures': failures}), 400
     return jsonify({'ok': True, 'created': created_ids, 'failures': failures, 'payment_plan_url': payment_plan_url})
+
+@app.route('/api/rental/payments/<pid>/send-invoice', methods=['POST'])
+def send_scheduled_rental_invoice_route(pid):
+    """Manually send a scheduled installment's Square invoice early — e.g.
+    the partner asked for it sooner, or staff just don't want to wait for
+    the automatic pre-due-date send."""
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    ok, msg = _send_scheduled_rental_invoice(conn, pid, (user or {}).get('name', 'RoleCall'))
+    conn.close()
+    if not ok:
+        return jsonify({'error': msg or 'Could not send this invoice'}), 400
+    return jsonify({'ok': True, 'warning': msg})
 
 @app.route('/rent/payment-plan/<token>')
 def rental_payment_plan_page(token):
@@ -22830,8 +22925,14 @@ def rental_payment_plan_page(token):
         rows = []
         for p in payments:
             paid = p.get('square_invoice_status') == 'PAID'
+            scheduled = not p.get('sent_at')
             label = p.get('installment_label') or ('Deposit' if p.get('payment_type') == 'deposit' else 'Final Payment' if p.get('payment_type') == 'final' else p.get('payment_type'))
-            status_html = '<span style="color:#166534;font-weight:700">✅ Paid</span>' if paid else '<span style="color:#92400e;font-weight:700">⏳ Due</span>'
+            if paid:
+                status_html = '<span style="color:#166534;font-weight:700">✅ Paid</span>'
+            elif scheduled:
+                status_html = '<span style="color:#6b7280;font-weight:700">📅 Scheduled</span>'
+            else:
+                status_html = '<span style="color:#92400e;font-weight:700">⏳ Due</span>'
             link_html = f'<a href="{p.get("public_url")}" style="color:#145466;font-weight:600">Pay / View Invoice ↗</a>' if p.get('public_url') and not paid else ''
             rows.append(f'''<tr>
                 <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{label}</td>

@@ -1562,11 +1562,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button onclick="switchBoardTab('officers')" id="btab-officers" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Officers</button>
  <button onclick="switchBoardTab('meetings')" id="btab-meetings" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Meetings</button>
  <button onclick="switchBoardTab('schedule')" id="btab-schedule" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Find Best Time</button>
+ <button onclick="switchBoardTab('applications')" id="btab-applications" style="padding:10px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Applications<span id="btab-app-badge" style="display:none;margin-left:6px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px"></span></button>
  </div>
  <div id="btab-panel-members"></div>
  <div id="btab-panel-officers" style="display:none"></div>
  <div id="btab-panel-meetings" style="display:none"></div>
  <div id="btab-panel-schedule" style="display:none"></div>
+ <div id="btab-panel-applications" style="display:none"></div>
  </div>
  </section>
 
@@ -7062,6 +7064,9 @@ var _boardMeetings = []
 var _boardOfficerRoles = {}
 var _boardOfficerTerms = []
 var _boardTab = 'members'
+var _boardApplications = []
+var _boardPositions = []
+var _boardAppFilter = 'all'
 
 async function loadBoardPage(){
  var members = await api('/api/board/members')
@@ -7075,11 +7080,21 @@ async function loadBoardPage(){
  var active = _boardMembers.filter(function(m){ return m.status==='active' }).length
  document.getElementById('board-subtitle').textContent = active+' active member'+(active!==1?'s':'')+' · '+_boardMeetings.length+' meeting'+(_boardMeetings.length!==1?'s':'')+' recorded'
  renderBoardTab(_boardTab)
+ // Applications badge loads quietly in the background regardless of which
+ // tab is active, so the count is visible without opening the tab.
+ api('/api/board/applications').then(function(apps){
+   if(!Array.isArray(apps)) return
+   _boardApplications = apps
+   var newCount = apps.filter(function(a){ return a.status==='submitted' }).length
+   var badge = document.getElementById('btab-app-badge')
+   if(badge){ badge.textContent = newCount; badge.style.display = newCount ? '' : 'none' }
+   if(_boardTab==='applications') renderBoardTab('applications')
+ })
 }
 
 function switchBoardTab(tab){
  _boardTab = tab
- ;['members','officers','meetings','schedule'].forEach(function(t){
+ ;['members','officers','meetings','schedule','applications'].forEach(function(t){
  var btn=document.getElementById('btab-'+t), panel=document.getElementById('btab-panel-'+t)
  if(btn){ btn.style.borderBottomColor=t===tab?'var(--teal)':'transparent'; btn.style.color=t===tab?'var(--teal)':'var(--text-muted)' }
  if(panel) panel.style.display=t===tab?'':'none'
@@ -7092,6 +7107,7 @@ function renderBoardTab(tab){
  else if(tab==='officers') renderBoardOfficers()
  else if(tab==='meetings') renderBoardMeetings()
  else if(tab==='schedule') renderBoardScheduler()
+ else if(tab==='applications') renderBoardApplicationsTab()
 }
 
 function renderBoardMembers(){
@@ -7556,6 +7572,242 @@ function toggleBmTermEndFields(){
  var showReason = status==='terminated'
  document.getElementById('bm-term-end-date-group').style.display = showDate?'':'none'
  document.getElementById('bm-term-end-reason-group').style.display = showReason?'':'none'
+}
+
+// ── Board Position Applications ──────────────────────────────────────
+var BOARD_APP_STATUS_META = {
+ submitted:  {label:'New',          color:'#92400e', bg:'#fef3c7'},
+ reviewing:  {label:'Under Review', color:'#1e40af', bg:'#dbeafe'},
+ interview:  {label:'Interview',    color:'#6d28d9', bg:'#ede9fe'},
+ approved:   {label:'Approved',     color:'#166534', bg:'#dcfce7'},
+ declined:   {label:'Declined',     color:'#991b1b', bg:'#fee2e2'},
+ withdrawn:  {label:'Withdrawn',    color:'#6b7280', bg:'#f3f4f6'},
+}
+
+async function renderBoardApplicationsTab(){
+ var el = document.getElementById('btab-panel-applications')
+ if(!el) return
+ el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div>'
+ var [positions, applications] = await Promise.all([api('/api/board/positions'), api('/api/board/applications')])
+ _boardPositions = Array.isArray(positions) ? positions : []
+ _boardApplications = Array.isArray(applications) ? applications : []
+
+ var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+   + '<div style="font-size:13px;color:var(--text-muted)">Public application page: <a href="/board/apply" target="_blank" style="color:var(--teal-dark);font-weight:600">hwtco.org/board/apply ↗</a></div>'
+   + '<button class="btn btn-primary btn-sm" onclick="openBoardPositionModal()">+ New Position</button>'
+   + '</div>'
+
+ // Positions overview
+ html += '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:24px">'
+ if(!_boardPositions.length){
+   html += '<div class="card" style="padding:24px;text-align:center;color:var(--text-muted)">No Board positions have been created yet.</div>'
+ } else {
+   html += _boardPositions.map(function(p){
+     var open = p.status === 'open'
+     return '<div class="card" style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px">'
+       + '<div>'
+       + '<div style="font-weight:700;font-size:14px;color:var(--teal-dark)">'+escHtml(p.title)+' '
+       + '<span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:'+(open?'#dcfce7':'#f3f4f6')+';color:'+(open?'#166534':'#6b7280')+'">'+(open?'OPEN':'CLOSED')+'</span>'
+       + (p.new_count>0?' <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:var(--red);color:#fff">'+p.new_count+' new</span>':'')
+       + '</div>'
+       + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(p.time_commitment?escHtml(p.time_commitment)+' · ':'')+(p.application_count||0)+' application'+(p.application_count!==1?'s':'')+'</div>'
+       + '</div>'
+       + '<div style="display:flex;gap:6px;flex-shrink:0">'
+       + '<a class="btn btn-secondary btn-sm" href="/board/apply/'+p.id+'" target="_blank">View Live ↗</a>'
+       + '<button class="btn btn-secondary btn-sm" onclick="openBoardPositionModal(\''+p.id+'\')">Edit</button>'
+       + '</div></div>'
+   }).join('')
+ }
+ html += '</div>'
+
+ // Applications pipeline
+ var counts = {}
+ _boardApplications.forEach(function(a){ counts[a.status]=(counts[a.status]||0)+1 })
+ var appFilters = [{v:'all',l:'All'}].concat(Object.keys(BOARD_APP_STATUS_META).map(function(s){ return {v:s, l:BOARD_APP_STATUS_META[s].label} }))
+ html += '<div style="font-weight:700;font-size:14px;color:var(--teal-dark);margin-bottom:10px">Applications ('+_boardApplications.length+')</div>'
+ html += '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">'
+   + appFilters.map(function(f){
+     var active = _boardAppFilter === f.v
+     var c = f.v==='all' ? _boardApplications.length : (counts[f.v]||0)
+     return '<button onclick="setBoardAppFilter(\''+f.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+' ('+c+')</button>'
+   }).join('')
+   + '</div>'
+
+ var filtered = _boardAppFilter==='all' ? _boardApplications : _boardApplications.filter(function(a){ return a.status===_boardAppFilter })
+ if(!filtered.length){
+   html += '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No applications here.</div>'
+ } else {
+   html += filtered.map(function(a){
+     var sm = BOARD_APP_STATUS_META[a.status] || {label:a.status, color:'#6b7280', bg:'#f3f4f6'}
+     return '<div class="card" style="padding:14px 16px;margin-bottom:8px;cursor:pointer" onclick="openBoardApplicationDetail(\''+a.id+'\')">'
+       + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
+       + '<div>'
+       + '<div style="font-weight:700;font-size:14px">'+escHtml(a.full_name)+'</div>'
+       + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+escHtml(a.position_title||'Unknown Position')+' · '+escHtml(a.email)+(a.file_count?' · 📎 '+a.file_count:'')+'</div>'
+       + '</div>'
+       + '<div style="text-align:right;flex-shrink:0">'
+       + '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;background:'+sm.bg+';color:'+sm.color+'">'+sm.label+'</span>'
+       + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'+(a.submitted_at?a.submitted_at.slice(0,10):'')+'</div>'
+       + '</div></div></div>'
+   }).join('')
+ }
+ el.innerHTML = html
+}
+
+function setBoardAppFilter(v){ _boardAppFilter = v; renderBoardApplicationsTab() }
+
+function openBoardPositionModal(pid){
+ var p = pid ? _boardPositions.find(function(x){ return x.id===pid }) : null
+ var overlay = document.createElement('div')
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;padding:24px;max-height:90vh;overflow:auto">'
+   + '<div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">'+(p?'Edit Position':'New Board Position')+'</div>'
+   + boardPositionField('bp-title','Title *', p?p.title:'', 'text', 'e.g. Building and Facilities Manager')
+   + boardPositionField('bp-summary','Short Summary (shown on the listing page)', p?p.summary:'', 'text')
+   + boardPositionField('bp-description','About This Role', p?p.description:'', 'textarea')
+   + boardPositionField('bp-responsibilities','Responsibilities', p?p.responsibilities:'', 'textarea')
+   + boardPositionField('bp-qualifications','Qualifications', p?p.qualifications:'', 'textarea')
+   + boardPositionField('bp-time_commitment','Time Commitment', p?p.time_commitment:'', 'text', 'e.g. ~5 hrs/month, monthly board meeting')
+   + boardPositionField('bp-term_length','Term Length', p?p.term_length:'', 'text', 'e.g. 3-year term')
+   + '<div class="form-group" style="margin-bottom:14px">'
+   + '<label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
+   + '<select id="bp-status" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px">'
+   + '<option value="open"'+(p&&p.status==='open'?' selected':'')+'>Open — accepting applications</option>'
+   + '<option value="closed"'+(p&&p.status==='closed'?' selected':'')+'>Closed</option>'
+   + '</select></div>'
+   + '<div style="display:flex;justify-content:space-between;gap:8px;margin-top:8px">'
+   + (p?'<button class="btn btn-sm" onclick="deleteBoardPosition(\''+p.id+'\')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer">Delete</button>':'<span></span>')
+   + '<div style="display:flex;gap:8px">'
+   + '<button class="btn btn-secondary" onclick="this.closest(\'[style*=fixed]\').remove()">Cancel</button>'
+   + '<button class="btn btn-primary" onclick="saveBoardPosition('+(p?"'"+p.id+"'":'null')+')">'+(p?'Save Changes':'Create Position')+'</button>'
+   + '</div></div></div>'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+}
+
+function boardPositionField(id, label, value, type, placeholder){
+ var input = type==='textarea'
+   ? '<textarea id="'+id+'" placeholder="'+(placeholder||'')+'" style="width:100%;min-height:70px;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box;resize:vertical">'+escHtml(value||'')+'</textarea>'
+   : '<input type="text" id="'+id+'" value="'+escHtml(value||'')+'" placeholder="'+(placeholder||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>'
+ return '<div class="form-group" style="margin-bottom:14px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">'+label+'</label>'+input+'</div>'
+}
+
+async function saveBoardPosition(pid){
+ var payload = {
+   title: document.getElementById('bp-title').value.trim(),
+   summary: document.getElementById('bp-summary').value.trim(),
+   description: document.getElementById('bp-description').value.trim(),
+   responsibilities: document.getElementById('bp-responsibilities').value.trim(),
+   qualifications: document.getElementById('bp-qualifications').value.trim(),
+   time_commitment: document.getElementById('bp-time_commitment').value.trim(),
+   term_length: document.getElementById('bp-term_length').value.trim(),
+   status: document.getElementById('bp-status').value,
+ }
+ if(!payload.title){ toast('Title is required','error'); return }
+ var res = pid ? await api('/api/board/positions/'+pid,'PUT',payload) : await api('/api/board/positions','POST',payload)
+ if(res&&res.ok){
+   toast(pid?'Position updated':'Position created','success')
+   document.querySelectorAll('[style*="position:fixed"][style*="z-index:10000"]').forEach(function(el){ el.remove() })
+   renderBoardApplicationsTab()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function deleteBoardPosition(pid){
+ if(!confirm('Delete this position? This only works if it has no applications on file.')) return
+ var res = await api('/api/board/positions/'+pid,'DELETE')
+ if(res&&res.ok){
+   toast('Position deleted','success')
+   document.querySelectorAll('[style*="position:fixed"][style*="z-index:10000"]').forEach(function(el){ el.remove() })
+   renderBoardApplicationsTab()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function openBoardApplicationDetail(aid){
+ var a = await api('/api/board/applications/'+aid)
+ if(!a || a.error){ toast((a&&a.error)||'Could not load application','error'); return }
+ var sm = BOARD_APP_STATUS_META[a.status] || {label:a.status, color:'#6b7280', bg:'#f3f4f6'}
+ var overlay = document.createElement('div')
+ overlay.id = 'board-app-detail-overlay'
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px;overflow:auto'
+ var filesHtml = (a.files||[]).length
+   ? a.files.map(function(f){
+       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:var(--bg);border-radius:8px;margin-bottom:6px">'
+         + '<div><span style="font-weight:600;font-size:13px">'+escHtml(f.filename)+'</span> <span style="font-size:11px;color:var(--text-muted)">('+escHtml(f.file_label)+', '+Math.round((f.size_bytes||0)/1024)+'KB)</span></div>'
+         + '<a href="/api/board/applications/'+a.id+'/files/'+f.id+'" target="_blank" style="font-size:12px;font-weight:700;color:var(--teal-dark)">Download</a></div>'
+     }).join('')
+   : '<div style="font-size:13px;color:var(--text-muted)">No files attached</div>'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:640px;padding:24px;max-height:90vh;overflow:auto">'
+   + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">'
+   + '<div><div style="font-size:18px;font-weight:800;color:var(--teal-dark)">'+escHtml(a.full_name)+'</div>'
+   + '<div style="font-size:13px;color:var(--text-muted)">'+escHtml(a.position_title||'')+'</div></div>'
+   + '<span style="font-size:11px;font-weight:700;padding:4px 12px;border-radius:10px;background:'+sm.bg+';color:'+sm.color+'">'+sm.label+'</span>'
+   + '</div>'
+   + '<div style="font-size:12.5px;color:var(--text-muted);margin:10px 0 16px">'+escHtml(a.email)+(a.phone?' · '+escHtml(a.phone):'')+(a.address?' · '+escHtml(a.address):'')+'<br>Submitted '+(a.submitted_at?a.submitted_at.slice(0,10):'')+(a.reviewed_by?' · Last reviewed by '+escHtml(a.reviewed_by):'')+'</div>'
+   + boardAppDetailBlock('Why they\'re interested', a.why_interested)
+   + boardAppDetailBlock('Relevant experience', a.relevant_experience)
+   + boardAppDetailBlock('Availability', a.availability)
+   + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:14px 0 6px">Attachments</div>'
+   + filesHtml
+   + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:16px 0 6px">Move to Stage</div>'
+   + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px">'
+   + Object.keys(BOARD_APP_STATUS_META).map(function(s){
+       var m = BOARD_APP_STATUS_META[s]
+       var active = a.status===s
+       return '<button onclick="setBoardApplicationStatus(\''+a.id+'\',\''+s+'\')" style="padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?m.color:'var(--border)')+';background:'+(active?m.bg:'var(--surface)')+';color:'+(active?m.color:'var(--text-muted)')+';cursor:pointer">'+m.label+'</button>'
+     }).join('')
+   + '</div>'
+   + '<div class="form-group" style="margin-bottom:14px">'
+   + '<label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Interview Date</label>'
+   + '<input type="text" id="bapp-interview-date" value="'+escHtml(a.interview_date||'')+'" placeholder="e.g. 2026-09-12 6:00 PM" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/></div>'
+   + '<div class="form-group" style="margin-bottom:16px">'
+   + '<label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Internal Notes</label>'
+   + '<textarea id="bapp-notes" style="width:100%;min-height:80px;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box;resize:vertical">'+escHtml(a.internal_notes||'')+'</textarea></div>'
+   + '<div style="display:flex;justify-content:space-between;gap:8px">'
+   + '<button class="btn btn-sm" onclick="deleteBoardApplication(\''+a.id+'\')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:8px 14px;font-size:12px;cursor:pointer">Delete</button>'
+   + '<div style="display:flex;gap:8px">'
+   + '<button class="btn btn-secondary" onclick="document.getElementById(\'board-app-detail-overlay\').remove()">Close</button>'
+   + '<button class="btn btn-primary" onclick="saveBoardApplicationNotes(\''+a.id+'\')">Save Notes</button>'
+   + '</div></div></div>'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+}
+
+function boardAppDetailBlock(label, value){
+ if(!value) return ''
+ return '<div style="margin-bottom:12px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:3px">'+label+'</div><div style="font-size:13.5px;white-space:pre-wrap">'+escHtml(value)+'</div></div>'
+}
+
+async function setBoardApplicationStatus(aid, status){
+ var res = await api('/api/board/applications/'+aid,'PUT',{status:status})
+ if(res&&res.ok){
+   toast('Moved to '+(BOARD_APP_STATUS_META[status]||{}).label,'success')
+   document.getElementById('board-app-detail-overlay')?.remove()
+   renderBoardApplicationsTab()
+   loadBoardPage()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function saveBoardApplicationNotes(aid){
+ var res = await api('/api/board/applications/'+aid,'PUT',{
+   internal_notes: document.getElementById('bapp-notes').value,
+   interview_date: document.getElementById('bapp-interview-date').value.trim(),
+ })
+ if(res&&res.ok){
+   toast('Notes saved','success')
+   document.getElementById('board-app-detail-overlay')?.remove()
+   renderBoardApplicationsTab()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function deleteBoardApplication(aid){
+ if(!confirm('Delete this application? This cannot be undone.')) return
+ var res = await api('/api/board/applications/'+aid,'DELETE')
+ if(res&&res.ok){
+   toast('Application deleted','success')
+   document.getElementById('board-app-detail-overlay')?.remove()
+   renderBoardApplicationsTab()
+   loadBoardPage()
+ } else toast((res&&res.error)||'Error','error')
 }
 
 function openBoardMemberModal(){
@@ -14650,7 +14902,7 @@ const PERM_SECTIONS = [
  {key:'portal_admin', label:'Portal Content', desc:'Announcements, files, team'},
  {key:'kiosk', label:'Sign-In / Kiosk', desc:'Open and close events on kiosk'},
  {key:'reports', label:'Reports & Logs', desc:'Event logs, email reports'},
- {key:'board', label:'Board', desc:'Board member management & meetings'},
+ {key:'board', label:'Board', desc:'Board member management, meetings & position applications'},
  {key:'settings', label:'Settings', desc:'Users, system configuration'},
  {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},

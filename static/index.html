@@ -24405,6 +24405,7 @@ function renderRentalsPage(){
           ${r.agreement_id?'Regenerate Contract':'Generate Contract'}</button>`:''}
          ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">
           ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
+         ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="openMarkRentalSignedModal('${r.agreement_id}')" title="Use this if the partner signed a printed or emailed copy instead of the e-sign link">✍️ Mark as Signed</button>`:''}
 
          ${r.agreement_id?`<div style="font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-muted);margin:6px 0 -2px;text-align:right">Contract</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
@@ -24835,6 +24836,41 @@ async function sendRentalAgreement(aid, rid){
   const res = await api('/api/rental/agreements/'+aid+'/send','POST')
   if(res&&res.ok){ toast('Agreement sent!','success'); loadRentalsPage() }
   else toast((res&&res.error)||'Error','error')
+}
+
+function openMarkRentalSignedModal(aid){
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:420px;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Mark Agreement as Signed</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">Use this when the partner signed a printed or emailed copy instead of the e-sign link. This unlocks invoicing just like an e-signature would.</div>
+   <div class="form-group" style="margin-bottom:12px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Signer's Full Name</label>
+    <input type="text" id="mark-signed-name" placeholder="As it appears on the signed copy" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div class="form-group" style="margin-bottom:18px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Date Signed</label>
+    <input type="date" id="mark-signed-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="submitMarkRentalSigned('${aid}')">Mark as Signed</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function submitMarkRentalSigned(aid){
+  const name = (document.getElementById('mark-signed-name')||{}).value?.trim()
+  if(!name){ toast('Please enter the signer\'s name','error'); return }
+  const signed_date = (document.getElementById('mark-signed-date')||{}).value||''
+  const res = await api('/api/rental/agreements/'+aid+'/mark-signed','POST',{name, signed_date})
+  if(res&&res.ok){
+    toast('Agreement marked as signed','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    loadRentalsPage()
+  } else toast((res&&res.error)||'Error','error')
 }
 
 function viewRentalContract(aid){

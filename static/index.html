@@ -24171,7 +24171,7 @@ async function submitMyTime(){
 
 // ── Artistic Partnership ─────────────────────────────────────────────────────
 var _rentalData = {requests:[], partners:[], spaces:[]}
-var _rentalFilter = 'needs_attention' // 'needs_attention' | 'awaiting_feedback' | 'all'
+var _rentalFilter = 'needs_attention' // 'needs_attention' | 'ongoing' | 'awaiting_feedback' | 'tour_scheduled' | 'completed' | 'all'
 
 function setRentalFilter(f){
   _rentalFilter = f
@@ -24295,19 +24295,27 @@ function renderRentalsPage(){
   // A scheduled tour is itself an action already taken, so it comes out of
   // the queue while upcoming — but once the tour date's passed, it goes
   // back in, since there's presumably a follow-up decision to make.
+  // Signed/active/completed partnerships have their own Ongoing/Completed
+  // filters below — once a contract is signed there's no pending decision
+  // left to make here, so they come out of Needs Attention for good.
   const today = new Date().toISOString().slice(0,10)
   const hasUpcomingTour = r => !!(r.tour_scheduled_date && r.tour_scheduled_date >= today)
-  const needsAttention = r => !r.awaiting_feedback && !hasUpcomingTour(r) && !['denied','cancelled'].includes(r.status)
+  const needsAttention = r => !r.awaiting_feedback && !hasUpcomingTour(r) && !['denied','cancelled','signed','active','completed'].includes(r.status)
+  const isOngoing = r => ['signed','active'].includes(r.status)
   const needsAttentionCount = requests.filter(needsAttention).length
   const awaitingFeedbackCount = requests.filter(r=>r.awaiting_feedback).length
   const tourScheduledCount = requests.filter(r=>r.tour_scheduled_date).length
+  const ongoingCount = requests.filter(isOngoing).length
+  const completedCount = requests.filter(r=>r.status==='completed').length
   const filters = [
     {v:'needs_attention', l:'Needs Attention', c:needsAttentionCount},
+    {v:'ongoing', l:'🤝 Ongoing', c:ongoingCount},
     {v:'awaiting_feedback', l:'⏳ Awaiting Feedback', c:awaitingFeedbackCount},
     {v:'tour_scheduled', l:'🚶 Tour Scheduled', c:tourScheduledCount},
+    {v:'completed', l:'✅ Completed', c:completedCount},
     {v:'all', l:'All', c:requests.length},
   ]
-  html += '<div style="display:flex;gap:6px;margin-bottom:14px">'
+  html += '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">'
     + filters.map(function(f){
         const active = _rentalFilter === f.v
         return '<button onclick="setRentalFilter(\''+f.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+' ('+f.c+')</button>'
@@ -24315,8 +24323,10 @@ function renderRentalsPage(){
     + '</div>'
 
   const filteredRequests = _rentalFilter === 'needs_attention' ? requests.filter(needsAttention)
+    : _rentalFilter === 'ongoing' ? requests.filter(isOngoing)
     : _rentalFilter === 'awaiting_feedback' ? requests.filter(r=>r.awaiting_feedback)
     : _rentalFilter === 'tour_scheduled' ? requests.filter(r=>r.tour_scheduled_date)
+    : _rentalFilter === 'completed' ? requests.filter(r=>r.status==='completed')
     : requests
 
   if(!requests.length){
@@ -24406,6 +24416,8 @@ function renderRentalsPage(){
          ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">
           ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
          ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="openMarkRentalSignedModal('${r.agreement_id}')" title="Use this if the partner signed a printed or emailed copy instead of the e-sign link">✍️ Mark as Signed</button>`:''}
+         ${(r.status==='signed'||r.status==='active')?`<button class="btn btn-secondary btn-sm" onclick="completeRentalRequest('${r.id}')" title="Move this to Completed once the partnership has run its course">✓ Mark Completed</button>`:''}
+         ${r.status==='completed'?`<button class="btn btn-secondary btn-sm" onclick="reopenRentalRequest('${r.id}')">↺ Reopen</button>`:''}
 
          ${r.agreement_id?`<div style="font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-muted);margin:6px 0 -2px;text-align:right">Contract</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
@@ -24432,8 +24444,8 @@ function renderRentalsPage(){
            <button class="btn btn-secondary btn-sm" onclick="openScheduleTourModal('${r.id}')">🚶 ${r.tour_scheduled_date?'Reschedule Tour':'Schedule Tour'}</button>
            <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">Compliance Check</button>
            ${r.recurring?`<button class="btn btn-secondary btn-sm" onclick="viewRentalOccurrences('${r.id}')">Occurrences</button>`:''}
-           ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
-           ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','sendback')" style="background:#fef3c7;color:#92400e;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Send Back</button>`:''}
+           ${!['denied','cancelled','signed','active','completed'].includes(r.status)?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
+           ${!['denied','cancelled','signed','active','completed'].includes(r.status)?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','sendback')" style="background:#fef3c7;color:#92400e;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Send Back</button>`:''}
            <button class="btn btn-sm" onclick="deleteRentalRequest('${r.id}')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
           </div>
          </details>
@@ -24858,6 +24870,19 @@ function switchRentalTab(idx){
 async function approveRentalRequest(rid){
   const res = await api('/api/rental/requests/'+rid+'/approve','POST',{})
   if(res&&res.ok){ toast('Request approved!','success'); loadRentalsPage() }
+  else toast((res&&res.error)||'Error','error')
+}
+
+async function completeRentalRequest(rid){
+  if(!confirm('Mark this partnership as completed? It will move to the Completed filter.')) return
+  const res = await api('/api/rental/requests/'+rid+'/complete','POST',{})
+  if(res&&res.ok){ toast('Marked as completed','success'); loadRentalsPage() }
+  else toast((res&&res.error)||'Error','error')
+}
+
+async function reopenRentalRequest(rid){
+  const res = await api('/api/rental/requests/'+rid+'/reopen','POST',{})
+  if(res&&res.ok){ toast('Reopened — back in Ongoing','success'); loadRentalsPage() }
   else toast((res&&res.error)||'Error','error')
 }
 

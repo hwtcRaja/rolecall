@@ -21601,6 +21601,42 @@ def sendback_rental_request(rid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/rental/requests/<rid>/complete', methods=['POST'])
+def complete_rental_request(rid):
+    """Mark a signed/active partnership as finished — moves it out of the
+    Ongoing view once the collaboration has run its course, without
+    affecting payment history or the contract itself."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    req = fetchone(conn, 'SELECT status FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if req['status'] not in ('signed', 'active'):
+        conn.close()
+        return jsonify({'error': 'Only signed or active partnerships can be marked completed'}), 400
+    execute(conn, "UPDATE rental_requests SET status='completed', updated_at=NOW() WHERE id=%s", (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/requests/<rid>/reopen', methods=['POST'])
+def reopen_rental_request(rid):
+    """Undo a 'Mark Completed' — puts the partnership back in Ongoing."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    req = fetchone(conn, 'SELECT status FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if req['status'] != 'completed':
+        conn.close()
+        return jsonify({'error': 'Only completed partnerships can be reopened'}), 400
+    execute(conn, "UPDATE rental_requests SET status='active', updated_at=NOW() WHERE id=%s", (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 
 @app.route('/api/rental/requests/<rid>', methods=['DELETE'])
 def delete_rental_request(rid):
@@ -23010,7 +23046,7 @@ def _apply_rental_invoice_update(conn, payment, invoice):
                 FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
                 WHERE rr.id=%s''', (agr['request_id'],))
             label = payment.get('installment_label') or ('Deposit' if payment['payment_type'] == 'deposit' else 'Final Payment')
-            if req and payment['payment_type'] in ('deposit', 'installment') and req.get('status') in ('pending', 'approved'):
+            if req and payment['payment_type'] in ('deposit', 'installment') and req.get('status') in ('pending', 'approved', 'signed'):
                 execute(conn, "UPDATE rental_requests SET status='active', updated_at=NOW() WHERE id=%s", (req['id'],))
             # Figure out how much of this agreement is now paid off, across
             # every invoice (deposit/final/installments) tied to it, so the

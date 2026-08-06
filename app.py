@@ -1036,6 +1036,44 @@ def init_db():
             imported BOOLEAN DEFAULT FALSE,
             submitted_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS board_positions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            summary TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            responsibilities TEXT DEFAULT '',
+            qualifications TEXT DEFAULT '',
+            time_commitment TEXT DEFAULT '',
+            term_length TEXT DEFAULT '',
+            status TEXT DEFAULT 'open',
+            display_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS board_applications (
+            id TEXT PRIMARY KEY,
+            position_id TEXT REFERENCES board_positions(id) ON DELETE SET NULL,
+            full_name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT DEFAULT '',
+            address TEXT DEFAULT '',
+            why_interested TEXT DEFAULT '',
+            relevant_experience TEXT DEFAULT '',
+            availability TEXT DEFAULT '',
+            status TEXT DEFAULT 'submitted',
+            internal_notes TEXT DEFAULT '',
+            interview_date TEXT DEFAULT '',
+            reviewed_by TEXT DEFAULT '',
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS board_application_files (
+            id TEXT PRIMARY KEY,
+            application_id TEXT NOT NULL REFERENCES board_applications(id) ON DELETE CASCADE,
+            file_label TEXT DEFAULT '',
+            filename TEXT NOT NULL,
+            content_type TEXT DEFAULT '',
+            file_data_b64 TEXT NOT NULL,
+            size_bytes INTEGER DEFAULT 0,
+            uploaded_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
@@ -5387,13 +5425,387 @@ def publish_cast_list(context_type, context_id):
             SET cast_list_published=TRUE, cast_list=%s, updated_at=NOW()
             WHERE context_type=%s AND context_id=%s""",
             (cast_json, context_type, context_id))
-    else:
-        execute(conn, """UPDATE audition_settings
-            SET cast_list_published=FALSE, updated_at=NOW()
-            WHERE context_type=%s AND context_id=%s""",
-            (context_type, context_id))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+# ── Board Position Applications ──────────────────────────────────────────
+# Public: browse open board positions and apply (name/contact, why
+# interested, optional resume/reference-letter/other attachments — stored
+# as base64 in Postgres rather than local disk, since Railway's filesystem
+# is ephemeral and these are private applicant documents that shouldn't
+# live in the GitHub-backed image storage used for public assets).
+# Admin: create/edit openings and move applicants through a review pipeline
+# (submitted → reviewing → interview → approved/declined/withdrawn).
+
+BOARD_APP_STATUS_LABELS = {
+    'submitted': 'New', 'reviewing': 'Under Review', 'interview': 'Interview',
+    'approved': 'Approved', 'declined': 'Declined', 'withdrawn': 'Withdrawn',
+}
+BOARD_APP_ALLOWED_EXT = {'.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'}
+BOARD_APP_MAX_FILE_BYTES = 8 * 1024 * 1024  # 8MB per file
+
+def _board_position_public(p):
+    return {
+        'id': p['id'], 'title': p['title'], 'summary': p.get('summary') or '',
+        'description': p.get('description') or '', 'responsibilities': p.get('responsibilities') or '',
+        'qualifications': p.get('qualifications') or '', 'time_commitment': p.get('time_commitment') or '',
+        'term_length': p.get('term_length') or '',
+    }
+
+@app.route('/board/apply')
+def board_apply_landing():
+    conn = get_db()
+    positions = fetchall(conn, "SELECT * FROM board_positions WHERE status='open' ORDER BY display_order, created_at") or []
+    conn.close()
+    cards = ''.join(f'''<div class="pos-card">
+      <h3>{p["title"]}</h3>
+      <p class="meta">{(p.get("time_commitment") or "")}{" · " + p.get("term_length") if p.get("term_length") else ""}</p>
+      <p>{(p.get("summary") or "")}</p>
+      <a class="apply-btn" href="/board/apply/{p["id"]}">Apply for this Position</a>
+    </div>''' for p in positions)
+    if not positions:
+        cards = '<div style="text-align:center;color:#6b7280;padding:40px 0">There are no open Board positions right now. Please check back later, or contact us if you\'d like to be notified of future openings.</div>'
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Board Position Openings – Horizon West Theater Company</title>
+<style>
+body{{font-family:Georgia,serif;color:#1a2332;margin:0;background:#f8fafc}}
+.wrap{{max-width:760px;margin:0 auto;padding:40px 20px}}
+.header{{text-align:center;margin-bottom:32px}}
+.header h1{{color:#0d3d4d;font-size:26px;margin-bottom:6px}}
+.header p{{color:#6b7280;font-size:14px}}
+.pos-card{{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;margin-bottom:18px;box-shadow:0 1px 4px rgba(0,0,0,0.04)}}
+.pos-card h3{{color:#145466;margin:0 0 4px}}
+.pos-card .meta{{color:#6b7280;font-size:12.5px;margin:0 0 12px;font-family:-apple-system,sans-serif}}
+.pos-card p{{font-size:14.5px;line-height:1.6}}
+.apply-btn{{display:inline-block;margin-top:8px;background:#145466;color:#fff;text-decoration:none;padding:10px 22px;border-radius:8px;font-family:-apple-system,sans-serif;font-weight:700;font-size:13.5px}}
+</style></head><body>
+<div class="wrap">
+<div class="header"><h1>Board Position Openings</h1><p>Horizon West Theater Company is an all-volunteer nonprofit board — every position below is unpaid.</p></div>
+{cards}
+</div></body></html>'''
+
+@app.route('/board/apply/<position_id>')
+def board_apply_form(position_id):
+    conn = get_db()
+    pos = fetchone(conn, "SELECT * FROM board_positions WHERE id=%s AND status='open'", (position_id,))
+    conn.close()
+    if not pos:
+        return '<div style="font-family:sans-serif;text-align:center;padding:60px;color:#0d3d4d">This position is no longer accepting applications. <a href="/board/apply">See open positions</a>.</div>', 404
+    detail_rows = ''.join(f'<div style="margin-bottom:14px"><strong>{label}</strong><div style="margin-top:2px;white-space:pre-wrap">{pos.get(key) or ""}</div></div>'
+        for key, label in [('description','About This Role'), ('responsibilities','Responsibilities'),
+                            ('qualifications','Qualifications'), ('time_commitment','Time Commitment'), ('term_length','Term Length')] if pos.get(key))
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apply – {pos["title"]} – Horizon West Theater Company</title>
+<style>
+body{{font-family:Georgia,serif;color:#1a2332;margin:0;background:#f8fafc}}
+.wrap{{max-width:680px;margin:0 auto;padding:40px 20px}}
+h1{{color:#0d3d4d;font-size:24px;margin-bottom:4px}}
+.sub{{color:#6b7280;font-family:-apple-system,sans-serif;font-size:13px;margin-bottom:24px}}
+.detail-card{{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:20px;margin-bottom:24px;font-size:14px;line-height:1.6}}
+.detail-card strong{{color:#145466;font-family:-apple-system,sans-serif;font-size:12.5px;text-transform:uppercase;letter-spacing:0.03em}}
+form{{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:24px;font-family:-apple-system,sans-serif}}
+label{{display:block;font-weight:700;font-size:13px;color:#0d3d4d;margin:16px 0 6px}}
+label:first-child{{margin-top:0}}
+input[type=text],input[type=email],input[type=tel],textarea{{width:100%;padding:11px 13px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box}}
+textarea{{min-height:90px;resize:vertical}}
+input[type=file]{{width:100%;font-size:13px;padding:8px 0}}
+.file-hint{{font-size:11.5px;color:#9ca3af;margin-top:2px}}
+.required{{color:#dc2626}}
+.submit-btn{{margin-top:20px;background:#145466;color:#fff;border:none;padding:14px;border-radius:8px;font-size:15px;font-weight:700;width:100%;cursor:pointer}}
+.submit-btn:disabled{{background:#9ca3af}}
+#form-error{{color:#dc2626;font-size:13px;margin-top:8px;display:none}}
+#form-success{{background:#dcfce7;color:#166534;padding:20px;border-radius:10px;text-align:center;font-weight:700;font-family:-apple-system,sans-serif}}
+</style></head><body>
+<div class="wrap">
+<h1>{pos["title"]}</h1>
+<div class="sub">Volunteer Board Position — Horizon West Theater Company</div>
+{f'<div class="detail-card">{detail_rows}</div>' if detail_rows else ''}
+<form id="apply-form" onsubmit="return submitBoardApp(event)">
+ <label>Full Name <span class="required">*</span></label>
+ <input type="text" name="full_name" required/>
+ <label>Email <span class="required">*</span></label>
+ <input type="email" name="email" required/>
+ <label>Phone</label>
+ <input type="tel" name="phone"/>
+ <label>Address</label>
+ <input type="text" name="address"/>
+ <label>Why are you interested in this position? <span class="required">*</span></label>
+ <textarea name="why_interested" required></textarea>
+ <label>Relevant experience</label>
+ <textarea name="relevant_experience"></textarea>
+ <label>Availability (meeting nights, time commitment, etc.)</label>
+ <textarea name="availability"></textarea>
+ <label>Resume</label>
+ <input type="file" name="resume" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"/>
+ <div class="file-hint">PDF, Word, or image — up to 8MB</div>
+ <label>Letter(s) of Recommendation</label>
+ <input type="file" name="letters" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"/>
+ <div class="file-hint">Optional — you can select multiple files</div>
+ <label>Other Attachments</label>
+ <input type="file" name="other" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"/>
+ <div id="form-error"></div>
+ <button type="submit" class="submit-btn" id="submit-btn">Submit Application</button>
+</form>
+<div id="form-success" style="display:none">✓ Application Submitted!<div style="font-weight:400;margin-top:6px;font-size:13.5px">Thank you for your interest — we'll be in touch soon.</div></div>
+</div>
+<script>
+async function submitBoardApp(e){{
+  e.preventDefault()
+  const form = document.getElementById('apply-form')
+  const btn = document.getElementById('submit-btn')
+  const err = document.getElementById('form-error')
+  err.style.display='none'
+  btn.disabled=true; btn.textContent='Submitting...'
+  try {{
+    const res = await fetch('/api/board/apply/{position_id}', {{method:'POST', body:new FormData(form)}})
+    const data = await res.json()
+    if(data.ok){{
+      form.style.display='none'
+      document.getElementById('form-success').style.display=''
+      window.scrollTo(0,0)
+    }} else {{
+      err.textContent = data.error || 'Something went wrong — please try again.'
+      err.style.display=''
+      btn.disabled=false; btn.textContent='Submit Application'
+    }}
+  }} catch(ex) {{
+    err.textContent = 'Network error — please try again.'
+    err.style.display=''
+    btn.disabled=false; btn.textContent='Submit Application'
+  }}
+  return false
+}}
+</script></body></html>'''
+
+@app.route('/api/board/apply/<position_id>', methods=['POST'])
+def submit_board_application(position_id):
+    import base64 as _b64ba
+    conn = get_db()
+    pos = fetchone(conn, "SELECT * FROM board_positions WHERE id=%s AND status='open'", (position_id,))
+    if not pos:
+        conn.close()
+        return jsonify({'error': 'This position is no longer accepting applications'}), 404
+    full_name = (request.form.get('full_name') or '').strip()
+    email = (request.form.get('email') or '').strip().lower()
+    why_interested = (request.form.get('why_interested') or '').strip()
+    if not full_name or not email or not why_interested:
+        conn.close()
+        return jsonify({'error': 'Name, email, and why you\'re interested are required'}), 400
+
+    # Validate every attached file up front — before writing anything — so
+    # a bad file doesn't leave a half-saved application behind.
+    labeled_files = []
+    for field, label in [('resume', 'Resume'), ('letters', 'Letter of Recommendation'), ('other', 'Other')]:
+        for f in request.files.getlist(field):
+            if not f or not f.filename:
+                continue
+            ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+            if ext not in BOARD_APP_ALLOWED_EXT:
+                conn.close()
+                return jsonify({'error': f'"{f.filename}" is not an accepted file type (PDF, Word doc, or image only)'}), 400
+            data = f.read()
+            if len(data) > BOARD_APP_MAX_FILE_BYTES:
+                conn.close()
+                return jsonify({'error': f'"{f.filename}" is larger than the 8MB limit'}), 400
+            labeled_files.append((label, secure_filename(f.filename), f.mimetype or '', data))
+
+    aid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO board_applications
+        (id, position_id, full_name, email, phone, address, why_interested, relevant_experience, availability)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        aid, position_id, full_name, email,
+        (request.form.get('phone') or '').strip(), (request.form.get('address') or '').strip(),
+        why_interested, (request.form.get('relevant_experience') or '').strip(),
+        (request.form.get('availability') or '').strip(),
+    ))
+    for label, filename, content_type, data in labeled_files:
+        execute(conn, """INSERT INTO board_application_files
+            (id, application_id, file_label, filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)""", (
+            str(uuid.uuid4()), aid, label, filename, content_type, _b64ba.b64encode(data).decode(), len(data)))
+    conn.commit()
+
+    try:
+        s = get_email_settings()
+        recipients = list(get_recipient_emails(s))
+        if not recipients:
+            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!='' AND active=TRUE") or []
+            recipients = [u['email'] for u in admins if u.get('email')]
+        if recipients:
+            send_email(recipients, f'New Board Application: {full_name} — {pos["title"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                f'<h2 style="color:#145466">New Board Position Application</h2>'
+                f'<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:160px">Position</td><td style="padding:8px 12px">{pos["title"]}</td></tr>'
+                f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Name</td><td style="padding:8px 12px">{full_name}</td></tr>'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Email</td><td style="padding:8px 12px">{email}</td></tr>'
+                f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Attachments</td><td style="padding:8px 12px">{len(labeled_files) or "None"}</td></tr>'
+                f'</table><p style="color:#9ca3af;font-size:12px">Review the full application in RoleCall under Board → Applications.</p></div>')
+        send_email(email, f'Application Received — {pos["title"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+            f'<p>Hi {full_name.split(" ")[0]},</p>'
+            f'<p>Thank you for applying for the <strong>{pos["title"]}</strong> position on our Board. '
+            f'We\'ve received your application and will be in touch soon.</p>'
+            f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.error(f'Board application notify failed: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/positions', methods=['GET'])
+def list_board_positions():
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    positions = fetchall(conn, """SELECT p.*,
+        (SELECT COUNT(*) FROM board_applications a WHERE a.position_id=p.id) AS application_count,
+        (SELECT COUNT(*) FROM board_applications a WHERE a.position_id=p.id AND a.status='submitted') AS new_count
+        FROM board_positions p ORDER BY p.display_order, p.created_at""") or []
+    conn.close()
+    return jsonify(positions)
+
+@app.route('/api/board/positions', methods=['POST'])
+def create_board_position():
+    err = require_permission('board')
+    if err: return err
+    d = request.json or {}
+    title = (d.get('title') or '').strip()
+    if not title:
+        return jsonify({'error': 'Title is required'}), 400
+    conn = get_db()
+    pid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO board_positions
+        (id, title, summary, description, responsibilities, qualifications, time_commitment, term_length, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        pid, title, (d.get('summary') or '').strip(), (d.get('description') or '').strip(),
+        (d.get('responsibilities') or '').strip(), (d.get('qualifications') or '').strip(),
+        (d.get('time_commitment') or '').strip(), (d.get('term_length') or '').strip(),
+        d.get('status') or 'open'))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': pid})
+
+@app.route('/api/board/positions/<pid>', methods=['PUT'])
+def update_board_position(pid):
+    err = require_permission('board')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM board_positions WHERE id=%s', (pid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, """UPDATE board_positions SET title=%s, summary=%s, description=%s,
+        responsibilities=%s, qualifications=%s, time_commitment=%s, term_length=%s,
+        status=%s, updated_at=NOW() WHERE id=%s""", (
+        (d.get('title') or '').strip(), (d.get('summary') or '').strip(), (d.get('description') or '').strip(),
+        (d.get('responsibilities') or '').strip(), (d.get('qualifications') or '').strip(),
+        (d.get('time_commitment') or '').strip(), (d.get('term_length') or '').strip(),
+        d.get('status') or 'open', pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/positions/<pid>', methods=['DELETE'])
+def delete_board_position(pid):
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    count = fetchone(conn, 'SELECT COUNT(*) AS c FROM board_applications WHERE position_id=%s', (pid,))
+    if count and count.get('c'):
+        conn.close()
+        return jsonify({'error': 'This position has applications on file — close it instead of deleting so those records stay linked'}), 400
+    execute(conn, 'DELETE FROM board_positions WHERE id=%s', (pid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/applications', methods=['GET'])
+def list_board_applications():
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT a.*, p.title AS position_title,
+        (SELECT COUNT(*) FROM board_application_files f WHERE f.application_id=a.id) AS file_count
+        FROM board_applications a LEFT JOIN board_positions p ON p.id=a.position_id
+        ORDER BY a.submitted_at DESC""") or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/board/applications/<aid>', methods=['GET'])
+def get_board_application(aid):
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    app_row = fetchone(conn, """SELECT a.*, p.title AS position_title FROM board_applications a
+        LEFT JOIN board_positions p ON p.id=a.position_id WHERE a.id=%s""", (aid,))
+    if not app_row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    files = fetchall(conn, """SELECT id, file_label, filename, content_type, size_bytes, uploaded_at
+        FROM board_application_files WHERE application_id=%s ORDER BY uploaded_at""", (aid,)) or []
+    conn.close()
+    app_row['files'] = files
+    return jsonify(app_row)
+
+@app.route('/api/board/applications/<aid>', methods=['PUT'])
+def update_board_application(aid):
+    err = require_permission('board')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM board_applications WHERE id=%s', (aid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    fields, params = [], []
+    if 'status' in d:
+        if d['status'] not in BOARD_APP_STATUS_LABELS:
+            conn.close()
+            return jsonify({'error': 'Invalid status'}), 400
+        fields.append('status=%s'); params.append(d['status'])
+        user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+        fields.append('reviewed_by=%s'); params.append((user or {}).get('name', 'Staff'))
+    if 'internal_notes' in d:
+        fields.append('internal_notes=%s'); params.append(d.get('internal_notes') or '')
+    if 'interview_date' in d:
+        fields.append('interview_date=%s'); params.append(d.get('interview_date') or '')
+    if not fields:
+        conn.close()
+        return jsonify({'error': 'Nothing to update'}), 400
+    fields.append('updated_at=NOW()')
+    params.append(aid)
+    execute(conn, f'UPDATE board_applications SET {", ".join(fields)} WHERE id=%s', tuple(params))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/applications/<aid>', methods=['DELETE'])
+def delete_board_application(aid):
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM board_applications WHERE id=%s', (aid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/applications/<aid>/files/<fid>', methods=['GET'])
+def download_board_application_file(aid, fid):
+    err = require_permission('board')
+    if err: return err
+    import base64 as _b64bd
+    conn = get_db()
+    f = fetchone(conn, 'SELECT * FROM board_application_files WHERE id=%s AND application_id=%s', (fid, aid))
+    conn.close()
+    if not f:
+        return jsonify({'error': 'Not found'}), 404
+    data = _b64bd.b64decode(f['file_data_b64'])
+    from flask import Response as _BoardResp
+    resp = _BoardResp(data, mimetype=f.get('content_type') or 'application/octet-stream')
+    safe_name = (f.get('filename') or 'file').replace('"', "'")
+    ascii_name = safe_name.encode('ascii', 'ignore').decode('ascii').strip() or 'file'
+    from urllib.parse import quote
+    resp.headers['Content-Disposition'] = f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(safe_name)}'
+    return resp
 
 
 @app.route('/api/auditions/cast-list/<context_type>/<context_id>', methods=['GET'])

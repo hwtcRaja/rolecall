@@ -22463,10 +22463,24 @@ def _html_to_pdf_b64(full_html):
     from io import BytesIO
     from xhtml2pdf import pisa
     buf = BytesIO()
-    result = pisa.CreatePDF(full_html, dest=buf)
+    result = pisa.CreatePDF(_pdf_safe_html(full_html), dest=buf)
     if result.err:
         return None
     return base64.b64encode(buf.getvalue()).decode()
+
+def _pdf_safe_html(html):
+    """xhtml2pdf has a well-known CSS bug: a `padding` declared on <body>
+    doesn't stay on <body> — it gets applied again to every descendant
+    block element (every <div>, <p>, table cell, etc.), stacking up into
+    dozens of extra 40px gaps and turning a one-page contract into nine.
+    Padding on <body> is only there to give the page margins in the first
+    place, so strip it and use the CSS `@page` margin instead — xhtml2pdf
+    applies that once, at the page level, with no cascading side effects."""
+    import re
+    html = re.sub(r'(body\s*\{[^}]*?)\s*padding\s*:\s*[^;}]+;?', r'\1', html, count=1)
+    if '@page' not in html and '<head>' in html:
+        html = html.replace('<head>', '<head><style>@page{margin:40px}</style>', 1)
+    return html
 
 def _wrap_contract_pdf_html(contract_html, signature_block=''):
     """contract_html is already a complete, standalone HTML document (see
@@ -22495,11 +22509,20 @@ def _generate_contract_pdf(contract_html, signed_name, signed_at_str):
 def _rental_pdf_response(pdf_b64, filename):
     import base64
     from flask import Response
+    from urllib.parse import quote
     if not pdf_b64:
         return jsonify({'error': 'Could not generate PDF'}), 500
     resp = Response(base64.b64decode(pdf_b64), mimetype='application/pdf')
-    safe_name = filename.replace('"', "'")
-    resp.headers['Content-Disposition'] = f'inline; filename="{safe_name}.pdf"'
+    # Content-Disposition headers must be ASCII/Latin-1 only — an em dash or
+    # other non-ASCII character here (e.g. from a show/event title) makes
+    # the whole HTTP response invalid and gets it rejected outright. Send a
+    # plain-ASCII fallback name plus an RFC 5987 filename* for browsers that
+    # want the full unicode title.
+    clean = filename.replace('"', "'")
+    ascii_name = clean.encode('ascii', 'ignore').decode('ascii').strip() or 'Agreement'
+    resp.headers['Content-Disposition'] = (
+        f'inline; filename="{ascii_name}.pdf"; filename*=UTF-8\'\'{quote(clean)}.pdf'
+    )
     return resp
 
 @app.route('/api/rental/agreements/<aid>/pdf', methods=['GET'])

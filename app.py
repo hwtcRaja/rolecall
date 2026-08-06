@@ -22469,19 +22469,26 @@ def _html_to_pdf_b64(full_html):
     return base64.b64encode(buf.getvalue()).decode()
 
 def _wrap_contract_pdf_html(contract_html, signature_block=''):
-    return (
-        '<html><head><meta charset="utf-8"><style>'
-        'body{font-family:Helvetica,Arial,sans-serif;font-size:11pt;color:#1a2332}'
-        '</style></head><body>' + contract_html + signature_block + '</body></html>'
-    )
+    """contract_html is already a complete, standalone HTML document (see
+    _build_rental_contract_html). If a signature block is supplied, splice
+    it in just before the closing </body> tag rather than wrapping the
+    whole thing in a second <html>/<body> shell — nesting two full
+    documents is what made xhtml2pdf render bloated, oddly-spaced,
+    many-page PDFs."""
+    if not signature_block:
+        return contract_html
+    idx = contract_html.rfind('</body>')
+    if idx == -1:
+        return contract_html + signature_block
+    return contract_html[:idx] + signature_block + contract_html[idx:]
 
 def _generate_contract_pdf(contract_html, signed_name, signed_at_str):
     """Render the contract HTML plus a signature footer to a PDF, returned
     as base64-encoded bytes ready for an email attachment."""
     signature_block = (
         '<div style="margin-top:24px;padding-top:16px;border-top:2px solid #145466">'
-        '<strong>Signed by:</strong> ' + signed_name + '<br>'
-        '<strong>Date:</strong> ' + signed_at_str + '</div>'
+        '<strong>Signed by:</strong> ' + (signed_name or '') + '<br>'
+        '<strong>Date:</strong> ' + (signed_at_str or '') + '</div>'
     )
     return _html_to_pdf_b64(_wrap_contract_pdf_html(contract_html, signature_block))
 
@@ -22508,7 +22515,7 @@ def download_rental_agreement_pdf(aid):
     conn.close()
     if not agr:
         return jsonify({'error': 'Agreement not found'}), 404
-    pdf_b64 = _html_to_pdf_b64(_wrap_contract_pdf_html(agr.get('contract_html', '')))
+    pdf_b64 = _html_to_pdf_b64(agr.get('contract_html', ''))
     return _rental_pdf_response(pdf_b64, agr.get('title') or 'Artistic Partnership Agreement')
 
 @app.route('/api/rental/agreements/<aid>/signed-pdf', methods=['GET'])
@@ -22527,8 +22534,45 @@ def download_signed_rental_agreement_pdf(aid):
     if not agr.get('partner_signed_at'):
         return jsonify({'error': 'This agreement has not been signed yet'}), 400
     signed_at_str = str(agr['partner_signed_at'])[:19].replace('T', ' at ')
-    pdf_b64 = _generate_contract_pdf(agr.get('contract_html', ''), agr.get('partner_signed_name',''), signed_at_str)
+    pdf_b64 = _generate_contract_pdf(agr.get('contract_html', ''), agr.get('partner_signed_name') or '', signed_at_str)
     return _rental_pdf_response(pdf_b64, (agr.get('title') or 'Artistic Partnership Agreement') + ' — Signed')
+
+@app.route('/api/rental/agreements/<aid>/mark-signed', methods=['POST'])
+def mark_rental_agreement_signed(aid):
+    """For partners who sign a printed or emailed copy instead of using the
+    e-sign link — staff record the signature here so the request moves on
+    to invoicing exactly as it would after an e-signature."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Signer name is required'}), 400
+    signed_date = (d.get('signed_date') or '').strip()
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    if agr.get('partner_signed_at'):
+        conn.close()
+        return jsonify({'error': 'This agreement is already marked as signed'}), 400
+    staff_name = session.get('user_name', 'Staff')
+    note = f"Marked signed manually by {staff_name} (signed outside the e-sign portal)"
+    new_notes = ((agr.get('admin_notes') or '') + ('\n' if agr.get('admin_notes') else '') + note)
+    if signed_date:
+        execute(conn, '''UPDATE rental_agreements SET partner_signed_name=%s, partner_signed_at=%s,
+            partner_signed_ip='manual entry', status='signed', admin_notes=%s, updated_at=NOW()
+            WHERE id=%s''', (name, signed_date, new_notes, aid))
+    else:
+        execute(conn, '''UPDATE rental_agreements SET partner_signed_name=%s, partner_signed_at=NOW(),
+            partner_signed_ip='manual entry', status='signed', admin_notes=%s, updated_at=NOW()
+            WHERE id=%s''', (name, new_notes, aid))
+    execute(conn, "UPDATE rental_requests SET status='signed', updated_at=NOW() WHERE id=%s",
+        (agr['request_id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/rent/sign/<token>', methods=['POST'])
 def submit_rental_signature(token):

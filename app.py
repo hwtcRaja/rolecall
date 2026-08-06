@@ -705,11 +705,18 @@ def init_db():
         id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
         color TEXT DEFAULT 'blue',
         created_at TIMESTAMP DEFAULT NOW())""")
+    c.execute("ALTER TABLE event_types ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''")
 
-    # seed default event types (name has UNIQUE constraint so ON CONFLICT works correctly)
+    # seed default event types (name has UNIQUE constraint so ON CONFLICT works correctly).
+    # Distinct colors per category so the calendar reads at a glance —
+    # Rising Stars / Workshops & Classes / Mainstage Production each get
+    # their own swatch instead of sharing generic Rehearsal/Performance
+    # colors with every other production.
     for et in [
         ('Rehearsal', 'amber'), ('Performance', 'teal'), ('Meeting', 'blue'),
         ('Build Day', 'pink'), ('Strike', 'purple'), ('Other', 'gray'),
+        ('Mainstage Production', 'indigo'), ('Rising Stars', 'cyan'),
+        ('Workshop / Class', 'green'),
     ]:
         c.execute("INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s) ON CONFLICT (name) DO NOTHING",
                   (str(__import__('uuid').uuid4()), et[0], et[1]))
@@ -2191,11 +2198,18 @@ def init_db():
         except Exception:
             conn.rollback()
 
-    # Seed board meeting event type if not exists
+    # Seed board meeting event type if not exists — color is a named
+    # TYPE_COLORS key ('slate'), not a raw hex value: the frontend swatch
+    # picker only resolves named keys, so a literal hex here used to fall
+    # through to the default blue and made every Board Meeting render
+    # indistinguishable from a plain "Meeting" event on the calendar.
     try:
-        existing = fetchone(conn, "SELECT id FROM event_types WHERE LOWER(name)='board meeting'")
+        existing = fetchone(conn, "SELECT id, color FROM event_types WHERE LOWER(name)='board meeting'")
         if not existing:
-            execute(conn, "INSERT INTO event_types (id,name,color) VALUES (%s,'Board Meeting','#145466')", (str(uuid.uuid4()),))
+            execute(conn, "INSERT INTO event_types (id,name,color) VALUES (%s,'Board Meeting','slate')", (str(uuid.uuid4()),))
+            conn.commit()
+        elif (existing.get('color') or '').startswith('#'):
+            execute(conn, "UPDATE event_types SET color='slate' WHERE id=%s", (existing['id'],))
             conn.commit()
     except Exception:
         try: conn.rollback()

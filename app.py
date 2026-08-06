@@ -22455,29 +22455,80 @@ async function signAgreement(){{
 }}
 </script></body></html>'''
 
-def _generate_contract_pdf(contract_html, signed_name, signed_at_str):
-    """Render the contract HTML (plus a signature footer) to a PDF, returned
-    as base64-encoded bytes ready for an email attachment. Uses xhtml2pdf,
-    which is pure-Python — no system-level dependencies to install on
-    Railway, unlike wkhtmltopdf/WeasyPrint."""
+def _html_to_pdf_b64(full_html):
+    """Render arbitrary HTML to a PDF, returned as base64-encoded bytes.
+    Uses xhtml2pdf, which is pure-Python — no system-level dependencies to
+    install on Railway, unlike wkhtmltopdf/WeasyPrint."""
     import base64
     from io import BytesIO
     from xhtml2pdf import pisa
-    signature_block = (
-        '<div style="margin-top:24px;padding-top:16px;border-top:2px solid #145466">'
-        '<strong>Signed by:</strong> ' + signed_name + '<br>'
-        '<strong>Date:</strong> ' + signed_at_str + '</div>'
-    )
-    full_html = (
-        '<html><head><meta charset="utf-8"><style>'
-        'body{font-family:Helvetica,Arial,sans-serif;font-size:11pt;color:#1a2332}'
-        '</style></head><body>' + contract_html + signature_block + '</body></html>'
-    )
     buf = BytesIO()
     result = pisa.CreatePDF(full_html, dest=buf)
     if result.err:
         return None
     return base64.b64encode(buf.getvalue()).decode()
+
+def _wrap_contract_pdf_html(contract_html, signature_block=''):
+    return (
+        '<html><head><meta charset="utf-8"><style>'
+        'body{font-family:Helvetica,Arial,sans-serif;font-size:11pt;color:#1a2332}'
+        '</style></head><body>' + contract_html + signature_block + '</body></html>'
+    )
+
+def _generate_contract_pdf(contract_html, signed_name, signed_at_str):
+    """Render the contract HTML plus a signature footer to a PDF, returned
+    as base64-encoded bytes ready for an email attachment."""
+    signature_block = (
+        '<div style="margin-top:24px;padding-top:16px;border-top:2px solid #145466">'
+        '<strong>Signed by:</strong> ' + signed_name + '<br>'
+        '<strong>Date:</strong> ' + signed_at_str + '</div>'
+    )
+    return _html_to_pdf_b64(_wrap_contract_pdf_html(contract_html, signature_block))
+
+def _rental_pdf_response(pdf_b64, filename):
+    import base64
+    from flask import Response
+    if not pdf_b64:
+        return jsonify({'error': 'Could not generate PDF'}), 500
+    resp = Response(base64.b64decode(pdf_b64), mimetype='application/pdf')
+    safe_name = filename.replace('"', "'")
+    resp.headers['Content-Disposition'] = f'inline; filename="{safe_name}.pdf"'
+    return resp
+
+@app.route('/api/rental/agreements/<aid>/pdf', methods=['GET'])
+def download_rental_agreement_pdf(aid):
+    """Blank (unsigned) PDF copy of a drafted/sent contract — for partners
+    who can't use the e-sign link and need to sign a printed or emailed
+    copy by hand."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.title FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id WHERE ra.id=%s''', (aid,))
+    conn.close()
+    if not agr:
+        return jsonify({'error': 'Agreement not found'}), 404
+    pdf_b64 = _html_to_pdf_b64(_wrap_contract_pdf_html(agr.get('contract_html', '')))
+    return _rental_pdf_response(pdf_b64, agr.get('title') or 'Artistic Partnership Agreement')
+
+@app.route('/api/rental/agreements/<aid>/signed-pdf', methods=['GET'])
+def download_signed_rental_agreement_pdf(aid):
+    """Regenerates the signed PDF copy (contract + signature block) on
+    demand, so staff can view/download it anytime from RoleCall without
+    relying on the copy that was emailed out at signing time."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.title FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id WHERE ra.id=%s''', (aid,))
+    conn.close()
+    if not agr:
+        return jsonify({'error': 'Agreement not found'}), 404
+    if not agr.get('partner_signed_at'):
+        return jsonify({'error': 'This agreement has not been signed yet'}), 400
+    signed_at_str = str(agr['partner_signed_at'])[:19].replace('T', ' at ')
+    pdf_b64 = _generate_contract_pdf(agr.get('contract_html', ''), agr.get('partner_signed_name',''), signed_at_str)
+    return _rental_pdf_response(pdf_b64, (agr.get('title') or 'Artistic Partnership Agreement') + ' — Signed')
 
 @app.route('/rent/sign/<token>', methods=['POST'])
 def submit_rental_signature(token):

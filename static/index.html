@@ -24517,12 +24517,14 @@ function renderRentalPaymentStatus(r){
     const totalCents = r.installment_total_cents||0
     const allPaid = paidCount === totalCount
     const isOverdue = !allPaid && r.installment_next_due_date && r.installment_next_due_date < new Date().toISOString().slice(0,10)
-    const bg = allPaid ? '#f0fdf4' : (isOverdue ? '#fef2f2' : '#fffbeb')
-    const border = allPaid ? '#86efac' : (isOverdue ? '#fecaca' : '#fde68a')
-    const color = allPaid ? '#166534' : (isOverdue ? '#991b1b' : '#92400e')
+    const leadCutoff = new Date(Date.now() + 7*24*60*60*1000).toISOString().slice(0,10)
+    const needsSending = (r.installment_unsent_count||0) > 0 && r.installment_next_unsent_due_date && r.installment_next_unsent_due_date <= leadCutoff
+    const bg = allPaid ? '#f0fdf4' : (isOverdue || needsSending) ? '#fef2f2' : '#fffbeb'
+    const border = allPaid ? '#86efac' : (isOverdue || needsSending) ? '#fecaca' : '#fde68a'
+    const color = allPaid ? '#166534' : (isOverdue || needsSending) ? '#991b1b' : '#92400e'
     let html = '<div style="margin-top:8px;padding:8px 12px;background:'+bg+';border-radius:8px;border:1px solid '+border+'">'
     html += '<div style="font-size:12px;font-weight:700;color:'+color+'">'
-      + (allPaid ? '✅ Payment Plan Paid in Full' : (isOverdue ? '⚠ Payment Plan — Payment Overdue' : '📅 Monthly Payment Plan Active')) + '</div>'
+      + (allPaid ? '✅ Payment Plan Paid in Full' : needsSending ? '⚠ '+r.installment_unsent_count+' Invoice(s) Need to Be Sent' : (isOverdue ? '⚠ Payment Plan — Payment Overdue' : '📅 Monthly Payment Plan Active')) + '</div>'
     html += '<div style="font-size:11px;color:'+color+';margin-top:2px">'
       + paidCount+' of '+totalCount+' payments paid — $'+(paidCents/100).toFixed(2)+' of $'+(totalCents/100).toFixed(2)
       + (!allPaid && r.installment_next_due_date ? ' · Next due '+r.installment_next_due_date : '')
@@ -24580,7 +24582,12 @@ function renderRentalPaymentButtons(r){
     if(allPaid){
       html += '<span style="font-size:12px;color:var(--green-600,#166534);font-weight:700">✅ Payment Plan Fully Paid</span>'
     } else {
-      html += '<button class="btn btn-primary btn-sm" onclick="openRentalPaymentsListModal(\''+r.agreement_id+'\')">View Payment Plan ('+r.installment_paid_count+'/'+r.installment_count+' paid)</button>'
+      const leadCutoff = new Date(Date.now() + 7*24*60*60*1000).toISOString().slice(0,10)
+      const needsSending = (r.installment_unsent_count||0) > 0 && r.installment_next_unsent_due_date && r.installment_next_unsent_due_date <= leadCutoff
+      const btnClass = needsSending ? 'btn btn-sm' : 'btn btn-primary btn-sm'
+      const btnStyle = needsSending ? ' style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca"' : ''
+      const btnLabel = needsSending ? '⚠ '+r.installment_unsent_count+' Invoice(s) Need Sending' : 'View Payment Plan ('+r.installment_paid_count+'/'+r.installment_count+' paid)'
+      html += '<button class="'+btnClass+'"'+btnStyle+' onclick="openRentalPaymentsListModal(\''+r.agreement_id+'\')">'+btnLabel+'</button>'
     }
   } else if(!r.deposit_payment_id){
     html += '<button class="btn btn-primary btn-sm" onclick="openDepositInvoiceModal(\''+r.agreement_id+'\')">Generate Deposit Invoice</button>'
@@ -24686,6 +24693,17 @@ async function checkRentalPaymentStatus(paymentId){
   }
 }
 
+async function sendScheduledRentalInvoice(paymentId, agreementId){
+  const res = await api('/api/rental/payments/'+paymentId+'/send-invoice','POST')
+  if(res && res.ok){
+    toast(res.warning ? 'Invoice sent, with a warning: '+res.warning : 'Invoice sent to the partner','success')
+    openRentalPaymentsListModal(agreementId)
+    loadRentalsPage()
+  } else {
+    toast((res&&res.error)||'Could not send this invoice','error')
+  }
+}
+
 // ── Monthly Payment Plans ──
 function _rpAddMonths(dateStr, n){
   const d = new Date(dateStr+'T00:00:00')
@@ -24707,7 +24725,7 @@ function openPaymentPlanModal(agreementId, totalCents, defaultMonths){
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;padding:24px;max-height:90vh;overflow-y:auto">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Set Up Monthly Payment Plan</div>
-   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">${storedPlan.length ? 'Pre-filled from the schedule embedded in the signed contract (Exhibit A). All installment invoices are created and sent right away — Square will email each one and host its own payment page.' : 'All installment invoices are created and sent right away, each with its own due date. Square will email each one and host its own payment page.'}</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">${storedPlan.length ? 'Pre-filled from the schedule embedded in the signed contract (Exhibit A). Each installment is saved here on RoleCall and its Square invoice is automatically emailed to the partner about a week before it\'s due — or you can send any of them early from the Invoices list.' : 'Each installment is saved here on RoleCall — no invoice is sent yet. Square automatically emails each one to the partner about a week before its due date, or you can send any of them early from the Invoices list.'}</div>
    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:6px">
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Total ($)</label>
     <input type="number" id="pp-total" step="0.01" min="0" value="${(totalCents/100).toFixed(2)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
@@ -24721,7 +24739,7 @@ function openPaymentPlanModal(agreementId, totalCents, defaultMonths){
    <div id="pp-rows" style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px"></div>
    <div style="display:flex;gap:8px;justify-content:flex-end">
     <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
-    <button class="btn btn-primary" onclick="saveRentalPaymentPlan('${agreementId}')">Send All Invoices</button>
+    <button class="btn btn-primary" onclick="saveRentalPaymentPlan('${agreementId}')">Save Payment Plan</button>
    </div>
   </div>`
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
@@ -24768,7 +24786,7 @@ async function saveRentalPaymentPlan(agreementId){
   if(res && res.ok){
     const failCount = (res.failures||[]).length
     const linkNote = res.payment_plan_url ? ' The partner was emailed a Payment Plan link.' : ''
-    toast(failCount ? (res.created.length+' invoice(s) sent, '+failCount+' failed — check the payment list') : 'Payment plan sent — '+res.created.length+' invoices created.'+linkNote,'success')
+    toast(failCount ? (res.created.length+' installment(s) saved, '+failCount+' failed — check the payment list') : res.created.length+' installment(s) scheduled — invoices go out automatically before each due date.'+linkNote,'success')
     document.getElementById('payment-plan-modal')?.remove()
     loadRentalsPage()
   } else {
@@ -24797,21 +24815,33 @@ async function openRentalPaymentsListModal(agreementId){
   if(!Array.isArray(payments) || !payments.length){ body.innerHTML = 'No invoices yet.'; return }
   body.innerHTML = payments.map(function(p){
     const paid = p.square_invoice_status === 'PAID'
-    const overdue = !paid && p.due_date && p.due_date < new Date().toISOString().slice(0,10)
-    const bg = paid ? '#f0fdf4' : (overdue ? '#fef2f2' : '#fffbeb')
-    const border = paid ? '#86efac' : (overdue ? '#fecaca' : '#fde68a')
-    const color = paid ? '#166534' : (overdue ? '#991b1b' : '#92400e')
+    const scheduled = !paid && !p.sent_at
+    const today = new Date().toISOString().slice(0,10)
+    const leadCutoff = new Date(Date.now() + 7*24*60*60*1000).toISOString().slice(0,10)
+    const needsSending = scheduled && p.due_date && p.due_date <= leadCutoff
+    const overdue = !paid && !scheduled && p.due_date && p.due_date < today
+    const bg = paid ? '#f0fdf4' : (needsSending || overdue) ? '#fef2f2' : scheduled ? '#f8fafc' : '#fffbeb'
+    const border = paid ? '#86efac' : (needsSending || overdue) ? '#fecaca' : scheduled ? '#e5e7eb' : '#fde68a'
+    const color = paid ? '#166534' : (needsSending || overdue) ? '#991b1b' : scheduled ? '#4b5563' : '#92400e'
     const label = p.installment_label || (p.payment_type==='deposit'?'Deposit':p.payment_type==='final'?'Final Payment':p.payment_type)
+    let statusText
+    if(paid) statusText = '✅ Paid'
+    else if(overdue) statusText = '⚠ Overdue'
+    else if(needsSending) statusText = '⚠ Needs to be sent'
+    else if(scheduled) statusText = '📅 Scheduled'
+    else statusText = '⏳ Awaiting Payment'
     return '<div style="padding:10px 12px;margin-bottom:8px;background:'+bg+';border:1px solid '+border+';border-radius:8px">'
       + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
       + '<div style="font-weight:700;font-size:13px;color:'+color+'">'+escHtml(label)+'</div>'
-      + '<div style="font-size:12px;font-weight:700;color:'+color+'">'+(paid?'✅ Paid':(overdue?'⚠ Overdue':'⏳ Awaiting Payment'))+'</div>'
+      + '<div style="font-size:12px;font-weight:700;color:'+color+'">'+statusText+'</div>'
       + '</div>'
       + '<div style="font-size:12px;color:'+color+';margin-top:2px">$'+((p.amount_cents||0)/100).toFixed(2)
-      + (p.due_date?' · Due '+p.due_date:'') + (paid && p.paid_at ? ' · Paid '+p.paid_at.slice(0,10) : '') + '</div>'
-      + '<div style="margin-top:6px;display:flex;gap:10px">'
+      + (p.due_date?' · Due '+p.due_date:'') + (paid && p.paid_at ? ' · Paid '+p.paid_at.slice(0,10) : '')
+      + (scheduled ? ' · Not yet invoiced' : '') + '</div>'
+      + '<div style="margin-top:6px;display:flex;gap:10px;align-items:center">'
       + (p.public_url?'<a href="'+p.public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice ↗</a>':'')
-      + (!paid?'<span style="font-size:11px;color:#145466;font-weight:600;cursor:pointer" onclick="checkRentalPaymentStatus(\''+p.id+'\').then(()=>openRentalPaymentsListModal(\''+agreementId+'\'))">Check Status</span>':'')
+      + (!paid && !scheduled?'<span style="font-size:11px;color:#145466;font-weight:600;cursor:pointer" onclick="checkRentalPaymentStatus(\''+p.id+'\').then(()=>openRentalPaymentsListModal(\''+agreementId+'\'))">Check Status</span>':'')
+      + (scheduled?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendScheduledRentalInvoice(\''+p.id+'\',\''+agreementId+'\')">Send Now</button>':'')
       + '</div></div>'
   }).join('')
 }

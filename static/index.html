@@ -24398,28 +24398,44 @@ function renderRentalsPage(){
          </div>`:''}
          ${r.partner_signed_at?renderRentalPaymentStatus(r):''}
         </div>
-        <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;flex-shrink:0">
+        <div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;flex-shrink:0;width:210px">
          ${(r.status==='pending'||r.status==='sent_back')?`<button class="btn btn-primary btn-sm" onclick="approveRentalRequest('${r.id}')">
           ${levels.length>1&&currentLevel<levels.length-1?`Approve (L${currentLevel+1}: ${escHtml((levels[currentLevel]||{}).label||'')})` : 'Approve Request'}</button>`:''}
          ${r.status==='approved'||r.agreement_id?`<button class="btn btn-primary btn-sm" onclick="openGenerateContractModal('${r.id}')">
           ${r.agreement_id?'Regenerate Contract':'Generate Contract'}</button>`:''}
          ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">
           ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
-         ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View Contract</button>`:''}
-         ${r.agreement_id?`<button class="btn btn-secondary btn-sm" onclick="copyRentalPreviewLink('${r.agreement_id}')" style="font-size:11px">🔗 Copy Team Review Link</button>`:''}
-         ${renderRentalPaymentButtons(r)}
-         <button class="btn btn-secondary btn-sm" onclick="openRentalMessagesModal('${r.id}')" style="position:relative">
-          💬 Messages${r.unread_message_count?`<span style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:16px;text-align:center">${r.unread_message_count}</span>`:''}
-         </button>
-         <button class="btn btn-secondary btn-sm" onclick="openRentalInternalNotesModal('${r.id}')">📝 Internal Notes</button>
-         <button class="btn btn-secondary btn-sm" onclick="toggleRentalAwaitingFeedback('${r.id}',${r.awaiting_feedback?'false':'true'})">${r.awaiting_feedback?'✓ Clear Awaiting Feedback':'⏳ Mark Awaiting Feedback'}</button>
-         <button class="btn btn-secondary btn-sm" onclick="openScheduleTourModal('${r.id}')">🚶 ${r.tour_scheduled_date?'Reschedule Tour':'Schedule Tour'}</button>
-         <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
-         <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">Compliance Check</button>
-         ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
-         ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','sendback')" style="background:#fef3c7;color:#92400e;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Send Back</button>`:''}
-         <button class="btn btn-sm" onclick="deleteRentalRequest('${r.id}')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
-         ${r.recurring?`<button class="btn btn-secondary btn-sm" onclick="viewRentalOccurrences('${r.id}')">Occurrences</button>`:''}
+
+         ${r.agreement_id?`<div style="font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-muted);margin:6px 0 -2px;text-align:right">Contract</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+           <button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View</button>
+           ${r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="viewSignedRentalContract('${r.agreement_id}')">✓ Signed Copy</button>`:`<button class="btn btn-secondary btn-sm" onclick="downloadRentalAgreementPdf('${r.agreement_id}')" title="Download a PDF to email or print for partners who can't e-sign">⬇ Download PDF</button>`}
+           <button class="btn btn-secondary btn-sm" onclick="copyRentalPreviewLink('${r.agreement_id}')" style="font-size:11px">🔗 Review Link</button>
+          </div>`:''}
+
+         ${renderRentalPaymentButtons(r)?`<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:2px">${renderRentalPaymentButtons(r)}</div>`:''}
+
+         <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px">
+          <button class="btn btn-secondary btn-sm" onclick="openRentalMessagesModal('${r.id}')" style="position:relative">
+           💬 Messages${r.unread_message_count?`<span style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:16px;text-align:center">${r.unread_message_count}</span>`:''}
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
+         </div>
+
+         <details style="margin-top:4px;text-align:right">
+          <summary style="cursor:pointer;font-size:11.5px;font-weight:700;color:var(--text-muted);list-style:none;display:inline-block;padding:4px 2px">⋯ More actions</summary>
+          <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;margin-top:6px">
+           ${r.agreement_id&&r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="downloadRentalAgreementPdf('${r.agreement_id}')" title="Blank PDF of this contract">⬇ Download Blank PDF</button>`:''}
+           <button class="btn btn-secondary btn-sm" onclick="openRentalInternalNotesModal('${r.id}')">📝 Internal Notes</button>
+           <button class="btn btn-secondary btn-sm" onclick="toggleRentalAwaitingFeedback('${r.id}',${r.awaiting_feedback?'false':'true'})">${r.awaiting_feedback?'✓ Clear Awaiting Feedback':'⏳ Mark Awaiting Feedback'}</button>
+           <button class="btn btn-secondary btn-sm" onclick="openScheduleTourModal('${r.id}')">🚶 ${r.tour_scheduled_date?'Reschedule Tour':'Schedule Tour'}</button>
+           <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">Compliance Check</button>
+           ${r.recurring?`<button class="btn btn-secondary btn-sm" onclick="viewRentalOccurrences('${r.id}')">Occurrences</button>`:''}
+           ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
+           ${r.status!=='denied'&&r.status!=='cancelled'&&r.status!=='signed'?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','sendback')" style="background:#fef3c7;color:#92400e;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Send Back</button>`:''}
+           <button class="btn btn-sm" onclick="deleteRentalRequest('${r.id}')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
+          </div>
+         </details>
         </div>
        </div>
       </div>`
@@ -24826,6 +24842,14 @@ function viewRentalContract(aid){
   api('/api/rental/agreements/'+aid).then(function(agr){
     if(agr&&agr.contract_html) w.document.write(agr.contract_html)
   })
+}
+
+function downloadRentalAgreementPdf(aid){
+  window.open('/api/rental/agreements/'+aid+'/pdf', '_blank')
+}
+
+function viewSignedRentalContract(aid){
+  window.open('/api/rental/agreements/'+aid+'/signed-pdf', '_blank')
 }
 
 function copyRentalPreviewLink(aid){

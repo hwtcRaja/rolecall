@@ -6,3 +6,4 @@ requests
 twilio
 APScheduler
 pypdf
+xhtml2pdf

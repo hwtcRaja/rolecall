@@ -1086,6 +1086,14 @@ def init_db():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_request_id TEXT",
         "CREATE INDEX IF NOT EXISTS idx_events_rental_occurrence ON events(rental_occurrence_id)",
         "CREATE INDEX IF NOT EXISTS idx_events_rental_request ON events(rental_request_id)",
+        # Guards against the exact race that caused duplicate events: with
+        # multiple gunicorn workers, two processes could both run the
+        # startup backfill at once, each see "no event for this occurrence
+        # yet", and both insert one. This unique index (created only once
+        # _dedupe_rental_events has cleared any existing duplicates — it
+        # fails harmlessly and retries next deploy until then) plus the
+        # ON CONFLICT DO NOTHING on the insert closes that race for good.
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_events_rental_occurrence ON events(rental_occurrence_id) WHERE rental_occurrence_id IS NOT NULL",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
@@ -21808,7 +21816,8 @@ def _sync_rental_events_for_request(conn, request_id):
         execute(conn, '''INSERT INTO events
             (id, name, event_date, start_time, end_time, event_type_id, location, status,
              description, auto_log_hours, kiosk_signin_mode, rental_occurrence_id, rental_request_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'draft',%s,TRUE,'auto',%s,%s)''', (
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'draft',%s,TRUE,'auto',%s,%s)
+            ON CONFLICT (rental_occurrence_id) WHERE rental_occurrence_id IS NOT NULL DO NOTHING''', (
             eid, f"{req.get('title','')} – {partner_label}", o.get('occurrence_date'),
             o.get('start_time') or req.get('start_time'), o.get('end_time') or req.get('end_time'),
             event_type_id, req.get('space_name') or '',
@@ -21816,6 +21825,46 @@ def _sync_rental_events_for_request(conn, request_id):
             + (f" On-site contact: {req['partner_contact']}." if req.get('partner_contact') else ''),
             o['id'], request_id))
     conn.commit()
+
+def _dedupe_rental_events():
+    """Fixes the fallout of a startup race: with multiple gunicorn workers,
+    two processes could each run the backfill at the same moment, both see
+    'no event for this occurrence yet' (since neither had committed), and
+    both insert one — leaving every affected rental with 2 duplicate
+    events. For each rental_occurrence_id with more than one event, keeps
+    the earliest (oldest created_at, then lowest id as a tiebreaker) and
+    cascade-deletes the rest. Safe to run every startup: a no-op once
+    there's nothing left to dedupe.
+
+    Also (re)creates the unique index on rental_occurrence_id here, in
+    Python, right after cleanup — rather than relying solely on the SQL
+    migration list, whose ordering can't guarantee dedup happens first.
+    The plain migration-list attempt is left in place too as a harmless
+    best-effort for the common case where there's nothing to clean up."""
+    try:
+        conn = get_db()
+        dupes = fetchall(conn, """SELECT rental_occurrence_id FROM events
+            WHERE rental_occurrence_id IS NOT NULL
+            GROUP BY rental_occurrence_id HAVING COUNT(*) > 1""") or []
+        for row in dupes:
+            occ_id = row['rental_occurrence_id']
+            rows = fetchall(conn, """SELECT id FROM events WHERE rental_occurrence_id=%s
+                ORDER BY created_at ASC, id ASC""", (occ_id,)) or []
+            for extra in rows[1:]:
+                try:
+                    _delete_event_cascade(conn, extra['id'])
+                except Exception as e:
+                    app.logger.warning(f'Rental event dedupe error for {extra["id"]}: {e}')
+        try:
+            execute(conn, """CREATE UNIQUE INDEX IF NOT EXISTS ux_events_rental_occurrence
+                ON events(rental_occurrence_id) WHERE rental_occurrence_id IS NOT NULL""")
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            app.logger.warning(f'Rental event unique index creation deferred: {e}')
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Rental event dedupe failed: {e}')
 
 def _backfill_rental_calendar_events():
     """One-time (but safely repeatable) backfill: give every already
@@ -21837,6 +21886,7 @@ def _backfill_rental_calendar_events():
     except Exception as e:
         app.logger.warning(f'Rental event backfill failed: {e}')
 
+_dedupe_rental_events()
 _backfill_rental_calendar_events()
 
 def _generate_rental_occurrences(conn, request_id, d):

@@ -16241,6 +16241,25 @@ const TYPE_COLORS = {
  cyan: ['#E0F7FA','#006064'], violet: ['#F5F0FF','#5B21B6'],
  slate: ['#F1F5F9','#334155'], brown: ['#FDF4EC','#7C3F1E'],
 }
+// Some calendar entries are synthetic (rentals, venue tours) and carry a
+// literal hex color instead of a named TYPE_COLORS key, since they don't
+// come from the event_types table. TYPE_COLORS[hexString] is always
+// undefined, so a plain lookup silently fell back to blue for all of
+// them — this resolves either a named key or a raw hex into a proper
+// [background, text] pair.
+function typeColorPair(colorVal){
+ if(colorVal && TYPE_COLORS[colorVal]) return TYPE_COLORS[colorVal]
+ if(colorVal && colorVal.charAt(0)==='#') return [hexTint(colorVal,0.87), colorVal]
+ return TYPE_COLORS.blue
+}
+function hexTint(hex, amt){
+ var h = hex.replace('#','')
+ if(h.length===3) h = h.split('').map(function(c){return c+c}).join('')
+ var r = parseInt(h.substr(0,2),16), g = parseInt(h.substr(2,2),16), b = parseInt(h.substr(4,2),16)
+ if(isNaN(r)||isNaN(g)||isNaN(b)) return '#F1F5F9'
+ var mix = function(c){ return Math.round(c + (255-c)*amt) }
+ return 'rgb('+mix(r)+','+mix(g)+','+mix(b)+')'
+}
 const STATUS_COLORS = {
  draft:['#EFF6FF','#1D4ED8','Scheduled'],
  open:['#EAF6F1','#2D9E6B',' In Progress'],
@@ -16275,7 +16294,7 @@ function renderTodayView(){
 
  const evCard = e=>{
  const isCancelled = e.status==='cancelled'
- const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
+ const[tbg,tcol]=typeColorPair(e.event_type_color)
  const timeStr=e.start_time?(e.end_time?`${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:fmtTime(e.start_time)):'Time TBD'
  const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
  return`<div style="padding:10px 0;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;cursor:pointer;${isCancelled?'opacity:0.65':''}" onclick="openEventChip('${e.id}')">
@@ -16329,7 +16348,7 @@ function renderDayView(){
  content.innerHTML=`<div class="card" style="padding:20px">
  ${dayEvts.map(e=>{
  const isCancelled = e.status==='cancelled'
- const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
+ const[tbg,tcol]=typeColorPair(e.event_type_color)
  const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
  const timeStr=e.start_time?(e.end_time?`${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`:fmtTime(e.start_time)):'Time TBD'
  const elicName=(e.elics&&e.elics.length)?e.elics[0].volunteer_name:''
@@ -16439,7 +16458,7 @@ function renderCalendar(events){
  <div style="font-size:12px;font-weight:${isToday?'800':'500'};color:${isToday?'var(--teal-600)':'var(--text-muted)'};margin-bottom:4px">${d}</div>
  ${dayEvents.slice(0,3).map(e=>{
  const isCancelled = e.status==='cancelled'
- const[bg,col]=isCancelled ? ['#FEE2E2','#DC2626']: (TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue)
+ const[bg,col]=isCancelled ? ['#FEE2E2','#DC2626']: typeColorPair(e.event_type_color)
  const isAdminCal=canEdit('events')
  const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
  return`<div onclick="openEventChip('${e.id}')" title="${escHtml(e.name+calTimeStr+(e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:''))}${isCancelled?' [CANCELLED]':''}" style="background:${bg};color:${col};border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;margin-bottom:2px;cursor:pointer;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block;min-width:0;${isCancelled?'text-decoration:line-through;opacity:0.7;':''}">
@@ -16499,7 +16518,7 @@ function renderEventsList(events){
 }
 
 function eventListRow(e,isAdmin){
- const[tbg,tcol]=TYPE_COLORS[e.event_type_color||'blue']||TYPE_COLORS.blue
+ const[tbg,tcol]=typeColorPair(e.event_type_color)
  const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
  const timeStr=e.start_time?fmtTime(e.start_time)+(e.end_time?' – '+fmtTime(e.end_time):''):'All day'
  const isCancelled = e.status==='cancelled'
@@ -16548,7 +16567,7 @@ function renderEventDetailPage(eid){
  const e = allEvents.find(e=>e.id===eid)
  if(!e) return
  const isAdmin = canEdit('events')
- const [tbg,tcol] = TYPE_COLORS[e.event_type_color||'blue'] || TYPE_COLORS.blue
+ const [tbg,tcol] = typeColorPair(e.event_type_color)
  const [sbg,scol,slabel] = STATUS_COLORS[e.status||'draft'] || STATUS_COLORS.draft
  const timeStr = e.start_time ? (e.end_time ? `${fmtTime(e.start_time)} – ${fmtTime(e.end_time)}`: `From ${fmtTime(e.start_time)}`): ''
  const reqWaivers = e.required_waivers || []
@@ -18444,7 +18463,7 @@ function renderEventTypesSettings(){
  document.getElementById('new-event-type-color')?.value||'teal')
  if(!allEventTypes.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No event types yet</div>';return}
  el.innerHTML=allEventTypes.map(t=>{
- const [bg,col]=TYPE_COLORS[t.color||'teal']||TYPE_COLORS.teal
+ const [bg,col]=typeColorPair(t.color)
  return `<div class="setting-item" style="flex-direction:column;align-items:stretch;gap:8px;padding:10px 0">
  <div style="display:flex;align-items:center;justify-content:space-between">
  <div style="display:flex;align-items:center;gap:8px">

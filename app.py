@@ -716,7 +716,7 @@ def init_db():
         ('Rehearsal', 'amber'), ('Performance', 'teal'), ('Meeting', 'blue'),
         ('Build Day', 'pink'), ('Strike', 'purple'), ('Other', 'gray'),
         ('Mainstage Production', 'indigo'), ('Rising Stars', 'cyan'),
-        ('Workshop / Class', 'green'),
+        ('Workshop / Class', 'green'), ('Artistic Partnership', 'violet'),
     ]:
         c.execute("INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s) ON CONFLICT (name) DO NOTHING",
                   (str(__import__('uuid').uuid4()), et[0], et[1]))
@@ -1082,6 +1082,10 @@ def init_db():
             size_bytes INTEGER DEFAULT 0,
             uploaded_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_occurrence_id TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_request_id TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_events_rental_occurrence ON events(rental_occurrence_id)",
+        "CREATE INDEX IF NOT EXISTS idx_events_rental_request ON events(rental_request_id)",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
@@ -2921,7 +2925,11 @@ def get_events():
             pass
         e['status'] = e.get('status') or 'draft'
     conn.close()
-    # Add rental occurrences as synthetic calendar events
+    # Add rental occurrences as synthetic calendar events — but only for
+    # occurrences that don't already have a real linked event (see
+    # _sync_rental_events_for_request). Going forward every approved
+    # occurrence gets a real event, so this is now just a safety net for
+    # any edge case where the sync hasn't run yet.
     try:
         conn2 = get_db()
         rentals = fetchall(conn2, '''SELECT ro.*, rr.title, rr.start_time AS req_start, rr.end_time AS req_end,
@@ -2930,7 +2938,8 @@ def get_events():
             JOIN rental_requests rr ON rr.id=ro.request_id
             LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
             LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
-            WHERE ro.status != \'cancelled\' ''') or []
+            WHERE ro.status != \'cancelled\'
+            AND NOT EXISTS (SELECT 1 FROM events e2 WHERE e2.rental_occurrence_id=ro.id)''') or []
         conn2.close()
         for r in rentals:
             events.append({
@@ -3135,54 +3144,57 @@ def update_event(eid):
     conn.close()
     return jsonify(row)
 
+def _delete_event_cascade(conn, eid):
+    """Delete an event and everything that references it (waivers, ELIC
+    assignments, checklist responses, logged hours, carpools). Used by the
+    manual delete-event route and by the rental-event sync when an
+    approved booking's date is edited or the request is denied/withdrawn."""
+    cur = conn.cursor()
+    def try_sql(sql, params=()):
+        try:
+            cur.execute('SAVEPOINT sp')
+            cur.execute(sql, params)
+            cur.execute('RELEASE SAVEPOINT sp')
+        except Exception as e:
+            cur.execute('ROLLBACK TO SAVEPOINT sp')
+            app.logger.warning(f'_delete_event_cascade skip: {e}')
+
+    try_sql('UPDATE youth_sign_ins SET event_id=NULL WHERE event_id=%s', (eid,))
+    try_sql('UPDATE kiosk_sessions SET event_id=NULL WHERE event_id=%s', (eid,))
+    try_sql('DELETE FROM event_waivers WHERE event_id=%s', (eid,))
+    try_sql('DELETE FROM event_elics WHERE event_id=%s', (eid,))
+    try_sql('DELETE FROM event_checklist_responses WHERE event_id=%s', (eid,))
+    try_sql('DELETE FROM hours WHERE event_id=%s', (eid,))
+
+    try:
+        cur.execute('SAVEPOINT sp_carpools')
+        cur.execute('SELECT id FROM carpools WHERE event_id=%s', (eid,))
+        carpool_ids = [r[0] for r in cur.fetchall()]
+        for cid in carpool_ids:
+            cur.execute('DELETE FROM carpool_members WHERE carpool_id=%s', (cid,))
+        if carpool_ids:
+            cur.execute('DELETE FROM carpools WHERE event_id=%s', (eid,))
+        cur.execute('RELEASE SAVEPOINT sp_carpools')
+    except Exception as e:
+        cur.execute('ROLLBACK TO SAVEPOINT sp_carpools')
+        app.logger.warning(f'_delete_event_cascade carpools: {e}')
+
+    # The main delete — if this fails we want the real error
+    cur.execute('DELETE FROM events WHERE id=%s', (eid,))
+    conn.commit()
+    cur.close()
+
 @app.route('/api/events/<eid>', methods=['DELETE'])
 def delete_event(eid):
     err = require_permission('events')
     if err: return err
     conn = get_db()
-    cur = conn.cursor()
     try:
-        def try_sql(sql, params=()):
-            try:
-                cur.execute('SAVEPOINT sp')
-                cur.execute(sql, params)
-                cur.execute('RELEASE SAVEPOINT sp')
-            except Exception as e:
-                cur.execute('ROLLBACK TO SAVEPOINT sp')
-                app.logger.warning(f'delete_event skip: {e}')
-
-        try_sql('UPDATE youth_sign_ins SET event_id=NULL WHERE event_id=%s', (eid,))
-        try_sql('UPDATE kiosk_sessions SET event_id=NULL WHERE event_id=%s', (eid,))
-        try_sql('DELETE FROM event_waivers WHERE event_id=%s', (eid,))
-        try_sql('DELETE FROM event_elics WHERE event_id=%s', (eid,))
-        try_sql('DELETE FROM event_checklist_responses WHERE event_id=%s', (eid,))
-        try_sql('DELETE FROM hours WHERE event_id=%s', (eid,))
-
-        # Carpools
-        try:
-            cur.execute('SAVEPOINT sp_carpools')
-            cur.execute('SELECT id FROM carpools WHERE event_id=%s', (eid,))
-            carpool_ids = [r[0] for r in cur.fetchall()]
-            for cid in carpool_ids:
-                cur.execute('DELETE FROM carpool_members WHERE carpool_id=%s', (cid,))
-            if carpool_ids:
-                cur.execute('DELETE FROM carpools WHERE event_id=%s', (eid,))
-            cur.execute('RELEASE SAVEPOINT sp_carpools')
-        except Exception as e:
-            cur.execute('ROLLBACK TO SAVEPOINT sp_carpools')
-            app.logger.warning(f'delete_event carpools: {e}')
-
-        # The main delete  -  if this fails we want the real error
-        cur.execute('DELETE FROM events WHERE id=%s', (eid,))
-        conn.commit()
-        cur.close()
+        _delete_event_cascade(conn, eid)
         conn.close()
         return jsonify({'ok': True})
-
     except Exception as e:
         try: conn.rollback()
-        except: pass
-        try: cur.close()
         except: pass
         conn.close()
         app.logger.error(f'delete_event {eid}: {e}')
@@ -21741,6 +21753,92 @@ def create_rental_request():
     conn.close()
     return jsonify({'ok': True, 'id': rid})
 
+def _get_or_create_event_type(conn, name, color='violet'):
+    row = fetchone(conn, 'SELECT id FROM event_types WHERE LOWER(name)=LOWER(%s)', (name,))
+    if row:
+        return row['id']
+    tid = str(uuid.uuid4())
+    execute(conn, 'INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s)', (tid, name, color))
+    conn.commit()
+    return tid
+
+def _sync_rental_events_for_request(conn, request_id):
+    """Keep real `events` rows in sync with an Artistic Partnership
+    request's active occurrences, so rental bookings get the same opening
+    /closing checklist, kiosk open/close, and ELIC-assignment support as
+    every other event on the calendar — rental dates used to only exist as
+    a display-only overlay with nothing behind them to open or close.
+
+    Reconciles both directions: creates an event for any active occurrence
+    that doesn't have one yet, and removes the event for any occurrence
+    that's no longer active (date edited away, request denied/sent back).
+    Safe to call repeatedly — this is also how the one-time backfill for
+    already-approved requests works.
+    """
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_name AS partner_contact,
+        rs.name AS space_name FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (request_id,))
+    if not req:
+        return
+    occurrences = fetchall(conn, """SELECT * FROM rental_occurrences
+        WHERE request_id=%s AND status!='cancelled'""", (request_id,)) or []
+    active_occurrence_ids = {o['id'] for o in occurrences}
+    linked_events = fetchall(conn, """SELECT id, rental_occurrence_id FROM events
+        WHERE rental_request_id=%s AND rental_occurrence_id IS NOT NULL""", (request_id,)) or []
+    linked_by_occurrence = {e['rental_occurrence_id']: e['id'] for e in linked_events}
+
+    # Remove events for occurrences that are no longer active.
+    for occurrence_id, event_id in linked_by_occurrence.items():
+        if occurrence_id not in active_occurrence_ids:
+            try:
+                _delete_event_cascade(conn, event_id)
+            except Exception as e:
+                app.logger.warning(f'Rental event cleanup error for occurrence {occurrence_id}: {e}')
+
+    # Create events for active occurrences that don't have one yet.
+    to_create = [o for o in occurrences if o['id'] not in linked_by_occurrence]
+    if not to_create:
+        return
+    event_type_id = _get_or_create_event_type(conn, 'Artistic Partnership', 'violet')
+    partner_label = req.get('partner_name') or 'Partner'
+    for o in to_create:
+        eid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO events
+            (id, name, event_date, start_time, end_time, event_type_id, location, status,
+             description, auto_log_hours, kiosk_signin_mode, rental_occurrence_id, rental_request_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'draft',%s,TRUE,'auto',%s,%s)''', (
+            eid, f"{req.get('title','')} – {partner_label}", o.get('occurrence_date'),
+            o.get('start_time') or req.get('start_time'), o.get('end_time') or req.get('end_time'),
+            event_type_id, req.get('space_name') or '',
+            f"Artistic Partnership booking with {partner_label}."
+            + (f" On-site contact: {req['partner_contact']}." if req.get('partner_contact') else ''),
+            o['id'], request_id))
+    conn.commit()
+
+def _backfill_rental_calendar_events():
+    """One-time (but safely repeatable) backfill: give every already
+    approved/signed/active/completed rental request real calendar events,
+    matching what now happens automatically going forward at approval
+    time. Runs once at startup; _sync_rental_events_for_request is a
+    no-op for requests that are already synced, so re-running this on
+    every deploy is cheap and self-healing."""
+    try:
+        conn = get_db()
+        request_ids = fetchall(conn, """SELECT DISTINCT request_id FROM rental_occurrences
+            WHERE status != 'cancelled'""") or []
+        for row in request_ids:
+            try:
+                _sync_rental_events_for_request(conn, row['request_id'])
+            except Exception as e:
+                app.logger.warning(f'Rental event backfill error for {row["request_id"]}: {e}')
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Rental event backfill failed: {e}')
+
+_backfill_rental_calendar_events()
+
 def _generate_rental_occurrences(conn, request_id, d):
     """Create one rental_occurrences row per day this request covers, so it
     shows up on the calendar (via the synthetic-event merge in get_events).
@@ -21883,6 +21981,7 @@ def update_rental_request(rid):
     if existing.get('status') == 'approved':
         execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
         _generate_rental_occurrences(conn, rid, d)
+        _sync_rental_events_for_request(conn, rid)
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -21937,6 +22036,7 @@ def approve_rental_request(rid):
     # here changed them.
     if fully_approved:
         _generate_rental_occurrences(conn, rid, req)
+        _sync_rental_events_for_request(conn, rid)
     # Notify next level approvers if not fully approved
     if not fully_approved and levels and next_level < len(levels):
         next_level_config = levels[next_level]
@@ -21981,6 +22081,7 @@ def deny_rental_request(rid):
         (reason, _jrd.dumps(history), rid))
     # If this had already been approved (and put on the calendar), take it back off.
     execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+    _sync_rental_events_for_request(conn, rid)
     # Notify partner if we have their email
     partner = fetchone(conn, '''SELECT rp.contact_email, rp.contact_name, rp.name AS pname
         FROM rental_requests rr JOIN rental_partners rp ON rp.id=rr.partner_id
@@ -22024,6 +22125,7 @@ def sendback_rental_request(rid):
         (reason, _jrsb.dumps(history), rid))
     # No longer approved — take it back off the calendar until re-approved.
     execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+    _sync_rental_events_for_request(conn, rid)
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -22069,6 +22171,12 @@ def delete_rental_request(rid):
     err = require_auth()
     if err: return err
     conn = get_db()
+    linked_events = fetchall(conn, 'SELECT id FROM events WHERE rental_request_id=%s', (rid,)) or []
+    for e in linked_events:
+        try:
+            _delete_event_cascade(conn, e['id'])
+        except Exception as ex:
+            app.logger.warning(f'delete_rental_request event cleanup {e["id"]}: {ex}')
     execute(conn, 'DELETE FROM rental_agreements WHERE request_id=%s', (rid,))
     execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
     execute(conn, 'DELETE FROM rental_requests WHERE id=%s', (rid,))

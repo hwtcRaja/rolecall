@@ -23860,6 +23860,65 @@ def add_rental_payment_plan_installment(aid):
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': pid})
 
+@app.route('/api/rental/payments/<pid>', methods=['PUT'])
+def edit_rental_payment_installment(pid):
+    """Edits a not-yet-sent installment's amount/due date/label — for
+    fixing a typo or shifting a due date without deleting and re-adding
+    it. Only allowed while still 'scheduled' (sent_at IS NULL): once a
+    Square invoice has actually gone out, this row is what the partner
+    was invoiced against, so it isn't safe to silently rewrite — void the
+    invoice in Square and re-add the installment instead in that case."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    payment = fetchone(conn, "SELECT * FROM rental_payments WHERE id=%s AND payment_type='installment'", (pid,))
+    if not payment:
+        conn.close()
+        return jsonify({'error': 'Installment not found'}), 404
+    if payment.get('sent_at'):
+        conn.close()
+        return jsonify({'error': "This installment has already been sent — its invoice already reflects the old amount/date. Void it in Square and add a new installment instead of editing this one."}), 400
+    fields, params = [], []
+    if 'amount' in d:
+        try:
+            amount_cents = int(round(float(d.get('amount') or 0) * 100))
+        except (TypeError, ValueError):
+            amount_cents = 0
+        if amount_cents <= 0:
+            conn.close()
+            return jsonify({'error': 'Amount must be greater than zero'}), 400
+        fields.append('amount_cents=%s'); params.append(amount_cents)
+    if 'due_date' in d:
+        due_date = (d.get('due_date') or '').strip()
+        if not due_date:
+            conn.close()
+            return jsonify({'error': 'Due date is required'}), 400
+        fields.append('due_date=%s'); params.append(due_date)
+    if 'label' in d:
+        fields.append('installment_label=%s'); params.append((d.get('label') or '').strip())
+    if not fields:
+        conn.close()
+        return jsonify({'error': 'Nothing to update'}), 400
+    params.append(pid)
+    execute(conn, f"UPDATE rental_payments SET {', '.join(fields)} WHERE id=%s", tuple(params))
+
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (payment['agreement_id'],))
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (agr['request_id'],)) if agr else None
+    if agr and req:
+        execute(conn, 'UPDATE rental_requests SET billing_installments_plan=%s WHERE id=%s',
+            (json.dumps(_get_live_installments_plan(conn, agr['id']) or []), agr['request_id']))
+        contract_html = _rebuild_rental_contract_html(conn, agr, req)
+        execute(conn, 'UPDATE rental_agreements SET contract_html=%s, updated_at=NOW() WHERE id=%s', (contract_html, agr['id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/rental/payments/<pid>/send-invoice', methods=['POST'])
 def send_scheduled_rental_invoice_route(pid):
     """Manually send a scheduled installment's Square invoice early — e.g.

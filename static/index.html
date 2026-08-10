@@ -24715,6 +24715,7 @@ function renderRentalsPage(){
            <button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View</button>
            ${r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="viewSignedRentalContract('${r.agreement_id}')">✓ Signed Copy</button>`:`<button class="btn btn-secondary btn-sm" onclick="downloadRentalAgreementPdf('${r.agreement_id}')" title="Download a PDF to email or print for partners who can't e-sign">⬇ Download PDF</button>`}
            ${!r.hwtc_signed_name?`<button class="btn btn-secondary btn-sm" onclick="openSignHwtcModal('${r.agreement_id}')" title="Add HWTC's signature to this agreement">✍️ Add Our Signature</button>`:''}
+           <button class="btn btn-secondary btn-sm" onclick="resyncRentalContractDocument('${r.agreement_id}')" title="Refresh the document with the current dates, total, and installment schedule — e.g. after adding an invoice">↻ Resync Document</button>
            <button class="btn btn-secondary btn-sm" onclick="copyRentalPreviewLink('${r.agreement_id}')" style="font-size:11px">🔗 Review Link</button>
           </div>`:''}
 
@@ -25289,6 +25290,14 @@ async function submitSignHwtc(aid){
   if(res&&res.ok){
     toast('HWTC signature added','success')
     document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    loadRentalsPage()
+  } else toast((res&&res.error)||'Error','error')
+}
+
+async function resyncRentalContractDocument(aid){
+  const res = await api('/api/rental/agreements/'+aid+'/resync-document','POST',{})
+  if(res&&res.ok){
+    toast('Document refreshed with the current dates, total, and payment schedule','success')
     loadRentalsPage()
   } else toast((res&&res.error)||'Error','error')
 }

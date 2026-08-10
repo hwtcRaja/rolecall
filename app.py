@@ -21844,9 +21844,9 @@ def _sync_rental_events_for_request(conn, request_id):
     for o in to_create:
         eid = str(uuid.uuid4())
         execute(conn, '''INSERT INTO events
-            (id, name, event_date, start_time, end_time, event_type_id, location, status,
+            (id, name, event_date, start_time, end_time, event_type_id, location, room, status,
              description, auto_log_hours, kiosk_signin_mode, rental_occurrence_id, rental_request_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'draft',%s,TRUE,'auto',%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,'HWTC',%s,'draft',%s,TRUE,'auto',%s,%s)
             ON CONFLICT (rental_occurrence_id) WHERE rental_occurrence_id IS NOT NULL DO NOTHING''', (
             eid, f"{req.get('title','')} – {partner_label}", o.get('occurrence_date'),
             o.get('start_time') or req.get('start_time'), o.get('end_time') or req.get('end_time'),
@@ -21896,6 +21896,28 @@ def _dedupe_rental_events():
     except Exception as e:
         app.logger.warning(f'Rental event dedupe failed: {e}')
 
+def _fix_rental_event_locations():
+    """One-time (but safely repeatable) correction for rental-linked
+    events created before this fix: they had the studio name written into
+    `location` (e.g. 'Studio A'), which the checklist system reads as
+    'this is happening somewhere other than our own building' and filters
+    down to a generic reduced checklist. The studio name belongs in
+    `room` instead — `location` should read 'HWTC', exactly like a normal
+    in-house event, so the full studio checklist applies."""
+    try:
+        conn = get_db()
+        execute(conn, """UPDATE events SET room=location, location='HWTC'
+            WHERE rental_occurrence_id IS NOT NULL AND location IS NOT NULL AND location!='HWTC'
+            AND (room IS NULL OR room='')""")
+        # Edge case: a rental event that already has a room set for some
+        # other reason — still fix location, just don't clobber room.
+        execute(conn, """UPDATE events SET location='HWTC'
+            WHERE rental_occurrence_id IS NOT NULL AND location IS NOT NULL AND location!='HWTC'
+            AND room IS NOT NULL AND room!=''""")
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'Rental event location fix failed: {e}')
+
 def _backfill_rental_calendar_events():
     """One-time (but safely repeatable) backfill: give every already
     approved/signed/active/completed rental request real calendar events,
@@ -21918,6 +21940,7 @@ def _backfill_rental_calendar_events():
 
 _dedupe_rental_events()
 _backfill_rental_calendar_events()
+_fix_rental_event_locations()
 
 def _generate_rental_occurrences(conn, request_id, d):
     """Create one rental_occurrences row per day this request covers, so it

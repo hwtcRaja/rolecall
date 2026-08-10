@@ -25132,6 +25132,7 @@ async function openRentalPaymentsListModal(agreementId){
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
   const payments = await api('/api/rental/agreements/'+agreementId+'/payments')
+  window._rpListCache = Array.isArray(payments) ? payments : []
   const body = document.getElementById('rp-list-body')
   if(!body) return
   if(!Array.isArray(payments) || !payments.length){ body.innerHTML = 'No invoices yet.'; return }
@@ -25164,6 +25165,7 @@ async function openRentalPaymentsListModal(agreementId){
       + (p.public_url?'<a href="'+p.public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice ↗</a>':'')
       + (!paid && !scheduled?'<span style="font-size:11px;color:#145466;font-weight:600;cursor:pointer" onclick="checkRentalPaymentStatus(\''+p.id+'\').then(()=>openRentalPaymentsListModal(\''+agreementId+'\'))">Check Status</span>':'')
       + (scheduled?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendScheduledRentalInvoice(\''+p.id+'\',\''+agreementId+'\')">Send Now</button>':'')
+      + (scheduled && p.payment_type==='installment'?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openEditRentalInstallmentModal(\''+p.id+'\',\''+agreementId+'\')">Edit</button>':'')
       + '</div></div>'
   }).join('')
 }
@@ -25176,6 +25178,46 @@ async function submitAddRentalInstallment(agreementId){
   const res = await api('/api/rental/agreements/'+agreementId+'/payment-plan/add-installment','POST',{amount, due_date, label})
   if(res&&res.ok){
     toast('Installment added to the plan','success')
+    document.getElementById('rental-payments-list-modal')?.remove()
+    openRentalPaymentsListModal(agreementId)
+    loadRentalsPage()
+  } else toast((res&&res.error)||'Error','error')
+}
+
+function openEditRentalInstallmentModal(paymentId, agreementId){
+  const p = (window._rpListCache||[]).find(function(x){ return x.id===paymentId })
+  if(!p){ toast('Could not find that installment','error'); return }
+  const overlay = document.createElement('div')
+  overlay.id = 'edit-installment-modal'
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:380px;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">Edit Installment</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Amount ($)</label>
+    <input type="number" id="rp-edit-amount" min="0" step="0.01" value="${((p.amount_cents||0)/100).toFixed(2)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Due Date</label>
+    <input type="date" id="rp-edit-due-date" value="${p.due_date||''}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+   </div>
+   <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Label</label>
+   <input type="text" id="rp-edit-label" value="${escHtml(p.installment_label||'')}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:16px"/>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-secondary" onclick="document.getElementById('edit-installment-modal').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="submitEditRentalInstallment('${paymentId}','${agreementId}')">Save</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+}
+
+async function submitEditRentalInstallment(paymentId, agreementId){
+  const amount = parseFloat((document.getElementById('rp-edit-amount')||{}).value||0)
+  const due_date = (document.getElementById('rp-edit-due-date')||{}).value||''
+  const label = (document.getElementById('rp-edit-label')||{}).value.trim()
+  if(!(amount>0) || !due_date){ toast('Enter an amount and due date','error'); return }
+  const res = await api('/api/rental/payments/'+paymentId,'PUT',{amount, due_date, label})
+  if(res&&res.ok){
+    toast('Installment updated','success')
+    document.getElementById('edit-installment-modal')?.remove()
     document.getElementById('rental-payments-list-modal')?.remove()
     openRentalPaymentsListModal(agreementId)
     loadRentalsPage()

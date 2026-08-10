@@ -24714,6 +24714,7 @@ function renderRentalsPage(){
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
            <button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View</button>
            ${r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="viewSignedRentalContract('${r.agreement_id}')">✓ Signed Copy</button>`:`<button class="btn btn-secondary btn-sm" onclick="downloadRentalAgreementPdf('${r.agreement_id}')" title="Download a PDF to email or print for partners who can't e-sign">⬇ Download PDF</button>`}
+           ${!r.hwtc_signed_name?`<button class="btn btn-secondary btn-sm" onclick="openSignHwtcModal('${r.agreement_id}')" title="Add HWTC's signature to this agreement">✍️ Add Our Signature</button>`:''}
            <button class="btn btn-secondary btn-sm" onclick="copyRentalPreviewLink('${r.agreement_id}')" style="font-size:11px">🔗 Review Link</button>
           </div>`:''}
 
@@ -25214,6 +25215,48 @@ async function submitMarkRentalSigned(aid){
   const res = await api('/api/rental/agreements/'+aid+'/mark-signed','POST',{name, signed_date})
   if(res&&res.ok){
     toast('Agreement marked as signed','success')
+    document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
+    loadRentalsPage()
+  } else toast((res&&res.error)||'Error','error')
+}
+
+function openSignHwtcModal(aid){
+  const overlay = document.createElement('div')
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:420px;padding:24px">
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Add HWTC's Signature</div>
+   <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">This contract was generated before HWTC's own signature line was added, or it's simply missing one — this fills it in without affecting the partner's signature either way.</div>
+   <div class="form-group" style="margin-bottom:12px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Signer's Name</label>
+    <input type="text" id="sign-hwtc-name" placeholder="e.g. Raja Jalernpan" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div class="form-group" style="margin-bottom:18px">
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Title</label>
+    <input type="text" id="sign-hwtc-title" placeholder="e.g. President" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+   </div>
+   <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
+    <button class="btn btn-primary" onclick="submitSignHwtc('${aid}')">Add Signature</button>
+   </div>
+  </div>`
+  overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
+  document.body.appendChild(overlay)
+  api('/api/email-settings').then(function(s){
+    if(!s || s.error) return
+    const nameEl = document.getElementById('sign-hwtc-name')
+    const titleEl = document.getElementById('sign-hwtc-title')
+    if(nameEl && !nameEl.value) nameEl.value = s.rental_signatory_name || ''
+    if(titleEl && !titleEl.value) titleEl.value = s.rental_signatory_title || ''
+  })
+}
+
+async function submitSignHwtc(aid){
+  const name = (document.getElementById('sign-hwtc-name')||{}).value?.trim()
+  if(!name){ toast('Please enter a signer name','error'); return }
+  const title = (document.getElementById('sign-hwtc-title')||{}).value?.trim()||''
+  const res = await api('/api/rental/agreements/'+aid+'/sign-hwtc','POST',{hwtc_signatory_name:name, hwtc_signatory_title:title})
+  if(res&&res.ok){
+    toast('HWTC signature added','success')
     document.querySelector('[style*="position:fixed"][style*="z-index:10000"]')?.remove()
     loadRentalsPage()
   } else toast((res&&res.error)||'Error','error')

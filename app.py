@@ -21664,7 +21664,8 @@ def get_rental_requests():
             rp.contact_email AS partner_email, rp.contact_name AS partner_contact,
             rs.name AS space_name,
             ra.id AS agreement_id, ra.status AS agreement_status,
-            ra.partner_signed_at, ra.signing_token,
+            ra.partner_signed_at, ra.partner_signed_name, ra.signing_token,
+            ra.hwtc_signed_name, ra.hwtc_signed_title,
             COALESCE(rr.approval_level, 0) AS approval_level,
             COALESCE(rr.approval_history, '[]') AS approval_history,
             COALESCE(rr.denial_reason, '') AS denial_reason,
@@ -22152,6 +22153,55 @@ def correct_signed_rental_request(rid):
     execute(conn, '''UPDATE rental_agreements SET contract_html=%s, custom_terms=%s, poc_name=%s,
         poc_email=%s, poc_phone=%s, additional_terms=%s, admin_notes=%s, updated_at=NOW() WHERE id=%s''',
         (contract_html, custom_terms, poc_name, poc_email, poc_phone, additional_terms, new_notes, agr['id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/agreements/<aid>/sign-hwtc', methods=['POST'])
+def sign_hwtc_rental_agreement(aid):
+    """Adds (or replaces) HWTC's own signature on an agreement that
+    doesn't have one recorded yet — most commonly a contract generated
+    before the HWTC-signature feature existed, where the line was left
+    blank. Works regardless of whether the partner has already signed:
+    the two signatures are independent, so this never disturbs theirs."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    hwtc_signer_name = (d.get('hwtc_signatory_name') or '').strip()
+    if not hwtc_signer_name:
+        return jsonify({'error': 'A signer name is required'}), 400
+    hwtc_signer_title = (d.get('hwtc_signatory_title') or '').strip()
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (agr['request_id'],))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Rental request not found'}), 404
+    try:
+        installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
+    except Exception:
+        installments_plan = []
+    try:
+        equipment_selections = json.loads(req.get('equipment_selections') or '[]')
+    except Exception:
+        equipment_selections = []
+    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (agr['request_id'],)) or []
+    hwtc_signed_at_dt = datetime.now()
+    contract_html = _build_rental_contract_html(conn, req, agr.get('custom_terms') or '', agr.get('poc_name') or '',
+        agr.get('poc_email') or '', agr.get('poc_phone') or '', '', req.get('revenue_split_notes') or '',
+        req.get('billing_frequency') or 'deposit_final', occurrences, installments_plan, agr.get('additional_terms') or '',
+        equipment_selections, hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_dt.strftime('%B %-d, %Y'))
+    execute(conn, '''UPDATE rental_agreements SET contract_html=%s, hwtc_signed_name=%s,
+        hwtc_signed_title=%s, hwtc_signed_at=%s, updated_at=NOW() WHERE id=%s''',
+        (contract_html, hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_dt, aid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

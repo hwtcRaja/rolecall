@@ -25110,6 +25110,23 @@ async function openRentalPaymentsListModal(agreementId){
    </div>
    <div style="margin-bottom:12px"><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline" onclick="copyRentalPaymentPlanLink('${agreementId}')">🔗 Copy Payment Plan link (for the partner)</span></div>
    <div id="rp-list-body" style="font-size:13px;color:var(--text-muted)">Loading…</div>
+   <div id="rp-add-installment-wrap" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
+    <div id="rp-add-installment-form" style="display:none">
+     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Amount ($)</label>
+      <input type="number" id="rp-add-amount" min="0" step="0.01" placeholder="0.00" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Due Date</label>
+      <input type="date" id="rp-add-due-date" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+     </div>
+     <input type="text" id="rp-add-label" placeholder="Label (optional, e.g. Added Session — Aug 16)" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:8px"/>
+     <div style="display:flex;gap:8px;justify-content:flex-end">
+      <button class="btn btn-secondary btn-sm" onclick="document.getElementById('rp-add-installment-form').style.display='none';document.getElementById('rp-add-installment-btn').style.display=''">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="submitAddRentalInstallment('${agreementId}')">Add to Plan</button>
+     </div>
+    </div>
+    <button class="btn btn-secondary btn-sm" id="rp-add-installment-btn" onclick="document.getElementById('rp-add-installment-form').style.display='';this.style.display='none'">+ Add Installment</button>
+    <div style="font-size:11px;color:var(--text-muted);margin-top:6px">For a date added after the original plan was set up — doesn't touch any invoice already sent or paid.</div>
+   </div>
   </div>`
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
@@ -25148,6 +25165,20 @@ async function openRentalPaymentsListModal(agreementId){
       + (scheduled?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendScheduledRentalInvoice(\''+p.id+'\',\''+agreementId+'\')">Send Now</button>':'')
       + '</div></div>'
   }).join('')
+}
+
+async function submitAddRentalInstallment(agreementId){
+  const amount = parseFloat((document.getElementById('rp-add-amount')||{}).value||0)
+  const due_date = (document.getElementById('rp-add-due-date')||{}).value||''
+  const label = (document.getElementById('rp-add-label')||{}).value.trim()
+  if(!(amount>0) || !due_date){ toast('Enter an amount and due date','error'); return }
+  const res = await api('/api/rental/agreements/'+agreementId+'/payment-plan/add-installment','POST',{amount, due_date, label})
+  if(res&&res.ok){
+    toast('Installment added to the plan','success')
+    document.getElementById('rental-payments-list-modal')?.remove()
+    openRentalPaymentsListModal(agreementId)
+    loadRentalsPage()
+  } else toast((res&&res.error)||'Error','error')
 }
 
 function switchRentalTab(idx){

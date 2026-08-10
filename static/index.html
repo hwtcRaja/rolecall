@@ -16481,8 +16481,15 @@ function renderCalendar(events){
  const[bg,col]=isCancelled ? ['#FEE2E2','#DC2626']: typeColorPair(e.event_type_color)
  const isAdminCal=canEdit('events')
  const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
+ // A "Rehearsal"/"Performance" chip alone doesn't say which show — prefix
+ // with the production (or program) name so multiple shows rehearsing in
+ // the same week don't look identical on the grid. Rising Stars gets a
+ // small tag too, since its rehearsals otherwise look just like a
+ // mainstage show's of the same event type.
+ const showLabel = e.production_name ? e.production_name+(e.production_stage==='rising_stars'?' (RS)':'') : (e.program_name||'')
+ const chipText = showLabel ? `${showLabel}: ${e.name}` : e.name
  return`<div onclick="openEventChip('${e.id}')" title="${escHtml(e.name+calTimeStr+(e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:''))}${isCancelled?' [CANCELLED]':''}" style="background:${bg};color:${col};border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;margin-bottom:2px;cursor:pointer;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block;min-width:0;${isCancelled?'text-decoration:line-through;opacity:0.7;':''}">
- ${isCancelled?' ':''}${escHtml(e.name)}<span style="opacity:0.7;font-weight:400">${calTimeStr}</span>
+ ${isCancelled?' ':''}${escHtml(chipText)}<span style="opacity:0.7;font-weight:400">${calTimeStr}</span>
  </div>`
  }).join('')}
  ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:1px 3px">+${dayEvents.length-3} more</div>`:''}

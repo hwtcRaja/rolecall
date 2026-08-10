@@ -1782,6 +1782,22 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Fallback Approver Emails (used if no levels configured)</label>
  <textarea id="es-rental-approver-emails" rows="2" placeholder="Enter email addresses, one per line or comma-separated" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
  </div>
+ <div class="form-group">
+ <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Default Contract Terms Template</label>
+ <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px">Used to pre-fill the custom terms field whenever a new Artistic Partnership contract is generated (can still be edited per contract).</div>
+ <textarea id="es-rental-agreement-template" rows="4" placeholder="Optional — leave blank to start each contract from scratch" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+ <div class="form-group">
+ <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Default Contract Signatory</label>
+ <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px">Whoever signs on HWTC's behalf by default — e.g. the board president. Stamped onto the HWTC signature line automatically when a contract is generated; overridable per contract.</div>
+ <input type="text" id="es-rental-signatory-name" placeholder="e.g. Raja Jalernpan" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+ </div>
+ <div class="form-group">
+ <label style="font-size:13px;font-weight:600;display:block;margin-bottom:4px">Title</label>
+ <input type="text" id="es-rental-signatory-title" placeholder="e.g. President" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-top:26px"/>
+ </div>
+ </div>
  </div>
 
  <div style="display:flex;gap:10px">
@@ -8715,6 +8731,8 @@ async function loadEmailSettings(){
  chk('es-alert-new-rsvp', s.alert_new_rsvp!==false)
  chk('es-alert-role-filled', s.alert_role_filled!==false)
  set('es-rental-approver-emails', s.rental_approver_emails||'')
+ set('es-rental-signatory-name', s.rental_signatory_name||'')
+ set('es-rental-signatory-title', s.rental_signatory_title||'')
  const tmplEl = document.getElementById('es-rental-agreement-template')
  if(tmplEl) tmplEl.value = s.rental_agreement_template||''
  loadTwilioSettings(s)
@@ -9689,6 +9707,8 @@ async function saveEmailSettings(){
  alert_role_filled: chk('es-alert-role-filled'),
  alert_waiver_expiry: chk('es-alert-waivers'),
  rental_approver_emails: get('es-rental-approver-emails'),
+ rental_signatory_name: get('es-rental-signatory-name'),
+ rental_signatory_title: get('es-rental-signatory-title'),
  rental_approval_levels: JSON.stringify((window._rentalApprovalLevels||[])),
  rental_agreement_template: (document.getElementById('es-rental-agreement-template')||{}).value||''
  }
@@ -25273,6 +25293,15 @@ async function openGenerateContractModal(rid){
     </div>
    </div>
 
+   <div style="margin-bottom:20px">
+    <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:8px">Signing on HWTC's Behalf</div>
+    <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Defaults to whoever's set up as the org's contract signatory in Settings — change it here to sign as someone else for this one contract instead.</div>
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:10px">
+     <input type="text" id="gen-hwtc-signer-name" placeholder="Name" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+     <input type="text" id="gen-hwtc-signer-title" placeholder="Title" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+    </div>
+   </div>
+
    ${!isTicketed ? `
    <div style="margin-bottom:20px">
     <div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin-bottom:8px">Billing Plan <span style="font-weight:400;text-transform:none;color:var(--text-hint)">— this is what the contract will say, so pick it before sending</span></div>
@@ -25330,6 +25359,13 @@ async function openGenerateContractModal(rid){
   document.body.appendChild(overlay)
   await initContractEquipmentChecklist(rid)
   refreshRentalContractTerms(rid)
+  api('/api/email-settings').then(function(s){
+    if(!s || s.error) return
+    const nameEl = document.getElementById('gen-hwtc-signer-name')
+    const titleEl = document.getElementById('gen-hwtc-signer-title')
+    if(nameEl && !nameEl.value) nameEl.value = s.rental_signatory_name || ''
+    if(titleEl && !titleEl.value) titleEl.value = s.rental_signatory_title || ''
+  })
 }
 
 async function initContractEquipmentChecklist(rid){
@@ -25458,7 +25494,9 @@ async function generateContract(rid){
   const res = await api('/api/rental/requests/'+rid+'/generate-contract','POST',{
     custom_terms: customTerms, additional_terms: additionalTerms, poc_name: pocName, poc_email: pocEmail, poc_phone: pocPhone,
     deposit: depositStr, billing_frequency: billingFrequency, billing_months: billingMonths,
-    revenue_split_notes: revenueSplitNotes, installments_plan: installmentsPlan, equipment_selections: equipmentSelections
+    revenue_split_notes: revenueSplitNotes, installments_plan: installmentsPlan, equipment_selections: equipmentSelections,
+    hwtc_signatory_name: (document.getElementById('gen-hwtc-signer-name')||{}).value||'',
+    hwtc_signatory_title: (document.getElementById('gen-hwtc-signer-title')||{}).value||''
   })
   if(res&&res.ok){
     toast('Agreement generated!','success')

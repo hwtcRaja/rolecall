@@ -21774,6 +21774,23 @@ def create_rental_request():
     conn.close()
     return jsonify({'ok': True, 'id': rid})
 
+def _get_live_installments_plan(conn, agreement_id):
+    """Exhibit A (the itemized payment schedule in the contract document)
+    should always match what's actually been scheduled/invoiced in
+    rental_payments — not the frozen snapshot taken at the moment the
+    contract was first generated, which silently drifts out of sync the
+    first time an installment is added, removed, or corrected afterward
+    (exactly the bug that left an already-added installment missing from
+    a downloaded PDF). Returns None (rather than an empty list) when there
+    are no installment rows yet, so callers know to fall back to whatever
+    was submitted at generation time instead of rendering an empty table."""
+    rows = fetchall(conn, """SELECT amount_cents, due_date, installment_label FROM rental_payments
+        WHERE agreement_id=%s AND payment_type='installment' ORDER BY due_date""", (agreement_id,)) or []
+    if not rows:
+        return None
+    return [{'amount': (r.get('amount_cents') or 0) / 100.0, 'due_date': r.get('due_date') or '',
+             'label': r.get('installment_label') or ''} for r in rows]
+
 def _get_or_create_event_type(conn, name, color='violet'):
     row = fetchone(conn, 'SELECT id FROM event_types WHERE LOWER(name)=LOWER(%s)', (name,))
     if row:
@@ -22124,10 +22141,12 @@ def correct_signed_rental_request(rid):
     deposit = (d.get('deposit') or '').strip()
     revenue_split_notes = (d.get('revenue_split_notes') or req.get('revenue_split_notes') or '').strip()
     billing_frequency = (req.get('billing_frequency') or 'deposit_final')
-    try:
-        installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
-    except Exception:
-        installments_plan = []
+    installments_plan = _get_live_installments_plan(conn, agr['id'])
+    if installments_plan is None:
+        try:
+            installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
+        except Exception:
+            installments_plan = []
     try:
         equipment_selections = json.loads(req.get('equipment_selections') or '[]')
     except Exception:
@@ -22154,6 +22173,65 @@ def correct_signed_rental_request(rid):
     execute(conn, '''UPDATE rental_agreements SET contract_html=%s, custom_terms=%s, poc_name=%s,
         poc_email=%s, poc_phone=%s, additional_terms=%s, admin_notes=%s, updated_at=NOW() WHERE id=%s''',
         (contract_html, custom_terms, poc_name, poc_email, poc_phone, additional_terms, new_notes, agr['id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+def _rebuild_rental_contract_html(conn, agr, req, hwtc_name=None, hwtc_title=None, hwtc_signed_at_dt=None):
+    """Shared rebuild logic used by every action that needs to regenerate
+    a contract's terms in place (correcting a signed contract, adding
+    HWTC's signature, adding an installment, or a plain resync) — keeps
+    all of them pulling installments from the same live source and
+    passing the same signature fields, so they can't drift apart from
+    each other the way the Exhibit A bug did."""
+    installments_plan = _get_live_installments_plan(conn, agr['id'])
+    if installments_plan is None:
+        try:
+            installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
+        except Exception:
+            installments_plan = []
+    try:
+        equipment_selections = json.loads(req.get('equipment_selections') or '[]')
+    except Exception:
+        equipment_selections = []
+    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (agr['request_id'],)) or []
+    if hwtc_name is None:
+        hwtc_name = agr.get('hwtc_signed_name') or ''
+        hwtc_title = agr.get('hwtc_signed_title') or ''
+        _hwtc_dt = parse_db_datetime(agr.get('hwtc_signed_at'))
+        hwtc_signed_at_str = _hwtc_dt.strftime('%B %-d, %Y') if _hwtc_dt else ''
+    else:
+        hwtc_signed_at_str = (hwtc_signed_at_dt or datetime.now()).strftime('%B %-d, %Y')
+    return _build_rental_contract_html(conn, req, agr.get('custom_terms') or '', agr.get('poc_name') or '',
+        agr.get('poc_email') or '', agr.get('poc_phone') or '', '', req.get('revenue_split_notes') or '',
+        req.get('billing_frequency') or 'deposit_final', occurrences, installments_plan, agr.get('additional_terms') or '',
+        equipment_selections, hwtc_name or '', hwtc_title or '', hwtc_signed_at_str)
+
+@app.route('/api/rental/agreements/<aid>/resync-document', methods=['POST'])
+def resync_rental_agreement_document(aid):
+    """Refreshes a contract's document from current live data — dates,
+    total, installment schedule, both signatures — without requiring a
+    correction reason, for whenever the document's just out of sync with
+    RoleCall's records rather than an actual mistake being fixed (e.g. an
+    installment added before Exhibit A auto-refreshed on that action)."""
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (agr['request_id'],))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Rental request not found'}), 404
+    contract_html = _rebuild_rental_contract_html(conn, agr, req)
+    execute(conn, 'UPDATE rental_agreements SET contract_html=%s, updated_at=NOW() WHERE id=%s', (contract_html, aid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -22186,20 +22264,8 @@ def sign_hwtc_rental_agreement(aid):
     if not req:
         conn.close()
         return jsonify({'error': 'Rental request not found'}), 404
-    try:
-        installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
-    except Exception:
-        installments_plan = []
-    try:
-        equipment_selections = json.loads(req.get('equipment_selections') or '[]')
-    except Exception:
-        equipment_selections = []
-    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (agr['request_id'],)) or []
     hwtc_signed_at_dt = datetime.now()
-    contract_html = _build_rental_contract_html(conn, req, agr.get('custom_terms') or '', agr.get('poc_name') or '',
-        agr.get('poc_email') or '', agr.get('poc_phone') or '', '', req.get('revenue_split_notes') or '',
-        req.get('billing_frequency') or 'deposit_final', occurrences, installments_plan, agr.get('additional_terms') or '',
-        equipment_selections, hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_dt.strftime('%B %-d, %Y'))
+    contract_html = _rebuild_rental_contract_html(conn, agr, req, hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_dt)
     execute(conn, '''UPDATE rental_agreements SET contract_html=%s, hwtc_signed_name=%s,
         hwtc_signed_title=%s, hwtc_signed_at=%s, updated_at=NOW() WHERE id=%s''',
         (contract_html, hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_dt, aid))
@@ -23783,26 +23849,13 @@ def add_rental_payment_plan_installment(aid):
         LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
         LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
         WHERE rr.id=%s''', (agr['request_id'],))
-    try:
-        installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
-    except Exception:
-        installments_plan = []
-    installments_plan.append({'amount': amount_cents / 100.0, 'due_date': due_date, 'label': label})
-    installments_plan_json = json.dumps(installments_plan)
-    execute(conn, 'UPDATE rental_requests SET billing_installments_plan=%s WHERE id=%s', (installments_plan_json, agr['request_id']))
-
-    try:
-        equipment_selections = json.loads(req.get('equipment_selections') or '[]')
-    except Exception:
-        equipment_selections = []
-    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (agr['request_id'],)) or []
-    _hwtc_dt = parse_db_datetime(agr.get('hwtc_signed_at'))
-    hwtc_signed_at_str = _hwtc_dt.strftime('%B %-d, %Y') if _hwtc_dt else ''
-    contract_html = _build_rental_contract_html(conn, req,
-        agr.get('custom_terms') or '', agr.get('poc_name') or '', agr.get('poc_email') or '', agr.get('poc_phone') or '',
-        '', req.get('revenue_split_notes') or '', req.get('billing_frequency') or 'deposit_final',
-        occurrences, installments_plan, agr.get('additional_terms') or '', equipment_selections,
-        agr.get('hwtc_signed_name') or '', agr.get('hwtc_signed_title') or '', hwtc_signed_at_str)
+    # Keep the stored snapshot in sync too, purely as a backup/audit copy —
+    # _rebuild_rental_contract_html sources the actual document from the
+    # live rental_payments rows (now including the one just inserted),
+    # so this alone can't cause the same drift again.
+    execute(conn, 'UPDATE rental_requests SET billing_installments_plan=%s WHERE id=%s',
+        (json.dumps(_get_live_installments_plan(conn, aid) or []), agr['request_id']))
+    contract_html = _rebuild_rental_contract_html(conn, agr, req)
     execute(conn, 'UPDATE rental_agreements SET contract_html=%s, updated_at=NOW() WHERE id=%s', (contract_html, aid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': pid})

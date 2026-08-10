@@ -1094,6 +1094,11 @@ def init_db():
         # fails harmlessly and retries next deploy until then) plus the
         # ON CONFLICT DO NOTHING on the insert closes that race for good.
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_events_rental_occurrence ON events(rental_occurrence_id) WHERE rental_occurrence_id IS NOT NULL",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS custom_terms TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS poc_name TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS poc_email TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS poc_phone TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS additional_terms TEXT DEFAULT ''",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
@@ -22028,10 +22033,110 @@ def update_rental_request(rid):
     # is reflected rather than the original. A still-pending request has no
     # occurrences yet (those aren't created until approval), so there's
     # nothing to touch.
-    if existing.get('status') == 'approved':
+    # Only a request that's already on the calendar has occurrences to keep
+    # in sync — clear and regenerate them so an edited date/time is
+    # reflected rather than the original. A still-pending request has no
+    # occurrences yet (those aren't created until approval). Signed/active
+    # requests are included here too: this is purely the operational
+    # calendar (dates, checklist, kiosk) — it doesn't touch the contract
+    # document or the existing signature. For actually correcting the
+    # signed document's terms, see /correct-signed below.
+    if existing.get('status') in ('approved', 'signed', 'active'):
         execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
         _generate_rental_occurrences(conn, rid, d)
         _sync_rental_events_for_request(conn, rid)
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/requests/<rid>/correct-signed', methods=['POST'])
+def correct_signed_rental_request(rid):
+    """Fix a mistake on an already-signed contract (wrong date, fee, space,
+    etc.) without restarting the approve → generate → send → sign
+    workflow. Updates the request's details and calendar the same as a
+    normal edit, then regenerates the contract document's terms in place —
+    same agreement row, same signing link, same recorded signature/date —
+    so nothing needs to be re-sent or re-signed. Requires a short note
+    explaining the correction, which gets appended to the agreement's
+    internal notes as an audit trail."""
+    err = require_permission('rentals')
+    if err: return err
+    import json as _jcsr
+    d = request.json or {}
+    reason = (d.get('correction_note') or '').strip()
+    if not reason:
+        return jsonify({'error': 'A short note explaining the correction is required, for the record'}), 400
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE request_id=%s ORDER BY created_at DESC LIMIT 1', (rid,))
+    if not agr or not agr.get('partner_signed_at'):
+        conn.close()
+        return jsonify({'error': 'This request has no signed agreement — use the regular Edit and Regenerate Contract instead'}), 400
+
+    specific_dates = d.get('specific_dates') or []
+    execute(conn, '''UPDATE rental_requests SET partner_id=%s, space_id=%s, title=%s,
+        purpose=%s, start_date=%s, end_date=%s, start_time=%s, end_time=%s,
+        recurring=%s, recurrence_pattern=%s, recurrence_end_date=%s,
+        date_mode=%s, specific_dates=%s,
+        estimated_attendance=%s, rate_type=%s, rate_amount=%s, total_amount=%s,
+        notes=%s, partnership_category=%s, revenue_split_notes=%s, updated_at=NOW() WHERE id=%s''',
+        (d.get('partner_id') or None, d.get('space_id') or None,
+         (d.get('title') or '').strip(), (d.get('purpose') or '').strip(),
+         (d.get('start_date') or '').strip(), (d.get('end_date') or '').strip(),
+         (d.get('start_time') or '').strip(), (d.get('end_time') or '').strip(),
+         bool(d.get('recurring')), (d.get('recurrence_pattern') or '').strip(),
+         (d.get('recurrence_end_date') or '').strip(),
+         (d.get('date_mode') or 'range').strip(), _jcsr.dumps(specific_dates),
+         d.get('estimated_attendance') or None,
+         d.get('rate_type') or 'Hour',
+         int(d.get('rate_amount') or 0), int(d.get('total_amount') or 0),
+         (d.get('notes') or '').strip(),
+         (d.get('partnership_category') or 'open_partnership').strip(),
+         (d.get('revenue_split_notes') or '').strip(), rid))
+
+    execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+    _generate_rental_occurrences(conn, rid, d)
+    _sync_rental_events_for_request(conn, rid)
+
+    # Rebuild the contract *terms* using the same inputs the original
+    # generation used (persisted on the agreement row) unless this request
+    # explicitly overrides one — the signature itself is never touched,
+    # since it's stored separately (partner_signed_name/at) and combined
+    # with contract_html only at view/download time.
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (rid,))
+    custom_terms = d.get('custom_terms') if d.get('custom_terms') is not None else (agr.get('custom_terms') or '')
+    poc_name = d.get('poc_name') if d.get('poc_name') is not None else (agr.get('poc_name') or '')
+    poc_email = d.get('poc_email') if d.get('poc_email') is not None else (agr.get('poc_email') or '')
+    poc_phone = d.get('poc_phone') if d.get('poc_phone') is not None else (agr.get('poc_phone') or '')
+    additional_terms = d.get('additional_terms') if d.get('additional_terms') is not None else (agr.get('additional_terms') or '')
+    deposit = (d.get('deposit') or '').strip()
+    revenue_split_notes = (d.get('revenue_split_notes') or req.get('revenue_split_notes') or '').strip()
+    billing_frequency = (req.get('billing_frequency') or 'deposit_final')
+    try:
+        installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
+    except Exception:
+        installments_plan = []
+    try:
+        equipment_selections = json.loads(req.get('equipment_selections') or '[]')
+    except Exception:
+        equipment_selections = []
+    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
+    contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone,
+        deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms, equipment_selections)
+
+    staff = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    staff_name = (staff or {}).get('name', 'Staff')
+    signed_note = f"{agr.get('partner_signed_name','')} on {str(agr.get('partner_signed_at',''))[:10]}"
+    audit_line = f"[{date.today().isoformat()}] Contract corrected by {staff_name}: {reason} (original signature by {signed_note} retained — no re-signature required)"
+    new_notes = ((agr.get('admin_notes') or '') + ('\n' if agr.get('admin_notes') else '') + audit_line)
+
+    execute(conn, '''UPDATE rental_agreements SET contract_html=%s, custom_terms=%s, poc_name=%s,
+        poc_email=%s, poc_phone=%s, additional_terms=%s, admin_notes=%s, updated_at=NOW() WHERE id=%s''',
+        (contract_html, custom_terms, poc_name, poc_email, poc_phone, additional_terms, new_notes, agr['id']))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -22298,9 +22403,9 @@ def generate_rental_contract(rid):
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
     execute(conn, '''INSERT INTO rental_agreements
-        (id, request_id, contract_html, signing_token, status)
-        VALUES (%s,%s,%s,%s,'draft')''',
-        (aid, rid, contract_html, token))
+        (id, request_id, contract_html, signing_token, status, custom_terms, poc_name, poc_email, poc_phone, additional_terms)
+        VALUES (%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s)''',
+        (aid, rid, contract_html, token, custom_terms, poc_name, poc_email, poc_phone, additional_terms))
     conn.commit(); conn.close()
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
@@ -22922,20 +23027,20 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style
 {terms_html}
 <h3 style="color:#0d3d4d;margin-top:20px">3. SIGNATURES</h3>
 <p>By signing below, both parties agree to the terms and conditions of this {doc_title.title()}, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
-<div style="border-top:2px solid #0d3d4d;padding-top:8px">
+<table style="width:100%;border-collapse:collapse;margin-top:24px"><tr>
+<td style="width:50%;vertical-align:top;padding-right:14px;border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">Horizon West Theater Company</div>
 <div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>
-</div>
-<div style="border-top:2px solid #0d3d4d;padding-top:8px">
+</td>
+<td style="width:50%;vertical-align:top;padding-left:14px;border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">{partner_name}</div>
 <div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>
-</div>
-</div>
+</td>
+</tr></table>
 {exhibit_html}
 {exhibit_b_html}
 </body></html>'''
@@ -23107,12 +23212,12 @@ def _pdf_safe_html(html):
     return html
 
 def _wrap_contract_pdf_html(contract_html, signature_block=''):
-    """contract_html is already a complete, standalone HTML document (see
-    _build_rental_contract_html). If a signature block is supplied, splice
-    it in just before the closing </body> tag rather than wrapping the
-    whole thing in a second <html>/<body> shell — nesting two full
-    documents is what made xhtml2pdf render bloated, oddly-spaced,
-    many-page PDFs."""
+    """Deprecated append-at-the-end path — kept only as a fallback for
+    _stamp_signature_in_contract when the expected signature-line markup
+    isn't found (e.g. a contract generated before this template existed).
+    Splices right before </body> rather than wrapping in a second
+    <html>/<body> shell, since nesting two full documents is what made
+    xhtml2pdf render bloated, oddly-spaced, many-page PDFs."""
     if not signature_block:
         return contract_html
     idx = contract_html.rfind('</body>')
@@ -23120,15 +23225,42 @@ def _wrap_contract_pdf_html(contract_html, signature_block=''):
         return contract_html + signature_block
     return contract_html[:idx] + signature_block + contract_html[idx:]
 
-def _generate_contract_pdf(contract_html, signed_name, signed_at_str):
-    """Render the contract HTML plus a signature footer to a PDF, returned
-    as base64-encoded bytes ready for an email attachment."""
+def _stamp_signature_in_contract(contract_html, signed_name, signed_at_str):
+    """Fill the partner's actual signature line in the SIGNATURES section
+    (see _build_rental_contract_html) rather than appending a separate
+    'Signed by / Date' block after the exhibits — a signed contract should
+    show the signature where a signature goes, not as a footnote below
+    Exhibit B."""
+    if not signed_name:
+        return contract_html
+    placeholder = (
+        '<div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff"></div>\n'
+        '<div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>'
+    )
+    stamped = (
+        '<div style="margin-top:12px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff;'
+        'padding-bottom:6px;display:flex;align-items:flex-end">'
+        '<span style="font-family:\'Brush Script MT\',\'Segoe Script\',cursive;font-size:24px;color:#0d3d4d">'
+        + signed_name + '</span></div>\n'
+        '<div style="font-size:11px;color:#6b7280;margin-top:4px">Signed electronically on ' + (signed_at_str or '') + '</div>'
+    )
+    if placeholder in contract_html:
+        return contract_html.replace(placeholder, stamped)
+    # Fallback for any contract predating this exact markup (e.g. one that
+    # was signed before this fix shipped) — better a visible signature
+    # somewhere than a silently dropped one.
     signature_block = (
         '<div style="margin-top:24px;padding-top:16px;border-top:2px solid #145466">'
-        '<strong>Signed by:</strong> ' + (signed_name or '') + '<br>'
+        '<strong>Signed by:</strong> ' + signed_name + '<br>'
         '<strong>Date:</strong> ' + (signed_at_str or '') + '</div>'
     )
-    return _html_to_pdf_b64(_wrap_contract_pdf_html(contract_html, signature_block))
+    return _wrap_contract_pdf_html(contract_html, signature_block)
+
+def _generate_contract_pdf(contract_html, signed_name, signed_at_str):
+    """Render the contract HTML, with the partner's signature stamped onto
+    its actual signature line, to a PDF returned as base64-encoded bytes
+    ready for an email attachment or download."""
+    return _html_to_pdf_b64(_stamp_signature_in_contract(contract_html, signed_name, signed_at_str))
 
 def _rental_pdf_response(pdf_b64, filename):
     import base64

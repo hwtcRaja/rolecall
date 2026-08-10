@@ -1099,6 +1099,11 @@ def init_db():
         "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS poc_email TEXT DEFAULT ''",
         "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS poc_phone TEXT DEFAULT ''",
         "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS additional_terms TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS hwtc_signed_name TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS hwtc_signed_title TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS hwtc_signed_at TIMESTAMP",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_signatory_name TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_signatory_title TEXT DEFAULT ''",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
@@ -9110,6 +9115,7 @@ def save_email_settings_route():
     conn = get_db()
     # Ensure rental columns exist
     for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'', 'rental_agreement_template TEXT DEFAULT \'\'',
+                'rental_signatory_name TEXT DEFAULT \'\'', 'rental_signatory_title TEXT DEFAULT \'\'',
                 'twilio_account_sid TEXT DEFAULT \'\'', 'twilio_auth_token TEXT DEFAULT \'\'',
                 'twilio_phone TEXT DEFAULT \'\'', 'twilio_fallback_phone TEXT DEFAULT \'\'',
                 'twilio_voice_greeting TEXT DEFAULT \'\'',
@@ -9155,6 +9161,7 @@ def save_email_settings_route():
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
         'rental_approver_emails','rental_approval_levels','rental_agreement_template',
+        'rental_signatory_name','rental_signatory_title',
         'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone',
         'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable',
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
@@ -22125,8 +22132,16 @@ def correct_signed_rental_request(rid):
     except Exception:
         equipment_selections = []
     occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
+    # Carry the org's own signature forward unchanged — it was stamped
+    # directly into contract_html at generation time (unlike the
+    # partner's, which is layered on at view/download time), so rebuilding
+    # the terms would otherwise silently blank it out.
+    hwtc_signer_name = agr.get('hwtc_signed_name') or ''
+    hwtc_signer_title = agr.get('hwtc_signed_title') or ''
+    hwtc_signed_at_str = agr.get('hwtc_signed_at').strftime('%B %-d, %Y') if agr.get('hwtc_signed_at') else ''
     contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone,
-        deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms, equipment_selections)
+        deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms, equipment_selections,
+        hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_str)
 
     staff = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
     staff_name = (staff or {}).get('name', 'Staff')
@@ -22393,19 +22408,35 @@ def generate_rental_contract(rid):
     execute(conn, 'UPDATE rental_requests SET billing_frequency=%s, billing_months=%s, billing_installments_plan=%s, equipment_selections=%s WHERE id=%s',
         (billing_frequency, billing_months, installments_plan_json, equipment_selections_json, rid))
     # If no custom terms provided, load default template from email_settings
+    es_for_terms = None
     if not custom_terms:
-        es = get_email_settings()
-        custom_terms = (es.get('rental_agreement_template') or '').strip()
+        es_for_terms = get_email_settings()
+        custom_terms = (es_for_terms.get('rental_agreement_template') or '').strip()
     additional_terms = (d.get('additional_terms') or '').strip()
+
+    # HWTC's own countersignature — defaults to whoever's configured as the
+    # org's contract signatory in Settings, but the person generating this
+    # particular contract can override it (e.g. sign as themselves instead).
+    hwtc_signer_name = (d.get('hwtc_signatory_name') or '').strip()
+    hwtc_signer_title = (d.get('hwtc_signatory_title') or '').strip()
+    if not hwtc_signer_name:
+        es_for_sig = es_for_terms if es_for_terms is not None else get_email_settings()
+        hwtc_signer_name = (es_for_sig.get('rental_signatory_name') or '').strip()
+        hwtc_signer_title = (es_for_sig.get('rental_signatory_title') or '').strip()
+    hwtc_signed_at_dt = datetime.now() if hwtc_signer_name else None
+    hwtc_signed_at_str = hwtc_signed_at_dt.strftime('%B %-d, %Y') if hwtc_signed_at_dt else ''
+
     occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
-    contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms, equipment_selections)
+    contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms, equipment_selections, hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_str)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
     execute(conn, '''INSERT INTO rental_agreements
-        (id, request_id, contract_html, signing_token, status, custom_terms, poc_name, poc_email, poc_phone, additional_terms)
-        VALUES (%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s)''',
-        (aid, rid, contract_html, token, custom_terms, poc_name, poc_email, poc_phone, additional_terms))
+        (id, request_id, contract_html, signing_token, status, custom_terms, poc_name, poc_email, poc_phone, additional_terms,
+         hwtc_signed_name, hwtc_signed_title, hwtc_signed_at)
+        VALUES (%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (aid, rid, contract_html, token, custom_terms, poc_name, poc_email, poc_phone, additional_terms,
+         hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_dt))
     conn.commit(); conn.close()
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
@@ -22852,7 +22883,7 @@ def _project_rental_dates(req, cap=104):
         cur += _dtp.timedelta(days=1)
     return dates, False, ''
 
-def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None, installments_plan=None, additional_terms='', equipment_selections=None):
+def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None, installments_plan=None, additional_terms='', equipment_selections=None, hwtc_signer_name='', hwtc_signer_title='', hwtc_signed_at=''):
     import datetime as _dtc
     import json as _dtj
     today = _dtc.date.today().strftime('%B %d, %Y')
@@ -22996,6 +23027,25 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
 <tbody>{eq_rows}</tbody>
 </table>'''
 
+    # HWTC's own signature line — filled in immediately at generation time
+    # (unlike the partner's, which is stamped later once they actually
+    # sign via the emailed link). Left blank, exactly as before, when no
+    # signatory name was provided.
+    if hwtc_signer_name:
+        hwtc_signed_date_str = hwtc_signed_at or datetime.now().strftime('%B %-d, %Y')
+        hwtc_sig_line_html = (
+            f'<div style="margin-top:12px;border-bottom:1px solid #9ca3af;min-height:32px;'
+            f'padding-bottom:6px;display:flex;align-items:flex-end">'
+            f'<span style="font-family:\'Brush Script MT\',\'Segoe Script\',cursive;font-size:24px;color:#0d3d4d">{hwtc_signer_name}</span></div>'
+        )
+        hwtc_sig_caption_html = (
+            f'<div style="font-size:11px;color:#6b7280;margin-top:4px">Signed electronically on {hwtc_signed_date_str}'
+            + (f' — {hwtc_signer_title}' if hwtc_signer_title else '') + '</div>'
+        )
+    else:
+        hwtc_sig_line_html = '<div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>'
+        hwtc_sig_caption_html = '<div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>'
+
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
 h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
@@ -23031,8 +23081,8 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style
 <td style="width:50%;vertical-align:top;padding-right:14px;border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">Horizon West Theater Company</div>
 <div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
-<div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>
-<div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>
+{hwtc_sig_line_html}
+{hwtc_sig_caption_html}
 </td>
 <td style="width:50%;vertical-align:top;padding-left:14px;border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">{partner_name}</div>

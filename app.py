@@ -22139,7 +22139,8 @@ def correct_signed_rental_request(rid):
     # the terms would otherwise silently blank it out.
     hwtc_signer_name = agr.get('hwtc_signed_name') or ''
     hwtc_signer_title = agr.get('hwtc_signed_title') or ''
-    hwtc_signed_at_str = agr.get('hwtc_signed_at').strftime('%B %-d, %Y') if agr.get('hwtc_signed_at') else ''
+    _hwtc_signed_dt = parse_db_datetime(agr.get('hwtc_signed_at'))
+    hwtc_signed_at_str = _hwtc_signed_dt.strftime('%B %-d, %Y') if _hwtc_signed_dt else ''
     contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone,
         deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms, equipment_selections,
         hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_str)
@@ -23742,7 +23743,14 @@ def add_rental_payment_plan_installment(aid):
     added date pushed the total up after some installments were already
     invoiced/paid. Doesn't touch any existing installment; the new one is
     'scheduled' like any other and picked up by the same auto-send/manual
-    Send Now flow as the rest of the plan."""
+    Send Now flow as the rest of the plan.
+
+    Also updates the frozen payment-plan snapshot on the request and
+    regenerates the contract document, so Exhibit A in the signed copy
+    actually shows the new installment — RoleCall's own invoice records
+    and the document a partner can download were drifting apart otherwise,
+    since Exhibit A is rendered from that snapshot, not from the live
+    rental_payments rows."""
     err = require_permission('rentals')
     if err: return err
     d = request.json or {}
@@ -23754,7 +23762,7 @@ def add_rental_payment_plan_installment(aid):
     if amount_cents <= 0 or not due_date:
         return jsonify({'error': 'Amount and due date are required'}), 400
     conn = get_db()
-    agr = fetchone(conn, 'SELECT id FROM rental_agreements WHERE id=%s', (aid,))
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
     if not agr:
         conn.close()
         return jsonify({'error': 'Agreement not found'}), 404
@@ -23767,6 +23775,35 @@ def add_rental_payment_plan_installment(aid):
         (id, agreement_id, payment_type, amount_cents, due_date, square_invoice_status, created_by, installment_label)
         VALUES (%s,%s,'installment',%s,%s,'scheduled',%s,%s)''',
         (pid, aid, amount_cents, due_date, created_by, label))
+
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (agr['request_id'],))
+    try:
+        installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
+    except Exception:
+        installments_plan = []
+    installments_plan.append({'amount': amount_cents / 100.0, 'due_date': due_date, 'label': label})
+    installments_plan_json = json.dumps(installments_plan)
+    execute(conn, 'UPDATE rental_requests SET billing_installments_plan=%s WHERE id=%s', (installments_plan_json, agr['request_id']))
+
+    try:
+        equipment_selections = json.loads(req.get('equipment_selections') or '[]')
+    except Exception:
+        equipment_selections = []
+    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (agr['request_id'],)) or []
+    _hwtc_dt = parse_db_datetime(agr.get('hwtc_signed_at'))
+    hwtc_signed_at_str = _hwtc_dt.strftime('%B %-d, %Y') if _hwtc_dt else ''
+    contract_html = _build_rental_contract_html(conn, req,
+        agr.get('custom_terms') or '', agr.get('poc_name') or '', agr.get('poc_email') or '', agr.get('poc_phone') or '',
+        '', req.get('revenue_split_notes') or '', req.get('billing_frequency') or 'deposit_final',
+        occurrences, installments_plan, agr.get('additional_terms') or '', equipment_selections,
+        agr.get('hwtc_signed_name') or '', agr.get('hwtc_signed_title') or '', hwtc_signed_at_str)
+    execute(conn, 'UPDATE rental_agreements SET contract_html=%s, updated_at=NOW() WHERE id=%s', (contract_html, aid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': pid})
 

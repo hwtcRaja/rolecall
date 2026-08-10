@@ -23736,6 +23736,40 @@ def create_rental_payment_plan(aid):
         return jsonify({'error': 'Could not save any installments', 'failures': failures}), 400
     return jsonify({'ok': True, 'created': created_ids, 'failures': failures, 'payment_plan_url': payment_plan_url})
 
+@app.route('/api/rental/agreements/<aid>/payment-plan/add-installment', methods=['POST'])
+def add_rental_payment_plan_installment(aid):
+    """Adds one extra installment to an existing payment plan — e.g. an
+    added date pushed the total up after some installments were already
+    invoiced/paid. Doesn't touch any existing installment; the new one is
+    'scheduled' like any other and picked up by the same auto-send/manual
+    Send Now flow as the rest of the plan."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    try:
+        amount_cents = int(round(float(d.get('amount') or 0) * 100))
+    except (TypeError, ValueError):
+        amount_cents = 0
+    due_date = (d.get('due_date') or '').strip()
+    if amount_cents <= 0 or not due_date:
+        return jsonify({'error': 'Amount and due date are required'}), 400
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT id FROM rental_agreements WHERE id=%s', (aid,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    existing_count = fetchone(conn, "SELECT COUNT(*) AS c FROM rental_payments WHERE agreement_id=%s AND payment_type='installment'", (aid,))
+    label = (d.get('label') or '').strip() or f"Additional Payment {(existing_count.get('c') or 0) + 1}"
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    created_by = (user or {}).get('name', 'RoleCall')
+    pid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_payments
+        (id, agreement_id, payment_type, amount_cents, due_date, square_invoice_status, created_by, installment_label)
+        VALUES (%s,%s,'installment',%s,%s,'scheduled',%s,%s)''',
+        (pid, aid, amount_cents, due_date, created_by, label))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': pid})
+
 @app.route('/api/rental/payments/<pid>/send-invoice', methods=['POST'])
 def send_scheduled_rental_invoice_route(pid):
     """Manually send a scheduled installment's Square invoice early — e.g.

@@ -66,6 +66,17 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .main-content{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
 .page{display:none;flex:1;flex-direction:column;min-height:0}
 [data-placeholder]:empty:before{content:attr(data-placeholder);color:#9ca3af}
+/* Third-party HTML emails (newsletters etc.) often use fixed-pixel-width
+   tables that don't respect their container — this forces them to shrink
+   to fit instead of pushing out a horizontal scrollbar. The !important
+   on a stylesheet rule beats a plain inline style/width attribute without
+   its own !important, so this works even on emails that set width="650"
+   directly on <table>. overflow-x:auto stays as a fallback for anything
+   that still can't shrink (e.g. a wide unscaled image). */
+.inbox-msg-body{max-width:100%;overflow-x:auto}
+.inbox-msg-body table{max-width:100% !important;width:auto !important}
+.inbox-msg-body img{max-width:100% !important;height:auto !important}
+.inbox-msg-body td,.inbox-msg-body div{max-width:100%}
 .page.active{display:flex}
 .page-header{padding:28px 32px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .page-title{font-size:22px;font-weight:600;letter-spacing:-0.3px}
@@ -7995,7 +8006,7 @@ async function openInboxThread(tid){
      + '<strong style="color:'+(out?'#145466':'#374151')+'">'+(out?'HWTC ('+escHtml(m.sent_by||'')+')':escHtml(m.from_name||m.from_email||''))+'</strong>'
      + '<span>'+(m.created_at?m.created_at.slice(0,16).replace('T',' '):'')+'</span></div>'
      + ccHtml
-     + '<div style="font-size:13.5px;line-height:1.5">'+(m.body_html||('<div style="white-space:pre-wrap">'+escHtml(m.body_text||'')+'</div>'))+'</div>'
+     + '<div class="inbox-msg-body" style="font-size:13.5px;line-height:1.5">'+(m.body_html||('<div style="white-space:pre-wrap">'+escHtml(m.body_text||'')+'</div>'))+'</div>'
      + attHtml + '</div>'
  }).join('')
 
@@ -8075,7 +8086,7 @@ async function openInboxThread(tid){
    + '<div style="font-size:10px;color:var(--text-muted);cursor:pointer;text-decoration:underline" onclick="openInboxMergeModal(\''+t.id+'\')">⇄ Merge with another conversation</div>'
    + '</div>'
 
- overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:1060px;height:82vh;display:flex;flex-direction:column;padding:0;overflow:hidden">'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:1320px;height:88vh;display:flex;flex-direction:column;padding:0;overflow:hidden">'
    + '<div style="padding:18px 24px 12px;border-bottom:1px solid var(--border);flex-shrink:0">'
    + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
    + '<div style="font-size:17px;font-weight:800;color:var(--teal-dark)">'+escHtml(t.subject||'(no subject)')+'</div>'

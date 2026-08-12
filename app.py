@@ -20397,11 +20397,10 @@ def _process_inbound_email(conn, raw_bytes):
             VALUES (%s,%s,%s,%s,%s,%s)""",
             (str(uuid.uuid4()), mid, att['filename'], att['content_type'],
              _b64inbox.b64encode(att['data']).decode(), len(att['data'])))
-    if is_new_thread:
-        try:
-            _notify_inbox_new_thread(conn, thread_id)
-        except Exception as e:
-            app.logger.warning(f'Inbox new-thread notification error: {e}')
+    # Notifying the whole team on every single new conversation was way
+    # too noisy in practice — dropped in favor of notifying just the
+    # person a thread gets assigned to (_notify_inbox_assigned, fired
+    # from update_inbox_thread / assign_inbox_thread_to_me instead).
 
 def check_inbox_for_new_mail():
     """Checked periodically by the scheduler. Safe to run concurrently

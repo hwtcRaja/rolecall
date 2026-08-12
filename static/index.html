@@ -473,6 +473,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports"></span>Reports</div>
         <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
+        <div class="nav-item" onclick="navTo('inbox',this)"><span class="nav-icon" id="ni-inbox"></span>Inbox<span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('responsibility',this)"><span class="nav-icon" id="ni-responsibility"></span>Responsibility Grid</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications"></span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings"></span>Settings</div>
@@ -1570,6 +1571,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div id="btab-panel-schedule" style="display:none"></div>
  <div id="btab-panel-applications" style="display:none"></div>
  </div>
+ </section>
+
+ <!-- INBOX PAGE (info@ shared inbox) -->
+ <section class="page" id="page-inbox">
+ <div class="page-header">
+ <div><div class="page-title">Inbox</div><div class="page-subtitle" id="inbox-subtitle">Loading…</div></div>
+ <div class="page-actions">
+ <button class="btn btn-secondary" onclick="refreshInboxNow()" id="inbox-refresh-btn">↻ Check for New Mail</button>
+ </div>
+ </div>
+ <div id="inbox-content"></div>
  </section>
 
  <section class="page" id="page-responsibility">
@@ -4021,6 +4033,7 @@ const NAV_PERM_MAP = {
  'notifications': 'settings',
  'settings': 'settings',
  'board': 'board',
+ 'inbox': 'inbox',
  'donors': 'donors',
  'donor-detail': 'donors',
  'donor-campaigns': 'donors',
@@ -4129,6 +4142,7 @@ function navTo(page,el){
  if(page==='event-logs') loadEventLogs()
  if(page==='reports') initReportsPage()
  if(page==='board') loadBoardPage()
+ if(page==='inbox') loadInboxPage()
  if(page==='youth') renderYouth()
  if(page==='youth-programs-page') renderYouthProgramsPage()
  if(page==='rising-stars-page') renderRisingStarsPage()
@@ -7823,6 +7837,185 @@ async function deleteBoardApplication(aid){
    document.getElementById('board-app-detail-overlay')?.remove()
    renderBoardApplicationsTab()
    loadBoardPage()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+// ── Shared Inbox (info@) ───────────────────────────────────────────
+var _inboxThreads = []
+var _inboxFilter = {status:'all', assigned:'all'}
+var _inboxOpenThreadId = null
+
+async function loadInboxPage(){
+ var status = await api('/api/inbox/status')
+ if(status && status.configured===false){
+   document.getElementById('inbox-subtitle').textContent = 'Not connected yet'
+   document.getElementById('inbox-content').innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">The shared inbox isn\'t connected yet — INFO_INBOX_EMAIL and INFO_INBOX_APP_PASSWORD need to be set on the server first.</div>'
+   return
+ }
+ await renderInboxThreadList()
+}
+
+async function refreshInboxNow(){
+ var btn = document.getElementById('inbox-refresh-btn')
+ if(btn){ btn.disabled=true; btn.textContent='Checking…' }
+ var res = await api('/api/inbox/check-now','POST',{})
+ if(btn){ btn.disabled=false; btn.textContent='↻ Check for New Mail' }
+ if(res&&res.ok){ toast('Checked for new mail','success'); renderInboxThreadList() }
+ else toast((res&&res.error)||'Error','error')
+}
+
+function setInboxFilter(key, val){
+ _inboxFilter[key] = val
+ renderInboxThreadList()
+}
+
+async function renderInboxThreadList(){
+ var qs = []
+ if(_inboxFilter.status!=='all') qs.push('status='+_inboxFilter.status)
+ if(_inboxFilter.assigned!=='all') qs.push('assigned='+_inboxFilter.assigned)
+ var threads = await api('/api/inbox/threads'+(qs.length?'?'+qs.join('&'):''))
+ _inboxThreads = Array.isArray(threads) ? threads : []
+ var unreadCount = _inboxThreads.filter(function(t){ return t.unread }).length
+ var badge = document.getElementById('inbox-nav-badge')
+ if(badge){ badge.textContent = unreadCount; badge.style.display = unreadCount?'':'none' }
+ document.getElementById('inbox-subtitle').textContent = _inboxThreads.length+' conversation'+(_inboxThreads.length!==1?'s':'')
+
+ var statusFilters = [{v:'all',l:'All'},{v:'open',l:'Open'},{v:'pending',l:'Pending'},{v:'closed',l:'Closed'}]
+ var assignedFilters = [{v:'all',l:'Everyone'},{v:'unassigned',l:'Unassigned'},{v:'mine',l:'Assigned to Me'}]
+ var html = '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">'
+   + statusFilters.map(function(f){
+       var active = _inboxFilter.status===f.v
+       return '<button onclick="setInboxFilter(\'status\',\''+f.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+'</button>'
+     }).join('')
+   + '</div><div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">'
+   + assignedFilters.map(function(f){
+       var active = _inboxFilter.assigned===f.v
+       return '<button onclick="setInboxFilter(\'assigned\',\''+f.v+'\')" style="padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:600;border:1px solid '+(active?'#6d28d9':'var(--border)')+';background:'+(active?'#ede9fe':'var(--surface)')+';color:'+(active?'#6d28d9':'var(--text-muted)')+';cursor:pointer">'+f.l+'</button>'
+     }).join('')
+   + '</div>'
+
+ if(!_inboxThreads.length){
+   html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">Nothing here right now.</div>'
+ } else {
+   html += _inboxThreads.map(function(t){
+     var statusMeta = {open:{c:'#166534',bg:'#dcfce7'}, pending:{c:'#92400e',bg:'#fef3c7'}, closed:{c:'#6b7280',bg:'#f3f4f6'}}[t.status] || {c:'#6b7280',bg:'#f3f4f6'}
+     var preview = (t.last_body_text||'').replace(/\s+/g,' ').trim().slice(0,110)
+     return '<div class="card" style="padding:14px 16px;margin-bottom:8px;cursor:pointer;'+(t.unread?'border-left:3px solid #145466':'')+'" onclick="openInboxThread(\''+t.id+'\')">'
+       + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
+       + '<div style="min-width:0;flex:1">'
+       + '<div style="font-weight:'+(t.unread?'800':'600')+';font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(t.participant_name||t.participant_email||'Unknown')+'</div>'
+       + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(t.subject||'(no subject)')+'</div>'
+       + (preview?'<div style="font-size:11.5px;color:#9ca3af;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(preview)+'</div>':'')
+       + '</div>'
+       + '<div style="text-align:right;flex-shrink:0">'
+       + '<span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;background:'+statusMeta.bg+';color:'+statusMeta.c+'">'+t.status.toUpperCase()+'</span>'
+       + (t.assigned_to?'<div style="font-size:11px;color:var(--text-muted);margin-top:5px">👤 '+escHtml(t.assigned_to)+'</div>':'')
+       + '<div style="font-size:10.5px;color:#9ca3af;margin-top:4px">'+(t.last_message_at?t.last_message_at.slice(0,10):'')+'</div>'
+       + '</div></div></div>'
+   }).join('')
+ }
+ document.getElementById('inbox-content').innerHTML = html
+}
+
+async function openInboxThread(tid){
+ var t = await api('/api/inbox/threads/'+tid)
+ if(!t || t.error){ toast((t&&t.error)||'Could not load conversation','error'); return }
+ _inboxOpenThreadId = tid
+ var overlay = document.createElement('div')
+ overlay.id = 'inbox-thread-overlay'
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ var statusMeta = {open:{c:'#166534',bg:'#dcfce7'}, pending:{c:'#92400e',bg:'#fef3c7'}, closed:{c:'#6b7280',bg:'#f3f4f6'}}[t.status] || {c:'#6b7280',bg:'#f3f4f6'}
+ var messagesHtml = (t.messages||[]).map(function(m){
+   var out = m.direction==='outbound'
+   return '<div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:'+(out?'#f0f8fa':'var(--bg)')+';border:1px solid '+(out?'#d3e9ee':'var(--border)')+'">'
+     + '<div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-muted);margin-bottom:6px">'
+     + '<strong style="color:'+(out?'#145466':'#374151')+'">'+(out?'HWTC ('+escHtml(m.sent_by||'')+')':escHtml(m.from_name||m.from_email||''))+'</strong>'
+     + '<span>'+(m.created_at?m.created_at.slice(0,16).replace('T',' '):'')+'</span></div>'
+     + '<div style="font-size:13.5px;line-height:1.5">'+(m.body_html||('<div style="white-space:pre-wrap">'+escHtml(m.body_text||'')+'</div>'))+'</div></div>'
+ }).join('')
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:680px;max-height:90vh;display:flex;flex-direction:column;padding:0">'
+   + '<div style="padding:20px 24px 14px;border-bottom:1px solid var(--border)">'
+   + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
+   + '<div><div style="font-size:17px;font-weight:800;color:var(--teal-dark)">'+escHtml(t.subject||'(no subject)')+'</div>'
+   + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">'+escHtml(t.participant_name||'')+' · '+escHtml(t.participant_email||'')+'</div></div>'
+   + '<button onclick="document.getElementById(\'inbox-thread-overlay\').remove()" style="background:none;border:none;font-size:20px;color:var(--text-muted);cursor:pointer;line-height:1">×</button>'
+   + '</div>'
+   + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">'
+   + ['open','pending','closed'].map(function(s){
+       var active = t.status===s
+       var m = {open:{c:'#166534',bg:'#dcfce7'}, pending:{c:'#92400e',bg:'#fef3c7'}, closed:{c:'#6b7280',bg:'#f3f4f6'}}[s]
+       return '<button onclick="setInboxThreadStatus(\''+t.id+'\',\''+s+'\')" style="padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:700;border:1.5px solid '+(active?m.c:'var(--border)')+';background:'+(active?m.bg:'var(--surface)')+';color:'+(active?m.c:'var(--text-muted)')+';cursor:pointer">'+s.charAt(0).toUpperCase()+s.slice(1)+'</button>'
+     }).join('')
+   + '<input type="text" id="inbox-assign-input" value="'+escHtml(t.assigned_to||'')+'" placeholder="Unassigned" onchange="assignInboxThread(\''+t.id+'\')" style="padding:5px 10px;border-radius:20px;font-size:11.5px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-muted);width:130px"/>'
+   + '<button onclick="assignInboxThreadToMe(\''+t.id+'\')" style="padding:5px 10px;border-radius:20px;font-size:11.5px;font-weight:600;border:1.5px solid var(--border);background:var(--surface);color:var(--text-muted);cursor:pointer">Assign to Me</button>'
+   + '</div></div>'
+   + '<div style="padding:16px 24px;overflow-y:auto;flex:1">'+(messagesHtml||'<div style="color:var(--text-muted);font-size:13px">No messages.</div>')+'</div>'
+   + '<div style="padding:14px 24px;border-top:1px solid var(--border)">'
+   + '<textarea id="inbox-reply-body" rows="3" placeholder="Write a reply as info@hwtco.org…" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13.5px;resize:vertical;box-sizing:border-box;margin-bottom:8px"></textarea>'
+   + '<div style="display:flex;justify-content:space-between;align-items:center">'
+   + '<span style="font-size:11px;color:var(--text-muted);cursor:pointer" onclick="toggleInboxNotes(\''+t.id+'\')">📝 Internal Notes</span>'
+   + '<button class="btn btn-primary btn-sm" onclick="sendInboxReply(\''+t.id+'\')">Send Reply</button>'
+   + '</div>'
+   + '<div id="inbox-notes-wrap" style="display:none;margin-top:10px">'
+   + '<textarea id="inbox-notes" rows="2" placeholder="Only your team can see this" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">'+escHtml(t.internal_notes||'')+'</textarea>'
+   + '<button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="saveInboxNotes(\''+t.id+'\')">Save Notes</button>'
+   + '</div></div></div>'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+ // Scroll message list to the bottom (most recent) once rendered
+ var msgWrap = overlay.querySelector('div[style*="overflow-y:auto"]')
+ if(msgWrap) msgWrap.scrollTop = msgWrap.scrollHeight
+}
+
+function toggleInboxNotes(tid){
+ var wrap = document.getElementById('inbox-notes-wrap')
+ if(wrap) wrap.style.display = wrap.style.display==='none' ? '' : 'none'
+}
+
+async function saveInboxNotes(tid){
+ var notes = (document.getElementById('inbox-notes')||{}).value||''
+ var res = await api('/api/inbox/threads/'+tid,'PUT',{internal_notes:notes})
+ if(res&&res.ok) toast('Notes saved','success')
+ else toast((res&&res.error)||'Error','error')
+}
+
+async function setInboxThreadStatus(tid, status){
+ var res = await api('/api/inbox/threads/'+tid,'PUT',{status:status})
+ if(res&&res.ok){
+   toast('Marked '+status,'success')
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function assignInboxThread(tid){
+ var val = (document.getElementById('inbox-assign-input')||{}).value||''
+ var res = await api('/api/inbox/threads/'+tid,'PUT',{assigned_to:val})
+ if(res&&res.ok){ toast(val?'Assigned to '+val:'Unassigned','success'); renderInboxThreadList() }
+ else toast((res&&res.error)||'Error','error')
+}
+
+async function assignInboxThreadToMe(tid){
+ var res = await api('/api/inbox/threads/'+tid+'/assign-me','POST',{})
+ if(res&&res.ok){
+   toast('Assigned to you','success')
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function sendInboxReply(tid){
+ var body = (document.getElementById('inbox-reply-body')||{}).value.trim()
+ if(!body){ toast('Write a reply first','error'); return }
+ var html = '<div style="white-space:pre-wrap;font-family:sans-serif">'+escHtml(body)+'</div>'
+ var res = await api('/api/inbox/threads/'+tid+'/reply','POST',{body_html:html})
+ if(res&&res.ok){
+   toast('Reply sent','success')
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+   renderInboxThreadList()
  } else toast((res&&res.error)||'Error','error')
 }
 
@@ -14923,6 +15116,7 @@ const PERM_SECTIONS = [
  {key:'kiosk', label:'Sign-In / Kiosk', desc:'Open and close events on kiosk'},
  {key:'reports', label:'Reports & Logs', desc:'Event logs, email reports'},
  {key:'board', label:'Board', desc:'Board member management, meetings & position applications'},
+ {key:'inbox', label:'Inbox', desc:'Shared info@ inbox — view, assign, and reply to conversations'},
  {key:'settings', label:'Settings', desc:'Users, system configuration'},
  {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},

@@ -438,6 +438,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
+        <div class="nav-item" onclick="navTo('inbox',this)"><span class="nav-icon" id="ni-inbox"></span>Inbox<span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
         <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee"></span>Marquee</div>
 
@@ -474,7 +475,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports"></span>Reports</div>
         <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
-        <div class="nav-item" onclick="navTo('inbox',this)"><span class="nav-icon" id="ni-inbox"></span>Inbox<span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('responsibility',this)"><span class="nav-icon" id="ni-responsibility"></span>Responsibility Grid</div>
         <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications"></span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings"></span>Settings</div>
@@ -2637,6 +2637,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="ni-input-board" placeholder="users" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('board',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-inbox">
+ <span style="font-size:16px">📥</span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Inbox</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-inbox" placeholder="inbox" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('inbox',this.value)"/>
  </div>
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
@@ -8023,12 +8034,20 @@ async function openInboxThread(tid){
        + '<div style="font-size:12.5px;white-space:pre-wrap;line-height:1.4">'+escHtml(c.body||'')+'</div></div>'
    }).join('') : '<div style="font-size:11.5px;color:var(--text-muted);padding:6px 0">No comments yet — leave a note for your team.</div>'
 
- var sidebarHtml = '<div style="width:260px;flex-shrink:0;border-left:1px solid var(--border);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:16px">'
+ var sidebarHtml = '<div style="width:340px;flex-shrink:0;border-left:1px solid var(--border);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:16px">'
    + '<div>'
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Overview</div>'
    + '<div style="font-size:13.5px;font-weight:700;color:var(--teal-dark)">'+escHtml(t.participant_name||'Unknown')+'</div>'
    + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:1px;word-break:break-word">'+escHtml(t.participant_email||'')+'</div>'
    + '</div>'
+   + '<div>'
+   + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+   + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">✨ AI Summary</div>'
+   + '<span id="inbox-summary-refresh" style="font-size:10px;color:var(--teal-dark);cursor:pointer;text-decoration:underline" onclick="requestInboxSummary(\''+t.id+'\')">'+(t.ai_summary?'Refresh':'Generate')+'</span>'
+   + '</div>'
+   + '<div id="inbox-summary-box" style="font-size:12px;line-height:1.5;color:'+(t.ai_summary?'#374151':'#9ca3af')+';background:'+(t.ai_summary?'#faf5ff':'var(--bg)')+';border:1px solid '+(t.ai_summary?'#e9d5ff':'var(--border)')+';border-radius:8px;padding:9px 11px">'
+   + (t.ai_summary ? escHtml(t.ai_summary) + (t.ai_summary_action ? '<div style="margin-top:6px;font-weight:700;color:#6d28d9">→ '+escHtml(t.ai_summary_action)+'</div>' : '') : 'Not generated yet — click Generate for a quick summary of this conversation.')
+   + '</div></div>'
    + (linkedHtml ? '<div>'+linkedHtml+'</div>' : '')
    + '<div>'
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Status</div>'
@@ -8056,7 +8075,7 @@ async function openInboxThread(tid){
    + '<div style="font-size:10px;color:var(--text-muted);cursor:pointer;text-decoration:underline" onclick="openInboxMergeModal(\''+t.id+'\')">⇄ Merge with another conversation</div>'
    + '</div>'
 
- overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:960px;height:82vh;display:flex;flex-direction:column;padding:0;overflow:hidden">'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:1060px;height:82vh;display:flex;flex-direction:column;padding:0;overflow:hidden">'
    + '<div style="padding:18px 24px 12px;border-bottom:1px solid var(--border);flex-shrink:0">'
    + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
    + '<div style="font-size:17px;font-weight:800;color:var(--teal-dark)">'+escHtml(t.subject||'(no subject)')+'</div>'
@@ -8113,6 +8132,22 @@ async function submitInboxComment(tid){
    document.getElementById('inbox-thread-overlay')?.remove()
    openInboxThread(tid)
  } else toast((res&&res.error)||'Error','error')
+}
+
+async function requestInboxSummary(tid){
+ var link = document.getElementById('inbox-summary-refresh')
+ var box = document.getElementById('inbox-summary-box')
+ if(link){ link.textContent = '…'; link.style.pointerEvents = 'none' }
+ if(box) box.textContent = 'Summarizing…'
+ var res = await api('/api/inbox/threads/'+tid+'/summarize','POST',{})
+ if(res&&res.ok){
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+ } else {
+   toast((res&&res.error)||'Could not generate a summary','error')
+   if(link){ link.textContent = 'Generate'; link.style.pointerEvents = '' }
+   if(box) box.textContent = 'Not generated yet — click Generate for a quick summary of this conversation.'
+ }
 }
 
 function toggleInboxCcBcc(){
@@ -9159,7 +9194,7 @@ const NAV_ICON_DEFAULTS = {
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
  board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
- oncall:'📞', 'hours-store':'🏪', responsibility:'🗂️', licensing:'📄'
+ oncall:'📞', 'hours-store':'🏪', responsibility:'🗂️', licensing:'📄', inbox:'📥'
 }
 
 let _currentNavIcons = {}

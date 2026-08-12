@@ -20100,10 +20100,18 @@ def _inbox_credentials():
     those survive copy/paste into an env var and then choke imaplib, which
     speaks plain ASCII. The actual credential is the 16 characters alone;
     all whitespace around/inside it (regular or non-breaking) is purely
-    cosmetic, so it's safe to strip entirely rather than just .strip()."""
+    cosmetic, so it's safe to strip entirely rather than just .strip().
+    Also strips stray leading/trailing quote characters, in case the value
+    was pasted in as "quoted" out of habit (e.g. copied from a .env
+    example) — Railway's variable value is the literal string including
+    any quotes typed into it, unlike a shell or .env file which would
+    normally strip them."""
     import re as _reinboxcred
-    email_addr = _reinboxcred.sub(r'\s+', '', os.environ.get('INFO_INBOX_EMAIL', ''))
-    app_password = _reinboxcred.sub(r'\s+', '', os.environ.get('INFO_INBOX_APP_PASSWORD', ''))
+    def _clean(v):
+        v = v.strip().strip('"\'\u201c\u201d\u2018\u2019')
+        return _reinboxcred.sub(r'\s+', '', v)
+    email_addr = _clean(os.environ.get('INFO_INBOX_EMAIL', ''))
+    app_password = _clean(os.environ.get('INFO_INBOX_APP_PASSWORD', ''))
     return email_addr, app_password
 
 def _decode_mime_words(s):
@@ -20224,7 +20232,13 @@ def check_inbox_for_new_mail():
         last_uid = int(last_uid_row['value']) if last_uid_row and (last_uid_row.get('value') or '').isdigit() else 0
         m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
         imap_email, imap_password = _inbox_credentials()
-        m.login(imap_email, imap_password)
+        try:
+            m.login(imap_email, imap_password)
+        except Exception as login_err:
+            masked = (imap_email[:3] + '…' + imap_email.split('@')[-1]) if '@' in imap_email else '(not set)'
+            conn.close()
+            return False, (f'{login_err} — attempted login as {masked} with a {len(imap_password)}-character password '
+                f'(a Gmail app password should be 16 characters once spaces are stripped)'), 0
         m.select('INBOX')
         status, data = m.uid('search', None, f'UID {last_uid + 1}:*')
         uids = [u for u in (data[0].split() if data and data[0] else []) if int(u) > last_uid]
@@ -20254,25 +20268,101 @@ def check_inbox_for_new_mail():
         app.logger.warning(f'Inbox IMAP check failed: {e}')
         return False, str(e), 0
 
-def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name, in_reply_to_message_id=None):
+def _find_gmail_sent_folder(imap_conn):
+    """Finds the actual Sent Mail folder via IMAP's special-use attribute
+    (RFC 6154, which Gmail supports) rather than hardcoding a folder name
+    — '[Gmail]/Sent Mail' is only correct for English-locale accounts;
+    other languages/regions use a different label for the same folder."""
+    try:
+        typ, folders = imap_conn.list()
+        if typ != 'OK' or not folders:
+            return None
+        import re as _refolder
+        for f in folders:
+            decoded = f.decode('utf-8', errors='replace') if isinstance(f, bytes) else f
+            if '\\Sent' in decoded:
+                m = _refolder.search(r'"([^"]*)"\s*$', decoded)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return None
+
+def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in_reply_to=None):
+    """Inserts a copy of a message RoleCall just sent (via Resend) into
+    Gmail's own Sent Mail folder, using IMAP APPEND. Resend delivers the
+    email but never touches Gmail's servers, so without this step a
+    reply sent from RoleCall would show up in the recipient's inbox and
+    in RoleCall, but be completely invisible to anyone checking Gmail
+    directly — this keeps both views showing the same conversation.
+    Best-effort only: failure here never blocks the actual send, since
+    the message has already gone out by the time this runs."""
+    if not _inbox_configured():
+        return
+    try:
+        import imaplib, time as _timeimap
+        from email.message import EmailMessage
+        from email.utils import formatdate
+        imap_email, imap_password = _inbox_credentials()
+        msg = EmailMessage()
+        msg['From'] = f'Horizon West Theater Company <{imap_email}>'
+        msg['To'] = f'{to_name} <{to_email}>' if to_name else to_email
+        msg['Subject'] = subject
+        msg['Date'] = formatdate(localtime=True)
+        msg['Message-ID'] = message_id
+        if in_reply_to:
+            msg['In-Reply-To'] = in_reply_to
+            msg['References'] = in_reply_to
+        msg.set_content('This message contains HTML content. Please view it in an HTML-capable mail client.')
+        msg.add_alternative(html_body, subtype='html')
+
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        m.login(imap_email, imap_password)
+        sent_folder = _find_gmail_sent_folder(m) or '[Gmail]/Sent Mail'
+        m.append(sent_folder, '\\Seen', imaplib.Time2Internaldate(_timeimap.time()), msg.as_bytes())
+        try:
+            m.logout()
+        except Exception:
+            pass
+    except Exception as e:
+        app.logger.warning(f'IMAP append to Sent folder failed (non-fatal, message was still sent): {e}')
+
+def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name, in_reply_to_message_id=None, to_name=''):
     """Sends a reply as info@ and records it on the thread. Threads
     properly in the recipient's client via In-Reply-To/References when we
-    have a message-id to reference; always safe to call without one."""
-    headers = {}
+    have a message-id to reference; always safe to call without one.
+
+    Also stamps our own Message-ID on every outbound send (not just
+    replies) and stores it locally — so if the recipient replies, that
+    reply's In-Reply-To will match a message we already have on file and
+    thread precisely, rather than relying solely on the subject+sender
+    fallback matching in _find_or_create_inbox_thread. Resend may or may
+    not honor a custom Message-ID header; either way this degrades
+    gracefully since the fallback matching still catches it.
+
+    After a successful send, also copies the message into Gmail's own
+    Sent Mail folder via IMAP APPEND — see _imap_append_sent_copy — so
+    Gmail and RoleCall never disagree about what's been replied to."""
+    our_message_id = f'<{uuid.uuid4()}@hwtco.org>'
+    headers = {'Message-ID': our_message_id}
     if in_reply_to_message_id:
         headers['In-Reply-To'] = in_reply_to_message_id
         headers['References'] = in_reply_to_message_id
     from_email = _inbox_credentials()[0] or 'info@hwtco.org'
     ok, err, resend_id = send_email(to_email, subject, html_body, from_email=from_email,
         from_name='Horizon West Theater Company', source='shared_inbox', extra_headers=headers)
-    our_message_id = f'<{uuid.uuid4()}@hwtco.org>'
     mid = str(uuid.uuid4())
     execute(conn, """INSERT INTO inbox_messages
         (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, message_id, in_reply_to, sent_by)
         VALUES (%s,%s,'outbound',%s,'Horizon West Theater Company',%s,%s,%s,%s,%s,%s)""",
         (mid, thread_id, from_email, to_email, subject, html_body,
-         resend_id or our_message_id, in_reply_to_message_id or '', sent_by_name))
+         our_message_id, in_reply_to_message_id or '', sent_by_name))
     execute(conn, "UPDATE inbox_threads SET last_message_at=NOW(), unread=FALSE WHERE id=%s", (thread_id,))
+    if ok:
+        try:
+            _imap_append_sent_copy(to_email, to_name, subject, html_body, our_message_id, in_reply_to_message_id)
+        except Exception as e:
+            app.logger.warning(f'Sent-folder sync error (non-fatal): {e}')
     return ok, err
 
 @app.route('/api/inbox/status', methods=['GET'])
@@ -20281,26 +20371,46 @@ def inbox_status():
     if err: return err
     return jsonify({'configured': _inbox_configured()})
 
+@app.route('/api/inbox/team', methods=['GET'])
+def list_inbox_team():
+    """Active user names for the assignment dropdown — deliberately a
+    lighter route than /api/users (which is admin-only) so any board
+    member with inbox access can assign a thread to a teammate, not just
+    admins."""
+    err = require_permission('inbox', 'view')
+    if err: return err
+    conn = get_db()
+    users = fetchall(conn, "SELECT name FROM users WHERE COALESCE(active,TRUE)=TRUE ORDER BY name") or []
+    conn.close()
+    return jsonify([u['name'] for u in users if u.get('name')])
+
 @app.route('/api/inbox/threads', methods=['GET'])
 def list_inbox_threads():
     err = require_permission('inbox', 'view')
     if err: return err
     status = request.args.get('status', '')
     assigned = request.args.get('assigned', '')
+    search = (request.args.get('q') or '').strip()
+    sort_order = 'ASC' if request.args.get('sort') == 'oldest' else 'DESC'
     conn = get_db()
-    q = """SELECT t.*, (SELECT COUNT(*) FROM inbox_messages m WHERE m.thread_id=t.id) AS message_count,
+    sql = """SELECT t.*, (SELECT COUNT(*) FROM inbox_messages m WHERE m.thread_id=t.id) AS message_count,
         (SELECT body_text FROM inbox_messages m WHERE m.thread_id=t.id ORDER BY created_at DESC LIMIT 1) AS last_body_text
         FROM inbox_threads t WHERE 1=1"""
     params = []
     if status and status != 'all':
-        q += ' AND t.status=%s'; params.append(status)
+        sql += ' AND t.status=%s'; params.append(status)
     if assigned == 'unassigned':
-        q += " AND (t.assigned_to IS NULL OR t.assigned_to='')"
+        sql += " AND (t.assigned_to IS NULL OR t.assigned_to='')"
     elif assigned == 'mine':
         user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
-        q += ' AND t.assigned_to=%s'; params.append((user or {}).get('name', ''))
-    q += ' ORDER BY t.last_message_at DESC LIMIT 200'
-    threads = fetchall(conn, q, tuple(params)) or []
+        sql += ' AND t.assigned_to=%s'; params.append((user or {}).get('name', ''))
+    if search:
+        sql += """ AND (t.subject ILIKE %s OR t.participant_name ILIKE %s OR t.participant_email ILIKE %s
+            OR EXISTS (SELECT 1 FROM inbox_messages m WHERE m.thread_id=t.id AND (m.body_text ILIKE %s OR m.body_html ILIKE %s)))"""
+        like = f'%{search}%'
+        params += [like, like, like, like, like]
+    sql += f' ORDER BY t.last_message_at {sort_order} LIMIT 200'
+    threads = fetchall(conn, sql, tuple(params)) or []
     conn.close()
     return jsonify(threads)
 
@@ -20392,11 +20502,43 @@ def reply_to_inbox_thread(tid):
     user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
     sent_by_name = (user or {}).get('name', 'Staff')
     ok, send_err = send_inbox_reply(conn, tid, thread['participant_email'], subject, body_html, sent_by_name,
-        (last_inbound or {}).get('message_id'))
+        (last_inbound or {}).get('message_id'), thread.get('participant_name') or '')
     conn.commit(); conn.close()
     if not ok:
         return jsonify({'error': send_err or 'Could not send reply'}), 400
     return jsonify({'ok': True})
+
+@app.route('/api/inbox/compose', methods=['POST'])
+def compose_inbox_message():
+    """Starts a brand-new conversation as info@ — the thing a Google
+    Group couldn't do, which is the whole reason this exists. Creates the
+    thread first (so it shows up in the inbox immediately even if the
+    send fails) then sends the first message into it."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    to_email = (d.get('to_email') or '').strip().lower()
+    subject = (d.get('subject') or '').strip()
+    body_html = (d.get('body_html') or '').strip()
+    if not to_email or '@' not in to_email:
+        return jsonify({'error': 'A valid recipient email is required'}), 400
+    if not subject:
+        return jsonify({'error': 'A subject is required'}), 400
+    if not body_html:
+        return jsonify({'error': 'Message body is required'}), 400
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    sent_by_name = (user or {}).get('name', 'Staff')
+    thread_id = str(uuid.uuid4())
+    to_name = (d.get('to_name') or '').strip()
+    execute(conn, """INSERT INTO inbox_threads (id, subject, participant_email, participant_name, status, unread, last_message_at)
+        VALUES (%s,%s,%s,%s,'open',FALSE,NOW())""",
+        (thread_id, subject, to_email, to_name or to_email))
+    ok, send_err = send_inbox_reply(conn, thread_id, to_email, subject, body_html, sent_by_name, to_name=to_name)
+    conn.commit(); conn.close()
+    if not ok:
+        return jsonify({'error': send_err or 'Could not send message'}), 400
+    return jsonify({'ok': True, 'thread_id': thread_id})
 
 @app.route('/api/inbox/threads/<tid>', methods=['DELETE'])
 def delete_inbox_thread(tid):

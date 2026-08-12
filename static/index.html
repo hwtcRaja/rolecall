@@ -65,6 +65,7 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 /* MAIN */
 .main-content{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh;overflow:hidden}
 .page{display:none;flex:1;flex-direction:column;min-height:0}
+[data-placeholder]:empty:before{content:attr(data-placeholder);color:#9ca3af}
 .page.active{display:flex}
 .page-header{padding:28px 32px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:16px}
 .page-title{font-size:22px;font-weight:600;letter-spacing:-0.3px}
@@ -7842,7 +7843,7 @@ async function deleteBoardApplication(aid){
 
 // ── Shared Inbox (info@) ───────────────────────────────────────────
 var _inboxThreads = []
-var _inboxFilter = {status:'all', assigned:'all', sort:'newest', q:''}
+var _inboxFilter = {status:'all', assigned:'all', sort:'newest', q:'', tag:''}
 var _inboxOpenThreadId = null
 var _inboxSearchDebounce = null
 
@@ -7884,6 +7885,7 @@ async function renderInboxThreadList(){
  if(_inboxFilter.assigned!=='all') qs.push('assigned='+_inboxFilter.assigned)
  if(_inboxFilter.sort==='oldest') qs.push('sort=oldest')
  if(_inboxFilter.q) qs.push('q='+encodeURIComponent(_inboxFilter.q))
+ if(_inboxFilter.tag) qs.push('tag='+encodeURIComponent(_inboxFilter.tag))
  var threads = await api('/api/inbox/threads'+(qs.length?'?'+qs.join('&'):''))
  _inboxThreads = Array.isArray(threads) ? threads : []
  var unreadCount = _inboxThreads.filter(function(t){ return t.unread }).length
@@ -7895,6 +7897,7 @@ async function renderInboxThreadList(){
  var assignedFilters = [{v:'all',l:'Everyone'},{v:'unassigned',l:'Unassigned'},{v:'mine',l:'Assigned to Me'}]
  var html = '<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">'
    + '<input type="text" id="inbox-search-input" value="'+escHtml(_inboxFilter.q)+'" placeholder="🔍 Search name, email, subject, or message…" oninput="onInboxSearchInput()" style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
+   + '<select id="inbox-tag-filter-select" onchange="setInboxFilter(\'tag\',this.value)" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;color:var(--text-muted)"><option value="">All tags</option></select>'
    + '<select onchange="setInboxFilter(\'sort\',this.value)" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;color:var(--text-muted)">'
    + '<option value="newest"'+(_inboxFilter.sort==='newest'?' selected':'')+'>Newest first</option>'
    + '<option value="oldest"'+(_inboxFilter.sort==='oldest'?' selected':'')+'>Oldest first</option>'
@@ -7934,31 +7937,79 @@ async function renderInboxThreadList(){
    }).join('')
  }
  document.getElementById('inbox-content').innerHTML = html
+ api('/api/inbox/tags').then(function(tags){
+   var sel = document.getElementById('inbox-tag-filter-select')
+   if(!sel || !Array.isArray(tags)) return
+   tags.forEach(function(tag){
+     var opt = document.createElement('option')
+     opt.value = tag; opt.textContent = tag
+     if(tag===_inboxFilter.tag) opt.selected = true
+     sel.appendChild(opt)
+   })
+ })
 }
 
 async function openInboxThread(tid){
  var t = await api('/api/inbox/threads/'+tid)
  if(!t || t.error){ toast((t&&t.error)||'Could not load conversation','error'); return }
  _inboxOpenThreadId = tid
+ _inboxPendingAttachments = []
  var overlay = document.createElement('div')
  overlay.id = 'inbox-thread-overlay'
  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
  var statusMeta = {open:{c:'#166534',bg:'#dcfce7'}, pending:{c:'#92400e',bg:'#fef3c7'}, closed:{c:'#6b7280',bg:'#f3f4f6'}}[t.status] || {c:'#6b7280',bg:'#f3f4f6'}
  var messagesHtml = (t.messages||[]).map(function(m){
    var out = m.direction==='outbound'
+   var attHtml = (m.attachments||[]).length ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'
+     + m.attachments.map(function(a){
+         return '<a href="/api/inbox/attachments/'+a.id+'" target="_blank" style="font-size:11px;padding:3px 9px;border-radius:12px;background:var(--surface);border:1px solid var(--border);color:var(--teal-dark);text-decoration:none">📎 '+escHtml(a.filename)+' ('+Math.round((a.size_bytes||0)/1024)+'KB)</a>'
+       }).join('') + '</div>' : ''
+   var ccHtml = m.cc_emails ? '<div style="font-size:11px;color:var(--text-muted)">Cc: '+escHtml(m.cc_emails)+'</div>' : ''
    return '<div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:'+(out?'#f0f8fa':'var(--bg)')+';border:1px solid '+(out?'#d3e9ee':'var(--border)')+'">'
      + '<div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-muted);margin-bottom:6px">'
      + '<strong style="color:'+(out?'#145466':'#374151')+'">'+(out?'HWTC ('+escHtml(m.sent_by||'')+')':escHtml(m.from_name||m.from_email||''))+'</strong>'
      + '<span>'+(m.created_at?m.created_at.slice(0,16).replace('T',' '):'')+'</span></div>'
-     + '<div style="font-size:13.5px;line-height:1.5">'+(m.body_html||('<div style="white-space:pre-wrap">'+escHtml(m.body_text||'')+'</div>'))+'</div></div>'
+     + ccHtml
+     + '<div style="font-size:13.5px;line-height:1.5">'+(m.body_html||('<div style="white-space:pre-wrap">'+escHtml(m.body_text||'')+'</div>'))+'</div>'
+     + attHtml + '</div>'
  }).join('')
+
+ var linkedHtml = ''
+ if(t.linked_record){
+   var lr = t.linked_record
+   linkedHtml = '<div style="background:#ede9fe;border:1px solid #ddd6fe;border-radius:8px;padding:10px 14px;margin-bottom:12px">'
+     + '<div style="display:flex;justify-content:space-between;align-items:center">'
+     + '<div style="font-size:12.5px;color:#6d28d9;font-weight:700">🔗 '+escHtml(lr.name||'')+' <span style="font-weight:400">('+lr.type.replace('_',' ')+')</span></div>'
+     + '<span style="font-size:11px;color:#6d28d9;cursor:pointer;text-decoration:underline" onclick="unlinkInboxThread(\''+t.id+'\')">Unlink</span></div>'
+     + '<div style="font-size:11.5px;color:#6d28d9;margin-top:2px">'+escHtml(lr.detail||'')+'</div>'
+     + (lr.recent&&lr.recent.length?'<div style="font-size:11px;color:#7c3aed;margin-top:4px">'+lr.recent.map(escHtml).join(' · ')+'</div>':'')
+     + '</div>'
+ } else if(t.link_suggestions && t.link_suggestions.length){
+   linkedHtml = '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12.5px;color:#92400e">'
+     + t.link_suggestions.map(function(s){
+         return 'Looks like <strong>'+escHtml(s.name)+'</strong> ('+s.type.replace('_',' ')+') — <span style="text-decoration:underline;cursor:pointer" onclick="linkInboxThread(\''+t.id+'\',\''+s.type+'\',\''+s.id+'\')">Link it</span>'
+       }).join('<br>')
+     + '</div>'
+ }
+
+ var tags = []
+ try{ tags = JSON.parse(t.tags||'[]') }catch(e){ tags = [] }
+ var tagsHtml = '<div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center;margin-bottom:12px">'
+   + tags.map(function(tag){
+       return '<span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#f3f4f6;color:#374151;display:inline-flex;align-items:center;gap:4px">'+escHtml(tag)+'<span style="cursor:pointer;font-weight:700" onclick="removeInboxTag(\''+t.id+'\',\''+escHtml(tag).replace(/'/g,"&#39;")+'\')">×</span></span>'
+     }).join('')
+   + '<input type="text" id="inbox-tag-input" placeholder="+ tag" onkeydown="if(event.key===\'Enter\'){addInboxTag(\''+t.id+'\')}" style="font-size:11px;border:1px dashed var(--border);border-radius:12px;padding:3px 9px;width:70px"/>'
+   + '</div>'
+
  overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:680px;max-height:90vh;display:flex;flex-direction:column;padding:0">'
    + '<div style="padding:20px 24px 14px;border-bottom:1px solid var(--border)">'
    + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
    + '<div><div style="font-size:17px;font-weight:800;color:var(--teal-dark)">'+escHtml(t.subject||'(no subject)')+'</div>'
    + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">'+escHtml(t.participant_name||'')+' · '+escHtml(t.participant_email||'')+'</div></div>'
+   + '<div style="display:flex;gap:10px;align-items:center">'
+   + '<span style="font-size:11px;color:var(--text-muted);cursor:pointer;text-decoration:underline" onclick="openInboxMergeModal(\''+t.id+'\')">⇄ Merge</span>'
    + '<button onclick="document.getElementById(\'inbox-thread-overlay\').remove()" style="background:none;border:none;font-size:20px;color:var(--text-muted);cursor:pointer;line-height:1">×</button>'
-   + '</div>'
+   + '</div></div>'
    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px">'
    + ['open','pending','closed'].map(function(s){
        var active = t.status===s
@@ -7968,11 +8019,27 @@ async function openInboxThread(tid){
    + '<select id="inbox-assign-input" onchange="assignInboxThread(\''+t.id+'\')" style="padding:5px 10px;border-radius:20px;font-size:11.5px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-muted)"><option value="">Unassigned</option></select>'
    + '<button onclick="assignInboxThreadToMe(\''+t.id+'\')" style="padding:5px 10px;border-radius:20px;font-size:11.5px;font-weight:600;border:1.5px solid var(--border);background:var(--surface);color:var(--text-muted);cursor:pointer">Assign to Me</button>'
    + '</div></div>'
-   + '<div style="padding:16px 24px;overflow-y:auto;flex:1">'+(messagesHtml||'<div style="color:var(--text-muted);font-size:13px">No messages.</div>')+'</div>'
+   + '<div style="padding:16px 24px;overflow-y:auto;flex:1">'+linkedHtml+tagsHtml+(messagesHtml||'<div style="color:var(--text-muted);font-size:13px">No messages.</div>')+'</div>'
    + '<div style="padding:14px 24px;border-top:1px solid var(--border)">'
-   + '<textarea id="inbox-reply-body" rows="3" placeholder="Write a reply as info@hwtco.org…" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13.5px;resize:vertical;box-sizing:border-box;margin-bottom:8px"></textarea>'
+   + '<div id="inbox-ccbcc-wrap" style="display:none;margin-bottom:8px;display:none;flex-direction:column;gap:6px">'
+   + '<input type="text" id="inbox-reply-cc" placeholder="Cc (comma-separated)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;box-sizing:border-box"/>'
+   + '<input type="text" id="inbox-reply-bcc" placeholder="Bcc (comma-separated)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;box-sizing:border-box"/>'
+   + '</div>'
+   + '<div style="display:flex;gap:4px;margin-bottom:6px">'
+   + '<button type="button" onclick="document.execCommand(\'bold\')" style="width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:4px;cursor:pointer;font-weight:800;font-size:12px">B</button>'
+   + '<button type="button" onclick="document.execCommand(\'italic\')" style="width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:4px;cursor:pointer;font-style:italic;font-size:12px">I</button>'
+   + '<button type="button" onclick="document.execCommand(\'insertUnorderedList\')" style="width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:4px;cursor:pointer;font-size:12px">•≡</button>'
+   + '<button type="button" onclick="inboxInsertLink()" style="width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:4px;cursor:pointer;font-size:12px">🔗</button>'
+   + '<span style="flex:1"></span>'
+   + '<span style="font-size:11px;color:var(--text-muted);cursor:pointer;align-self:center" onclick="toggleInboxCcBcc()">Cc/Bcc</span>'
+   + '</div>'
+   + '<div id="inbox-reply-body" contenteditable="true" style="width:100%;min-height:70px;max-height:160px;overflow-y:auto;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13.5px;box-sizing:border-box;margin-bottom:8px" data-placeholder="Write a reply as info@hwtco.org…"></div>'
+   + '<div id="inbox-reply-attachments" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>'
    + '<div style="display:flex;justify-content:space-between;align-items:center">'
+   + '<div style="display:flex;gap:14px;align-items:center">'
    + '<span style="font-size:11px;color:var(--text-muted);cursor:pointer" onclick="toggleInboxNotes(\''+t.id+'\')">📝 Internal Notes</span>'
+   + '<label style="font-size:11px;color:var(--text-muted);cursor:pointer">📎 Attach<input type="file" multiple onchange="onInboxAttachFileChange(event)" style="display:none"/></label>'
+   + '</div>'
    + '<button class="btn btn-primary btn-sm" onclick="sendInboxReply(\''+t.id+'\')">Send Reply</button>'
    + '</div>'
    + '<div id="inbox-notes-wrap" style="display:none;margin-top:10px">'
@@ -7995,6 +8062,141 @@ async function openInboxThread(tid){
      sel.appendChild(opt)
    })
  })
+}
+
+function toggleInboxCcBcc(){
+ var wrap = document.getElementById('inbox-ccbcc-wrap')
+ if(wrap) wrap.style.display = (wrap.style.display==='none'?'flex':'none')
+}
+
+function inboxInsertLink(){
+ var url = prompt('Link URL:')
+ if(url) document.execCommand('createLink', false, url)
+}
+
+var _inboxPendingAttachments = []
+
+function onInboxAttachFileChange(event){
+ var files = Array.from(event.target.files||[])
+ var remaining = files.length
+ files.forEach(function(file){
+   var reader = new FileReader()
+   reader.onload = function(){
+     var b64 = reader.result.split(',')[1]
+     _inboxPendingAttachments.push({filename:file.name, content_type:file.type||'application/octet-stream', content_b64:b64})
+     renderInboxPendingAttachments()
+   }
+   reader.readAsDataURL(file)
+ })
+ event.target.value = ''
+}
+
+function renderInboxPendingAttachments(){
+ var chips = _inboxPendingAttachments.map(function(a, i){
+   return '<span style="font-size:11px;padding:3px 9px;border-radius:12px;background:var(--bg);border:1px solid var(--border);display:inline-flex;align-items:center;gap:5px">📎 '+escHtml(a.filename)+'<span style="cursor:pointer;font-weight:700" onclick="removeInboxPendingAttachment('+i+')">×</span></span>'
+ }).join('')
+ var replyWrap = document.getElementById('inbox-reply-attachments')
+ if(replyWrap) replyWrap.innerHTML = chips
+ var composeWrap = document.getElementById('inbox-compose-attachments')
+ if(composeWrap) composeWrap.innerHTML = chips
+}
+
+function removeInboxPendingAttachment(i){
+ _inboxPendingAttachments.splice(i, 1)
+ renderInboxPendingAttachments()
+}
+
+async function addInboxTag(tid){
+ var input = document.getElementById('inbox-tag-input')
+ var val = (input.value||'').trim()
+ if(!val) return
+ var t = _inboxThreads.find(function(x){ return x.id===tid })
+ var current = []
+ try{ current = t ? JSON.parse(t.tags||'[]') : [] }catch(e){ current = [] }
+ if(!current.includes(val)) current.push(val)
+ var res = await api('/api/inbox/threads/'+tid+'/tags','PUT',{tags:current})
+ if(res&&res.ok){
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function removeInboxTag(tid, tag){
+ var t = await api('/api/inbox/threads/'+tid)
+ var current = []
+ try{ current = JSON.parse((t&&t.tags)||'[]') }catch(e){ current = [] }
+ current = current.filter(function(x){ return x!==tag })
+ var res = await api('/api/inbox/threads/'+tid+'/tags','PUT',{tags:current})
+ if(res&&res.ok){
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function linkInboxThread(tid, type, id){
+ var res = await api('/api/inbox/threads/'+tid+'/link','PUT',{type:type, id:id})
+ if(res&&res.ok){
+   toast('Linked','success')
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function unlinkInboxThread(tid){
+ var res = await api('/api/inbox/threads/'+tid+'/link','PUT',{type:'', id:''})
+ if(res&&res.ok){
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+ } else toast((res&&res.error)||'Error','error')
+}
+
+function openInboxMergeModal(tid){
+ var overlay = document.createElement('div')
+ overlay.id = 'inbox-merge-overlay'
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:440px;padding:24px">'
+   + '<div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Merge Another Conversation In</div>'
+   + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px">Search for the other thread — its messages will move into this one and it\'ll be removed.</div>'
+   + '<input type="text" id="inbox-merge-search" placeholder="Search by name, email, or subject…" oninput="searchInboxMergeCandidates()" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:10px"/>'
+   + '<div id="inbox-merge-results" style="max-height:260px;overflow-y:auto"></div>'
+   + '<div style="display:flex;justify-content:flex-end;margin-top:14px"><button class="btn btn-secondary" onclick="document.getElementById(\'inbox-merge-overlay\').remove()">Cancel</button></div>'
+   + '</div>'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+ overlay.dataset.targetId = tid
+}
+
+var _inboxMergeDebounce = null
+function searchInboxMergeCandidates(){
+ clearTimeout(_inboxMergeDebounce)
+ _inboxMergeDebounce = setTimeout(async function(){
+   var q = (document.getElementById('inbox-merge-search')||{}).value||''
+   if(!q.trim()){ document.getElementById('inbox-merge-results').innerHTML=''; return }
+   var overlay = document.getElementById('inbox-merge-overlay')
+   var targetId = overlay ? overlay.dataset.targetId : null
+   var results = await api('/api/inbox/threads?q='+encodeURIComponent(q))
+   var box = document.getElementById('inbox-merge-results')
+   if(!box) return
+   var filtered = (Array.isArray(results)?results:[]).filter(function(r){ return r.id!==targetId })
+   box.innerHTML = filtered.length ? filtered.map(function(r){
+     return '<div onclick="confirmInboxMerge(\''+targetId+'\',\''+r.id+'\')" style="padding:8px 10px;border-radius:8px;cursor:pointer;font-size:13px" onmouseenter="this.style.background=\'var(--bg)\'" onmouseleave="this.style.background=\'\'">'
+       + '<strong>'+escHtml(r.participant_name||r.participant_email||'')+'</strong> — '+escHtml(r.subject||'(no subject)')+'</div>'
+   }).join('') : '<div style="font-size:12.5px;color:var(--text-muted);padding:8px">No matches</div>'
+ }, 350)
+}
+
+async function confirmInboxMerge(targetId, sourceId){
+ if(!confirm('Merge this conversation in? The other thread will be removed.')) return
+ var res = await api('/api/inbox/threads/'+targetId+'/merge','POST',{source_thread_id:sourceId})
+ if(res&&res.ok){
+   toast('Merged','success')
+   document.getElementById('inbox-merge-overlay')?.remove()
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(targetId)
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
 }
 
 function toggleInboxNotes(tid){
@@ -8037,12 +8239,16 @@ async function assignInboxThreadToMe(tid){
 }
 
 async function sendInboxReply(tid){
- var body = (document.getElementById('inbox-reply-body')||{}).value.trim()
- if(!body){ toast('Write a reply first','error'); return }
- var html = '<div style="white-space:pre-wrap;font-family:sans-serif">'+escHtml(body)+'</div>'
- var res = await api('/api/inbox/threads/'+tid+'/reply','POST',{body_html:html})
+ var el = document.getElementById('inbox-reply-body')
+ var html = (el ? el.innerHTML : '').trim()
+ var plainCheck = (el ? el.textContent : '').trim()
+ if(!plainCheck){ toast('Write a reply first','error'); return }
+ var cc = (document.getElementById('inbox-reply-cc')||{}).value||''
+ var bcc = (document.getElementById('inbox-reply-bcc')||{}).value||''
+ var res = await api('/api/inbox/threads/'+tid+'/reply','POST',{body_html:html, cc_emails:cc, bcc_emails:bcc, attachments:_inboxPendingAttachments})
  if(res&&res.ok){
    toast('Reply sent','success')
+   _inboxPendingAttachments = []
    document.getElementById('inbox-thread-overlay')?.remove()
    openInboxThread(tid)
    renderInboxThreadList()
@@ -8050,39 +8256,67 @@ async function sendInboxReply(tid){
 }
 
 function openInboxComposeModal(){
+ _inboxPendingAttachments = []
  var overlay = document.createElement('div')
  overlay.id = 'inbox-compose-overlay'
  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
- overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:520px;padding:24px">'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:520px;padding:24px;max-height:90vh;overflow-y:auto">'
    + '<div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">New Message from info@hwtco.org</div>'
    + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">To</label>'
    + '<input type="email" id="inbox-compose-to" placeholder="name@example.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/></div>'
+   + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+   + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Cc</label>'
+   + '<input type="text" id="inbox-compose-cc" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+   + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Bcc</label>'
+   + '<input type="text" id="inbox-compose-bcc" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+   + '</div>'
    + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Recipient Name (optional)</label>'
    + '<input type="text" id="inbox-compose-to-name" placeholder="Jane Smith" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/></div>'
    + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Subject</label>'
    + '<input type="text" id="inbox-compose-subject" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/></div>'
-   + '<div class="form-group" style="margin-bottom:18px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Message</label>'
-   + '<textarea id="inbox-compose-body" rows="6" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13.5px;resize:vertical;box-sizing:border-box"></textarea></div>'
-   + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+   + '<div class="form-group" style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Message</label>'
+   + '<div id="inbox-compose-body" contenteditable="true" style="width:100%;min-height:120px;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13.5px;box-sizing:border-box"></div></div>'
+   + '<div id="inbox-compose-attachments" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>'
+   + '<div style="display:flex;justify-content:space-between;align-items:center">'
+   + '<label style="font-size:11px;color:var(--text-muted);cursor:pointer">📎 Attach<input type="file" multiple onchange="onInboxComposeAttachFileChange(event)" style="display:none"/></label>'
+   + '<div style="display:flex;gap:8px">'
    + '<button class="btn btn-secondary" onclick="document.getElementById(\'inbox-compose-overlay\').remove()">Cancel</button>'
    + '<button class="btn btn-primary" onclick="submitInboxCompose()">Send</button>'
-   + '</div></div>'
+   + '</div></div></div>'
  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
  document.body.appendChild(overlay)
+}
+
+function onInboxComposeAttachFileChange(event){
+ var files = Array.from(event.target.files||[])
+ files.forEach(function(file){
+   var reader = new FileReader()
+   reader.onload = function(){
+     var b64 = reader.result.split(',')[1]
+     _inboxPendingAttachments.push({filename:file.name, content_type:file.type||'application/octet-stream', content_b64:b64})
+     renderInboxPendingAttachments()
+   }
+   reader.readAsDataURL(file)
+ })
+ event.target.value = ''
 }
 
 async function submitInboxCompose(){
  var to_email = (document.getElementById('inbox-compose-to')||{}).value.trim()
  var to_name = (document.getElementById('inbox-compose-to-name')||{}).value.trim()
  var subject = (document.getElementById('inbox-compose-subject')||{}).value.trim()
- var body = (document.getElementById('inbox-compose-body')||{}).value.trim()
+ var el = document.getElementById('inbox-compose-body')
+ var html = (el ? el.innerHTML : '').trim()
+ var plainCheck = (el ? el.textContent : '').trim()
+ var cc = (document.getElementById('inbox-compose-cc')||{}).value||''
+ var bcc = (document.getElementById('inbox-compose-bcc')||{}).value||''
  if(!to_email || !to_email.includes('@')){ toast('Enter a valid recipient email','error'); return }
  if(!subject){ toast('Subject is required','error'); return }
- if(!body){ toast('Write a message first','error'); return }
- var html = '<div style="white-space:pre-wrap;font-family:sans-serif">'+escHtml(body)+'</div>'
- var res = await api('/api/inbox/compose','POST',{to_email:to_email, to_name:to_name, subject:subject, body_html:html})
+ if(!plainCheck){ toast('Write a message first','error'); return }
+ var res = await api('/api/inbox/compose','POST',{to_email:to_email, to_name:to_name, subject:subject, body_html:html, cc_emails:cc, bcc_emails:bcc, attachments:_inboxPendingAttachments})
  if(res&&res.ok){
    toast('Message sent','success')
+   _inboxPendingAttachments = []
    document.getElementById('inbox-compose-overlay')?.remove()
    renderInboxThreadList()
  } else toast((res&&res.error)||'Error','error')

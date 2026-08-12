@@ -1131,6 +1131,20 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_inbox_messages_message_id ON inbox_messages(message_id) WHERE message_id IS NOT NULL AND message_id!=''",
         "CREATE INDEX IF NOT EXISTS idx_inbox_messages_thread ON inbox_messages(thread_id)",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS linked_record_type TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS linked_record_id TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'",
+        "ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS cc_emails TEXT DEFAULT ''",
+        "ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS bcc_emails TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS inbox_attachments (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL REFERENCES inbox_messages(id) ON DELETE CASCADE,
+            filename TEXT NOT NULL,
+            content_type TEXT DEFAULT '',
+            file_data_b64 TEXT NOT NULL,
+            size_bytes INTEGER DEFAULT 0,
+            uploaded_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS idx_inbox_attachments_message ON inbox_attachments(message_id)",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
@@ -2609,15 +2623,17 @@ def build_waitlist_email_html(guardian_name, program_name, position_desc, is_plu
 </div>'''
 
 
-def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source='', attachments=None, extra_headers=None):
+def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source='', attachments=None, extra_headers=None, cc=None, bcc=None):
     """Send via Resend API. from_email/from_name override settings default.
     attachments: optional list of {'filename': str, 'content_b64': str} dicts —
     content_b64 is the base64-encoded file content (e.g. a PDF).
     extra_headers: optional dict of raw email headers (e.g. In-Reply-To,
     References, Message-ID) — used by the shared inbox to thread replies
-    properly in the recipient's mail client. Returns (ok, error_or_none);
-    on success the Resend response id is also returned as a third value
-    when extra_headers is supplied, so callers can store it for threading."""
+    properly in the recipient's mail client. cc/bcc: optional list or
+    comma-separated string of additional recipients. Returns
+    (ok, error_or_none); on success the Resend response id is also
+    returned as a third value when extra_headers is supplied, so callers
+    can store it for threading."""
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
@@ -2644,9 +2660,18 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None, s
         to_emails = [e.strip() for e in to_emails.split(',') if e.strip()]
     if not to_emails:
         return (False, 'No recipients', None) if extra_headers is not None else (False, 'No recipients')
+    def _split_addrs(v):
+        if not v:
+            return []
+        return [e.strip() for e in v.split(',') if e.strip()] if isinstance(v, str) else [e.strip() for e in v if e and e.strip()]
+    cc_list, bcc_list = _split_addrs(cc), _split_addrs(bcc)
     try:
         import requests as _req
         payload = {'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body}
+        if cc_list:
+            payload['cc'] = cc_list
+        if bcc_list:
+            payload['bcc'] = bcc_list
         if attachments:
             payload['attachments'] = [
                 {'filename': a['filename'], 'content': a['content_b64']} for a in attachments
@@ -20164,7 +20189,38 @@ def _extract_email_body(msg):
             text_body = content
     return html_body, text_body
 
+def _extract_email_attachments(msg):
+    """Returns a list of {filename, content_type, data} dicts for real
+    file attachments (skips inline images referenced by the HTML body
+    itself, which show up with a Content-ID and no meaningful filename)."""
+    attachments = []
+    if not msg.is_multipart():
+        return attachments
+    for part in msg.walk():
+        disp = str(part.get('Content-Disposition') or '')
+        filename = part.get_filename()
+        if 'attachment' not in disp and not filename:
+            continue
+        if part.get_content_maintype() == 'multipart':
+            continue
+        try:
+            data = part.get_payload(decode=True)
+        except Exception:
+            data = None
+        if not data:
+            continue
+        filename = _decode_mime_words(filename) if filename else 'attachment'
+        attachments.append({
+            'filename': filename,
+            'content_type': part.get_content_type() or 'application/octet-stream',
+            'data': data,
+        })
+    return attachments
+
 def _find_or_create_inbox_thread(conn, participant_email, participant_name, subject, in_reply_to, references):
+    """Returns (thread_id, is_new) — is_new lets the caller fire a 'new
+    conversation' notification only for genuinely new threads, not every
+    reply that lands in an existing one."""
     import re as _reinbox
     candidate_ids = [x.strip() for x in ([in_reply_to] + (references or '').split()) if x and x.strip()]
     thread_id = None
@@ -20183,14 +20239,70 @@ def _find_or_create_inbox_thread(conn, participant_email, participant_name, subj
     if thread_id:
         execute(conn, """UPDATE inbox_threads SET last_message_at=NOW(), unread=TRUE,
             status=CASE WHEN status='closed' THEN 'open' ELSE status END WHERE id=%s""", (thread_id,))
-        return thread_id
+        return thread_id, False
     thread_id = str(uuid.uuid4())
     execute(conn, """INSERT INTO inbox_threads (id, subject, participant_email, participant_name, status, unread, last_message_at)
         VALUES (%s,%s,%s,%s,'open',TRUE,NOW())""", (thread_id, norm_subject, participant_email, participant_name))
-    return thread_id
+    return thread_id, True
+
+def _get_inbox_notify_recipients(conn):
+    """Every admin, plus anyone explicitly granted inbox access — de-duped
+    emails. Used for 'new conversation' notifications, which should reach
+    the whole triage team rather than one specific person."""
+    users = fetchall(conn, "SELECT email, role, role_permissions FROM users WHERE COALESCE(active,TRUE)=TRUE AND email IS NOT NULL AND email!=''") or []
+    emails = set()
+    for u in users:
+        if u.get('role') == 'admin':
+            emails.add(u['email'])
+            continue
+        try:
+            perms = json.loads(u.get('role_permissions') or '{}')
+        except Exception:
+            perms = {}
+        if resolve_perm_level(perms, 'inbox') in ('view', 'edit'):
+            emails.add(u['email'])
+    return list(emails)
+
+def _notify_inbox_new_thread(conn, thread_id):
+    try:
+        thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (thread_id,))
+        if not thread:
+            return
+        recipients = _get_inbox_notify_recipients(conn)
+        if not recipients:
+            return
+        first_msg = fetchone(conn, "SELECT body_text FROM inbox_messages WHERE thread_id=%s ORDER BY created_at LIMIT 1", (thread_id,))
+        preview = ((first_msg or {}).get('body_text') or '').strip().replace('\n', ' ')[:200]
+        send_email(recipients, f'New message: {thread.get("subject","(no subject)")}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<p><strong>{thread.get("participant_name") or thread.get("participant_email","")}</strong> sent a new message to info@hwtco.org:</p>'
+            f'<p style="color:#6b7280;font-size:13px;border-left:3px solid #145466;padding-left:10px">{preview}{"…" if len(preview)==200 else ""}</p>'
+            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+            source='inbox_notify')
+    except Exception as e:
+        app.logger.warning(f'Inbox new-thread notification failed: {e}')
+
+def _notify_inbox_assigned(conn, thread_id, assignee_name):
+    try:
+        if not assignee_name:
+            return
+        user = fetchone(conn, "SELECT email FROM users WHERE name=%s AND email IS NOT NULL AND email!=''", (assignee_name,))
+        if not user:
+            return
+        thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (thread_id,))
+        if not thread:
+            return
+        send_email(user['email'], f'Assigned to you: {thread.get("subject","(no subject)")}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<p>You\'ve been assigned a conversation in the RoleCall Inbox:</p>'
+            f'<p><strong>{thread.get("participant_name") or thread.get("participant_email","")}</strong> — {thread.get("subject","(no subject)")}</p>'
+            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+            source='inbox_notify')
+    except Exception as e:
+        app.logger.warning(f'Inbox assignment notification failed: {e}')
 
 def _process_inbound_email(conn, raw_bytes):
-    import email as _emaillib
+    import email as _emaillib, base64 as _b64inbox
     from email.utils import parseaddr, parsedate_to_datetime
     msg = _emaillib.message_from_bytes(raw_bytes)
     message_id = (msg.get('Message-ID') or '').strip()
@@ -20204,14 +20316,34 @@ def _process_inbound_email(conn, raw_bytes):
     in_reply_to = (msg.get('In-Reply-To') or '').strip()
     references = (msg.get('References') or '').strip()
     html_body, text_body = _extract_email_body(msg)
-    thread_id = _find_or_create_inbox_thread(conn, from_email.lower(), from_name, subject, in_reply_to, references)
+    thread_id, is_new_thread = _find_or_create_inbox_thread(conn, from_email.lower(), from_name, subject, in_reply_to, references)
     mid = str(uuid.uuid4())
-    execute(conn, """INSERT INTO inbox_messages
+    # RETURNING id, not just checking rowcount: if a concurrent worker
+    # already inserted this exact message_id between our early check above
+    # and this INSERT, ON CONFLICT DO NOTHING silently inserts nothing —
+    # without RETURNING we'd have no way to tell, and would go on to try
+    # attaching files to a message row that was never actually created.
+    result = fetchone(conn, """INSERT INTO inbox_messages
         (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, body_text, message_id, in_reply_to)
         VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s,%s,%s,%s)
-        ON CONFLICT (message_id) WHERE message_id IS NOT NULL AND message_id!='' DO NOTHING""",
+        ON CONFLICT (message_id) WHERE message_id IS NOT NULL AND message_id!='' DO NOTHING
+        RETURNING id""",
         (mid, thread_id, from_email.lower(), from_name, msg.get('To') or '', subject, html_body, text_body,
          message_id or None, in_reply_to))
+    if not result:
+        return
+    for att in _extract_email_attachments(msg):
+        if len(att['data']) > 15 * 1024 * 1024:  # 15MB per file, generous but bounded
+            continue
+        execute(conn, """INSERT INTO inbox_attachments (id, message_id, filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s)""",
+            (str(uuid.uuid4()), mid, att['filename'], att['content_type'],
+             _b64inbox.b64encode(att['data']).decode(), len(att['data'])))
+    if is_new_thread:
+        try:
+            _notify_inbox_new_thread(conn, thread_id)
+        except Exception as e:
+            app.logger.warning(f'Inbox new-thread notification error: {e}')
 
 def check_inbox_for_new_mail():
     """Checked periodically by the scheduler. Safe to run concurrently
@@ -20288,7 +20420,7 @@ def _find_gmail_sent_folder(imap_conn):
         pass
     return None
 
-def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in_reply_to=None):
+def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in_reply_to=None, cc_emails='', bcc_emails='', attachments=None):
     """Inserts a copy of a message RoleCall just sent (via Resend) into
     Gmail's own Sent Mail folder, using IMAP APPEND. Resend delivers the
     email but never touches Gmail's servers, so without this step a
@@ -20296,7 +20428,10 @@ def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in
     in RoleCall, but be completely invisible to anyone checking Gmail
     directly — this keeps both views showing the same conversation.
     Best-effort only: failure here never blocks the actual send, since
-    the message has already gone out by the time this runs."""
+    the message has already gone out by the time this runs.
+    attachments: optional list of {'filename','content_type','data'} with
+    raw bytes, mirrored into the Sent-folder copy so it looks identical
+    to what the recipient actually got."""
     if not _inbox_configured():
         return
     try:
@@ -20307,6 +20442,8 @@ def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in
         msg = EmailMessage()
         msg['From'] = f'Horizon West Theater Company <{imap_email}>'
         msg['To'] = f'{to_name} <{to_email}>' if to_name else to_email
+        if cc_emails:
+            msg['Cc'] = cc_emails
         msg['Subject'] = subject
         msg['Date'] = formatdate(localtime=True)
         msg['Message-ID'] = message_id
@@ -20315,6 +20452,9 @@ def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in
             msg['References'] = in_reply_to
         msg.set_content('This message contains HTML content. Please view it in an HTML-capable mail client.')
         msg.add_alternative(html_body, subtype='html')
+        for att in (attachments or []):
+            maintype, _, subtype = (att.get('content_type') or 'application/octet-stream').partition('/')
+            msg.add_attachment(att['data'], maintype=maintype or 'application', subtype=subtype or 'octet-stream', filename=att['filename'])
 
         m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
         m.login(imap_email, imap_password)
@@ -20327,7 +20467,7 @@ def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in
     except Exception as e:
         app.logger.warning(f'IMAP append to Sent folder failed (non-fatal, message was still sent): {e}')
 
-def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name, in_reply_to_message_id=None, to_name=''):
+def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name, in_reply_to_message_id=None, to_name='', cc_emails='', bcc_emails='', attachments=None):
     """Sends a reply as info@ and records it on the thread. Threads
     properly in the recipient's client via In-Reply-To/References when we
     have a message-id to reference; always safe to call without one.
@@ -20342,25 +20482,40 @@ def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name
 
     After a successful send, also copies the message into Gmail's own
     Sent Mail folder via IMAP APPEND — see _imap_append_sent_copy — so
-    Gmail and RoleCall never disagree about what's been replied to."""
+    Gmail and RoleCall never disagree about what's been replied to.
+
+    attachments (optional): list of {'filename','content_type','data'}
+    with raw bytes — sent via Resend, mirrored to the Sent folder, and
+    stored in inbox_attachments against the new message row."""
     our_message_id = f'<{uuid.uuid4()}@hwtco.org>'
     headers = {'Message-ID': our_message_id}
     if in_reply_to_message_id:
         headers['In-Reply-To'] = in_reply_to_message_id
         headers['References'] = in_reply_to_message_id
     from_email = _inbox_credentials()[0] or 'info@hwtco.org'
+    resend_attachments = None
+    if attachments:
+        import base64 as _b64send
+        resend_attachments = [{'filename': a['filename'], 'content_b64': _b64send.b64encode(a['data']).decode()} for a in attachments]
     ok, err, resend_id = send_email(to_email, subject, html_body, from_email=from_email,
-        from_name='Horizon West Theater Company', source='shared_inbox', extra_headers=headers)
+        from_name='Horizon West Theater Company', source='shared_inbox', extra_headers=headers,
+        cc=cc_emails or None, bcc=bcc_emails or None, attachments=resend_attachments)
     mid = str(uuid.uuid4())
     execute(conn, """INSERT INTO inbox_messages
-        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, message_id, in_reply_to, sent_by)
-        VALUES (%s,%s,'outbound',%s,'Horizon West Theater Company',%s,%s,%s,%s,%s,%s)""",
+        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, message_id, in_reply_to, sent_by, cc_emails, bcc_emails)
+        VALUES (%s,%s,'outbound',%s,'Horizon West Theater Company',%s,%s,%s,%s,%s,%s,%s,%s)""",
         (mid, thread_id, from_email, to_email, subject, html_body,
-         our_message_id, in_reply_to_message_id or '', sent_by_name))
+         our_message_id, in_reply_to_message_id or '', sent_by_name, cc_emails or '', bcc_emails or ''))
+    for att in (attachments or []):
+        execute(conn, """INSERT INTO inbox_attachments (id, message_id, filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s)""",
+            (str(uuid.uuid4()), mid, att['filename'], att.get('content_type') or 'application/octet-stream',
+             __import__('base64').b64encode(att['data']).decode(), len(att['data'])))
     execute(conn, "UPDATE inbox_threads SET last_message_at=NOW(), unread=FALSE WHERE id=%s", (thread_id,))
     if ok:
         try:
-            _imap_append_sent_copy(to_email, to_name, subject, html_body, our_message_id, in_reply_to_message_id)
+            _imap_append_sent_copy(to_email, to_name, subject, html_body, our_message_id, in_reply_to_message_id,
+                cc_emails, bcc_emails, attachments)
         except Exception as e:
             app.logger.warning(f'Sent-folder sync error (non-fatal): {e}')
     return ok, err
@@ -20391,6 +20546,7 @@ def list_inbox_threads():
     status = request.args.get('status', '')
     assigned = request.args.get('assigned', '')
     search = (request.args.get('q') or '').strip()
+    tag = (request.args.get('tag') or '').strip()
     sort_order = 'ASC' if request.args.get('sort') == 'oldest' else 'DESC'
     conn = get_db()
     sql = """SELECT t.*, (SELECT COUNT(*) FROM inbox_messages m WHERE m.thread_id=t.id) AS message_count,
@@ -20404,6 +20560,8 @@ def list_inbox_threads():
     elif assigned == 'mine':
         user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
         sql += ' AND t.assigned_to=%s'; params.append((user or {}).get('name', ''))
+    if tag:
+        sql += " AND t.tags::jsonb ? %s"; params.append(tag)
     if search:
         sql += """ AND (t.subject ILIKE %s OR t.participant_name ILIKE %s OR t.participant_email ILIKE %s
             OR EXISTS (SELECT 1 FROM inbox_messages m WHERE m.thread_id=t.id AND (m.body_text ILIKE %s OR m.body_html ILIKE %s)))"""
@@ -20413,6 +20571,54 @@ def list_inbox_threads():
     threads = fetchall(conn, sql, tuple(params)) or []
     conn.close()
     return jsonify(threads)
+
+def _inbox_linked_record_summary(conn, record_type, record_id):
+    """Small summary blob for whatever RoleCall record a thread is linked
+    to — the actual differentiator vs. a generic inbox tool: an email
+    from a rental partner shows their booking history right there."""
+    if record_type == 'rental_partner':
+        p = fetchone(conn, 'SELECT * FROM rental_partners WHERE id=%s', (record_id,))
+        if not p:
+            return None
+        requests_ = fetchall(conn, """SELECT title, status, start_date FROM rental_requests
+            WHERE partner_id=%s ORDER BY created_at DESC LIMIT 5""", (record_id,)) or []
+        return {'type': 'rental_partner', 'id': record_id, 'name': p.get('name'),
+            'detail': f"{p.get('organization_type') or 'Partner'} · {p.get('status','')}",
+            'recent': [f"{r['title']} ({r['status']})" for r in requests_]}
+    if record_type == 'volunteer':
+        v = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (record_id,))
+        if not v:
+            return None
+        hours = fetchone(conn, "SELECT COALESCE(SUM(hours),0) AS total FROM hours WHERE volunteer_id=%s", (record_id,))
+        return {'type': 'volunteer', 'id': record_id, 'name': v.get('name'),
+            'detail': f"Status: {v.get('status','')} · {(hours or {}).get('total',0)} hours logged", 'recent': []}
+    if record_type == 'donor':
+        d = fetchone(conn, 'SELECT * FROM donors WHERE id=%s', (record_id,))
+        if not d:
+            return None
+        gifts = fetchall(conn, "SELECT amount, donation_date FROM donor_donations WHERE donor_id=%s ORDER BY donation_date DESC LIMIT 5", (record_id,)) or []
+        return {'type': 'donor', 'id': record_id, 'name': d.get('display_name'),
+            'detail': (d.get('type') or 'individual').title(),
+            'recent': [f"${float(g.get('amount') or 0):.2f} on {g.get('donation_date','')}" for g in gifts]}
+    return None
+
+def _inbox_suggest_links(conn, participant_email):
+    """Candidate matches by email — shown as a 'looks like this person,
+    link it?' prompt rather than auto-linking, since an email address can
+    be shared or wrong and staff should confirm."""
+    if not participant_email:
+        return []
+    suggestions = []
+    p = fetchone(conn, 'SELECT id, name FROM rental_partners WHERE LOWER(contact_email)=%s LIMIT 1', (participant_email,))
+    if p:
+        suggestions.append({'type': 'rental_partner', 'id': p['id'], 'name': p['name']})
+    v = fetchone(conn, 'SELECT id, name FROM volunteers WHERE LOWER(email)=%s LIMIT 1', (participant_email,))
+    if v:
+        suggestions.append({'type': 'volunteer', 'id': v['id'], 'name': v['name']})
+    d = fetchone(conn, 'SELECT id, display_name FROM donors WHERE LOWER(email)=%s LIMIT 1', (participant_email,))
+    if d:
+        suggestions.append({'type': 'donor', 'id': d['id'], 'name': d['display_name']})
+    return suggestions
 
 @app.route('/api/inbox/threads/<tid>', methods=['GET'])
 def get_inbox_thread(tid):
@@ -20424,10 +20630,125 @@ def get_inbox_thread(tid):
         conn.close()
         return jsonify({'error': 'Not found'}), 404
     messages = fetchall(conn, 'SELECT * FROM inbox_messages WHERE thread_id=%s ORDER BY created_at', (tid,)) or []
+    if messages:
+        placeholders = ','.join(['%s'] * len(messages))
+        atts = fetchall(conn, f"""SELECT id, message_id, filename, content_type, size_bytes
+            FROM inbox_attachments WHERE message_id IN ({placeholders})""",
+            tuple(m['id'] for m in messages)) or []
+        by_message = {}
+        for a in atts:
+            by_message.setdefault(a['message_id'], []).append(a)
+        for m in messages:
+            m['attachments'] = by_message.get(m['id'], [])
+    if thread.get('linked_record_type') and thread.get('linked_record_id'):
+        thread['linked_record'] = _inbox_linked_record_summary(conn, thread['linked_record_type'], thread['linked_record_id'])
+        thread['link_suggestions'] = []
+    else:
+        thread['linked_record'] = None
+        thread['link_suggestions'] = _inbox_suggest_links(conn, thread.get('participant_email'))
     execute(conn, 'UPDATE inbox_threads SET unread=FALSE WHERE id=%s', (tid,))
     conn.commit(); conn.close()
     thread['messages'] = messages
     return jsonify(thread)
+
+@app.route('/api/inbox/threads/<tid>/link', methods=['PUT'])
+def link_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    record_type = (d.get('type') or '').strip()
+    record_id = (d.get('id') or '').strip()
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if not record_type or not record_id:
+        execute(conn, "UPDATE inbox_threads SET linked_record_type='', linked_record_id='' WHERE id=%s", (tid,))
+    else:
+        if record_type not in ('rental_partner', 'volunteer', 'donor'):
+            conn.close()
+            return jsonify({'error': 'Invalid record type'}), 400
+        execute(conn, 'UPDATE inbox_threads SET linked_record_type=%s, linked_record_id=%s WHERE id=%s',
+            (record_type, record_id, tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/threads/<tid>/merge', methods=['POST'])
+def merge_inbox_threads(tid):
+    """Moves every message from another thread into this one and deletes
+    the now-empty source — for when auto-threading guessed wrong and
+    split one real conversation into two."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    source_id = (d.get('source_thread_id') or '').strip()
+    if not source_id or source_id == tid:
+        return jsonify({'error': 'Pick a different conversation to merge in'}), 400
+    conn = get_db()
+    target = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    source = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (source_id,))
+    if not target or not source:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, 'UPDATE inbox_messages SET thread_id=%s WHERE thread_id=%s', (tid, source_id))
+    execute(conn, 'DELETE FROM inbox_threads WHERE id=%s', (source_id,))
+    execute(conn, "UPDATE inbox_threads SET last_message_at=NOW(), status=CASE WHEN status='closed' THEN 'open' ELSE status END WHERE id=%s", (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/threads/<tid>/tags', methods=['PUT'])
+def set_inbox_thread_tags(tid):
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    tags = d.get('tags')
+    if not isinstance(tags, list):
+        return jsonify({'error': 'tags must be a list'}), 400
+    clean_tags = sorted(set(t.strip() for t in tags if isinstance(t, str) and t.strip()))
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, 'UPDATE inbox_threads SET tags=%s WHERE id=%s', (json.dumps(clean_tags), tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'tags': clean_tags})
+
+@app.route('/api/inbox/tags', methods=['GET'])
+def list_all_inbox_tags():
+    """All tags currently in use, for the tag picker's autocomplete/quick-add list."""
+    err = require_permission('inbox', 'view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, "SELECT tags FROM inbox_threads WHERE tags IS NOT NULL AND tags!='[]'") or []
+    conn.close()
+    all_tags = set()
+    for r in rows:
+        try:
+            all_tags.update(json.loads(r.get('tags') or '[]'))
+        except Exception:
+            pass
+    return jsonify(sorted(all_tags))
+
+@app.route('/api/inbox/attachments/<aid>', methods=['GET'])
+def download_inbox_attachment(aid):
+    err = require_permission('inbox', 'view')
+    if err: return err
+    import base64 as _b64dl
+    from urllib.parse import quote as _quotedl
+    from flask import Response as _InboxAttResp
+    conn = get_db()
+    att = fetchone(conn, 'SELECT * FROM inbox_attachments WHERE id=%s', (aid,))
+    conn.close()
+    if not att:
+        return jsonify({'error': 'Not found'}), 404
+    data = _b64dl.b64decode(att['file_data_b64'])
+    resp = _InboxAttResp(data, mimetype=att.get('content_type') or 'application/octet-stream')
+    safe_name = (att.get('filename') or 'file').replace('"', "'")
+    ascii_name = safe_name.encode('ascii', 'ignore').decode('ascii').strip() or 'file'
+    resp.headers['Content-Disposition'] = f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{_quotedl(safe_name)}'
+    return resp
 
 @app.route('/api/inbox/threads/<tid>', methods=['PUT'])
 def update_inbox_thread(tid):
@@ -20456,7 +20777,13 @@ def update_inbox_thread(tid):
         return jsonify({'error': 'Nothing to update'}), 400
     params.append(tid)
     execute(conn, f"UPDATE inbox_threads SET {', '.join(fields)} WHERE id=%s", tuple(params))
-    conn.commit(); conn.close()
+    conn.commit()
+    if 'assigned_to' in d and (d.get('assigned_to') or '').strip():
+        try:
+            _notify_inbox_assigned(conn, tid, (d.get('assigned_to') or '').strip())
+        except Exception as e:
+            app.logger.warning(f'Inbox assignment notification error: {e}')
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/inbox/threads/<tid>/assign-me', methods=['POST'])
@@ -20475,8 +20802,32 @@ def assign_inbox_thread_to_me(tid):
     user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
     my_name = (user or {}).get('name', 'Staff')
     execute(conn, 'UPDATE inbox_threads SET assigned_to=%s WHERE id=%s', (my_name, tid))
-    conn.commit(); conn.close()
+    conn.commit()
+    # No self-notification — you already know you just assigned it to yourself.
+    conn.close()
     return jsonify({'ok': True, 'assigned_to': my_name})
+
+def _decode_inbox_attachment_payload(items):
+    """Client sends attachments as [{filename, content_type, content_b64}].
+    Decodes and bounds-checks them; raises ValueError with a user-facing
+    message on anything invalid so the route can return it directly."""
+    import base64 as _b64dec
+    out = []
+    total = 0
+    for item in (items or []):
+        filename = (item.get('filename') or 'attachment').strip()
+        b64 = item.get('content_b64') or ''
+        try:
+            data = _b64dec.b64decode(b64)
+        except Exception:
+            raise ValueError(f'"{filename}" could not be read — try re-attaching it')
+        if len(data) > 15 * 1024 * 1024:
+            raise ValueError(f'"{filename}" is larger than the 15MB limit')
+        total += len(data)
+        if total > 25 * 1024 * 1024:
+            raise ValueError('Attachments together are larger than the 25MB limit')
+        out.append({'filename': filename, 'content_type': item.get('content_type') or 'application/octet-stream', 'data': data})
+    return out
 
 @app.route('/api/inbox/threads/<tid>/reply', methods=['POST'])
 def reply_to_inbox_thread(tid):
@@ -20486,6 +20837,10 @@ def reply_to_inbox_thread(tid):
     body_html = (d.get('body_html') or '').strip()
     if not body_html:
         return jsonify({'error': 'Message body is required'}), 400
+    try:
+        attachments = _decode_inbox_attachment_payload(d.get('attachments'))
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
     conn = get_db()
     thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (tid,))
     if not thread:
@@ -20502,7 +20857,8 @@ def reply_to_inbox_thread(tid):
     user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
     sent_by_name = (user or {}).get('name', 'Staff')
     ok, send_err = send_inbox_reply(conn, tid, thread['participant_email'], subject, body_html, sent_by_name,
-        (last_inbound or {}).get('message_id'), thread.get('participant_name') or '')
+        (last_inbound or {}).get('message_id'), thread.get('participant_name') or '',
+        (d.get('cc_emails') or '').strip(), (d.get('bcc_emails') or '').strip(), attachments)
     conn.commit(); conn.close()
     if not ok:
         return jsonify({'error': send_err or 'Could not send reply'}), 400
@@ -20526,6 +20882,10 @@ def compose_inbox_message():
         return jsonify({'error': 'A subject is required'}), 400
     if not body_html:
         return jsonify({'error': 'Message body is required'}), 400
+    try:
+        attachments = _decode_inbox_attachment_payload(d.get('attachments'))
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
     conn = get_db()
     user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
     sent_by_name = (user or {}).get('name', 'Staff')
@@ -20534,7 +20894,8 @@ def compose_inbox_message():
     execute(conn, """INSERT INTO inbox_threads (id, subject, participant_email, participant_name, status, unread, last_message_at)
         VALUES (%s,%s,%s,%s,'open',FALSE,NOW())""",
         (thread_id, subject, to_email, to_name or to_email))
-    ok, send_err = send_inbox_reply(conn, thread_id, to_email, subject, body_html, sent_by_name, to_name=to_name)
+    ok, send_err = send_inbox_reply(conn, thread_id, to_email, subject, body_html, sent_by_name, to_name=to_name,
+        cc_emails=(d.get('cc_emails') or '').strip(), bcc_emails=(d.get('bcc_emails') or '').strip(), attachments=attachments)
     conn.commit(); conn.close()
     if not ok:
         return jsonify({'error': send_err or 'Could not send message'}), 400

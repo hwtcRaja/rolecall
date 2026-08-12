@@ -1145,6 +1145,13 @@ def init_db():
             size_bytes INTEGER DEFAULT 0,
             uploaded_at TIMESTAMP DEFAULT NOW())""",
         "CREATE INDEX IF NOT EXISTS idx_inbox_attachments_message ON inbox_attachments(message_id)",
+        """CREATE TABLE IF NOT EXISTS inbox_comments (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL REFERENCES inbox_threads(id) ON DELETE CASCADE,
+            author_name TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS idx_inbox_comments_thread ON inbox_comments(thread_id)",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
@@ -20560,6 +20567,8 @@ def list_inbox_threads():
     elif assigned == 'mine':
         user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
         sql += ' AND t.assigned_to=%s'; params.append((user or {}).get('name', ''))
+    elif assigned and assigned != 'all':
+        sql += ' AND t.assigned_to=%s'; params.append(assigned)
     if tag:
         sql += " AND t.tags::jsonb ? %s"; params.append(tag)
     if search:
@@ -20646,10 +20655,44 @@ def get_inbox_thread(tid):
     else:
         thread['linked_record'] = None
         thread['link_suggestions'] = _inbox_suggest_links(conn, thread.get('participant_email'))
+    thread['comments'] = fetchall(conn, 'SELECT * FROM inbox_comments WHERE thread_id=%s ORDER BY created_at', (tid,)) or []
     execute(conn, 'UPDATE inbox_threads SET unread=FALSE WHERE id=%s', (tid,))
     conn.commit(); conn.close()
     thread['messages'] = messages
     return jsonify(thread)
+
+@app.route('/api/inbox/threads/<tid>/comments', methods=['POST'])
+def add_inbox_comment(tid):
+    """Internal team discussion on a conversation — never sent to the
+    participant, just a running log staff leave for each other (who
+    looked into it, what they found, why it's still pending, etc.)."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    body = (d.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Comment is empty'}), 400
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    author = (user or {}).get('name', 'Staff')
+    cid = str(uuid.uuid4())
+    execute(conn, 'INSERT INTO inbox_comments (id, thread_id, author_name, body) VALUES (%s,%s,%s,%s)',
+        (cid, tid, author, body))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': cid, 'author_name': author})
+
+@app.route('/api/inbox/comments/<cid>', methods=['DELETE'])
+def delete_inbox_comment(cid):
+    err = require_permission('inbox')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM inbox_comments WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/inbox/threads/<tid>/link', methods=['PUT'])
 def link_inbox_thread(tid):
@@ -20762,10 +20805,14 @@ def update_inbox_thread(tid):
         return jsonify({'error': 'Not found'}), 404
     fields, params = [], []
     if 'status' in d:
-        if d['status'] not in ('open', 'pending', 'closed'):
+        if d['status'] not in ('open', 'pending', 'closed', 'spam'):
             conn.close()
             return jsonify({'error': 'Invalid status'}), 400
         fields.append('status=%s'); params.append(d['status'])
+        # Marking spam also clears unread — it's been triaged, just not
+        # via a real reply, and shouldn't keep nagging the unread badge.
+        if d['status'] == 'spam' and 'unread' not in d:
+            fields.append('unread=%s'); params.append(False)
     if 'assigned_to' in d:
         fields.append('assigned_to=%s'); params.append((d.get('assigned_to') or '').strip())
     if 'internal_notes' in d:

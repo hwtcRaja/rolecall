@@ -20517,7 +20517,18 @@ def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in
         m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
         m.login(imap_email, imap_password)
         sent_folder = _find_gmail_sent_folder(m) or '[Gmail]/Sent Mail'
-        m.append(sent_folder, '\\Seen', imaplib.Time2Internaldate(_timeimap.time()), msg.as_bytes())
+        # imaplib does NOT auto-quote mailbox names — a folder name with a
+        # space (like the default '[Gmail]/Sent Mail') sent unquoted
+        # produces a malformed IMAP command that the server rejects with a
+        # NO/BAD response rather than a Python exception, so this was
+        # failing on every single append with nothing in the logs to show
+        # it. Quoting it properly is the actual fix; checking the return
+        # status is what makes any *future* failure visible instead of
+        # silent.
+        quoted_folder = '"' + sent_folder.replace('\\', '\\\\').replace('"', '\\"') + '"'
+        typ, resp = m.append(quoted_folder, '\\Seen', imaplib.Time2Internaldate(_timeimap.time()), msg.as_bytes())
+        if typ != 'OK':
+            app.logger.warning(f'IMAP append to Sent folder ("{sent_folder}") returned {typ}: {resp} (message was still sent via Resend)')
         try:
             m.logout()
         except Exception:

@@ -1581,7 +1581,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn btn-secondary" onclick="refreshInboxNow()" id="inbox-refresh-btn">↻ Check for New Mail</button>
  </div>
  </div>
- <div id="inbox-content"></div>
+ <div class="page-body" id="inbox-content"></div>
  </section>
 
  <section class="page" id="page-responsibility">
@@ -7842,8 +7842,9 @@ async function deleteBoardApplication(aid){
 
 // ── Shared Inbox (info@) ───────────────────────────────────────────
 var _inboxThreads = []
-var _inboxFilter = {status:'all', assigned:'all'}
+var _inboxFilter = {status:'all', assigned:'all', sort:'newest', q:''}
 var _inboxOpenThreadId = null
+var _inboxSearchDebounce = null
 
 async function loadInboxPage(){
  var status = await api('/api/inbox/status')
@@ -7871,10 +7872,18 @@ function setInboxFilter(key, val){
  renderInboxThreadList()
 }
 
+function onInboxSearchInput(){
+ _inboxFilter.q = (document.getElementById('inbox-search-input')||{}).value||''
+ clearTimeout(_inboxSearchDebounce)
+ _inboxSearchDebounce = setTimeout(function(){ renderInboxThreadList() }, 400)
+}
+
 async function renderInboxThreadList(){
  var qs = []
  if(_inboxFilter.status!=='all') qs.push('status='+_inboxFilter.status)
  if(_inboxFilter.assigned!=='all') qs.push('assigned='+_inboxFilter.assigned)
+ if(_inboxFilter.sort==='oldest') qs.push('sort=oldest')
+ if(_inboxFilter.q) qs.push('q='+encodeURIComponent(_inboxFilter.q))
  var threads = await api('/api/inbox/threads'+(qs.length?'?'+qs.join('&'):''))
  _inboxThreads = Array.isArray(threads) ? threads : []
  var unreadCount = _inboxThreads.filter(function(t){ return t.unread }).length
@@ -7884,7 +7893,15 @@ async function renderInboxThreadList(){
 
  var statusFilters = [{v:'all',l:'All'},{v:'open',l:'Open'},{v:'pending',l:'Pending'},{v:'closed',l:'Closed'}]
  var assignedFilters = [{v:'all',l:'Everyone'},{v:'unassigned',l:'Unassigned'},{v:'mine',l:'Assigned to Me'}]
- var html = '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">'
+ var html = '<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">'
+   + '<input type="text" id="inbox-search-input" value="'+escHtml(_inboxFilter.q)+'" placeholder="🔍 Search name, email, subject, or message…" oninput="onInboxSearchInput()" style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
+   + '<select onchange="setInboxFilter(\'sort\',this.value)" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;color:var(--text-muted)">'
+   + '<option value="newest"'+(_inboxFilter.sort==='newest'?' selected':'')+'>Newest first</option>'
+   + '<option value="oldest"'+(_inboxFilter.sort==='oldest'?' selected':'')+'>Oldest first</option>'
+   + '</select>'
+   + '<button class="btn btn-primary btn-sm" onclick="openInboxComposeModal()">✎ New Message</button>'
+   + '</div>'
+   + '<div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">'
    + statusFilters.map(function(f){
        var active = _inboxFilter.status===f.v
        return '<button onclick="setInboxFilter(\'status\',\''+f.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+'</button>'
@@ -7948,7 +7965,7 @@ async function openInboxThread(tid){
        var m = {open:{c:'#166534',bg:'#dcfce7'}, pending:{c:'#92400e',bg:'#fef3c7'}, closed:{c:'#6b7280',bg:'#f3f4f6'}}[s]
        return '<button onclick="setInboxThreadStatus(\''+t.id+'\',\''+s+'\')" style="padding:5px 12px;border-radius:20px;font-size:11.5px;font-weight:700;border:1.5px solid '+(active?m.c:'var(--border)')+';background:'+(active?m.bg:'var(--surface)')+';color:'+(active?m.c:'var(--text-muted)')+';cursor:pointer">'+s.charAt(0).toUpperCase()+s.slice(1)+'</button>'
      }).join('')
-   + '<input type="text" id="inbox-assign-input" value="'+escHtml(t.assigned_to||'')+'" placeholder="Unassigned" onchange="assignInboxThread(\''+t.id+'\')" style="padding:5px 10px;border-radius:20px;font-size:11.5px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-muted);width:130px"/>'
+   + '<select id="inbox-assign-input" onchange="assignInboxThread(\''+t.id+'\')" style="padding:5px 10px;border-radius:20px;font-size:11.5px;border:1.5px solid var(--border);background:var(--surface);color:var(--text-muted)"><option value="">Unassigned</option></select>'
    + '<button onclick="assignInboxThreadToMe(\''+t.id+'\')" style="padding:5px 10px;border-radius:20px;font-size:11.5px;font-weight:600;border:1.5px solid var(--border);background:var(--surface);color:var(--text-muted);cursor:pointer">Assign to Me</button>'
    + '</div></div>'
    + '<div style="padding:16px 24px;overflow-y:auto;flex:1">'+(messagesHtml||'<div style="color:var(--text-muted);font-size:13px">No messages.</div>')+'</div>'
@@ -7967,6 +7984,17 @@ async function openInboxThread(tid){
  // Scroll message list to the bottom (most recent) once rendered
  var msgWrap = overlay.querySelector('div[style*="overflow-y:auto"]')
  if(msgWrap) msgWrap.scrollTop = msgWrap.scrollHeight
+ // Populate the assignment dropdown from the team list
+ api('/api/inbox/team').then(function(names){
+   var sel = document.getElementById('inbox-assign-input')
+   if(!sel || !Array.isArray(names)) return
+   names.forEach(function(name){
+     var opt = document.createElement('option')
+     opt.value = name; opt.textContent = name
+     if(name===t.assigned_to) opt.selected = true
+     sel.appendChild(opt)
+   })
+ })
 }
 
 function toggleInboxNotes(tid){
@@ -8017,6 +8045,45 @@ async function sendInboxReply(tid){
    toast('Reply sent','success')
    document.getElementById('inbox-thread-overlay')?.remove()
    openInboxThread(tid)
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+function openInboxComposeModal(){
+ var overlay = document.createElement('div')
+ overlay.id = 'inbox-compose-overlay'
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:520px;padding:24px">'
+   + '<div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">New Message from info@hwtco.org</div>'
+   + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">To</label>'
+   + '<input type="email" id="inbox-compose-to" placeholder="name@example.com" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/></div>'
+   + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Recipient Name (optional)</label>'
+   + '<input type="text" id="inbox-compose-to-name" placeholder="Jane Smith" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/></div>'
+   + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Subject</label>'
+   + '<input type="text" id="inbox-compose-subject" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/></div>'
+   + '<div class="form-group" style="margin-bottom:18px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Message</label>'
+   + '<textarea id="inbox-compose-body" rows="6" style="width:100%;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13.5px;resize:vertical;box-sizing:border-box"></textarea></div>'
+   + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+   + '<button class="btn btn-secondary" onclick="document.getElementById(\'inbox-compose-overlay\').remove()">Cancel</button>'
+   + '<button class="btn btn-primary" onclick="submitInboxCompose()">Send</button>'
+   + '</div></div>'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+}
+
+async function submitInboxCompose(){
+ var to_email = (document.getElementById('inbox-compose-to')||{}).value.trim()
+ var to_name = (document.getElementById('inbox-compose-to-name')||{}).value.trim()
+ var subject = (document.getElementById('inbox-compose-subject')||{}).value.trim()
+ var body = (document.getElementById('inbox-compose-body')||{}).value.trim()
+ if(!to_email || !to_email.includes('@')){ toast('Enter a valid recipient email','error'); return }
+ if(!subject){ toast('Subject is required','error'); return }
+ if(!body){ toast('Write a message first','error'); return }
+ var html = '<div style="white-space:pre-wrap;font-family:sans-serif">'+escHtml(body)+'</div>'
+ var res = await api('/api/inbox/compose','POST',{to_email:to_email, to_name:to_name, subject:subject, body_html:html})
+ if(res&&res.ok){
+   toast('Message sent','success')
+   document.getElementById('inbox-compose-overlay')?.remove()
    renderInboxThreadList()
  } else toast((res&&res.error)||'Error','error')
 }

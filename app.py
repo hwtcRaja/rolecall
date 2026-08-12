@@ -20094,6 +20094,18 @@ def post_oncall_slack_report():
 def _inbox_configured():
     return bool(os.environ.get('INFO_INBOX_EMAIL', '').strip() and os.environ.get('INFO_INBOX_APP_PASSWORD', '').strip())
 
+def _inbox_credentials():
+    """Google's app-password page displays the password in four-character
+    groups separated by non-breaking spaces (U+00A0), not regular ones —
+    those survive copy/paste into an env var and then choke imaplib, which
+    speaks plain ASCII. The actual credential is the 16 characters alone;
+    all whitespace around/inside it (regular or non-breaking) is purely
+    cosmetic, so it's safe to strip entirely rather than just .strip()."""
+    import re as _reinboxcred
+    email_addr = _reinboxcred.sub(r'\s+', '', os.environ.get('INFO_INBOX_EMAIL', ''))
+    app_password = _reinboxcred.sub(r'\s+', '', os.environ.get('INFO_INBOX_APP_PASSWORD', ''))
+    return email_addr, app_password
+
 def _decode_mime_words(s):
     if not s:
         return ''
@@ -20211,7 +20223,8 @@ def check_inbox_for_new_mail():
         last_uid_row = fetchone(conn, "SELECT value FROM settings WHERE key='inbox_last_uid'")
         last_uid = int(last_uid_row['value']) if last_uid_row and (last_uid_row.get('value') or '').isdigit() else 0
         m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
-        m.login(os.environ['INFO_INBOX_EMAIL'], os.environ['INFO_INBOX_APP_PASSWORD'])
+        imap_email, imap_password = _inbox_credentials()
+        m.login(imap_email, imap_password)
         m.select('INBOX')
         status, data = m.uid('search', None, f'UID {last_uid + 1}:*')
         uids = [u for u in (data[0].split() if data and data[0] else []) if int(u) > last_uid]
@@ -20249,7 +20262,7 @@ def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name
     if in_reply_to_message_id:
         headers['In-Reply-To'] = in_reply_to_message_id
         headers['References'] = in_reply_to_message_id
-    from_email = os.environ.get('INFO_INBOX_EMAIL', '').strip() or 'info@hwtco.org'
+    from_email = _inbox_credentials()[0] or 'info@hwtco.org'
     ok, err, resend_id = send_email(to_email, subject, html_body, from_email=from_email,
         from_name='Horizon West Theater Company', source='shared_inbox', extra_headers=headers)
     our_message_id = f'<{uuid.uuid4()}@hwtco.org>'

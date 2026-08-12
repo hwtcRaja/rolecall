@@ -7860,8 +7860,10 @@ async function refreshInboxNow(){
  if(btn){ btn.disabled=true; btn.textContent='Checking…' }
  var res = await api('/api/inbox/check-now','POST',{})
  if(btn){ btn.disabled=false; btn.textContent='↻ Check for New Mail' }
- if(res&&res.ok){ toast('Checked for new mail','success'); renderInboxThreadList() }
- else toast((res&&res.error)||'Error','error')
+ if(res&&res.ok){
+   toast(res.checked ? 'Found '+res.checked+' new message'+(res.checked!==1?'s':'') : 'Checked — nothing new', 'success')
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
 }
 
 function setInboxFilter(key, val){

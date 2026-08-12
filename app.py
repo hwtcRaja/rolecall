@@ -20197,9 +20197,14 @@ def check_inbox_for_new_mail():
     """Checked periodically by the scheduler. Safe to run concurrently
     across multiple worker processes — new inbound rows are deduped by the
     unique index on message_id, so even simultaneous polls can't create
-    duplicate threads/messages."""
+    duplicate threads/messages.
+
+    Returns (ok, error_or_none, messages_processed) so the manual 'Check
+    for New Mail' button can actually show what went wrong — this used to
+    only log failures server-side and always report success to the UI,
+    which made a broken IMAP login indistinguishable from an empty inbox."""
     if not _inbox_configured():
-        return
+        return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0
     try:
         import imaplib
         conn = get_db()
@@ -20211,12 +20216,14 @@ def check_inbox_for_new_mail():
         status, data = m.uid('search', None, f'UID {last_uid + 1}:*')
         uids = [u for u in (data[0].split() if data and data[0] else []) if int(u) > last_uid]
         max_uid_seen = last_uid
+        processed = 0
         for uid_bytes in uids:
             uid = int(uid_bytes)
             try:
                 status, msg_data = m.uid('fetch', uid_bytes, '(RFC822)')
                 if status == 'OK' and msg_data and msg_data[0]:
                     _process_inbound_email(conn, msg_data[0][1])
+                    processed += 1
             except Exception as e:
                 app.logger.warning(f'Inbox message parse error (UID {uid}): {e}')
             max_uid_seen = max(max_uid_seen, uid)
@@ -20229,8 +20236,10 @@ def check_inbox_for_new_mail():
                 (str(max_uid_seen),))
         conn.commit()
         conn.close()
+        return True, None, processed
     except Exception as e:
         app.logger.warning(f'Inbox IMAP check failed: {e}')
+        return False, str(e), 0
 
 def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name, in_reply_to_message_id=None):
     """Sends a reply as info@ and records it on the thread. Threads
@@ -20388,13 +20397,17 @@ def delete_inbox_thread(tid):
 @app.route('/api/inbox/check-now', methods=['POST'])
 def trigger_inbox_check_now():
     """Manual 'refresh' button — runs the same check the scheduler runs
-    every 3 minutes, on demand."""
+    every 3 minutes, on demand, and actually reports back whether it
+    worked (the scheduled version only logs failures server-side, which
+    made a broken IMAP login look identical to a quiet inbox)."""
     err = require_permission('inbox')
     if err: return err
     if not _inbox_configured():
         return jsonify({'error': 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set on the server yet'}), 400
-    check_inbox_for_new_mail()
-    return jsonify({'ok': True})
+    ok, check_err, count = check_inbox_for_new_mail()
+    if not ok:
+        return jsonify({'error': f'Could not connect to the inbox: {check_err}'}), 500
+    return jsonify({'ok': True, 'checked': count})
 
 def _start_oncall_scheduler():
     try:

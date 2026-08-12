@@ -7943,10 +7943,13 @@ async function renderInboxThreadList(){
    html += _inboxThreads.map(function(t){
      var statusMeta = {open:{c:'#166534',bg:'#dcfce7'}, pending:{c:'#92400e',bg:'#fef3c7'}, closed:{c:'#6b7280',bg:'#f3f4f6'}, spam:{c:'#991b1b',bg:'#fee2e2'}}[t.status] || {c:'#6b7280',bg:'#f3f4f6'}
      var preview = (t.last_body_text||'').replace(/\s+/g,' ').trim().slice(0,110)
-     var quickActions = (t.status==='open'||t.status==='pending') ? '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">'
-       + '<span onclick="event.stopPropagation();quickSetInboxStatus(\''+t.id+'\',\'closed\')" style="font-size:10.5px;color:var(--text-muted);cursor:pointer;text-decoration:underline">Close</span>'
-       + '<span onclick="event.stopPropagation();quickSetInboxStatus(\''+t.id+'\',\'spam\')" style="font-size:10.5px;color:#991b1b;cursor:pointer;text-decoration:underline">Spam</span>'
-       + '</div>' : ''
+     var quickActions = '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">'
+       + ((t.status==='open'||t.status==='pending') ?
+           '<span onclick="event.stopPropagation();quickSetInboxStatus(\''+t.id+'\',\'closed\')" style="font-size:10.5px;color:var(--text-muted);cursor:pointer;text-decoration:underline">Close</span>'
+           + '<span onclick="event.stopPropagation();quickSetInboxStatus(\''+t.id+'\',\'spam\')" style="font-size:10.5px;color:#991b1b;cursor:pointer;text-decoration:underline">Spam</span>'
+         : '')
+       + '<span onclick="event.stopPropagation();quickDeleteInboxThread(\''+t.id+'\')" style="font-size:10.5px;color:#991b1b;cursor:pointer;text-decoration:underline">Delete</span>'
+       + '</div>'
      return '<div class="card" style="padding:14px 16px;margin-bottom:8px;cursor:pointer;'+(t.unread?'border-left:3px solid #145466':'')+'" onclick="openInboxThread(\''+t.id+'\')">'
        + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
        + '<div style="min-width:0;flex:1">'
@@ -8083,7 +8086,10 @@ async function openInboxThread(tid){
    + '<textarea id="inbox-comment-input" rows="2" placeholder="Leave a note for your team…" style="width:100%;padding:7px 9px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;resize:vertical;box-sizing:border-box;margin-bottom:6px"></textarea>'
    + '<button class="btn btn-secondary btn-sm" onclick="submitInboxComment(\''+t.id+'\')">Post</button>'
    + '</div>'
-   + '<div style="font-size:10px;color:var(--text-muted);cursor:pointer;text-decoration:underline" onclick="openInboxMergeModal(\''+t.id+'\')">⇄ Merge with another conversation</div>'
+   + '<div style="display:flex;justify-content:space-between;font-size:10px">'
+   + '<span style="color:var(--text-muted);cursor:pointer;text-decoration:underline" onclick="openInboxMergeModal(\''+t.id+'\')">⇄ Merge with another conversation</span>'
+   + '<span style="color:#991b1b;cursor:pointer;text-decoration:underline" onclick="deleteInboxThreadFromDetail(\''+t.id+'\')">🗑 Delete</span>'
+   + '</div>'
    + '</div>'
 
  overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:1320px;height:88vh;display:flex;flex-direction:column;padding:0;overflow:hidden">'
@@ -8310,6 +8316,25 @@ async function quickSetInboxStatus(tid, status){
  var res = await api('/api/inbox/threads/'+tid,'PUT',{status:status})
  if(res&&res.ok){
    toast(status==='spam'?'Marked as spam':'Closed','success')
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function quickDeleteInboxThread(tid){
+ if(!confirm('Delete this conversation permanently? This can\'t be undone.')) return
+ var res = await api('/api/inbox/threads/'+tid,'DELETE')
+ if(res&&res.ok){
+   toast('Deleted','success')
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function deleteInboxThreadFromDetail(tid){
+ if(!confirm('Delete this conversation permanently? This can\'t be undone.')) return
+ var res = await api('/api/inbox/threads/'+tid,'DELETE')
+ if(res&&res.ok){
+   toast('Deleted','success')
+   document.getElementById('inbox-thread-overlay')?.remove()
    renderInboxThreadList()
  } else toast((res&&res.error)||'Error','error')
 }

@@ -1104,6 +1104,33 @@ def init_db():
         "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS hwtc_signed_at TIMESTAMP",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_signatory_name TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_signatory_title TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS inbox_threads (
+            id TEXT PRIMARY KEY,
+            subject TEXT DEFAULT '',
+            participant_email TEXT DEFAULT '',
+            participant_name TEXT DEFAULT '',
+            status TEXT DEFAULT 'open',
+            assigned_to TEXT DEFAULT '',
+            unread BOOLEAN DEFAULT TRUE,
+            internal_notes TEXT DEFAULT '',
+            last_message_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS inbox_messages (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL REFERENCES inbox_threads(id) ON DELETE CASCADE,
+            direction TEXT NOT NULL,
+            from_email TEXT DEFAULT '',
+            from_name TEXT DEFAULT '',
+            to_emails TEXT DEFAULT '',
+            subject TEXT DEFAULT '',
+            body_html TEXT DEFAULT '',
+            body_text TEXT DEFAULT '',
+            message_id TEXT,
+            in_reply_to TEXT DEFAULT '',
+            sent_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_inbox_messages_message_id ON inbox_messages(message_id) WHERE message_id IS NOT NULL AND message_id!=''",
+        "CREATE INDEX IF NOT EXISTS idx_inbox_messages_thread ON inbox_messages(thread_id)",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
@@ -2582,16 +2609,21 @@ def build_waitlist_email_html(guardian_name, program_name, position_desc, is_plu
 </div>'''
 
 
-def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source='', attachments=None):
+def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source='', attachments=None, extra_headers=None):
     """Send via Resend API. from_email/from_name override settings default.
     attachments: optional list of {'filename': str, 'content_b64': str} dicts —
-    content_b64 is the base64-encoded file content (e.g. a PDF)."""
+    content_b64 is the base64-encoded file content (e.g. a PDF).
+    extra_headers: optional dict of raw email headers (e.g. In-Reply-To,
+    References, Message-ID) — used by the shared inbox to thread replies
+    properly in the recipient's mail client. Returns (ok, error_or_none);
+    on success the Resend response id is also returned as a third value
+    when extra_headers is supplied, so callers can store it for threading."""
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
         app.logger.warning('Resend API key not configured  -  email not sent')
         _log_email(to_emails, subject, html_body, 'failed', 'Resend API key not configured', source)
-        return False, 'Resend API key not configured'
+        return (False, 'Resend API key not configured', None) if extra_headers is not None else (False, 'Resend API key not configured')
     # Build from address
     if from_email:
         base_email = from_email
@@ -2611,7 +2643,7 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None, s
     if isinstance(to_emails, str):
         to_emails = [e.strip() for e in to_emails.split(',') if e.strip()]
     if not to_emails:
-        return False, 'No recipients'
+        return (False, 'No recipients', None) if extra_headers is not None else (False, 'No recipients')
     try:
         import requests as _req
         payload = {'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body}
@@ -2619,6 +2651,8 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None, s
             payload['attachments'] = [
                 {'filename': a['filename'], 'content': a['content_b64']} for a in attachments
             ]
+        if extra_headers:
+            payload['headers'] = extra_headers
         resp = _req.post('https://api.resend.com/emails',
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             json=payload,
@@ -2627,13 +2661,19 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None, s
             err = f'Resend error {resp.status_code}: {resp.text[:200]}'
             app.logger.error(f'Resend error: {resp.status_code} {resp.text}')
             _log_email(to_emails, subject, html_body, 'failed', err, source)
-            return False, err
+            return (False, err, None) if extra_headers is not None else (False, err)
         _log_email(to_emails, subject, html_body, 'sent', '', source)
+        if extra_headers is not None:
+            try:
+                resend_id = resp.json().get('id')
+            except Exception:
+                resend_id = None
+            return True, None, resend_id
         return True, None
     except Exception as e:
         app.logger.error(f'Email send error: {e}')
         _log_email(to_emails, subject, html_body, 'failed', str(e), source)
-        return False, str(e)
+        return (False, str(e), None) if extra_headers is not None else (False, str(e))
 
 def _log_email(to_emails, subject, html_body, status, error_msg='', source=''):
     """Log email send attempt to email_log table."""
@@ -20045,6 +20085,317 @@ def post_oncall_slack_report():
     app.logger.info('On-call Slack report sent')
 
 # ── APScheduler for automatic on-call reports ────────────────────────────────
+# ── Shared Inbox (info@) ──────────────────────────────────────────────────
+# Reads new mail from info@ via IMAP (checked periodically, see the
+# scheduler job below), threads it against existing conversations, and
+# lets staff reply from inside RoleCall as info@ via the same Resend
+# infrastructure everything else already sends through.
+
+def _inbox_configured():
+    return bool(os.environ.get('INFO_INBOX_EMAIL', '').strip() and os.environ.get('INFO_INBOX_APP_PASSWORD', '').strip())
+
+def _decode_mime_words(s):
+    if not s:
+        return ''
+    from email.header import decode_header
+    parts = decode_header(s)
+    out = []
+    for text, enc in parts:
+        if isinstance(text, bytes):
+            try:
+                out.append(text.decode(enc or 'utf-8', errors='replace'))
+            except Exception:
+                out.append(text.decode('utf-8', errors='replace'))
+        else:
+            out.append(text)
+    return ''.join(out)
+
+def _extract_email_body(msg):
+    """Prefers HTML, falls back to plain text wrapped in <pre>-ish spacing."""
+    html_body, text_body = '', ''
+    if msg.is_multipart():
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            disp = str(part.get('Content-Disposition') or '')
+            if 'attachment' in disp:
+                continue
+            try:
+                payload = part.get_payload(decode=True)
+                if payload is None:
+                    continue
+                charset = part.get_content_charset() or 'utf-8'
+                content = payload.decode(charset, errors='replace')
+            except Exception:
+                continue
+            if ctype == 'text/html' and not html_body:
+                html_body = content
+            elif ctype == 'text/plain' and not text_body:
+                text_body = content
+    else:
+        try:
+            payload = msg.get_payload(decode=True)
+            charset = msg.get_content_charset() or 'utf-8'
+            content = payload.decode(charset, errors='replace') if payload else ''
+        except Exception:
+            content = ''
+        if msg.get_content_type() == 'text/html':
+            html_body = content
+        else:
+            text_body = content
+    return html_body, text_body
+
+def _find_or_create_inbox_thread(conn, participant_email, participant_name, subject, in_reply_to, references):
+    import re as _reinbox
+    candidate_ids = [x.strip() for x in ([in_reply_to] + (references or '').split()) if x and x.strip()]
+    thread_id = None
+    if candidate_ids:
+        placeholders = ','.join(['%s'] * len(candidate_ids))
+        row = fetchone(conn, f"SELECT thread_id FROM inbox_messages WHERE message_id IN ({placeholders}) LIMIT 1", tuple(candidate_ids))
+        if row:
+            thread_id = row['thread_id']
+    norm_subject = _reinbox.sub(r'^\s*(re|fwd?)\s*:\s*', '', subject or '', flags=_reinbox.I).strip()
+    if not thread_id and participant_email:
+        row = fetchone(conn, """SELECT id FROM inbox_threads WHERE participant_email=%s AND subject=%s
+            AND last_message_at > NOW() - INTERVAL '60 days' ORDER BY last_message_at DESC LIMIT 1""",
+            (participant_email, norm_subject))
+        if row:
+            thread_id = row['id']
+    if thread_id:
+        execute(conn, """UPDATE inbox_threads SET last_message_at=NOW(), unread=TRUE,
+            status=CASE WHEN status='closed' THEN 'open' ELSE status END WHERE id=%s""", (thread_id,))
+        return thread_id
+    thread_id = str(uuid.uuid4())
+    execute(conn, """INSERT INTO inbox_threads (id, subject, participant_email, participant_name, status, unread, last_message_at)
+        VALUES (%s,%s,%s,%s,'open',TRUE,NOW())""", (thread_id, norm_subject, participant_email, participant_name))
+    return thread_id
+
+def _process_inbound_email(conn, raw_bytes):
+    import email as _emaillib
+    from email.utils import parseaddr, parsedate_to_datetime
+    msg = _emaillib.message_from_bytes(raw_bytes)
+    message_id = (msg.get('Message-ID') or '').strip()
+    if message_id:
+        existing = fetchone(conn, 'SELECT id FROM inbox_messages WHERE message_id=%s', (message_id,))
+        if existing:
+            return  # already processed (belt-and-suspenders alongside the DB unique index)
+    from_name_raw, from_email = parseaddr(msg.get('From') or '')
+    from_name = _decode_mime_words(from_name_raw) or from_email
+    subject = _decode_mime_words(msg.get('Subject') or '(no subject)')
+    in_reply_to = (msg.get('In-Reply-To') or '').strip()
+    references = (msg.get('References') or '').strip()
+    html_body, text_body = _extract_email_body(msg)
+    thread_id = _find_or_create_inbox_thread(conn, from_email.lower(), from_name, subject, in_reply_to, references)
+    mid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO inbox_messages
+        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, body_text, message_id, in_reply_to)
+        VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (message_id) WHERE message_id IS NOT NULL AND message_id!='' DO NOTHING""",
+        (mid, thread_id, from_email.lower(), from_name, msg.get('To') or '', subject, html_body, text_body,
+         message_id or None, in_reply_to))
+
+def check_inbox_for_new_mail():
+    """Checked periodically by the scheduler. Safe to run concurrently
+    across multiple worker processes — new inbound rows are deduped by the
+    unique index on message_id, so even simultaneous polls can't create
+    duplicate threads/messages."""
+    if not _inbox_configured():
+        return
+    try:
+        import imaplib
+        conn = get_db()
+        last_uid_row = fetchone(conn, "SELECT value FROM settings WHERE key='inbox_last_uid'")
+        last_uid = int(last_uid_row['value']) if last_uid_row and (last_uid_row.get('value') or '').isdigit() else 0
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        m.login(os.environ['INFO_INBOX_EMAIL'], os.environ['INFO_INBOX_APP_PASSWORD'])
+        m.select('INBOX')
+        status, data = m.uid('search', None, f'UID {last_uid + 1}:*')
+        uids = [u for u in (data[0].split() if data and data[0] else []) if int(u) > last_uid]
+        max_uid_seen = last_uid
+        for uid_bytes in uids:
+            uid = int(uid_bytes)
+            try:
+                status, msg_data = m.uid('fetch', uid_bytes, '(RFC822)')
+                if status == 'OK' and msg_data and msg_data[0]:
+                    _process_inbound_email(conn, msg_data[0][1])
+            except Exception as e:
+                app.logger.warning(f'Inbox message parse error (UID {uid}): {e}')
+            max_uid_seen = max(max_uid_seen, uid)
+        try:
+            m.logout()
+        except Exception:
+            pass
+        if max_uid_seen > last_uid:
+            execute(conn, "INSERT INTO settings (key,value) VALUES ('inbox_last_uid',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                (str(max_uid_seen),))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Inbox IMAP check failed: {e}')
+
+def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name, in_reply_to_message_id=None):
+    """Sends a reply as info@ and records it on the thread. Threads
+    properly in the recipient's client via In-Reply-To/References when we
+    have a message-id to reference; always safe to call without one."""
+    headers = {}
+    if in_reply_to_message_id:
+        headers['In-Reply-To'] = in_reply_to_message_id
+        headers['References'] = in_reply_to_message_id
+    from_email = os.environ.get('INFO_INBOX_EMAIL', '').strip() or 'info@hwtco.org'
+    ok, err, resend_id = send_email(to_email, subject, html_body, from_email=from_email,
+        from_name='Horizon West Theater Company', source='shared_inbox', extra_headers=headers)
+    our_message_id = f'<{uuid.uuid4()}@hwtco.org>'
+    mid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO inbox_messages
+        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, message_id, in_reply_to, sent_by)
+        VALUES (%s,%s,'outbound',%s,'Horizon West Theater Company',%s,%s,%s,%s,%s,%s)""",
+        (mid, thread_id, from_email, to_email, subject, html_body,
+         resend_id or our_message_id, in_reply_to_message_id or '', sent_by_name))
+    execute(conn, "UPDATE inbox_threads SET last_message_at=NOW(), unread=FALSE WHERE id=%s", (thread_id,))
+    return ok, err
+
+@app.route('/api/inbox/status', methods=['GET'])
+def inbox_status():
+    err = require_permission('inbox', 'view')
+    if err: return err
+    return jsonify({'configured': _inbox_configured()})
+
+@app.route('/api/inbox/threads', methods=['GET'])
+def list_inbox_threads():
+    err = require_permission('inbox', 'view')
+    if err: return err
+    status = request.args.get('status', '')
+    assigned = request.args.get('assigned', '')
+    conn = get_db()
+    q = """SELECT t.*, (SELECT COUNT(*) FROM inbox_messages m WHERE m.thread_id=t.id) AS message_count,
+        (SELECT body_text FROM inbox_messages m WHERE m.thread_id=t.id ORDER BY created_at DESC LIMIT 1) AS last_body_text
+        FROM inbox_threads t WHERE 1=1"""
+    params = []
+    if status and status != 'all':
+        q += ' AND t.status=%s'; params.append(status)
+    if assigned == 'unassigned':
+        q += " AND (t.assigned_to IS NULL OR t.assigned_to='')"
+    elif assigned == 'mine':
+        user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+        q += ' AND t.assigned_to=%s'; params.append((user or {}).get('name', ''))
+    q += ' ORDER BY t.last_message_at DESC LIMIT 200'
+    threads = fetchall(conn, q, tuple(params)) or []
+    conn.close()
+    return jsonify(threads)
+
+@app.route('/api/inbox/threads/<tid>', methods=['GET'])
+def get_inbox_thread(tid):
+    err = require_permission('inbox', 'view')
+    if err: return err
+    conn = get_db()
+    thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (tid,))
+    if not thread:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    messages = fetchall(conn, 'SELECT * FROM inbox_messages WHERE thread_id=%s ORDER BY created_at', (tid,)) or []
+    execute(conn, 'UPDATE inbox_threads SET unread=FALSE WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    thread['messages'] = messages
+    return jsonify(thread)
+
+@app.route('/api/inbox/threads/<tid>', methods=['PUT'])
+def update_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    fields, params = [], []
+    if 'status' in d:
+        if d['status'] not in ('open', 'pending', 'closed'):
+            conn.close()
+            return jsonify({'error': 'Invalid status'}), 400
+        fields.append('status=%s'); params.append(d['status'])
+    if 'assigned_to' in d:
+        fields.append('assigned_to=%s'); params.append((d.get('assigned_to') or '').strip())
+    if 'internal_notes' in d:
+        fields.append('internal_notes=%s'); params.append(d.get('internal_notes') or '')
+    if 'unread' in d:
+        fields.append('unread=%s'); params.append(bool(d.get('unread')))
+    if not fields:
+        conn.close()
+        return jsonify({'error': 'Nothing to update'}), 400
+    params.append(tid)
+    execute(conn, f"UPDATE inbox_threads SET {', '.join(fields)} WHERE id=%s", tuple(params))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/threads/<tid>/assign-me', methods=['POST'])
+def assign_inbox_thread_to_me(tid):
+    """Assigns a thread to whoever's currently logged in — resolved
+    server-side from the session, same as every other 'do this as me'
+    action in RoleCall, so the frontend never needs to track/guess the
+    current user's display name itself."""
+    err = require_permission('inbox')
+    if err: return err
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    my_name = (user or {}).get('name', 'Staff')
+    execute(conn, 'UPDATE inbox_threads SET assigned_to=%s WHERE id=%s', (my_name, tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'assigned_to': my_name})
+
+@app.route('/api/inbox/threads/<tid>/reply', methods=['POST'])
+def reply_to_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    body_html = (d.get('body_html') or '').strip()
+    if not body_html:
+        return jsonify({'error': 'Message body is required'}), 400
+    conn = get_db()
+    thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (tid,))
+    if not thread:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if not thread.get('participant_email'):
+        conn.close()
+        return jsonify({'error': 'This thread has no reply-to email on file'}), 400
+    last_inbound = fetchone(conn, """SELECT message_id FROM inbox_messages WHERE thread_id=%s AND direction='inbound'
+        ORDER BY created_at DESC LIMIT 1""", (tid,))
+    subject = thread.get('subject') or '(no subject)'
+    if not subject.lower().startswith('re:'):
+        subject = f'Re: {subject}'
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    sent_by_name = (user or {}).get('name', 'Staff')
+    ok, send_err = send_inbox_reply(conn, tid, thread['participant_email'], subject, body_html, sent_by_name,
+        (last_inbound or {}).get('message_id'))
+    conn.commit(); conn.close()
+    if not ok:
+        return jsonify({'error': send_err or 'Could not send reply'}), 400
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/threads/<tid>', methods=['DELETE'])
+def delete_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM inbox_threads WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/check-now', methods=['POST'])
+def trigger_inbox_check_now():
+    """Manual 'refresh' button — runs the same check the scheduler runs
+    every 3 minutes, on demand."""
+    err = require_permission('inbox')
+    if err: return err
+    if not _inbox_configured():
+        return jsonify({'error': 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set on the server yet'}), 400
+    check_inbox_for_new_mail()
+    return jsonify({'ok': True})
+
 def _start_oncall_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -20094,6 +20445,12 @@ def _start_oncall_scheduler():
                           max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.add_job(_daily_auto_close, CronTrigger(hour=2, minute=0), id='daily_auto_close',
                           max_instances=1, coalesce=True)
+        try:
+            from apscheduler.triggers.interval import IntervalTrigger
+            scheduler.add_job(check_inbox_for_new_mail, IntervalTrigger(minutes=3), id='inbox_check',
+                              max_instances=1, coalesce=True, misfire_grace_time=60)
+        except Exception as e:
+            app.logger.warning(f'Could not schedule inbox check (non-fatal): {e}')
         scheduler.start()
         app.logger.info('On-call report scheduler started')
     except ImportError:

@@ -1155,6 +1155,10 @@ def init_db():
             body TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT NOW())""",
         "CREATE INDEX IF NOT EXISTS idx_inbox_comments_thread ON inbox_comments(thread_id)",
+        "ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS gmail_msgid TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS gmail_synced_tags TEXT DEFAULT '[]'",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS gmail_synced_status TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS gmail_last_synced_at TIMESTAMP",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
@@ -20359,7 +20363,7 @@ def _notify_inbox_assigned(conn, thread_id, assignee_name):
     except Exception as e:
         app.logger.warning(f'Inbox assignment notification failed: {e}')
 
-def _process_inbound_email(conn, raw_bytes):
+def _process_inbound_email(conn, raw_bytes, gmail_msgid=''):
     import email as _emaillib, base64 as _b64inbox
     from email.utils import parseaddr, parsedate_to_datetime
     msg = _emaillib.message_from_bytes(raw_bytes)
@@ -20382,12 +20386,12 @@ def _process_inbound_email(conn, raw_bytes):
     # without RETURNING we'd have no way to tell, and would go on to try
     # attaching files to a message row that was never actually created.
     result = fetchone(conn, """INSERT INTO inbox_messages
-        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, body_text, message_id, in_reply_to)
-        VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s,%s,%s,%s)
+        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, body_text, message_id, in_reply_to, gmail_msgid)
+        VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ON CONFLICT (message_id) WHERE message_id IS NOT NULL AND message_id!='' DO NOTHING
         RETURNING id""",
         (mid, thread_id, from_email.lower(), from_name, msg.get('To') or '', subject, html_body, text_body,
-         message_id or None, in_reply_to))
+         message_id or None, in_reply_to, gmail_msgid or ''))
     if not result:
         return
     for att in _extract_email_attachments(msg):
@@ -20433,12 +20437,24 @@ def check_inbox_for_new_mail():
         uids = [u for u in (data[0].split() if data and data[0] else []) if int(u) > last_uid]
         max_uid_seen = last_uid
         processed = 0
+        import re as _regmid
         for uid_bytes in uids:
             uid = int(uid_bytes)
             try:
-                status, msg_data = m.uid('fetch', uid_bytes, '(RFC822)')
+                # X-GM-MSGID alongside RFC822: Gmail's stable, cross-folder
+                # message identifier (unlike the IMAP UID, which is only
+                # meaningful within one folder) — this is what lets the
+                # label-sync job find this same message again later in
+                # [Gmail]/All Mail to check whether it's been archived,
+                # labeled, spammed, or trashed since we first saw it.
+                status, msg_data = m.uid('fetch', uid_bytes, '(RFC822 X-GM-MSGID)')
                 if status == 'OK' and msg_data and msg_data[0]:
-                    _process_inbound_email(conn, msg_data[0][1])
+                    header_line = msg_data[0][0] or b''
+                    if isinstance(header_line, str):
+                        header_line = header_line.encode()
+                    mm = _regmid.search(rb'X-GM-MSGID\s+(\d+)', header_line)
+                    gmail_msgid = mm.group(1).decode() if mm else ''
+                    _process_inbound_email(conn, msg_data[0][1], gmail_msgid)
                     processed += 1
             except Exception as e:
                 app.logger.warning(f'Inbox message parse error (UID {uid}): {e}')
@@ -20456,6 +20472,228 @@ def check_inbox_for_new_mail():
     except Exception as e:
         app.logger.warning(f'Inbox IMAP check failed: {e}')
         return False, str(e), 0
+
+def _gmail_parse_labels(header_line):
+    """Parses the raw X-GM-LABELS FETCH response line into a set of label
+    strings. Gmail returns them space-separated inside parens, each either
+    a bare atom (system labels like \\Inbox, \\Trash, \\Spam) or a quoted
+    string (custom labels, especially ones with spaces — 'Client Work')."""
+    if not header_line:
+        return set()
+    if isinstance(header_line, bytes):
+        header_line = header_line.decode('utf-8', errors='replace')
+    m = _re_module().search(r'X-GM-LABELS\s*\(([^)]*)\)', header_line)
+    if not m:
+        return set()
+    inner = m.group(1)
+    labels = set()
+    for qm in _re_module().finditer(r'"((?:[^"\\]|\\.)*)"|(\S+)', inner):
+        val = qm.group(1) if qm.group(1) is not None else qm.group(2)
+        if val:
+            labels.add(val.replace('\\"', '"'))
+    return labels
+
+def _re_module():
+    import re
+    return re
+
+def _gmail_locate_message(imap_conn, gmail_msgid):
+    """Gmail's IMAP treats each label as its own mailbox, and a message can
+    exist in several simultaneously — but [Gmail]/All Mail deliberately
+    excludes Trash and Spam, so a message living only in one of those
+    won't be found there. Checks All Mail first (covers the vast majority
+    of cases), then falls back to Trash and Spam specifically. Returns the
+    folder it was found in, or None if the message isn't anywhere
+    (permanently deleted, not just trashed)."""
+    if not gmail_msgid:
+        return None
+    for folder in ('[Gmail]/All Mail', '[Gmail]/Trash', '[Gmail]/Spam'):
+        try:
+            quoted = '"' + folder.replace('\\', '\\\\').replace('"', '\\"') + '"'
+            typ, _sel = imap_conn.select(quoted, readonly=False)
+            if typ != 'OK':
+                continue
+            typ, data = imap_conn.uid('search', None, f'X-GM-MSGID {gmail_msgid}')
+            if typ == 'OK' and data and data[0]:
+                uid = data[0].split()[0]
+                return folder, uid
+        except Exception:
+            continue
+    return None
+
+def _gmail_get_labels(imap_conn, gmail_msgid):
+    """Current full label set for a message (system + custom), or None if
+    the message can't be found at all."""
+    located = _gmail_locate_message(imap_conn, gmail_msgid)
+    if not located:
+        return None
+    folder, uid = located
+    try:
+        typ, msg_data = imap_conn.uid('fetch', uid, '(X-GM-LABELS)')
+        if typ != 'OK' or not msg_data or not msg_data[0]:
+            return set()
+        line = msg_data[0] if isinstance(msg_data[0], (bytes, str)) else msg_data[0][0]
+        return _gmail_parse_labels(line)
+    except Exception:
+        return set()
+
+def _gmail_modify_labels(imap_conn, gmail_msgid, add=None, remove=None):
+    """Applies/removes labels on a message by its stable X-GM-MSGID —
+    Gmail's IMAP extension for exactly this (STORE ... X-GM-LABELS), used
+    both to push RoleCall-side tag/status changes out to Gmail (e.g.
+    closing a thread removes \\Inbox, which is Gmail's own definition of
+    'archived') and, from the other side, by nothing here — this is the
+    push direction only. Returns True on success."""
+    located = _gmail_locate_message(imap_conn, gmail_msgid)
+    if not located:
+        return False
+    folder, uid = located
+    try:
+        def _fmt(labels):
+            return '(' + ' '.join('"' + l.replace('\\', '\\\\').replace('"', '\\"') + '"' if not l.startswith('\\') else l for l in labels) + ')'
+        if add:
+            imap_conn.uid('store', uid, '+X-GM-LABELS', _fmt(add))
+        if remove:
+            imap_conn.uid('store', uid, '-X-GM-LABELS', _fmt(remove))
+        return True
+    except Exception as e:
+        app.logger.warning(f'Gmail label modify failed for {gmail_msgid}: {e}')
+        return False
+
+def _get_thread_gmail_msgids(conn, thread_id):
+    rows = fetchall(conn, """SELECT DISTINCT gmail_msgid FROM inbox_messages
+        WHERE thread_id=%s AND gmail_msgid IS NOT NULL AND gmail_msgid!=''""", (thread_id,)) or []
+    return [r['gmail_msgid'] for r in rows]
+
+def _gmail_push_thread_change(conn, thread_id, add_labels=None, remove_labels=None):
+    """Pushes a status/tag change made in RoleCall out to Gmail right
+    away, rather than waiting for the periodic pull to (wrongly) treat it
+    as a Gmail-side change on the next cycle. Applies to every Gmail
+    message RoleCall has seen for this thread, since a conversation can
+    span more than one inbound message. Best-effort — never blocks or
+    fails the RoleCall-side action if Gmail is unreachable."""
+    if not _inbox_configured():
+        return
+    msgids = _get_thread_gmail_msgids(conn, thread_id)
+    if not msgids:
+        return
+    try:
+        import imaplib
+        imap_email, imap_password = _inbox_credentials()
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        m.login(imap_email, imap_password)
+        for gmail_msgid in msgids:
+            _gmail_modify_labels(m, gmail_msgid, add=add_labels, remove=remove_labels)
+        try:
+            m.logout()
+        except Exception:
+            pass
+    except Exception as e:
+        app.logger.warning(f'Gmail push failed for thread {thread_id} (non-fatal): {e}')
+
+def _gmail_labels_for_status(status):
+    """Maps a RoleCall status onto the Gmail system labels that represent
+    it — add/remove pairs applied via _gmail_push_thread_change."""
+    if status == 'closed':
+        return {'add': [], 'remove': ['\\Inbox']}
+    if status == 'spam':
+        return {'add': ['\\Spam'], 'remove': ['\\Inbox']}
+    if status in ('open', 'pending'):
+        return {'add': ['\\Inbox'], 'remove': ['\\Spam', '\\Trash']}
+    return {'add': [], 'remove': []}
+
+GMAIL_SYSTEM_LABELS = {'\\Inbox', '\\Trash', '\\Spam', '\\Important', '\\Sent', '\\Draft', '\\Starred', '\\All', '\\Junk'}
+
+def _sync_one_thread_from_gmail(conn, imap_conn, thread_row):
+    """Reconciles one thread's RoleCall state to match what's actually in
+    Gmail right now, using the earliest inbound message's labels as the
+    conversation's anchor state. Only acts when Gmail's state differs from
+    what was recorded at the last sync (gmail_synced_status/tags) — that
+    field gets updated immediately whenever RoleCall pushes a change out
+    (see _gmail_push_thread_change callers), so a RoleCall-initiated
+    change shows up here as 'already synced' on the very next pull rather
+    than getting redetected as a Gmail-side change and fought over."""
+    tid = thread_row['id']
+    msgids = _get_thread_gmail_msgids(conn, tid)
+    if not msgids:
+        return
+    labels = _gmail_get_labels(imap_conn, msgids[0])
+    if labels is None:
+        return  # not found in Gmail at all (e.g. expunged from Trash) — leave RoleCall's copy alone, don't guess
+    if '\\Trash' in labels:
+        # Deleted in Gmail — delete in RoleCall, per the mapping you asked for.
+        execute(conn, 'DELETE FROM inbox_threads WHERE id=%s', (tid,))
+        conn.commit()
+        return
+    custom_tags = sorted(labels - GMAIL_SYSTEM_LABELS)
+    if '\\Spam' in labels:
+        derived_status = 'spam'
+    elif '\\Inbox' not in labels:
+        derived_status = 'closed'  # archived
+    else:
+        derived_status = None  # still in Gmail's Inbox — no signal to distinguish RoleCall's open vs pending
+    try:
+        old_synced_tags = sorted(json.loads(thread_row.get('gmail_synced_tags') or '[]'))
+    except Exception:
+        old_synced_tags = []
+    status_changed = derived_status is not None and derived_status != thread_row.get('gmail_synced_status')
+    tags_changed = custom_tags != old_synced_tags
+    if not status_changed and not tags_changed:
+        return
+    fields, params = [], []
+    if status_changed:
+        fields.append('status=%s'); params.append(derived_status)
+        fields.append('gmail_synced_status=%s'); params.append(derived_status)
+    if tags_changed:
+        try:
+            current_tags = set(json.loads(thread_row.get('tags') or '[]'))
+        except Exception:
+            current_tags = set()
+        # Union of (whatever RoleCall-only tags existed, i.e. weren't part
+        # of what we last knew Gmail to have) with Gmail's current custom
+        # labels — so a tag added on one side doesn't get clobbered by a
+        # change made independently on the other.
+        merged_tags = sorted((current_tags - set(old_synced_tags)) | set(custom_tags))
+        fields.append('tags=%s'); params.append(json.dumps(merged_tags))
+        fields.append('gmail_synced_tags=%s'); params.append(json.dumps(custom_tags))
+    fields.append('gmail_last_synced_at=NOW()')
+    params.append(tid)
+    execute(conn, f"UPDATE inbox_threads SET {', '.join(fields)} WHERE id=%s", tuple(params))
+    conn.commit()
+
+def sync_inbox_from_gmail():
+    """Periodic pull (see scheduler registration): checks Gmail's current
+    label state for recently-active threads and reconciles RoleCall to
+    match. Bounded to the last 90 days / 300 threads per run so this
+    can't balloon into scanning your entire mail history every cycle —
+    each thread needs up to 3 folder selects plus a search and fetch, so
+    this is real IMAP load, not free."""
+    if not _inbox_configured():
+        return
+    try:
+        conn = get_db()
+        threads = fetchall(conn, """SELECT id, status, tags, gmail_synced_status, gmail_synced_tags, gmail_last_synced_at
+            FROM inbox_threads WHERE last_message_at > NOW() - INTERVAL '90 days'
+            ORDER BY last_message_at DESC LIMIT 300""") or []
+        if not threads:
+            conn.close()
+            return
+        import imaplib
+        imap_email, imap_password = _inbox_credentials()
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        m.login(imap_email, imap_password)
+        for t in threads:
+            try:
+                _sync_one_thread_from_gmail(conn, m, t)
+            except Exception as e:
+                app.logger.warning(f'Gmail pull sync error for thread {t["id"]}: {e}')
+        try:
+            m.logout()
+        except Exception:
+            pass
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Gmail pull sync failed: {e}')
 
 def _find_gmail_sent_folder(imap_conn):
     """Finds the actual Sent Mail folder via IMAP's special-use attribute
@@ -20830,12 +21068,25 @@ def set_inbox_thread_tags(tid):
         return jsonify({'error': 'tags must be a list'}), 400
     clean_tags = sorted(set(t.strip() for t in tags if isinstance(t, str) and t.strip()))
     conn = get_db()
-    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    existing = fetchone(conn, 'SELECT id, tags FROM inbox_threads WHERE id=%s', (tid,))
     if not existing:
         conn.close()
         return jsonify({'error': 'Not found'}), 404
-    execute(conn, 'UPDATE inbox_threads SET tags=%s WHERE id=%s', (json.dumps(clean_tags), tid))
-    conn.commit(); conn.close()
+    try:
+        old_tags = set(json.loads(existing.get('tags') or '[]'))
+    except Exception:
+        old_tags = set()
+    new_tags = set(clean_tags)
+    execute(conn, """UPDATE inbox_threads SET tags=%s, gmail_synced_tags=%s, gmail_last_synced_at=NOW()
+        WHERE id=%s""", (json.dumps(clean_tags), json.dumps(clean_tags), tid))
+    conn.commit()
+    added, removed = new_tags - old_tags, old_tags - new_tags
+    if added or removed:
+        try:
+            _gmail_push_thread_change(conn, tid, add_labels=list(added), remove_labels=list(removed))
+        except Exception as e:
+            app.logger.warning(f'Gmail tag push error: {e}')
+    conn.close()
     return jsonify({'ok': True, 'tags': clean_tags})
 
 @app.route('/api/inbox/tags', methods=['GET'])
@@ -20904,12 +21155,25 @@ def update_inbox_thread(tid):
         return jsonify({'error': 'Nothing to update'}), 400
     params.append(tid)
     execute(conn, f"UPDATE inbox_threads SET {', '.join(fields)} WHERE id=%s", tuple(params))
+    if 'status' in d:
+        # Also record what we just set as the 'last known Gmail state' —
+        # since we're the ones causing this change, the upcoming Gmail
+        # push should make Gmail match, and the next pull-from-Gmail pass
+        # needs to see this as already-synced rather than a Gmail-side
+        # change to (wrongly) re-apply back onto RoleCall.
+        execute(conn, 'UPDATE inbox_threads SET gmail_synced_status=%s, gmail_last_synced_at=NOW() WHERE id=%s', (d['status'], tid))
     conn.commit()
     if 'assigned_to' in d and (d.get('assigned_to') or '').strip():
         try:
             _notify_inbox_assigned(conn, tid, (d.get('assigned_to') or '').strip())
         except Exception as e:
             app.logger.warning(f'Inbox assignment notification error: {e}')
+    if 'status' in d:
+        try:
+            mapping = _gmail_labels_for_status(d['status'])
+            _gmail_push_thread_change(conn, tid, add_labels=mapping['add'], remove_labels=mapping['remove'])
+        except Exception as e:
+            app.logger.warning(f'Gmail status push error: {e}')
     conn.close()
     return jsonify({'ok': True})
 
@@ -21033,6 +21297,10 @@ def delete_inbox_thread(tid):
     err = require_permission('inbox')
     if err: return err
     conn = get_db()
+    try:
+        _gmail_push_thread_change(conn, tid, add_labels=['\\Trash'], remove_labels=['\\Inbox'])
+    except Exception as e:
+        app.logger.warning(f'Gmail trash push error: {e}')
     execute(conn, 'DELETE FROM inbox_threads WHERE id=%s', (tid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -21105,6 +21373,11 @@ def _start_oncall_scheduler():
             from apscheduler.triggers.interval import IntervalTrigger
             scheduler.add_job(check_inbox_for_new_mail, IntervalTrigger(minutes=3), id='inbox_check',
                               max_instances=1, coalesce=True, misfire_grace_time=60)
+            # Runs less often than the new-mail check — each thread here
+            # costs up to 3 IMAP folder selects plus a search and fetch,
+            # so this is meaningfully heavier per run.
+            scheduler.add_job(sync_inbox_from_gmail, IntervalTrigger(minutes=10), id='inbox_gmail_pull',
+                              max_instances=1, coalesce=True, misfire_grace_time=120)
         except Exception as e:
             app.logger.warning(f'Could not schedule inbox check (non-fatal): {e}')
         scheduler.start()

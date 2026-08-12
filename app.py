@@ -1134,6 +1134,9 @@ def init_db():
         "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS linked_record_type TEXT DEFAULT ''",
         "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS linked_record_id TEXT DEFAULT ''",
         "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS ai_summary TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS ai_summary_action TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS ai_summary_at TIMESTAMP",
         "ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS cc_emails TEXT DEFAULT ''",
         "ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS bcc_emails TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS inbox_attachments (
@@ -20252,6 +20255,54 @@ def _find_or_create_inbox_thread(conn, participant_email, participant_name, subj
         VALUES (%s,%s,%s,%s,'open',TRUE,NOW())""", (thread_id, norm_subject, participant_email, participant_name))
     return thread_id, True
 
+def run_inbox_thread_summary(conn, thread_id):
+    """Calls Claude to summarize a conversation for triage — same pattern
+    as run_compliance_check (Anthropic API via ANTHROPIC_API_KEY). Kept
+    short and on-demand (button-triggered, cached on the thread) rather
+    than run automatically on every open, since this is a high-volume
+    inbox and there's no reason to pay for a summary nobody looks at."""
+    import os as _os, requests as _rq, re as _re
+    api_key = _os.environ.get('ANTHROPIC_API_KEY', '').strip()
+    if not api_key:
+        return None, 'ANTHROPIC_API_KEY is not set in the environment. Add it in Railway → Variables, then redeploy.'
+    messages = fetchall(conn, """SELECT direction, from_name, from_email, sent_by, body_text, body_html, created_at
+        FROM inbox_messages WHERE thread_id=%s ORDER BY created_at""", (thread_id,)) or []
+    if not messages:
+        return None, 'No messages to summarize yet'
+    convo_lines = []
+    for m in messages:
+        who = f"HWTC ({m.get('sent_by') or 'staff'})" if m['direction'] == 'outbound' else (m.get('from_name') or m.get('from_email') or 'Sender')
+        text = (m.get('body_text') or '').strip()
+        if not text and m.get('body_html'):
+            text = _re.sub('<[^>]+>', ' ', m['body_html'])
+            text = _re.sub(r'\s+', ' ', text).strip()
+        convo_lines.append(f'{who}: {text[:1500]}')
+    convo_blob = '\n\n'.join(convo_lines)[:8000]
+    system_prompt = '''You summarize email conversations for Horizon West Theater Company's staff, who are triaging a busy shared inbox and need to understand a thread at a glance without reading the whole thing.
+Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this shape:
+{"summary": "1-2 sentence plain-English summary of what this conversation is about and where it currently stands", "suggested_action": "one short sentence on what staff should do next, or an empty string if nothing further is needed"}
+Critical formatting rule: this must be a single valid JSON object parseable by a strict JSON parser. Any newlines within a string value must be written as \\n, never as an actual line break.'''
+    try:
+        resp = _rq.post('https://api.anthropic.com/v1/messages',
+            headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+            json={'model': 'claude-sonnet-5', 'max_tokens': 400, 'thinking': {'type': 'disabled'},
+                  'system': system_prompt, 'messages': [{'role': 'user', 'content': convo_blob}]},
+            timeout=30)
+        if resp.status_code != 200:
+            app.logger.error(f'Inbox summary API error: {resp.status_code} {resp.text[:300]}')
+            return None, f'Claude API error ({resp.status_code}). Check your ANTHROPIC_API_KEY and billing in the Anthropic Console.'
+        data = resp.json()
+        raw = ''.join(b.get('text', '') for b in data.get('content', []) if b.get('type') == 'text').strip()
+        raw = _re.sub(r'^```(json)?|```$', '', raw.strip(), flags=_re.M).strip()
+        parsed = json.loads(raw)
+        return {'summary': (parsed.get('summary') or '').strip(), 'suggested_action': (parsed.get('suggested_action') or '').strip()}, None
+    except json.JSONDecodeError:
+        app.logger.error(f'Inbox summary: could not parse Claude response as JSON: {raw[:300]}')
+        return None, 'Could not parse the summary — try again'
+    except Exception as e:
+        app.logger.error(f'Inbox summary error: {e}')
+        return None, str(e)
+
 def _get_inbox_notify_recipients(conn):
     """Every admin, plus anyone explicitly granted inbox access — de-duped
     emails. Used for 'new conversation' notifications, which should reach
@@ -20693,6 +20744,25 @@ def delete_inbox_comment(cid):
     execute(conn, 'DELETE FROM inbox_comments WHERE id=%s', (cid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/inbox/threads/<tid>/summarize', methods=['POST'])
+def summarize_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    result, error = run_inbox_thread_summary(conn, tid)
+    if error:
+        conn.close()
+        return jsonify({'error': error}), 400
+    execute(conn, 'UPDATE inbox_threads SET ai_summary=%s, ai_summary_action=%s, ai_summary_at=NOW() WHERE id=%s',
+        (result['summary'], result['suggested_action'], tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'summary': result['summary'], 'suggested_action': result['suggested_action']})
+
 
 @app.route('/api/inbox/threads/<tid>/link', methods=['PUT'])
 def link_inbox_thread(tid):

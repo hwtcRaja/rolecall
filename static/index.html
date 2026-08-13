@@ -1590,6 +1590,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
  <div><div class="page-title">Inbox</div><div class="page-subtitle" id="inbox-subtitle">Loading…</div></div>
  <div class="page-actions">
+ <button class="btn btn-secondary" onclick="openInboxImportModal()">📥 Import Older Mail</button>
  <button class="btn btn-secondary" onclick="refreshInboxNow()" id="inbox-refresh-btn">↻ Check for New Mail</button>
  </div>
  </div>
@@ -7890,6 +7891,81 @@ async function refreshInboxNow(){
  } else toast((res&&res.error)||'Error','error')
 }
 
+function openInboxImportModal(){
+ var overlay = document.createElement('div')
+ overlay.id = 'inbox-import-overlay'
+ overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:420px;padding:24px">'
+   + '<div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Import Older Mail</div>'
+   + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">Pulls in everything from your Inbox and Sent folder going back this far — including things you sent that never got a reply, which the regular sync has no way to find on its own since it only watches for new mail going forward.</div>'
+   + '<div class="form-group" style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">How far back</label>'
+   + '<select id="inbox-import-months" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px">'
+   + '<option value="1">1 month</option><option value="3">3 months</option><option value="6" selected>6 months</option><option value="12">12 months</option><option value="24">24 months</option>'
+   + '</select></div>'
+   + '<div id="inbox-import-status-box" style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px"></div>'
+   + '<div style="display:flex;gap:8px;justify-content:flex-end">'
+   + '<button class="btn btn-secondary" onclick="document.getElementById(\'inbox-import-overlay\').remove()">Close</button>'
+   + '<button class="btn btn-primary" id="inbox-import-start-btn" onclick="startInboxImport()">Start Import</button>'
+   + '</div></div>'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+ refreshInboxImportStatus()
+}
+
+async function startInboxImport(){
+ var months = parseInt((document.getElementById('inbox-import-months')||{}).value||'6')
+ var btn = document.getElementById('inbox-import-start-btn')
+ if(btn){ btn.disabled=true }
+ var res = await api('/api/inbox/import-history','POST',{months:months})
+ if(res&&res.ok){
+   toast('Import started','success')
+   pollInboxImportStatus()
+ } else {
+   toast((res&&res.error)||'Error','error')
+   if(btn) btn.disabled=false
+ }
+}
+
+async function refreshInboxImportStatus(){
+ var status = await api('/api/inbox/import-history/status')
+ var box = document.getElementById('inbox-import-status-box')
+ var btn = document.getElementById('inbox-import-start-btn')
+ if(!box) return
+ if(status && status.running){
+   box.innerHTML = '⏳ Import in progress ('+(status.months||'?')+' month(s))… this page doesn\'t need to stay open — check back and refresh the Inbox in a bit.'
+   if(btn) btn.disabled = true
+   pollInboxImportStatus()
+ } else if(status && status.finished_at){
+   box.innerHTML = status.error
+     ? '⚠ Last import failed: '+escHtml(status.error)
+     : '✓ Last import finished — added '+(status.imported||0)+' message(s).'
+   if(btn) btn.disabled = false
+ } else {
+   box.innerHTML = ''
+   if(btn) btn.disabled = false
+ }
+}
+
+function pollInboxImportStatus(){
+ setTimeout(async function(){
+   if(!document.getElementById('inbox-import-overlay')) return  // modal closed, stop polling
+   var status = await api('/api/inbox/import-history/status')
+   var box = document.getElementById('inbox-import-status-box')
+   var btn = document.getElementById('inbox-import-start-btn')
+   if(status && status.running){
+     if(box) box.innerHTML = '⏳ Import in progress ('+(status.months||'?')+' month(s))… this page doesn\'t need to stay open — check back and refresh the Inbox in a bit.'
+     if(btn) btn.disabled = true
+     pollInboxImportStatus()
+   } else {
+     if(box) box.innerHTML = (status && status.error)
+       ? '⚠ Import failed: '+escHtml(status.error)
+       : '✓ Import finished — added '+((status&&status.imported)||0)+' message(s).'
+     if(btn) btn.disabled = false
+     renderInboxThreadList()
+   }
+ }, 5000)
+}
+
 function setInboxFilter(key, val){
  _inboxFilter[key] = val
  renderInboxThreadList()
@@ -8050,7 +8126,8 @@ async function openInboxThread(tid){
    + tags.map(function(tag){
        return '<span style="font-size:11px;padding:3px 9px;border-radius:12px;background:#f3f4f6;color:#374151;display:inline-flex;align-items:center;gap:4px">'+escHtml(tag)+'<span style="cursor:pointer;font-weight:700" onclick="removeInboxTag(\''+t.id+'\',\''+escHtml(tag).replace(/'/g,"&#39;")+'\')">×</span></span>'
      }).join('')
-   + '<input type="text" id="inbox-tag-input" placeholder="+ tag" onkeydown="if(event.key===\'Enter\'){addInboxTag(\''+t.id+'\')}" style="font-size:11px;border:1px dashed var(--border);border-radius:12px;padding:3px 9px;width:70px"/>'
+   + '<input type="text" id="inbox-tag-input" list="inbox-tag-datalist" placeholder="+ label" onkeydown="if(event.key===\'Enter\'){addInboxTag(\''+t.id+'\')}" style="font-size:11px;border:1px dashed var(--border);border-radius:12px;padding:3px 9px;width:90px"/>'
+   + '<datalist id="inbox-tag-datalist"></datalist>'
    + '</div>'
 
  var commentsHtml = (t.comments||[]).length ? (t.comments||[]).map(function(c){
@@ -8150,6 +8227,15 @@ async function openInboxThread(tid){
      if(name===t.assigned_to) opt.selected = true
      sel.appendChild(opt)
    })
+ })
+ // Populate the label picker's suggestions from everything already known
+ // (RoleCall tags in use + the full synced Gmail label list) — typing
+ // still works for a brand-new label, this just makes picking an
+ // existing one easy and typo-proof.
+ api('/api/inbox/tags').then(function(tags){
+   var dl = document.getElementById('inbox-tag-datalist')
+   if(!dl || !Array.isArray(tags)) return
+   dl.innerHTML = tags.map(function(tag){ return '<option value="'+escHtml(tag)+'">' }).join('')
  })
 }
 

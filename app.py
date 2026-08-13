@@ -20668,22 +20668,28 @@ def sync_inbox_from_gmail():
     reconciliation is bounded to the last 90 days / 300 threads per run
     so this can't balloon into scanning your entire mail history every
     cycle — each thread needs up to 3 folder selects plus a search and
-    fetch, so this is real IMAP load, not free."""
+    fetch, so this is real IMAP load, not free.
+
+    Returns (ok, error_or_none, label_count) — same reasoning as
+    check_inbox_for_new_mail: this used to only log failures server-side
+    and report success regardless, which made a real connection failure
+    indistinguishable from 'nothing to sync' when labels didn't show up."""
     if not _inbox_configured():
-        return
+        return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0
     try:
         conn = get_db()
         import imaplib
         imap_email, imap_password = _inbox_credentials()
         m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
-        m.login(imap_email, imap_password)
         try:
-            all_labels = _gmail_list_all_labels(m)
-            execute(conn, "INSERT INTO settings (key,value) VALUES ('inbox_gmail_labels',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
-                (json.dumps(all_labels),))
-            conn.commit()
-        except Exception as e:
-            app.logger.warning(f'Gmail label list refresh failed: {e}')
+            m.login(imap_email, imap_password)
+        except Exception as login_err:
+            conn.close()
+            return False, str(login_err), 0
+        all_labels = _gmail_list_all_labels(m)
+        execute(conn, "INSERT INTO settings (key,value) VALUES ('inbox_gmail_labels',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+            (json.dumps(all_labels),))
+        conn.commit()
         threads = fetchall(conn, """SELECT id, status, tags, gmail_synced_status, gmail_synced_tags, gmail_last_synced_at
             FROM inbox_threads WHERE last_message_at > NOW() - INTERVAL '90 days'
             ORDER BY last_message_at DESC LIMIT 300""") or []
@@ -20697,8 +20703,10 @@ def sync_inbox_from_gmail():
         except Exception:
             pass
         conn.close()
+        return True, None, len(all_labels)
     except Exception as e:
         app.logger.warning(f'Gmail pull sync failed: {e}')
+        return False, str(e), 0
 
 def _find_gmail_sent_folder(imap_conn):
     """Finds the actual Sent Mail folder via IMAP's special-use attribute
@@ -21372,11 +21380,14 @@ def trigger_inbox_check_now():
     ok, check_err, count = check_inbox_for_new_mail()
     if not ok:
         return jsonify({'error': f'Could not connect to the inbox: {check_err}'}), 500
-    try:
-        sync_inbox_from_gmail()
-    except Exception as e:
-        app.logger.warning(f'Inline Gmail pull sync error: {e}')
-    return jsonify({'ok': True, 'checked': count})
+    label_ok, label_err, label_count = sync_inbox_from_gmail()
+    if not label_ok:
+        # New mail check succeeded, so don't fail the whole request — but
+        # do surface this instead of swallowing it, since a broken label
+        # sync was previously invisible (it would just quietly never
+        # populate the tag list, with nothing in the UI explaining why).
+        return jsonify({'ok': True, 'checked': count, 'label_warning': f'Mail checked OK, but the Gmail label sync failed: {label_err}'})
+    return jsonify({'ok': True, 'checked': count, 'labels_synced': label_count})
 
 def _start_oncall_scheduler():
     try:

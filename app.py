@@ -20364,6 +20364,12 @@ def _notify_inbox_assigned(conn, thread_id, assignee_name):
         app.logger.warning(f'Inbox assignment notification failed: {e}')
 
 def _process_inbound_email(conn, raw_bytes, gmail_msgid=''):
+    """Returns the thread_id this message landed in (or None if it was a
+    duplicate/skipped) — the historical importer uses this to immediately
+    check Gmail's real current label state for that thread, rather than
+    leaving it at the 'open' default every brand-new thread gets (correct
+    for genuinely new mail arriving via the live 3-minute sync, wrong for
+    something imported from 6 months back)."""
     import email as _emaillib, base64 as _b64inbox
     from email.utils import parseaddr, parsedate_to_datetime
     msg = _emaillib.message_from_bytes(raw_bytes)
@@ -20371,7 +20377,7 @@ def _process_inbound_email(conn, raw_bytes, gmail_msgid=''):
     if message_id:
         existing = fetchone(conn, 'SELECT id FROM inbox_messages WHERE message_id=%s', (message_id,))
         if existing:
-            return  # already processed (belt-and-suspenders alongside the DB unique index)
+            return None  # already processed (belt-and-suspenders alongside the DB unique index)
     from_name_raw, from_email = parseaddr(msg.get('From') or '')
     from_name = _decode_mime_words(from_name_raw) or from_email
     subject = _decode_mime_words(msg.get('Subject') or '(no subject)')
@@ -20393,7 +20399,7 @@ def _process_inbound_email(conn, raw_bytes, gmail_msgid=''):
         (mid, thread_id, from_email.lower(), from_name, msg.get('To') or '', subject, html_body, text_body,
          message_id or None, in_reply_to, gmail_msgid or ''))
     if not result:
-        return
+        return None
     for att in _extract_email_attachments(msg):
         if len(att['data']) > 15 * 1024 * 1024:  # 15MB per file, generous but bounded
             continue
@@ -20405,6 +20411,7 @@ def _process_inbound_email(conn, raw_bytes, gmail_msgid=''):
     # too noisy in practice — dropped in favor of notifying just the
     # person a thread gets assigned to (_notify_inbox_assigned, fired
     # from update_inbox_thread / assign_inbox_thread_to_me instead).
+    return thread_id
 
 def _process_outbound_historical_email(conn, raw_bytes, gmail_msgid=''):
     """Imports a message found in Gmail's Sent folder — i.e. something
@@ -20419,10 +20426,10 @@ def _process_outbound_historical_email(conn, raw_bytes, gmail_msgid=''):
     if message_id:
         existing = fetchone(conn, 'SELECT id FROM inbox_messages WHERE message_id=%s', (message_id,))
         if existing:
-            return
+            return None
     to_addrs = getaddresses([msg.get('To') or ''])
     if not to_addrs or not to_addrs[0][1]:
-        return  # nothing usable to thread this against
+        return None  # nothing usable to thread this against
     to_name_raw, to_email = to_addrs[0]
     to_name = _decode_mime_words(to_name_raw) or to_email
     subject = _decode_mime_words(msg.get('Subject') or '(no subject)')
@@ -20440,7 +20447,7 @@ def _process_outbound_historical_email(conn, raw_bytes, gmail_msgid=''):
         (mid, thread_id, from_email, to_email.lower(), subject, html_body, text_body,
          message_id or None, in_reply_to, 'Imported from Gmail', gmail_msgid or ''))
     if not result:
-        return
+        return None
     for att in _extract_email_attachments(msg):
         if len(att['data']) > 15 * 1024 * 1024:
             continue
@@ -20448,6 +20455,7 @@ def _process_outbound_historical_email(conn, raw_bytes, gmail_msgid=''):
             VALUES (%s,%s,%s,%s,%s,%s)""",
             (str(uuid.uuid4()), mid, att['filename'], att['content_type'],
              _b64hist.b64encode(att['data']).decode(), len(att['data'])))
+    return thread_id
 
 def _imap_since_date(months_back):
     """IMAP SEARCH SINCE needs 'DD-Mon-YYYY' with an English 3-letter
@@ -20473,11 +20481,18 @@ def run_historical_inbox_import(months=6):
     only watches for new mail arriving after it started running.
     Everything here dedupes the same way live sync does (unique
     constraint on message_id), so it's safe to run more than once or with
-    overlapping date ranges."""
+    overlapping date ranges.
+
+    Every thread touched in that date range — not just newly-inserted
+    ones — gets its status/tags rechecked against Gmail's real current
+    state at the end of each run. That's deliberate: re-running this is
+    also how an earlier import's wrong statuses get corrected, since the
+    messages themselves would just dedupe as already-existing and
+    otherwise never go through the state-check pass at all."""
     if not _inbox_configured():
         return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0
     try:
-        import imaplib
+        import imaplib, re as _regmidimport, datetime as _dtimport
         conn = get_db()
         imap_email, imap_password = _inbox_credentials()
         m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
@@ -20487,7 +20502,7 @@ def run_historical_inbox_import(months=6):
             conn.close()
             return False, str(login_err), 0
         since = _imap_since_date(months)
-        imported = 0
+        imported_pairs = []  # (thread_id, gmail_msgid) for the state-check pass below
 
         # Inbox: same per-message processing as live sync, just searching
         # by date instead of by UID watermark — doesn't touch
@@ -20504,14 +20519,11 @@ def run_historical_inbox_import(months=6):
                         header_line = msg_data[0][0] or b''
                         if isinstance(header_line, str):
                             header_line = header_line.encode()
-                        import re as _regmid2
-                        mm = _regmid2.search(rb'X-GM-MSGID\s+(\d+)', header_line)
+                        mm = _regmidimport.search(rb'X-GM-MSGID\s+(\d+)', header_line)
                         gmail_msgid = mm.group(1).decode() if mm else ''
-                        before = fetchone(conn, 'SELECT COUNT(*) AS c FROM inbox_messages')
-                        _process_inbound_email(conn, msg_data[0][1], gmail_msgid)
-                        after = fetchone(conn, 'SELECT COUNT(*) AS c FROM inbox_messages')
-                        if after['c'] > before['c']:
-                            imported += 1
+                        thread_id = _process_inbound_email(conn, msg_data[0][1], gmail_msgid)
+                        if thread_id:
+                            imported_pairs.append((thread_id, gmail_msgid))
                 except Exception as e:
                     app.logger.warning(f'Historical inbox import error: {e}')
         except Exception as e:
@@ -20532,18 +20544,40 @@ def run_historical_inbox_import(months=6):
                             header_line = msg_data[0][0] or b''
                             if isinstance(header_line, str):
                                 header_line = header_line.encode()
-                            import re as _regmid3
-                            mm = _regmid3.search(rb'X-GM-MSGID\s+(\d+)', header_line)
+                            mm = _regmidimport.search(rb'X-GM-MSGID\s+(\d+)', header_line)
                             gmail_msgid = mm.group(1).decode() if mm else ''
-                            before = fetchone(conn, 'SELECT COUNT(*) AS c FROM inbox_messages')
-                            _process_outbound_historical_email(conn, msg_data[0][1], gmail_msgid)
-                            after = fetchone(conn, 'SELECT COUNT(*) AS c FROM inbox_messages')
-                            if after['c'] > before['c']:
-                                imported += 1
+                            thread_id = _process_outbound_historical_email(conn, msg_data[0][1], gmail_msgid)
+                            if thread_id:
+                                imported_pairs.append((thread_id, gmail_msgid))
                     except Exception as e:
                         app.logger.warning(f'Historical sent import error: {e}')
         except Exception as e:
             app.logger.warning(f'Historical sent search failed: {e}')
+
+        # Now that both folders are fully imported and we're done with
+        # UID-based iteration, it's safe to let _gmail_get_labels switch
+        # the selected mailbox around as it checks each thread's real
+        # current state. Checks every thread touched in this date range —
+        # not just imported_pairs (this run's new messages) — so
+        # re-running the import also fixes any thread an earlier run got
+        # wrong, since those messages would just dedupe here and
+        # otherwise never reach this pass at all.
+        cutoff_date = _dtimport.date.today() - _dtimport.timedelta(days=months * 30)
+        threads_to_check = fetchall(conn, """SELECT t.id AS thread_id,
+            (SELECT gmail_msgid FROM inbox_messages im WHERE im.thread_id=t.id
+             AND im.gmail_msgid IS NOT NULL AND im.gmail_msgid!='' ORDER BY im.created_at LIMIT 1) AS gmail_msgid
+            FROM inbox_threads t WHERE t.last_message_at::date >= %s""", (cutoff_date,)) or []
+        seen_threads = set()
+        for row in threads_to_check:
+            thread_id, gmail_msgid = row['thread_id'], row.get('gmail_msgid')
+            if not gmail_msgid or thread_id in seen_threads:
+                continue
+            seen_threads.add(thread_id)
+            try:
+                _set_initial_gmail_state_for_import(conn, m, thread_id, gmail_msgid)
+            except Exception as e:
+                app.logger.warning(f'Initial state pass error for thread {thread_id}: {e}')
+        imported = len(imported_pairs)
 
         try:
             m.logout()
@@ -20752,6 +20786,45 @@ def _gmail_labels_for_status(status):
     return {'add': [], 'remove': []}
 
 GMAIL_SYSTEM_LABELS = {'\\Inbox', '\\Trash', '\\Spam', '\\Important', '\\Sent', '\\Draft', '\\Starred', '\\All', '\\Junk'}
+
+def _set_initial_gmail_state_for_import(conn, imap_conn, thread_id, gmail_msgid):
+    """Called right after importing a historical message: determines that
+    thread's ACTUAL current status/tags from Gmail immediately, rather
+    than leaving it at the 'open' default every brand-new thread gets.
+    That default is only correct for genuinely new mail — a freshly
+    imported 6-month-old thread is very likely already archived or
+    labeled in Gmail, and without this it would incorrectly sit in
+    'Open' forever, since the periodic reconciliation job only rechecks
+    threads touched in the last 90 days."""
+    if not gmail_msgid:
+        return
+    try:
+        labels = _gmail_get_labels(imap_conn, gmail_msgid)
+        if labels is None:
+            return
+        if '\\Trash' in labels:
+            execute(conn, 'DELETE FROM inbox_threads WHERE id=%s', (thread_id,))
+            conn.commit()
+            return
+        custom_tags = sorted(labels - GMAIL_SYSTEM_LABELS)
+        if '\\Spam' in labels:
+            derived_status = 'spam'
+        elif '\\Inbox' not in labels:
+            derived_status = 'closed'
+        else:
+            derived_status = 'open'
+        row = fetchone(conn, 'SELECT tags FROM inbox_threads WHERE id=%s', (thread_id,))
+        try:
+            existing_tags = set(json.loads((row or {}).get('tags') or '[]'))
+        except Exception:
+            existing_tags = set()
+        merged_tags = sorted(existing_tags | set(custom_tags))
+        execute(conn, """UPDATE inbox_threads SET status=%s, tags=%s,
+            gmail_synced_status=%s, gmail_synced_tags=%s, gmail_last_synced_at=NOW()
+            WHERE id=%s""", (derived_status, json.dumps(merged_tags), derived_status, json.dumps(custom_tags), thread_id))
+        conn.commit()
+    except Exception as e:
+        app.logger.warning(f'Initial Gmail state set failed for thread {thread_id}: {e}')
 
 def _sync_one_thread_from_gmail(conn, imap_conn, thread_row):
     """Reconciles one thread's RoleCall state to match what's actually in

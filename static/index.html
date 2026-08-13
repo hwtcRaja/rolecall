@@ -7916,6 +7916,15 @@ async function renderInboxThreadList(){
  document.getElementById('inbox-subtitle').textContent = _inboxThreads.length+' conversation'+(_inboxThreads.length!==1?'s':'')
 
  var statusFilters = [{v:'open',l:'Open'},{v:'pending',l:'Pending'},{v:'closed',l:'Closed'},{v:'spam',l:'Spam'},{v:'all',l:'All'}]
+
+ // Left rail — mirrors Gmail's own Labels list, so filtering by a label
+ // works the same way it does there: click it, see just that label.
+ var labelsSidebar = '<div style="width:190px;flex-shrink:0;padding-right:16px;border-right:1px solid var(--border)">'
+   + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Labels</div>'
+   + '<div id="inbox-labels-list" style="display:flex;flex-direction:column;gap:2px">'
+   + '<div style="font-size:12px;color:var(--text-muted);padding:6px 0">Loading…</div>'
+   + '</div></div>'
+
  var html = '<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">'
    + '<input type="text" id="inbox-search-input" value="'+escHtml(_inboxFilter.q)+'" placeholder="🔍 Search name, email, subject, or message…" oninput="onInboxSearchInput()" style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
    + '<select id="inbox-assigned-filter-select" onchange="setInboxFilter(\'assigned\',this.value)" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;color:var(--text-muted)">'
@@ -7923,7 +7932,6 @@ async function renderInboxThreadList(){
    + '<option value="unassigned"'+(_inboxFilter.assigned==='unassigned'?' selected':'')+'>Unassigned</option>'
    + '<option value="mine"'+(_inboxFilter.assigned==='mine'?' selected':'')+'>Assigned to Me</option>'
    + '</select>'
-   + '<select id="inbox-tag-filter-select" onchange="setInboxFilter(\'tag\',this.value)" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;color:var(--text-muted)"><option value="">All tags</option></select>'
    + '<select onchange="setInboxFilter(\'sort\',this.value)" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;color:var(--text-muted)">'
    + '<option value="newest"'+(_inboxFilter.sort==='newest'?' selected':'')+'>Newest first</option>'
    + '<option value="oldest"'+(_inboxFilter.sort==='oldest'?' selected':'')+'>Oldest first</option>'
@@ -7935,6 +7943,7 @@ async function renderInboxThreadList(){
        var active = _inboxFilter.status===f.v
        return '<button onclick="setInboxFilter(\'status\',\''+f.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+'</button>'
      }).join('')
+   + (_inboxFilter.tag ? '<button onclick="setInboxFilter(\'tag\',\'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid #6d28d9;background:#ede9fe;color:#6d28d9;cursor:pointer">🏷 '+escHtml(_inboxFilter.tag)+' ×</button>' : '')
    + '</div>'
 
  if(!_inboxThreads.length){
@@ -7965,16 +7974,20 @@ async function renderInboxThreadList(){
        + quickActions + '</div>'
    }).join('')
  }
- document.getElementById('inbox-content').innerHTML = html
+ document.getElementById('inbox-content').innerHTML = '<div style="display:flex;gap:20px;align-items:flex-start">'
+   + labelsSidebar + '<div style="flex:1;min-width:0">' + html + '</div></div>'
  api('/api/inbox/tags').then(function(tags){
-   var sel = document.getElementById('inbox-tag-filter-select')
-   if(!sel || !Array.isArray(tags)) return
-   tags.forEach(function(tag){
-     var opt = document.createElement('option')
-     opt.value = tag; opt.textContent = tag
-     if(tag===_inboxFilter.tag) opt.selected = true
-     sel.appendChild(opt)
-   })
+   var list = document.getElementById('inbox-labels-list')
+   if(!list) return
+   if(!Array.isArray(tags) || !tags.length){
+     list.innerHTML = '<div style="font-size:11.5px;color:var(--text-muted);padding:6px 0">No labels synced yet — click "Check for New Mail" to pull them in from Gmail.</div>'
+     return
+   }
+   list.innerHTML = tags.map(function(tag){
+     var active = _inboxFilter.tag === tag
+     var clickVal = active ? '' : tag.replace(/'/g, "\\'")
+     return '<div onclick="setInboxFilter(\'tag\',\''+clickVal+'\')" style="padding:6px 8px;border-radius:6px;font-size:12.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:'+(active?'#ede9fe':'transparent')+';color:'+(active?'#6d28d9':'var(--text-secondary,#374151)')+';font-weight:'+(active?'700':'400')+'">🏷 '+escHtml(tag)+'</div>'
+   }).join('')
  })
  api('/api/inbox/team').then(function(names){
    var sel = document.getElementById('inbox-assigned-filter-select')

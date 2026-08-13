@@ -20406,6 +20406,155 @@ def _process_inbound_email(conn, raw_bytes, gmail_msgid=''):
     # person a thread gets assigned to (_notify_inbox_assigned, fired
     # from update_inbox_thread / assign_inbox_thread_to_me instead).
 
+def _process_outbound_historical_email(conn, raw_bytes, gmail_msgid=''):
+    """Imports a message found in Gmail's Sent folder — i.e. something
+    sent before RoleCall's shared inbox existed, including anything that
+    never got a reply. Threaded by the recipient (the 'To' address),
+    since that's who the conversation is actually with — unlike a normal
+    inbound message where the sender is the participant."""
+    import email as _emaillib2, base64 as _b64hist
+    from email.utils import parseaddr, getaddresses
+    msg = _emaillib2.message_from_bytes(raw_bytes)
+    message_id = (msg.get('Message-ID') or '').strip()
+    if message_id:
+        existing = fetchone(conn, 'SELECT id FROM inbox_messages WHERE message_id=%s', (message_id,))
+        if existing:
+            return
+    to_addrs = getaddresses([msg.get('To') or ''])
+    if not to_addrs or not to_addrs[0][1]:
+        return  # nothing usable to thread this against
+    to_name_raw, to_email = to_addrs[0]
+    to_name = _decode_mime_words(to_name_raw) or to_email
+    subject = _decode_mime_words(msg.get('Subject') or '(no subject)')
+    in_reply_to = (msg.get('In-Reply-To') or '').strip()
+    references = (msg.get('References') or '').strip()
+    html_body, text_body = _extract_email_body(msg)
+    from_email = _inbox_credentials()[0] or 'info@hwtco.org'
+    thread_id, _is_new = _find_or_create_inbox_thread(conn, to_email.lower(), to_name, subject, in_reply_to, references)
+    mid = str(uuid.uuid4())
+    result = fetchone(conn, """INSERT INTO inbox_messages
+        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, body_text, message_id, in_reply_to, sent_by, gmail_msgid)
+        VALUES (%s,%s,'outbound',%s,'Horizon West Theater Company',%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (message_id) WHERE message_id IS NOT NULL AND message_id!='' DO NOTHING
+        RETURNING id""",
+        (mid, thread_id, from_email, to_email.lower(), subject, html_body, text_body,
+         message_id or None, in_reply_to, 'Imported from Gmail', gmail_msgid or ''))
+    if not result:
+        return
+    for att in _extract_email_attachments(msg):
+        if len(att['data']) > 15 * 1024 * 1024:
+            continue
+        execute(conn, """INSERT INTO inbox_attachments (id, message_id, filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s)""",
+            (str(uuid.uuid4()), mid, att['filename'], att['content_type'],
+             _b64hist.b64encode(att['data']).decode(), len(att['data'])))
+
+def _imap_since_date(months_back):
+    """IMAP SEARCH SINCE needs 'DD-Mon-YYYY' with an English 3-letter
+    month regardless of server locale — building it manually rather than
+    trusting strftime('%b') to always come out in English."""
+    import datetime as _dtimp
+    month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    d = _dtimp.date.today()
+    # Roll back months_back months without relying on a calendar library.
+    month = d.month - months_back
+    year = d.year
+    while month <= 0:
+        month += 12
+        year -= 1
+    day = min(d.day, 28)  # sidesteps end-of-month overflow (e.g. Mar 31 -> Feb)
+    return f'{day:02d}-{month_names[month-1]}-{year}'
+
+def run_historical_inbox_import(months=6):
+    """One-time (but safe to re-run) backfill: pulls everything from the
+    last N months out of both the Inbox and Sent folders — including
+    conversations that only ever had one side (something sent that never
+    got a reply), which the normal forward-only sync never sees since it
+    only watches for new mail arriving after it started running.
+    Everything here dedupes the same way live sync does (unique
+    constraint on message_id), so it's safe to run more than once or with
+    overlapping date ranges."""
+    if not _inbox_configured():
+        return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0
+    try:
+        import imaplib
+        conn = get_db()
+        imap_email, imap_password = _inbox_credentials()
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        try:
+            m.login(imap_email, imap_password)
+        except Exception as login_err:
+            conn.close()
+            return False, str(login_err), 0
+        since = _imap_since_date(months)
+        imported = 0
+
+        # Inbox: same per-message processing as live sync, just searching
+        # by date instead of by UID watermark — doesn't touch
+        # inbox_last_uid, so it can't interfere with the regular 3-minute
+        # forward-moving check.
+        try:
+            m.select('INBOX')
+            typ, data = m.uid('search', None, f'SINCE {since}')
+            uids = data[0].split() if typ == 'OK' and data and data[0] else []
+            for uid_bytes in uids:
+                try:
+                    typ, msg_data = m.uid('fetch', uid_bytes, '(RFC822 X-GM-MSGID)')
+                    if typ == 'OK' and msg_data and msg_data[0]:
+                        header_line = msg_data[0][0] or b''
+                        if isinstance(header_line, str):
+                            header_line = header_line.encode()
+                        import re as _regmid2
+                        mm = _regmid2.search(rb'X-GM-MSGID\s+(\d+)', header_line)
+                        gmail_msgid = mm.group(1).decode() if mm else ''
+                        before = fetchone(conn, 'SELECT COUNT(*) AS c FROM inbox_messages')
+                        _process_inbound_email(conn, msg_data[0][1], gmail_msgid)
+                        after = fetchone(conn, 'SELECT COUNT(*) AS c FROM inbox_messages')
+                        if after['c'] > before['c']:
+                            imported += 1
+                except Exception as e:
+                    app.logger.warning(f'Historical inbox import error: {e}')
+        except Exception as e:
+            app.logger.warning(f'Historical inbox search failed: {e}')
+
+        # Sent: the half that never existed in RoleCall at all before this.
+        try:
+            sent_folder = _find_gmail_sent_folder(m) or '[Gmail]/Sent Mail'
+            quoted = '"' + sent_folder.replace('\\', '\\\\').replace('"', '\\"') + '"'
+            typ, _sel = m.select(quoted)
+            if typ == 'OK':
+                typ, data = m.uid('search', None, f'SINCE {since}')
+                uids = data[0].split() if typ == 'OK' and data and data[0] else []
+                for uid_bytes in uids:
+                    try:
+                        typ, msg_data = m.uid('fetch', uid_bytes, '(RFC822 X-GM-MSGID)')
+                        if typ == 'OK' and msg_data and msg_data[0]:
+                            header_line = msg_data[0][0] or b''
+                            if isinstance(header_line, str):
+                                header_line = header_line.encode()
+                            import re as _regmid3
+                            mm = _regmid3.search(rb'X-GM-MSGID\s+(\d+)', header_line)
+                            gmail_msgid = mm.group(1).decode() if mm else ''
+                            before = fetchone(conn, 'SELECT COUNT(*) AS c FROM inbox_messages')
+                            _process_outbound_historical_email(conn, msg_data[0][1], gmail_msgid)
+                            after = fetchone(conn, 'SELECT COUNT(*) AS c FROM inbox_messages')
+                            if after['c'] > before['c']:
+                                imported += 1
+                    except Exception as e:
+                        app.logger.warning(f'Historical sent import error: {e}')
+        except Exception as e:
+            app.logger.warning(f'Historical sent search failed: {e}')
+
+        try:
+            m.logout()
+        except Exception:
+            pass
+        conn.close()
+        return True, None, imported
+    except Exception as e:
+        app.logger.warning(f'Historical inbox import failed: {e}')
+        return False, str(e), 0
+
 def check_inbox_for_new_mail():
     """Checked periodically by the scheduler. Safe to run concurrently
     across multiple worker processes — new inbound rows are deduped by the
@@ -21388,6 +21537,69 @@ def trigger_inbox_check_now():
         # populate the tag list, with nothing in the UI explaining why).
         return jsonify({'ok': True, 'checked': count, 'label_warning': f'Mail checked OK, but the Gmail label sync failed: {label_err}'})
     return jsonify({'ok': True, 'checked': count, 'labels_synced': label_count})
+
+_inbox_import_status = {'running': False, 'months': 0, 'imported': 0, 'error': None, 'finished_at': None}
+
+def _run_historical_import_bg(months):
+    # Persisted to the DB, not just kept in this process's memory — Railway
+    # typically runs more than one worker process, and a request to check
+    # status could land on a different one than the request that started
+    # the import. A plain in-memory dict would show 'not running' on any
+    # worker other than the one actually doing the work.
+    _set_inbox_import_status({'running': True, 'months': months, 'imported': 0, 'error': None, 'finished_at': None})
+    ok, err, imported = run_historical_inbox_import(months)
+    _set_inbox_import_status({'running': False, 'months': months, 'imported': imported, 'error': None if ok else err,
+        'finished_at': datetime.now().isoformat()})
+
+def _set_inbox_import_status(status):
+    try:
+        conn = get_db()
+        execute(conn, "INSERT INTO settings (key,value) VALUES ('inbox_import_status',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+            (json.dumps(status),))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'Could not persist inbox import status: {e}')
+
+def _get_inbox_import_status():
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='inbox_import_status'")
+        conn.close()
+        if row and row.get('value'):
+            return json.loads(row['value'])
+    except Exception:
+        pass
+    return dict(_inbox_import_status)
+
+@app.route('/api/inbox/import-history', methods=['POST'])
+def start_inbox_import_history():
+    """Pulls in mail from before RoleCall's shared inbox existed —
+    including sent messages that never got a reply, which the normal
+    forward-only sync has no way to ever discover on its own. Runs in a
+    background thread rather than the request itself: a busy mailbox's
+    worth of months could easily take longer than a normal request
+    timeout allows."""
+    err = require_permission('inbox')
+    if err: return err
+    if not _inbox_configured():
+        return jsonify({'error': 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set on the server yet'}), 400
+    if _get_inbox_import_status().get('running'):
+        return jsonify({'error': 'An import is already running — check back shortly'}), 400
+    d = request.json or {}
+    try:
+        months = int(d.get('months') or 6)
+    except (TypeError, ValueError):
+        months = 6
+    months = max(1, min(months, 24))
+    import threading
+    threading.Thread(target=_run_historical_import_bg, args=(months,), daemon=True).start()
+    return jsonify({'ok': True, 'message': f'Import started for the last {months} month(s) — this can take a while for a busy mailbox. Check the status below.'})
+
+@app.route('/api/inbox/import-history/status', methods=['GET'])
+def get_inbox_import_history_status():
+    err = require_permission('inbox', 'view')
+    if err: return err
+    return jsonify(_get_inbox_import_status())
 
 def _start_oncall_scheduler():
     try:

@@ -1083,6 +1083,7 @@ def init_db():
             uploaded_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_occurrence_id TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS show_on_lobby BOOLEAN DEFAULT TRUE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_request_id TEXT",
         "CREATE INDEX IF NOT EXISTS idx_events_rental_occurrence ON events(rental_occurrence_id)",
         "CREATE INDEX IF NOT EXISTS idx_events_rental_request ON events(rental_request_id)",
@@ -3097,8 +3098,8 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode,show_on_lobby)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
@@ -3109,7 +3110,8 @@ def create_event():
          d.get('hours_store_bonus_type') or None,
          d.get('hours_store_bonus_multiplier') or None,
          d.get('hours_store_bonus_flat_cents') or None,
-         d.get('kiosk_signin_mode') or 'auto'))
+         d.get('kiosk_signin_mode') or 'auto',
+         d.get('show_on_lobby', True)))
     conn.commit()
     # Auto-assign program instructor/default ELIC when event belongs to a program
     program_id = d.get('program_id') or None
@@ -3189,7 +3191,7 @@ def update_event(eid):
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
         rsvp_enabled=%s,rsvp_message=%s,rsvp_kind=%s,invite_headline=%s,hide_block_names=%s,status=%s,carpools_enabled=%s,
         hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s,
-        kiosk_signin_mode=%s WHERE id=%s''',
+        kiosk_signin_mode=%s,show_on_lobby=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
@@ -3202,7 +3204,7 @@ def update_event(eid):
          d.get('hours_store_bonus_type') or None,
          d.get('hours_store_bonus_multiplier') or None,
          d.get('hours_store_bonus_flat_cents') or None,
-         d.get('kiosk_signin_mode') or 'auto', eid))
+         d.get('kiosk_signin_mode') or 'auto', d.get('show_on_lobby', True), eid))
     # Kiosk state is driven by event_logs, not events.status — if the status
     # actually changed to open/closed here, mirror it into event_logs too.
     if new_status != prev_status and new_status in ('open', 'closed'):
@@ -19764,6 +19766,7 @@ def public_lobby_data():
         upcoming_events = fetchall(conn, '''SELECT name, event_date, start_time, end_time, location
             FROM events
             WHERE event_date >= %s AND COALESCE(status,'active') != 'cancelled'
+            AND COALESCE(show_on_lobby, TRUE) = TRUE
             ORDER BY event_date, start_time LIMIT 12''', (today,)) or []
         conn.close()
     except Exception as e:

@@ -73,11 +73,23 @@ header.has-banner::before{
   width:100%;height:100%;object-fit:cover;
 }
 #carousel-area .slide .slide-caption{
-  position:absolute;bottom:0;left:0;right:0;
-  background:linear-gradient(transparent,rgba(0,0,0,0.7));
-  padding:32px 32px 20px;
+  position:absolute;left:24px;right:24px;bottom:24px;
+  background:rgba(27,112,141,0.85);
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  padding:14px 20px;border-radius:10px;
   font-size:18px;font-weight:600;color:#fff;
+  box-shadow:0 6px 18px rgba(0,0,0,0.35);
 }
+#carousel-area .carousel-header-label{
+  position:absolute;top:20px;left:24px;z-index:6;
+  background:rgba(27,112,141,0.85);
+  backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);
+  padding:10px 22px;border-radius:10px;
+  font-size:17px;font-weight:700;color:#fff;letter-spacing:0.2px;
+  box-shadow:0 6px 18px rgba(0,0,0,0.35);
+  display:none;
+}
+#carousel-area .carousel-header-label.show{display:block}
 #carousel-dots{
   position:absolute;bottom:16px;right:20px;
   display:flex;gap:6px;z-index:5;
@@ -446,6 +458,7 @@ body.theme-seuss .schedule-header::before{ display:none }
     <div>No images uploaded yet</div>
     <div style="font-size:13px;margin-top:4px">Add images via <strong>?manage</strong></div>
   </div>
+  <div id="carousel-header-label" class="carousel-header-label"></div>
   <div id="carousel-dots"></div>
 </div>
 
@@ -459,6 +472,17 @@ body.theme-seuss .schedule-header::before{ display:none }
 <div id="admin-panel">
   <div class="admin-box">
     <h2>Lobby Display Manager</h2>
+
+    <div class="admin-section">
+      <h3>Carousel Header (optional)</h3>
+      <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:10px">A label shown over the whole slideshow — e.g. "Photos from our Renovations" — so a batch of related photos reads as one group. Leave blank to hide it.</div>
+      <input type="text" id="carousel-header-input" maxlength="100" placeholder="e.g. Photos from our Renovations"
+        style="width:100%;padding:10px 12px;background:#0d2233;border:1px solid #1b3a4d;border-radius:8px;color:#fff;font-size:14px;font-family:inherit;box-sizing:border-box"/>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+        <button class="btn-save" onclick="saveCarouselHeader()">Save Header</button>
+        <span class="status-msg" id="carousel-header-status"></span>
+      </div>
+    </div>
 
     <div class="admin-section">
       <h3>Carousel Images</h3>
@@ -522,6 +546,7 @@ async function loadData(){
     applyTheme(d.lobby_theme || 'none')
     applyBanner(d.lobby_banner || '', d.lobby_banner_pos || '50% 50%', d.lobby_banner_zoom || 100, d.lobby_banner_fit || 'cover')
     applySchedBg(d.lobby_sched_bg || '', d.lobby_sched_bg_pos || '50% 50%', d.lobby_sched_bg_zoom || 100, d.lobby_sched_bg_fit || 'cover')
+    applyCarouselHeader(d.lobby_carousel_header || '')
     _lastEvents = d.events || []
     renderEvents(_lastEvents)
     var images = d.lobby_images || []
@@ -568,6 +593,18 @@ function applySchedBg(url, position, zoom, fit){
     sched.style.backgroundPosition = ''
     sched.style.backgroundSize = ''
     sched.style.backgroundRepeat = ''
+  }
+}
+
+function applyCarouselHeader(text){
+  var label = document.getElementById('carousel-header-label')
+  if(!label) return
+  if(text){
+    label.textContent = text
+    label.classList.add('show')
+  } else {
+    label.textContent = ''
+    label.classList.remove('show')
   }
 }
 
@@ -846,6 +883,38 @@ async function loadAdminImages(){
     _adminImages = await r.json()
   } catch(e){ _adminImages = [] }
   renderAdminGrid()
+  loadCarouselHeaderInput()
+}
+
+async function loadCarouselHeaderInput(){
+  var input = document.getElementById('carousel-header-input')
+  if(!input) return
+  try{
+    var r = await fetch('/api/lobby/carousel-header', {credentials:'include'})
+    if(!r.ok) return
+    var d = await r.json()
+    input.value = d.text || ''
+  } catch(e){ /* leave whatever's already there */ }
+}
+
+async function saveCarouselHeader(){
+  var input = document.getElementById('carousel-header-input')
+  var status = document.getElementById('carousel-header-status')
+  var text = input ? input.value.trim() : ''
+  if(status) status.textContent = 'Saving...'
+  try{
+    var r = await fetch('/api/lobby/carousel-header', {
+      method:'PUT', credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({text:text})
+    })
+    var d = await r.json()
+    if(d.ok){
+      applyCarouselHeader(text)
+      if(status) status.textContent = 'Saved!'
+      setTimeout(function(){ if(status) status.textContent='' }, 3000)
+    } else if(status) status.textContent = 'Error saving'
+  } catch(e){ if(status) status.textContent = 'Error saving' }
 }
 
 function renderAdminGrid(){

@@ -2350,6 +2350,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div class="settings-section">
      <div style="font-weight:600;font-size:15px;margin-bottom:6px">Photo Slideshow</div>
      <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Upload photos to rotate through on the lobby TV display. Add an optional caption to each.</div>
+     <div class="form-group" style="margin-bottom:16px">
+      <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Carousel Header (optional)</label>
+      <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px">A label shown over the whole slideshow — e.g. "Photos from our Renovations" — so a batch of related photos reads as one group. Leave blank to hide it.</div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+       <input type="text" id="lobby-carousel-header-input" maxlength="100" placeholder="e.g. Photos from our Renovations" style="flex:1;min-width:220px;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+       <button class="btn btn-secondary btn-sm" onclick="saveLobbyCarouselHeader()">Save Header</button>
+       <span id="lobby-carousel-header-status" style="font-size:13px;color:var(--teal-dark)"></span>
+      </div>
+     </div>
      <div id="lobby-img-grid" class="lobby-img-grid" style="margin-bottom:12px"></div>
      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <label class="btn btn-secondary btn-sm" style="cursor:pointer">Add Photos
@@ -9592,6 +9601,27 @@ async function loadLobbyImages(){
  loadLobbyTheme()
  loadLobbyBanner()
  loadSchedBg()
+ loadLobbyCarouselHeader()
+}
+
+async function loadLobbyCarouselHeader(){
+ var input = document.getElementById('lobby-carousel-header-input')
+ if(!input) return
+ try{
+  const r = await api('/api/lobby/carousel-header')
+  input.value = (r && r.text) || ''
+ } catch(e){ /* leave blank */ }
+}
+
+async function saveLobbyCarouselHeader(){
+ var input = document.getElementById('lobby-carousel-header-input')
+ var status = document.getElementById('lobby-carousel-header-status')
+ if(status) status.textContent = 'Saving...'
+ const res = await api('/api/lobby/carousel-header','PUT',{text:(input?input.value.trim():'')})
+ if(res&&res.ok){
+  if(status) status.textContent = 'Saved!'
+  setTimeout(function(){ if(status) status.textContent='' }, 3000)
+ } else if(status) status.textContent = 'Error saving'
 }
 
 var _schedBgPosition = '50% 50%'

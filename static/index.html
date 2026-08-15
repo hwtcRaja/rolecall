@@ -3415,6 +3415,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </label>
 
+ <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--surface);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
+ <input type="checkbox" id="edit-event-show-on-lobby" checked style="accent-color:var(--teal-400);margin-top:2px;flex-shrink:0"/>
+ <div>
+ <div style="font-size:13px;font-weight:600">📺 Show on Lobby TV</div>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Included in the upcoming events list on the lobby display — turn off for anything internal that shouldn't be public-facing</div>
+ </div>
+ </label>
+
  </div>
  <div id="edit-event-rsvp-msg-wrap" style="display:none;margin-top:10px">
  <label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">What kind of RSVP is this?</label>
@@ -18174,6 +18182,7 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-rsvp-msg').value=''
  document.getElementById('edit-event-rsvp-msg-wrap').style.display='none'
  if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=false
+ if(document.getElementById('edit-event-show-on-lobby')) document.getElementById('edit-event-show-on-lobby').checked=true
  document.getElementById('edit-event-hs-bonus-type').value=''
  document.getElementById('edit-event-hs-multiplier').value=''
  document.getElementById('edit-event-hs-flat').value=''
@@ -18224,6 +18233,7 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-rsvp-msg').value=e.rsvp_message||''
  document.getElementById('edit-event-rsvp-msg-wrap').style.display=e.rsvp_enabled?'':'none'
  if(document.getElementById('edit-event-carpools')) document.getElementById('edit-event-carpools').checked=!!e.carpools_enabled
+ if(document.getElementById('edit-event-show-on-lobby')) document.getElementById('edit-event-show-on-lobby').checked=e.show_on_lobby!==false
  document.getElementById('edit-event-hs-bonus-type').value=e.hours_store_bonus_type||''
  document.getElementById('edit-event-hs-multiplier').value=e.hours_store_bonus_multiplier||''
  document.getElementById('edit-event-hs-flat').value=e.hours_store_bonus_flat_cents?(e.hours_store_bonus_flat_cents/100).toFixed(2):''
@@ -18285,6 +18295,7 @@ async function saveEditEvent(){
  rsvp_kind:document.getElementById('edit-event-rsvp-kind')?.value||'volunteer',
  rsvp_message:document.getElementById('edit-event-rsvp-msg')?.value.trim()||'',
  carpools_enabled:document.getElementById('edit-event-carpools')?.checked||false,
+ show_on_lobby:document.getElementById('edit-event-show-on-lobby')?.checked ?? true,
  hours_store_bonus_type:document.getElementById('edit-event-hs-bonus-type')?.value||null,
  hours_store_bonus_multiplier:document.getElementById('edit-event-hs-bonus-type')?.value==='multiplier'
    ? (parseFloat(document.getElementById('edit-event-hs-multiplier')?.value)||null): null,

@@ -10023,17 +10023,23 @@ document.addEventListener('change', async function(e){
  const status = document.getElementById('lobby-img-status')
  if(status) status.textContent = 'Uploading '+files.length+' image'+(files.length>1?'s':'')+'...'
  let uploaded = 0
+ let warnings = []
  for(const f of files){
   try{
    const fd = new FormData(); fd.append('file', f)
    const r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
    const d = await r.json()
    console.log('Upload result:', d)
-   if(d.ok){ _lobbyImages.push({url:d.url,caption:''}); uploaded++ }
+   if(d.ok){
+     _lobbyImages.push({url:d.url,caption:''}); uploaded++
+     if(d.persisted===false) warnings.push(f.name)
+   }
   } catch(err){ console.error('Lobby upload error:', err) }
  }
  renderLobbyImgGrid()
- if(status) status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded — click Save Changes'
+ if(warnings.length){
+   if(status){ status.textContent = '⚠ '+warnings.length+' photo(s) uploaded but NOT to permanent storage — will be lost on the next deploy. Contact your admin to check GITHUB_TOKEN.'; status.style.color = '#dc2626' }
+ } else if(status){ status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded — click Save Changes'; status.style.color = '' }
  e.target.value = ''
 })
 

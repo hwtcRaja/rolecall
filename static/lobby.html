@@ -543,21 +543,36 @@ async function loadData(){
   try{
     var r = await fetch('/api/public/lobby-data')
     var d = await r.json()
-    applyTheme(d.lobby_theme || 'none')
-    applyBanner(d.lobby_banner || '', d.lobby_banner_pos || '50% 50%', d.lobby_banner_zoom || 100, d.lobby_banner_fit || 'cover')
-    applySchedBg(d.lobby_sched_bg || '', d.lobby_sched_bg_pos || '50% 50%', d.lobby_sched_bg_zoom || 100, d.lobby_sched_bg_fit || 'cover')
-    applyCarouselHeader(d.lobby_carousel_header || '')
-    _lastEvents = d.events || []
-    renderEvents(_lastEvents)
-    var images = d.lobby_images || []
-    if(images.length){
-      _slides = images.map(function(img){
-        if(typeof img === 'string') return {url:img, caption:''}
-        return {url: img.url||img, caption: img.caption||''}
-      })
-      buildCarousel()
-    }
-  } catch(e){ console.error('Load error:', e) }
+    console.log('[lobby] data loaded:', d)
+
+    // Each piece now applies independently — previously a single failure
+    // anywhere in this list (even something unrelated, like a bad theme
+    // value) would throw and skip everything after it in one shared try
+    // block, including the carousel itself. That silent all-or-nothing
+    // failure is exactly what would produce 'banner gone AND photos gone
+    // together' with nothing in the console to explain why.
+    try{ applyTheme(d.lobby_theme || 'none') } catch(e){ console.error('[lobby] applyTheme failed:', e) }
+    try{ applyBanner(d.lobby_banner || '', d.lobby_banner_pos || '50% 50%', d.lobby_banner_zoom || 100, d.lobby_banner_fit || 'cover') } catch(e){ console.error('[lobby] applyBanner failed:', e) }
+    try{ applySchedBg(d.lobby_sched_bg || '', d.lobby_sched_bg_pos || '50% 50%', d.lobby_sched_bg_zoom || 100, d.lobby_sched_bg_fit || 'cover') } catch(e){ console.error('[lobby] applySchedBg failed:', e) }
+    try{ applyCarouselHeader(d.lobby_carousel_header || '') } catch(e){ console.error('[lobby] applyCarouselHeader failed:', e) }
+    try{
+      _lastEvents = d.events || []
+      renderEvents(_lastEvents)
+    } catch(e){ console.error('[lobby] renderEvents failed:', e) }
+    try{
+      var images = d.lobby_images || []
+      console.log('[lobby] image count:', images.length, images)
+      if(images.length){
+        _slides = images.map(function(img){
+          if(typeof img === 'string') return {url:img, caption:''}
+          return {url: img.url||img, caption: img.caption||''}
+        })
+        buildCarousel()
+      } else {
+        console.log('[lobby] no images in lobby_images — carousel will show the empty state')
+      }
+    } catch(e){ console.error('[lobby] buildCarousel failed:', e) }
+  } catch(e){ console.error('[lobby] loadData top-level failed (fetch or JSON parse):', e) }
 }
 
 function applyBanner(url, position, zoom, fit){
@@ -945,7 +960,7 @@ document.getElementById('img-file-input').addEventListener('change', async funct
   if(!files.length) return
   var status = document.getElementById('upload-status')
   status.textContent = 'Uploading '+files.length+' image'+(files.length>1?'s':'')+'...'
-  var uploaded = 0
+  var uploaded = 0, warnings = 0
   for(var i=0;i<files.length;i++){
     var f = files[i]
     try{
@@ -953,13 +968,19 @@ document.getElementById('img-file-input').addEventListener('change', async funct
       var r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
       if(!r.ok){ status.textContent = 'Upload error '+r.status; continue }
       var d = await r.json()
-      if(d.ok){ _adminImages.push({url:d.url, caption:''}); uploaded++ }
+      if(d.ok){ _adminImages.push({url:d.url, caption:''}); uploaded++; if(d.persisted===false) warnings++ }
       else status.textContent = 'Upload failed: '+(d.error||'Unknown')
     } catch(err){ status.textContent = 'Upload error: '+err.message; console.error(err) }
   }
   renderAdminGrid()
-  status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded'+(uploaded<files.length?' ('+(files.length-uploaded)+' failed)':'')
-  setTimeout(function(){ status.textContent='' }, 4000)
+  if(warnings){
+    status.textContent = '⚠ '+warnings+' photo(s) NOT saved to permanent storage — will vanish on the next deploy. Tell your admin GITHUB_TOKEN needs checking.'
+    status.style.color = '#f87171'
+  } else {
+    status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded'+(uploaded<files.length?' ('+(files.length-uploaded)+' failed)':'')
+    status.style.color = ''
+    setTimeout(function(){ status.textContent='' }, 4000)
+  }
   e.target.value = ''
 })
 
@@ -974,17 +995,24 @@ uploadZone.addEventListener('drop', async function(e){
   // Reuse upload logic
   var status = document.getElementById('upload-status')
   status.textContent = 'Uploading '+files.length+' image'+(files.length>1?'s':'')+'...'
+  var warnings = 0
   for(var f of files){
     try{
       var fd = new FormData(); fd.append('file', f)
       var r = await fetch('/api/lobby/images/upload', {method:'POST', body:fd, credentials:'include'})
       var d = await r.json()
-      if(d.ok) _adminImages.push({url:d.url, caption:''})
+      if(d.ok){ _adminImages.push({url:d.url, caption:''}); if(d.persisted===false) warnings++ }
     } catch(err){ console.error(err) }
   }
   renderAdminGrid()
-  status.textContent = 'Uploaded!'
-  setTimeout(function(){ status.textContent='' }, 3000)
+  if(warnings){
+    status.textContent = '⚠ '+warnings+' photo(s) NOT saved to permanent storage — will vanish on the next deploy.'
+    status.style.color = '#f87171'
+  } else {
+    status.textContent = 'Uploaded!'
+    status.style.color = ''
+    setTimeout(function(){ status.textContent='' }, 3000)
+  }
 })
 
 async function saveImages(){

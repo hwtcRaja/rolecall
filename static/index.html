@@ -2239,13 +2239,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Manage the display at rolecall.hwtco.org/lobby</div>
 
     <div class="settings-section">
-     <div style="font-weight:600;font-size:15px;margin-bottom:6px">Active Layout</div>
-     <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Choose which lobby layout is currently live on the TV display.</div>
-     <div id="lobby-theme-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:8px"></div>
-     <div id="lobby-active-theme-status" style="font-size:13px;color:var(--teal-dark)"></div>
-    </div>
-
-    <div class="settings-section">
      <div style="font-weight:600;font-size:15px;margin-bottom:6px">Seasonal Color Theme</div>
      <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Applies a seasonal color scheme and decorations on top of the Standard layout.</div>
      <div class="form-group" style="max-width:280px">
@@ -9913,49 +9906,6 @@ async function loadLobbyTheme(){
   const sel = document.getElementById('lobby-theme-select')
   if(sel && r && r.theme) sel.value = r.theme
  } catch(e){}
- loadLobbyActiveTheme()
-}
-
-var LOBBY_THEMES = [
- {key:'standard', label:'Standard', emoji:'🎭', desc:'Default layout with seasonal color schemes', preview:'/lobby/standard'},
- {key:'jungle', label:'Jungle Book', emoji:'🌿', desc:'Wooden signpost on jungle green background', preview:'/lobby/jungle'},
-]
-
-async function loadLobbyActiveTheme(){
- try{
-  const r = await api('/api/admin/lobby-active-theme')
-  renderLobbyThemeCards((r&&r.theme)||'standard')
- } catch(e){ renderLobbyThemeCards('standard') }
-}
-
-function renderLobbyThemeCards(activeKey){
- const grid = document.getElementById('lobby-theme-cards')
- if(!grid) return
- grid.innerHTML = LOBBY_THEMES.map(function(t){
-  const isActive = t.key === activeKey
-  return '<div style="border:2px solid '+(isActive?'var(--teal)':'var(--border-md)')+';border-radius:10px;padding:14px;background:'+(isActive?'var(--teal-light,#e8f8f5)':'var(--surface)')+'">'
-   + '<div style="font-size:22px;margin-bottom:6px">'+t.emoji+'</div>'
-   + '<div style="font-size:13px;font-weight:700;margin-bottom:2px">'+t.label+(isActive?' <span style="background:var(--teal);color:#fff;font-size:10px;padding:1px 6px;border-radius:10px;font-weight:600">LIVE</span>':'')+'</div>'
-   + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">'+t.desc+'</div>'
-   + '<div style="display:flex;gap:6px">'
-   + '<a href="'+t.preview+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;text-decoration:none">Preview</a>'
-   + (!isActive ? '<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="setActiveLobbyTheme(\''+t.key+'\')">Go Live</button>' : '')
-   + '</div>'
-   + '</div>'
- }).join('')
-}
-
-async function setActiveLobbyTheme(theme){
- const status = document.getElementById('lobby-active-theme-status')
- if(status) status.textContent = 'Switching...'
- const res = await api('/api/admin/lobby-active-theme','PUT',{theme})
- if(res&&res.ok){
-  renderLobbyThemeCards(theme)
-  if(status) status.textContent = '✓ Live theme switched to '+theme+'!'
-  setTimeout(function(){ if(status) status.textContent='' }, 4000)
- } else {
-  if(status) status.textContent = 'Error switching theme'
- }
 }
 
 async function saveLobbyTheme(){
@@ -10432,7 +10382,7 @@ function switchSettingsPanel(id, btn){
  if(btn) btn.classList.add('active')
  if(id==='email'||id==='general') loadEmailSettings()
  if(id==='twilio') loadTwilioSettings()
- if(id==='lobby'){ loadLobbyTheme(); loadLobbyImages(); loadLobbyActiveTheme() }
+ if(id==='lobby'){ loadLobbyTheme(); loadLobbyImages() }
  if(id==='nav-icons') loadNavIconSettings()
 }
 

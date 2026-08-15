@@ -22913,11 +22913,20 @@ def upload_lobby_image():
     gh_url, gh_err = upload_image_to_github(filename, file_bytes)
     if gh_url:
         url = gh_url
+        persisted = True
     else:
-        app.logger.warning(f'Lobby image GitHub upload failed: {gh_err}')
+        # Falls back to local disk — which Railway wipes on every
+        # redeploy. This used to fail completely silently: the upload
+        # would report success and work fine until the next deploy
+        # quietly erased it. Now flagged in the response so the admin UI
+        # can warn immediately, at upload time, not after the photo's
+        # already gone.
+        app.logger.warning(f'Lobby image GitHub upload failed, falling back to local disk (will not survive a redeploy): {gh_err}')
         with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
         url = f'/static/images/{filename}'
-    return jsonify({'ok': True, 'url': url})
+        persisted = False
+    return jsonify({'ok': True, 'url': url, 'persisted': persisted,
+        'warning': None if persisted else f'Saved, but not to permanent storage (GitHub upload failed: {gh_err}) — this photo will be lost on the next deploy unless GITHUB_TOKEN is fixed.'})
 
 # ── End Lobby TV Display ───────────────────────────────────────────────────────
 

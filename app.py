@@ -19835,7 +19835,18 @@ def public_lobby_data():
         try: conn.close()
         except Exception: pass
 
-    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner, 'lobby_banner_pos': lobby_banner_pos, 'lobby_banner_zoom': lobby_banner_zoom, 'lobby_banner_fit': lobby_banner_fit, 'lobby_sched_bg': lobby_sched_bg, 'lobby_sched_bg_pos': lobby_sched_bg_pos, 'lobby_sched_bg_zoom': lobby_sched_bg_zoom, 'lobby_sched_bg_fit': lobby_sched_bg_fit})
+    lobby_carousel_header = ''
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_carousel_header',))
+        lobby_carousel_header = (row or {}).get('value') or ''
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Lobby carousel header query failed: {e}')
+        try: conn.close()
+        except Exception: pass
+
+    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner, 'lobby_banner_pos': lobby_banner_pos, 'lobby_banner_zoom': lobby_banner_zoom, 'lobby_banner_fit': lobby_banner_fit, 'lobby_sched_bg': lobby_sched_bg, 'lobby_sched_bg_pos': lobby_sched_bg_pos, 'lobby_sched_bg_zoom': lobby_sched_bg_zoom, 'lobby_sched_bg_fit': lobby_sched_bg_fit, 'lobby_carousel_header': lobby_carousel_header})
 
 @app.route('/api/lobby/theme', methods=['GET'])
 def get_lobby_theme():
@@ -19894,6 +19905,31 @@ def save_lobby_banner():
         ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner_zoom', str(zoom)))
     execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
         ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner_fit', fit))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/lobby/carousel-header', methods=['GET'])
+def get_lobby_carousel_header():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_carousel_header',))
+    conn.close()
+    return jsonify({'text': (row or {}).get('value') or ''})
+
+@app.route('/api/lobby/carousel-header', methods=['PUT'])
+def save_lobby_carousel_header():
+    """A single optional label shown over the whole photo slideshow — e.g.
+    'Photos from our Renovations' — so a batch of related photos reads as
+    one deliberate group instead of just an unlabeled mix in rotation."""
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    text = (d.get('text') or '').strip()[:100]
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_carousel_header', text))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

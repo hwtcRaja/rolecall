@@ -22785,6 +22785,7 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div style="display:flex;gap:8px;margin-bottom:8px">'
     + '<button type="button" id="rs-add-session-btn" class="btn btn-secondary btn-sm" style="font-size:12px">+ Add Single Session</button>'
     + '<button type="button" id="rs-generate-slots-btn" class="btn btn-secondary btn-sm" style="font-size:12px">⚡ Generate Slots</button>'
+    + '<button type="button" id="rs-bulk-import-btn" class="btn btn-secondary btn-sm" style="font-size:12px">📅 Import from Calendar</button>'
     + '</div>'
     + '<div id="rs-generate-slots-form" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px">'
     + '<div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:10px">Bulk Slot Generator</div>'
@@ -22821,6 +22822,31 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div style="display:flex;gap:8px">'
     + '<button type="button" id="sg-cancel-btn" class="btn btn-secondary btn-sm">Cancel</button>'
     + '<button type="button" id="sg-generate-btn" class="btn btn-primary btn-sm">Generate Slots</button>'
+    + '</div></div>'
+
+    + '<div id="rs-bulk-import-form" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px">'
+    + '<div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:4px">Import from Calendar</div>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">Paste one time block per line as <code>M/D H:MMam-H:MMpm</code> — for a day with multiple blocks, just repeat the date on its own line for each block. Each block is automatically split into consecutive <strong>1-hour</strong> sessions.</div>'
+    + '<div class="form-group" style="margin-bottom:10px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Schedule</label>'
+    + '<textarea id="bi-textarea" rows="8" placeholder="8/16 12:00pm-3:00pm&#10;8/17 9:00am-12:30pm&#10;8/19 9:00am-5:30pm" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:monospace;font-size:12px;box-sizing:border-box;resize:vertical"></textarea></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Year</label>'
+    + '<input type="number" id="bi-year" value="'+new Date().getFullYear()+'" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Capacity / slot</label>'
+    + '<input type="number" id="bi-capacity" value="1" min="1" max="50" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Price per slot (blank = program price)</label>'
+    + '<input type="number" id="bi-price" placeholder="Leave blank to use program price" min="0" step="0.01" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Location (optional)</label>'
+    + '<input type="text" id="bi-location" placeholder="Rehearsal room, address..." style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '</div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;margin-bottom:12px">'
+    + '<input type="checkbox" id="bi-keep-leftover" checked style="accent-color:var(--teal)"/> Keep a shorter final session for any leftover time under an hour (e.g. a 2:45 PM block ending at 4:30 PM produces 9:00–10:00, ... , and a final 4:00–4:30 PM session) — unchecking drops that leftover time instead</label>'
+    + '<div id="bi-preview" style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Paste a schedule above to see a preview.</div>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button type="button" id="bi-cancel-btn" class="btn btn-secondary btn-sm">Cancel</button>'
+    + '<button type="button" id="bi-import-btn" class="btn btn-primary btn-sm" disabled>Create Sessions</button>'
     + '</div></div>'
     + '</div>'
 
@@ -22985,7 +23011,6 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     var genForm = document.getElementById('rs-generate-slots-form')
     var genCancel = document.getElementById('sg-cancel-btn')
     var genSubmit = document.getElementById('sg-generate-btn')
-    if(genBtn) genBtn.addEventListener('click', function(){ if(genForm) genForm.style.display = genForm.style.display==='none'?'':'' === '' ? 'none' : '' })
     if(genBtn) genBtn.addEventListener('click', function(){ if(genForm) genForm.style.display=genForm.style.display==='none'?'':'none' })
     if(genCancel) genCancel.addEventListener('click', function(){ if(genForm) genForm.style.display='none' })
     if(genSubmit) genSubmit.addEventListener('click', async function(){
@@ -23013,6 +23038,107 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
       if(res && res.ok){
         toast('Created '+res.created+' slot'+(res.created===1?'':'s'),'success')
         if(genForm) genForm.style.display='none'
+        loadSessionsInModal(pid)
+      } else toast((res&&res.error)||'Error','error')
+    })
+
+    // Bulk import from a pasted (possibly irregular) calendar — parses
+    // 'M/D H:MMam-H:MMpm' lines and splits each into consecutive 1-hour
+    // sessions client-side so we can show a live preview/count before
+    // committing, then bulk-inserts them all in one request.
+    var biBtn = document.getElementById('rs-bulk-import-btn')
+    var biForm = document.getElementById('rs-bulk-import-form')
+    var biCancel = document.getElementById('bi-cancel-btn')
+    var biImportBtn = document.getElementById('bi-import-btn')
+    var biTextarea = document.getElementById('bi-textarea')
+    var biYear = document.getElementById('bi-year')
+    var biKeepLeftover = document.getElementById('bi-keep-leftover')
+    var biPreview = document.getElementById('bi-preview')
+    var _biSessions = []
+
+    function biParseTime(str){
+      var m = str.trim().match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])m$/i)
+      if(!m) return null
+      var h = parseInt(m[1],10), mins = m[2]?parseInt(m[2],10):0
+      var isPM = m[3].toLowerCase()==='p'
+      if(h===12) h = isPM ? 12 : 0
+      else if(isPM) h += 12
+      return h*60+mins
+    }
+    function biFmtTime(totalMin){
+      var h = Math.floor(totalMin/60), m = totalMin%60
+      return (h<10?'0':'')+h+':'+(m<10?'0':'')+m
+    }
+    function biParseSchedule(text, year){
+      var lines = text.split(/\n/)
+      var blocks = [], errors = []
+      lines.forEach(function(line, idx){
+        var raw = line.trim()
+        if(!raw) return
+        var m = raw.match(/^(\d{1,2})\/(\d{1,2})\s+(\d{1,2}(?::\d{2})?\s*[ap]m)\s*-\s*(\d{1,2}(?::\d{2})?\s*[ap]m)\s*$/i)
+        if(!m){ errors.push('Line '+(idx+1)+': "'+raw+'" \u2014 could not parse'); return }
+        var month = parseInt(m[1],10), day = parseInt(m[2],10)
+        var startMin = biParseTime(m[3]), endMin = biParseTime(m[4])
+        if(startMin===null || endMin===null || endMin<=startMin){ errors.push('Line '+(idx+1)+': "'+raw+'" \u2014 invalid time range'); return }
+        var iso = year+'-'+(month<10?'0':'')+month+'-'+(day<10?'0':'')+day
+        blocks.push({date:iso, startMin:startMin, endMin:endMin})
+      })
+      return {blocks:blocks, errors:errors}
+    }
+    function biSplitBlocks(blocks, keepLeftover){
+      var sessions = []
+      blocks.forEach(function(b){
+        var cur = b.startMin
+        while(cur + 60 <= b.endMin){
+          sessions.push({start_date:b.date, start_time:biFmtTime(cur), end_time:biFmtTime(cur+60)})
+          cur += 60
+        }
+        if(keepLeftover && cur < b.endMin){
+          sessions.push({start_date:b.date, start_time:biFmtTime(cur), end_time:biFmtTime(b.endMin)})
+        }
+      })
+      return sessions
+    }
+    function biUpdatePreview(){
+      var text = (biTextarea||{}).value||''
+      var year = parseInt((biYear||{}).value)||new Date().getFullYear()
+      var keepLeftover = (biKeepLeftover||{}).checked
+      var parsed = biParseSchedule(text, year)
+      var sessions = biSplitBlocks(parsed.blocks, keepLeftover)
+      _biSessions = sessions
+      if(!parsed.blocks.length){
+        if(biPreview) biPreview.innerHTML = 'Paste a schedule above to see a preview.'
+        if(biImportBtn) biImportBtn.disabled = true
+        return
+      }
+      var msg = 'Will create <strong>'+sessions.length+'</strong> one-hour session'+(sessions.length!==1?'s':'')+' across <strong>'+parsed.blocks.length+'</strong> scheduled block'+(parsed.blocks.length!==1?'s':'')+'.'
+      if(parsed.errors.length) msg += ' <span style="color:#dc2626">'+parsed.errors.length+' line'+(parsed.errors.length!==1?'s':'')+' could not be parsed and '+(parsed.errors.length!==1?'were':'was')+' skipped.</span>'
+      if(biPreview) biPreview.innerHTML = msg
+      if(biImportBtn) biImportBtn.disabled = sessions.length===0
+    }
+    if(biBtn) biBtn.addEventListener('click', function(){ if(biForm) biForm.style.display = biForm.style.display==='none'?'':'none' })
+    if(biCancel) biCancel.addEventListener('click', function(){ if(biForm) biForm.style.display='none' })
+    if(biTextarea) biTextarea.addEventListener('input', biUpdatePreview)
+    if(biYear) biYear.addEventListener('input', biUpdatePreview)
+    if(biKeepLeftover) biKeepLeftover.addEventListener('change', biUpdatePreview)
+    if(biImportBtn) biImportBtn.addEventListener('click', async function(){
+      if(!_biSessions.length) return
+      if(!confirm('Create '+_biSessions.length+' sessions? You\'d need to delete them individually to undo this.')) return
+      var priceVal = (document.getElementById('bi-price')||{}).value||''
+      var payload = {
+        sessions: _biSessions,
+        location: (document.getElementById('bi-location')||{}).value||'',
+        capacity: parseInt((document.getElementById('bi-capacity')||{}).value||1),
+        price_override: priceVal!=='' ? Math.round(parseFloat(priceVal)*100) : null
+      }
+      var btn = this; btn.disabled=true; btn.textContent='Creating...'
+      var res = await api('/api/programs/'+pid+'/sessions/bulk-import','POST',payload)
+      btn.disabled=false; btn.textContent='Create Sessions'
+      if(res && res.ok){
+        toast('Created '+res.created+' session'+(res.created===1?'':'s'),'success')
+        if(biForm) biForm.style.display='none'
+        if(biTextarea) biTextarea.value=''
+        biUpdatePreview()
         loadSessionsInModal(pid)
       } else toast((res&&res.error)||'Error','error')
     })
@@ -23366,6 +23492,7 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
     + '<textarea id="er-notes" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">'+escHtml(reg.notes||'')+'</textarea></div>'
     + '</div>'
     + '<div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">'
+    + (reg.status==='confirmed' ? '<a href="/api/registrations/'+rid+'/invoice" target="_blank" class="btn btn-secondary" style="text-decoration:none;margin-right:auto">🧾 Download Invoice</a>' : '')
     + '<button id="er-cancel" class="btn btn-secondary">Cancel</button>'
     + '<button id="er-save" class="btn btn-primary">Save Changes</button>'
     + '</div>'

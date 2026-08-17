@@ -7897,7 +7897,7 @@ async function deleteBoardApplication(aid){
 
 // ── Shared Inbox (info@) ───────────────────────────────────────────
 var _inboxThreads = []
-var _inboxFilter = {status:'open', assigned:'mine', sort:'newest', q:'', tag:''}
+var _inboxFilter = {status:'active', assigned:'mine', sort:'newest', q:'', tag:''}
 var _inboxOpenThreadId = null
 var _inboxSearchDebounce = null
 var _inboxTeamNamesCache = null
@@ -8068,10 +8068,14 @@ async function renderInboxThreadList(){
  // 'Assigned to Me' and 'Open' are combo views — each pins both the
  // status and assigned dimensions together, since 'open' on its own is
  // ambiguous between 'my open work' and 'the shared unclaimed queue'.
+ // 'Assigned to Me' uses 'active' (open OR pending) rather than a plain
+ // 'open' status — replying to your own thread correctly flips it to
+ // Pending, and it should stay visible in your queue when that happens,
+ // not vanish the moment you respond to someone.
  // The other statuses don't carry an assignment opinion, so they only
  // touch the status filter and leave 'assigned' as the user last set it.
  var comboTabs = [
-   {status:'open', assigned:'mine', l:'Assigned to Me'},
+   {status:'active', assigned:'mine', l:'Assigned to Me'},
    {status:'open', assigned:'unassigned', l:'Open'},
  ]
  var statusFilters = [{v:'pending',l:'Pending'},{v:'closed',l:'Closed'},{v:'spam',l:'Spam'},{v:'all',l:'All'}]
@@ -8330,6 +8334,11 @@ async function openInboxThread(tid){
  // Scroll message list to the bottom (most recent) once rendered
  var msgWrap = overlay.querySelector('div[style*="overflow-y:auto"]')
  if(msgWrap) msgWrap.scrollTop = msgWrap.scrollHeight
+ // Comments render oldest-first, so a newly-posted one lands at the
+ // bottom of this panel — without this it'd be scrolled out of view,
+ // making a successful post look like it silently failed.
+ var commentsFeed = document.getElementById('inbox-comments-feed')
+ if(commentsFeed) commentsFeed.scrollTop = commentsFeed.scrollHeight
  // Populate the assignment dropdown from the team list
  api('/api/inbox/team').then(function(names){
    if(Array.isArray(names)) _inboxTeamNamesCache = names

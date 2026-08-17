@@ -20678,6 +20678,78 @@ def run_historical_inbox_import(months=6):
         app.logger.warning(f'Historical inbox import failed: {e}')
         return False, str(e), 0
 
+def _backfill_inbox_attachments():
+    """Finds inbound messages with a stored gmail_msgid but zero linked
+    attachments, refetches each one's raw content from Gmail via
+    _gmail_locate_message, and runs it through the normal attachment
+    extraction. This exists because ingestion dedupes by message_id — if
+    a message was imported before attachment capture was added to (or
+    working correctly in) _process_inbound_email, that row is permanently
+    stuck with no attachments; a normal re-run of Import History can't
+    fix it since the message already exists and gets skipped.
+    Safe to re-run: only ever adds rows, never touches existing ones, and
+    a message that genuinely has no attachment just costs one extra IMAP
+    lookup each time this runs.
+    Returns (ok, error_or_none, checked_count, attachments_found)."""
+    if not _inbox_configured():
+        return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0, 0
+    try:
+        import imaplib, base64 as _b64backfill, email as _emailbackfill
+        conn = get_db()
+        candidates = fetchall(conn, """
+            SELECT im.id, im.gmail_msgid FROM inbox_messages im
+            WHERE im.direction='inbound' AND im.gmail_msgid IS NOT NULL AND im.gmail_msgid != ''
+            AND NOT EXISTS (SELECT 1 FROM inbox_attachments a WHERE a.message_id=im.id)""") or []
+        if not candidates:
+            conn.close()
+            return True, None, 0, 0
+        imap_email, imap_password = _inbox_credentials()
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        m.login(imap_email, imap_password)
+        checked = 0
+        found = 0
+        for row in candidates:
+            mid, gmail_msgid = row['id'], row['gmail_msgid']
+            checked += 1
+            try:
+                located = _gmail_locate_message(m, gmail_msgid)
+                if not located:
+                    continue
+                folder, uid = located
+                typ, msg_data = m.uid('fetch', uid, '(RFC822)')
+                if typ != 'OK' or not msg_data or not msg_data[0]:
+                    continue
+                msg = _emailbackfill.message_from_bytes(msg_data[0][1])
+                for att in _extract_email_attachments(msg):
+                    if len(att['data']) > 15 * 1024 * 1024:
+                        continue
+                    execute(conn, """INSERT INTO inbox_attachments (id, message_id, filename, content_type, file_data_b64, size_bytes)
+                        VALUES (%s,%s,%s,%s,%s,%s)""",
+                        (str(uuid.uuid4()), mid, att['filename'], att['content_type'],
+                         _b64backfill.b64encode(att['data']).decode(), len(att['data'])))
+                    found += 1
+            except Exception as e:
+                app.logger.warning(f'Attachment backfill error for message {mid}: {e}')
+        try:
+            m.logout()
+        except Exception:
+            pass
+        conn.commit()
+        conn.close()
+        return True, None, checked, found
+    except Exception as e:
+        app.logger.warning(f'Attachment backfill failed: {e}')
+        return False, str(e), 0, 0
+
+@app.route('/api/inbox/backfill-attachments', methods=['POST'])
+def backfill_inbox_attachments_route():
+    err = require_permission('inbox')
+    if err: return err
+    ok, error, checked, found = _backfill_inbox_attachments()
+    if not ok:
+        return jsonify({'error': error}), 400
+    return jsonify({'ok': True, 'checked': checked, 'attachments_found': found})
+
 def check_inbox_for_new_mail():
     """Checked periodically by the scheduler. Safe to run concurrently
     across multiple worker processes — new inbound rows are deduped by the
@@ -21200,13 +21272,28 @@ def list_inbox_team():
     """Active user names for the assignment dropdown — deliberately a
     lighter route than /api/users (which is admin-only) so any board
     member with inbox access can assign a thread to a teammate, not just
-    admins."""
+    admins. Filtered to people who actually have inbox permission
+    (view or edit) — assigning a thread to someone who can't open the
+    Inbox page would just leave it stuck."""
     err = require_permission('inbox', 'view')
     if err: return err
     conn = get_db()
-    users = fetchall(conn, "SELECT name FROM users WHERE COALESCE(active,TRUE)=TRUE ORDER BY name") or []
+    users = fetchall(conn, "SELECT name, role, role_permissions FROM users WHERE COALESCE(active,TRUE)=TRUE ORDER BY name") or []
     conn.close()
-    return jsonify([u['name'] for u in users if u.get('name')])
+    result = []
+    for u in users:
+        if not u.get('name'):
+            continue
+        if u.get('role') == 'admin':
+            result.append(u['name'])
+            continue
+        try:
+            perms = json.loads(u.get('role_permissions') or '{}')
+        except Exception:
+            perms = {}
+        if resolve_perm_level(perms, 'inbox') in ('view', 'edit'):
+            result.append(u['name'])
+    return jsonify(result)
 
 @app.route('/api/inbox/threads', methods=['GET'])
 def list_inbox_threads():

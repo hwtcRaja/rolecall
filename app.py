@@ -1156,6 +1156,7 @@ def init_db():
             body TEXT NOT NULL,
             created_at TIMESTAMP DEFAULT NOW())""",
         "CREATE INDEX IF NOT EXISTS idx_inbox_comments_thread ON inbox_comments(thread_id)",
+        "ALTER TABLE inbox_comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP",
         "ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS gmail_msgid TEXT DEFAULT ''",
         "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS gmail_synced_tags TEXT DEFAULT '[]'",
         "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS gmail_synced_status TEXT DEFAULT ''",
@@ -21761,11 +21762,53 @@ def add_inbox_comment(tid):
     conn.close()
     return jsonify({'ok': True, 'id': cid, 'author_name': author, 'mentioned': mentioned})
 
+@app.route('/api/inbox/comments/<cid>', methods=['PUT'])
+def update_inbox_comment(cid):
+    """Edits a comment's text — restricted to the comment's own author so
+    one staff member can't silently rewrite another's note."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    body = (d.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Comment is empty'}), 400
+    conn = get_db()
+    comment = fetchone(conn, 'SELECT * FROM inbox_comments WHERE id=%s', (cid,))
+    if not comment:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    my_name = (user or {}).get('name', '')
+    if comment.get('author_name') != my_name and session.get('role') != 'admin':
+        conn.close()
+        return jsonify({'error': "You can only edit your own comments"}), 403
+    execute(conn, 'UPDATE inbox_comments SET body=%s, edited_at=NOW() WHERE id=%s', (body, cid))
+    conn.commit()
+    mentioned = _extract_inbox_mentions(conn, body, my_name)
+    if mentioned:
+        try:
+            _notify_inbox_mentioned(conn, comment['thread_id'], mentioned, my_name, body)
+        except Exception as e:
+            app.logger.warning(f'Inbox mention notification error: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/inbox/comments/<cid>', methods=['DELETE'])
 def delete_inbox_comment(cid):
+    """Restricted to the comment's own author (or an admin) — previously
+    anyone with inbox edit permission could delete anyone else's note."""
     err = require_permission('inbox')
     if err: return err
     conn = get_db()
+    comment = fetchone(conn, 'SELECT author_name FROM inbox_comments WHERE id=%s', (cid,))
+    if not comment:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    my_name = (user or {}).get('name', '')
+    if comment.get('author_name') != my_name and session.get('role') != 'admin':
+        conn.close()
+        return jsonify({'error': "You can only delete your own comments"}), 403
     execute(conn, 'DELETE FROM inbox_comments WHERE id=%s', (cid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})

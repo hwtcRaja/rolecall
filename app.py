@@ -1688,6 +1688,7 @@ def init_db():
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_failed_at TIMESTAMP",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_failure_reason TEXT",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_count INTEGER DEFAULT 0",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS invoice_memo TEXT DEFAULT ''",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS store_token TEXT UNIQUE",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS hours_store_enabled BOOLEAN DEFAULT false",
         """CREATE TABLE IF NOT EXISTS store_items (
@@ -16268,6 +16269,38 @@ def square_get_invoice(invoice_id):
     return None
 
 
+def square_get_payment(payment_id):
+    """Fetch a payment's full detail directly from Square — used by the
+    registration invoice PDF to show payment method (card brand/last4)
+    and the actual completion timestamp, neither of which is stored
+    locally today (only the payment ID is kept on program_registrations)."""
+    if not SQUARE_ACCESS_TOKEN or not payment_id:
+        return None
+    try:
+        r = requests.get(f'{SQUARE_API_BASE}/v2/payments/{payment_id}', headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment'):
+            return data['payment']
+        app.logger.warning(f'Square get payment failed {r.status_code}: {data}')
+    except Exception as e:
+        app.logger.warning(f'Square get payment exception: {e}')
+    return None
+
+
+def _format_square_timestamp(iso_str):
+    """Square timestamps are UTC ISO-8601 — converts to Eastern for display
+    on the invoice, matching how the rest of RoleCall shows times."""
+    if not iso_str:
+        return ''
+    try:
+        from zoneinfo import ZoneInfo
+        dt = datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
+        dt_et = dt.astimezone(ZoneInfo('America/New_York'))
+        return dt_et.strftime('%B %-d, %Y at %-I:%M %p') + ' ET'
+    except Exception:
+        return iso_str
+
+
 def square_get_order_total_cents(order_id):
     """Fetch an order's real total_money.amount directly from Square — used
     to backfill amount_paid_cents on registrations that were confirmed
@@ -16835,18 +16868,21 @@ def _registration_amount_summary(conn, reg, base_price):
     }
 
 
-def _build_registration_invoice_html(reg, entity_name, schedule_info, summary, invoice_number):
+def _build_registration_invoice_html(reg, entity_name, schedule_info, summary, invoice_number, payment_info=None, memo=''):
     """Letterhead-style invoice/receipt for a single registration — meant
     for a family who wants an official-looking document confirming the
     student's name, what they registered for, and that they're paid in
-    full (or what's still owed)."""
+    full (or what's still owed). payment_info (optional) is
+    {'brand','last4','paid_at_display'} pulled live from Square — omitted
+    entirely for comped/free/non-card registrations rather than showing
+    blank fields."""
     def money(cents):
         return f'${(cents or 0)/100:,.2f}'
     student_name = f"{reg.get('child_first_name','')} {reg.get('child_last_name','')}".strip() or 'Participant'
     guardian_name = reg.get('guardian_name') or ''
     guardian_email = reg.get('guardian_email') or ''
     today_str = date.today().strftime('%B %-d, %Y')
-    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_white.png'
+    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png'
 
     rows = ''
     label = 'Comped Registration' if summary['is_comped'] else entity_name
@@ -16863,6 +16899,29 @@ def _build_registration_invoice_html(reg, entity_name, schedule_info, summary, i
     status_bg = '#e1f5ee' if summary['paid_in_full'] else '#fef3c7'
     status_text = 'PAID IN FULL' if summary['paid_in_full'] else f'BALANCE DUE: {money(summary["balance_cents"])}'
 
+    payment_block = ''
+    if payment_info and payment_info.get('last4'):
+        brand = (payment_info.get('brand') or '').replace('_', ' ').title()
+        paid_at = payment_info.get('paid_at_display') or ''
+        payment_block = (
+            '<table style="margin-top:16px"><tr><td style="vertical-align:top;width:50%">'
+            '<div class="info-label">Payment Method</div>'
+            f'<div style="font-size:13px;color:#374151">{brand} ending in {payment_info["last4"]}</div>'
+            '</td><td style="vertical-align:top;width:50%">'
+            '<div class="info-label">Payment Date</div>'
+            f'<div style="font-size:13px;color:#374151">{paid_at or "&mdash;"}</div>'
+            '</td></tr></table>'
+        )
+
+    memo_block = ''
+    if memo and memo.strip():
+        memo_block = (
+            '<div style="margin-top:20px;padding:12px 14px;background:#f8fafc;border-left:3px solid #d1d5db;border-radius:0 8px 8px 0">'
+            '<div class="info-label" style="margin-bottom:4px">Memo</div>'
+            f'<div style="font-size:12.5px;color:#374151;white-space:pre-wrap;line-height:1.5">{memo.strip()}</div>'
+            '</div>'
+        )
+
     return f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/>
 <title>Invoice - {student_name}</title>
@@ -16870,7 +16929,7 @@ def _build_registration_invoice_html(reg, entity_name, schedule_info, summary, i
 @page {{ margin: 50px }}
 * {{ box-sizing: border-box }}
 body {{ font-family: Helvetica, Arial, sans-serif; color: #1a1a18; font-size: 13px }}
-.brand {{ font-size: 20px; font-weight: 700; color: #0d3d4d }}
+.brand {{ font-size: 18px; font-weight: 700; color: #0d3d4d }}
 .brand-sub {{ font-size: 11px; color: #6b7280; margin-top: 2px }}
 h1 {{ font-size: 22px; font-weight: 700; color: #0d3d4d; text-align: right; margin: 0 }}
 .meta {{ text-align: right; font-size: 11.5px; color: #6b7280; margin-top: 4px }}
@@ -16885,7 +16944,9 @@ table {{ width: 100%; border-collapse: collapse }}
 <body>
 <table><tr>
 <td style="vertical-align:top;width:60%">
+  <img src="{logo_url}" alt="Horizon West Theater Company" style="height:44px;width:158px;margin-bottom:6px"/>
   <div class="brand">Horizon West Theater Company</div>
+  <div class="brand-sub">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
   <div class="brand-sub">hwtco.org &middot; info@hwtco.org</div>
 </td>
 <td style="vertical-align:top;width:40%">
@@ -16917,7 +16978,11 @@ table {{ width: 100%; border-collapse: collapse }}
 <tr><td style="padding-top:4px;color:#6b7280">Amount Paid</td><td style="padding-top:4px;text-align:right;color:#6b7280">{money(summary["paid_cents"])}</td></tr>
 </table>
 
+{payment_block}
+
 <div class="status-box">{status_text}</div>
+
+{memo_block}
 
 <div class="footer">
 Horizon West Theater Company is an all-volunteer 501(c)(3) nonprofit community theater. Thank you for your support!
@@ -16928,7 +16993,8 @@ Horizon West Theater Company is an all-volunteer 501(c)(3) nonprofit community t
 @app.route('/api/registrations/<rid>/invoice', methods=['GET'])
 def download_registration_invoice(rid):
     """Official invoice/receipt PDF for a single confirmed registration —
-    student name, program/class, amount breakdown, and a clear PAID IN
+    student name, program/class, amount breakdown, payment method (fetched
+    live from Square when a payment ID is on file), and a clear PAID IN
     FULL / balance due stamp. Works for both youth_programs registrations
     and production (Rising Stars) registrations, since program_registrations
     covers both via program_id/production_id."""
@@ -16954,8 +17020,22 @@ def download_registration_invoice(rid):
     schedule_info = _format_registration_schedule(conn, prog, prod, reg)
     summary = _registration_amount_summary(conn, reg, base_price)
     conn.close()
+
+    payment_info = None
+    if reg.get('square_payment_id'):
+        sp = square_get_payment(reg['square_payment_id'])
+        if sp:
+            card = (sp.get('card_details') or {}).get('card') or {}
+            if card.get('last_4'):
+                payment_info = {
+                    'brand': card.get('card_brand', ''),
+                    'last4': card.get('last_4', ''),
+                    'paid_at_display': _format_square_timestamp(sp.get('created_at', '')),
+                }
+
     invoice_number = rid[:8].upper()
-    html = _build_registration_invoice_html(reg, entity_name, schedule_info, summary, invoice_number)
+    html = _build_registration_invoice_html(reg, entity_name, schedule_info, summary, invoice_number,
+        payment_info=payment_info, memo=reg.get('invoice_memo', ''))
     pdf_b64 = _html_to_pdf_b64(html)
     student_name = f"{reg.get('child_first_name','')} {reg.get('child_last_name','')}".strip() or 'Participant'
     return _rental_pdf_response(pdf_b64, f'Invoice - {student_name} - {entity_name}')
@@ -18892,7 +18972,7 @@ def update_production_registration(pid, rid):
         status=%s, child_first_name=%s, child_last_name=%s,
         guardian_name=%s, guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
-        shirt_size=%s, notes=%s, child_dob=%s, updated_at=NOW()
+        shirt_size=%s, notes=%s, child_dob=%s, invoice_memo=%s, updated_at=NOW()
         WHERE id=%s AND production_id=%s''',
         (d.get('status'),
          (d.get('child_first_name') or '').strip(),
@@ -18905,6 +18985,7 @@ def update_production_registration(pid, rid):
          d.get('shirt_size') or None,
          (d.get('notes') or '').strip() or None,
          d.get('child_dob') or None,
+         (d.get('invoice_memo') or '').strip(),
          rid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -28079,7 +28160,7 @@ def update_registration(pid, rid):
         guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
         session_ids=%s, child_dob=%s, child_first_name=%s, child_last_name=%s,
-        updated_at=NOW() WHERE id=%s AND program_id=%s''',
+        invoice_memo=%s, updated_at=NOW() WHERE id=%s AND program_id=%s''',
         (d.get('status'), d.get('notes',''), d.get('shirt_size',''),
          d.get('guardian_name',''), d.get('guardian_email',''),
          d.get('guardian_phone',''), d.get('emergency_contact_name',''),
@@ -28088,6 +28169,7 @@ def update_registration(pid, rid):
          d.get('child_dob') or None,
          (d.get('child_first_name') or '').strip(),
          (d.get('child_last_name') or '').strip(),
+         (d.get('invoice_memo') or '').strip(),
          rid, pid))
     conn.commit()
     conn.close()

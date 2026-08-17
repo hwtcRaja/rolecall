@@ -385,6 +385,7 @@ function renderPage(){
     + actionHTML
 
   if(_showCountdown){ startRegCountdown(_regOpenAt) }
+  initBookingCalendar()
 }
 
 function customFieldInputs(fields){
@@ -466,43 +467,76 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
         + '</div>'
       setTimeout(function(){ var b=document.getElementById('submit-btn'); if(b){b.disabled=true;b.textContent='No Sessions Available'} },100)
     } else if(isBookingMode){
-      // Group by date for a visual calendar-style grid
+      // Group by date — dates without a start_date can't be placed on a
+      // calendar, so they fall back to the old flat "Ongoing" section
+      // above any calendar that gets built from the dated ones.
       var byDate = {}
+      var ongoing = []
       sessions.forEach(function(s){
-        var d = s.start_date || 'Ongoing'
-        if(!byDate[d]) byDate[d] = []
-        byDate[d].push(s)
+        if(!s.start_date){ ongoing.push(s); return }
+        if(!byDate[s.start_date]) byDate[s.start_date] = []
+        byDate[s.start_date].push(s)
       })
+      function buildSlotTile(s){
+        var price = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice
+        var enrolled = s.enrolled_count || 0
+        var cap = s.capacity || null
+        var spotsLeft = cap ? cap - enrolled : null
+        var isFull = spotsLeft !== null && spotsLeft <= 0
+        var isPast = s.start_date && new Date(s.start_date+'T12:00:00') < new Date(new Date().toDateString())
+        var isDisabled = isFull || isPast
+        var pct = cap ? (enrolled / cap) : 0
+        var isAlmost = !isDisabled && pct >= 0.9 && cap
+        var timeStr = s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : s.name
+        return '<label class="booking-slot-label" style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:2px solid '+(isDisabled?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;cursor:'+(isDisabled?'not-allowed':'pointer')+';text-align:center;background:'+(isDisabled?'#f9fafb':isAlmost?'#fffbeb':'#fff')+';opacity:'+(isDisabled?'0.5':'1')+'">'
+          + '<input type="checkbox" class="session-checkbox booking-slot" data-sid="'+s.id+'" data-price="'+price+'" data-max="'+maxPerReg+'" '+(isDisabled?'disabled':'')+' style="display:none"/>'
+          + '<div style="font-size:13px;font-weight:700;color:'+(isDisabled?'#9ca3af':'#0d3d4d')+'">'+escHtml(timeStr)+'</div>'
+          + '<div style="font-size:11px;font-weight:700;color:'+(isDisabled?'#9ca3af':price>0?'#145466':'#166534')+';margin-top:4px">'+(isPast?'Passed':isFull?'Full':price>0?'$'+(price/100).toFixed(2):'Free')+'</div>'
+          + (isPast ? '<div style="font-size:10px;color:#9ca3af;font-weight:700;margin-top:2px">Registration closed</div>'
+            : isFull ? '<div style="font-size:10px;color:#dc2626;font-weight:700;margin-top:2px">Full</div>'
+            : showAlmost&&isAlmost ? '<div style="font-size:10px;color:#d97706;font-weight:700;margin-top:2px">Almost Sold Out!</div>'
+            : showCap&&cap&&spotsLeft<=5 ? '<div style="font-size:10px;color:#f59e0b;font-weight:600;margin-top:2px">'+spotsLeft+' left</div>' : '')
+          + '</label>'
+      }
+      var ongoingHTML = ongoing.length ? ('<div style="margin-bottom:16px">'
+        + '<div style="font-size:12px;font-weight:700;color:#0d3d4d;margin-bottom:8px;padding:6px 0;border-bottom:2px solid #e5e7eb">Available Slots</div>'
+        + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">'
+        + ongoing.map(buildSlotTile).join('')
+        + '</div></div>') : ''
+      var dateKeys = Object.keys(byDate).sort()
+      var calendarHTML = ''
+      if(dateKeys.length){
+        var WD = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+        calendarHTML = '<div id="booking-cal-wrap" style="border:1.5px solid #e5e7eb;border-radius:12px;padding:14px 16px;margin-bottom:14px">'
+          + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">'
+          + '<button type="button" class="booking-cal-nav-btn" data-dir="-1" style="background:none;border:1.5px solid #d1d5db;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:15px;color:#145466;font-family:inherit">‹</button>'
+          + '<div id="booking-cal-month-label" style="font-size:13.5px;font-weight:700;color:#0d3d4d"></div>'
+          + '<button type="button" class="booking-cal-nav-btn" data-dir="1" style="background:none;border:1.5px solid #d1d5db;border-radius:8px;width:30px;height:30px;cursor:pointer;font-size:15px;color:#145466;font-family:inherit">›</button>'
+          + '</div>'
+          + '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:4px">'
+          + WD.map(function(w){ return '<div style="text-align:center;font-size:10px;font-weight:700;color:#9ca3af;text-transform:uppercase">'+w+'</div>' }).join('')
+          + '</div>'
+          + '<div id="booking-cal-grid" style="display:grid;grid-template-columns:repeat(7,1fr);gap:4px"></div>'
+          + '<div style="display:flex;gap:14px;margin-top:12px;padding-top:10px;border-top:1px solid #f1f5f9;font-size:10.5px;color:#9ca3af">'
+          + '<div style="display:flex;align-items:center;gap:4px"><span style="width:7px;height:7px;border-radius:50%;background:#16a34a;display:inline-block"></span> Available</div>'
+          + '<div style="display:flex;align-items:center;gap:4px"><span style="width:7px;height:7px;border-radius:50%;background:#dc2626;display:inline-block"></span> Full</div>'
+          + '</div>'
+          + '</div>'
+          + '<div id="booking-day-panels">'
+          + dateKeys.map(function(date){
+              var label = (function(){ try{ return new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) }catch(e){ return date } })()
+              return '<div class="booking-day-panel" data-date="'+date+'" style="display:none">'
+                + '<div style="font-size:12px;font-weight:700;color:#0d3d4d;margin-bottom:8px;padding:6px 0;border-bottom:2px solid #e5e7eb">'+label+'</div>'
+                + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">'
+                + byDate[date].map(buildSlotTile).join('')
+                + '</div></div>'
+            }).join('')
+          + '</div>'
+      }
       sessionPickerHTML = '<div class="section-divider">Choose Your Time Slot</div>'
         + '<div style="font-size:13px;color:#6b7280;margin-bottom:12px">Select a time slot. Each slot is '+(maxPerReg===1?'a single reservation':maxPerReg>1?'up to '+maxPerReg+' slots':'one reservation per booking')+'.</div>'
-        + Object.keys(byDate).sort().map(function(date){
-            var label = date === 'Ongoing' ? 'Available Slots' : (function(){ try{ return new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric',year:'numeric'}) }catch(e){ return date } })()
-            return '<div style="margin-bottom:16px">'
-              + '<div style="font-size:12px;font-weight:700;color:#0d3d4d;margin-bottom:8px;padding:6px 0;border-bottom:2px solid #e5e7eb">'+label+'</div>'
-              + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">'
-              + byDate[date].map(function(s){
-                  var price = (s.price_override !== null && s.price_override !== undefined) ? s.price_override : basePrice
-                  var enrolled = s.enrolled_count || 0
-                  var cap = s.capacity || null
-                  var spotsLeft = cap ? cap - enrolled : null
-                  var isFull = spotsLeft !== null && spotsLeft <= 0
-                  var isPast = s.start_date && new Date(s.start_date+'T12:00:00') < new Date(new Date().toDateString())
-                  var isDisabled = isFull || isPast
-                  var pct = cap ? (enrolled / cap) : 0
-                  var isAlmost = !isDisabled && pct >= 0.9 && cap
-                  var timeStr = s.start_time ? fmtTimeSess(s.start_time)+(s.end_time?' – '+fmtTimeSess(s.end_time):'') : s.name
-                  return '<label class="booking-slot-label" style="display:flex;flex-direction:column;align-items:center;padding:10px 8px;border:2px solid '+(isDisabled?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;cursor:'+(isDisabled?'not-allowed':'pointer')+';text-align:center;background:'+(isDisabled?'#f9fafb':isAlmost?'#fffbeb':'#fff')+';opacity:'+(isDisabled?'0.5':'1')+'">'
-                    + '<input type="checkbox" class="session-checkbox booking-slot" data-sid="'+s.id+'" data-price="'+price+'" data-max="'+maxPerReg+'" '+(isDisabled?'disabled':'')+' style="display:none"/>'
-                    + '<div style="font-size:13px;font-weight:700;color:'+(isDisabled?'#9ca3af':'#0d3d4d')+'">'+escHtml(timeStr)+'</div>'
-                    + '<div style="font-size:11px;font-weight:700;color:'+(isDisabled?'#9ca3af':price>0?'#145466':'#166534')+';margin-top:4px">'+(isPast?'Passed':isFull?'Full':price>0?'$'+(price/100).toFixed(2):'Free')+'</div>'
-                    + (isPast ? '<div style="font-size:10px;color:#9ca3af;font-weight:700;margin-top:2px">Registration closed</div>'
-                      : isFull ? '<div style="font-size:10px;color:#dc2626;font-weight:700;margin-top:2px">Full</div>'
-                      : showAlmost&&isAlmost ? '<div style="font-size:10px;color:#d97706;font-weight:700;margin-top:2px">Almost Sold Out!</div>'
-                      : showCap&&cap&&spotsLeft<=5 ? '<div style="font-size:10px;color:#f59e0b;font-weight:600;margin-top:2px">'+spotsLeft+' left</div>' : '')
-                    + '</label>'
-                }).join('')
-              + '</div></div>'
-          }).join('')
+        + ongoingHTML
+        + calendarHTML
         + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'
     } else if(!allPast && !allUnavailable) {
       // Build bundle button if enabled
@@ -954,6 +988,18 @@ document.addEventListener('change', function(e){
 })
 
 document.addEventListener('click', function(e){
+  var calNavBtn = e.target && e.target.closest ? e.target.closest('.booking-cal-nav-btn') : null
+  if(calNavBtn){
+    var dir = parseInt(calNavBtn.dataset.dir)
+    _bookingCalMonthIdx = Math.max(0, Math.min(_bookingCalMonths.length-1, _bookingCalMonthIdx+dir))
+    renderBookingCalMonth()
+    return
+  }
+  var calDayBtn = e.target && e.target.closest ? e.target.closest('.booking-cal-day-btn') : null
+  if(calDayBtn){
+    selectBookingCalDay(calDayBtn.dataset.date)
+    return
+  }
   if(e.target && e.target.id === 'apply-discount-btn'){
     applyDiscount(); return
   }
@@ -1279,6 +1325,93 @@ function buildProgramInfoCard(){
     + (infoHTML ? infoHTML : '')
     + instrHTML
     + '</div></div>'
+}
+
+// ── Booking-mode calendar ──────────────────────────────────────────
+// Purely a navigation/display layer over the same .session-checkbox
+// elements updateSessionPicker() already knows how to read — the day
+// panels all exist in the DOM at once (just hidden), so switching days
+// never touches selection state, only which panel is visible.
+var _bookingCalSessionsByDate = {}
+var _bookingCalMonths = []   // e.g. ['2026-08','2026-09','2026-10'], in order
+var _bookingCalMonthIdx = 0
+var _bookingCalSelectedDate = null
+var _BOOKING_MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+function _ymdLocal(dt){
+  return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')+'-'+String(dt.getDate()).padStart(2,'0')
+}
+
+function initBookingCalendar(){
+  var grid = document.getElementById('booking-cal-grid')
+  if(!grid || !program || !program._sessions) return
+  _bookingCalSessionsByDate = {}
+  program._sessions.forEach(function(s){
+    if(!s.start_date) return
+    if(!_bookingCalSessionsByDate[s.start_date]) _bookingCalSessionsByDate[s.start_date] = []
+    _bookingCalSessionsByDate[s.start_date].push(s)
+  })
+  var dates = Object.keys(_bookingCalSessionsByDate).sort()
+  if(!dates.length) return
+  var seen = {}
+  _bookingCalMonths = []
+  dates.forEach(function(d){
+    var ym = d.slice(0,7)
+    if(!seen[ym]){ seen[ym] = true; _bookingCalMonths.push(ym) }
+  })
+  var todayStr = _ymdLocal(new Date())
+  // Default to the first upcoming date that still has an open (non-full)
+  // slot, so families land somewhere actually bookable rather than on
+  // day one of a schedule that filled up months ago.
+  var defaultDate = dates.find(function(d){
+    if(d < todayStr) return false
+    return (_bookingCalSessionsByDate[d]||[]).some(function(s){
+      var full = s.capacity && (s.enrolled_count||0) >= s.capacity
+      return !full
+    })
+  }) || dates.find(function(d){ return d >= todayStr }) || dates[0]
+  _bookingCalMonthIdx = Math.max(0, _bookingCalMonths.indexOf(defaultDate.slice(0,7)))
+  selectBookingCalDay(defaultDate)
+}
+
+function renderBookingCalMonth(){
+  var grid = document.getElementById('booking-cal-grid')
+  var label = document.getElementById('booking-cal-month-label')
+  if(!grid || !_bookingCalMonths.length) return
+  var ym = _bookingCalMonths[_bookingCalMonthIdx]
+  var year = parseInt(ym.slice(0,4)), month = parseInt(ym.slice(5,7))-1
+  if(label) label.textContent = _BOOKING_MONTH_NAMES[month]+' '+year
+  var firstDow = new Date(year, month, 1).getDay()
+  var numDays = new Date(year, month+1, 0).getDate()
+  var todayStr = _ymdLocal(new Date())
+  var html = ''
+  for(var i=0;i<firstDow;i++) html += '<div></div>'
+  for(var day=1; day<=numDays; day++){
+    var dstr = ym+'-'+String(day).padStart(2,'0')
+    var sess = _bookingCalSessionsByDate[dstr]
+    var isPast = dstr < todayStr
+    var hasAvail = !!sess && !isPast && sess.some(function(s){ var full = s.capacity && (s.enrolled_count||0) >= s.capacity; return !full })
+    var clickable = !!sess && !isPast
+    var isSelected = dstr === _bookingCalSelectedDate
+    var dotColor = !sess ? 'transparent' : (hasAvail ? '#16a34a' : '#dc2626')
+    html += '<button type="button" class="'+(clickable?'booking-cal-day-btn':'')+'" '+(clickable?'data-date="'+dstr+'"':'disabled')+' style="aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:8px;border:1.5px solid '+(isSelected?'#145466':'transparent')+';background:'+(isSelected?'#e0f2fe':clickable?'#f8fafc':'transparent')+';cursor:'+(clickable?'pointer':'default')+';font-family:inherit;padding:2px">'
+      + '<div style="font-size:12.5px;font-weight:'+(isSelected?'700':'600')+';color:'+(clickable?(isSelected?'#0d3d4d':'#374151'):'#d1d5db')+'">'+day+'</div>'
+      + (sess && !isPast ? '<div style="width:5px;height:5px;border-radius:50%;background:'+dotColor+'"></div>' : '')
+      + '</button>'
+  }
+  grid.innerHTML = html
+  var prevBtn = document.querySelector('.booking-cal-nav-btn[data-dir="-1"]')
+  var nextBtn = document.querySelector('.booking-cal-nav-btn[data-dir="1"]')
+  if(prevBtn){ prevBtn.disabled = _bookingCalMonthIdx<=0; prevBtn.style.opacity = prevBtn.disabled?'0.3':'1'; prevBtn.style.cursor = prevBtn.disabled?'default':'pointer' }
+  if(nextBtn){ nextBtn.disabled = _bookingCalMonthIdx>=_bookingCalMonths.length-1; nextBtn.style.opacity = nextBtn.disabled?'0.3':'1'; nextBtn.style.cursor = nextBtn.disabled?'default':'pointer' }
+}
+
+function selectBookingCalDay(dateStr){
+  _bookingCalSelectedDate = dateStr
+  document.querySelectorAll('.booking-day-panel').forEach(function(p){
+    p.style.display = p.dataset.date === dateStr ? '' : 'none'
+  })
+  renderBookingCalMonth()
 }
 
 function updateSessionPicker(){

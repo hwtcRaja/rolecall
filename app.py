@@ -4666,24 +4666,41 @@ def send_program_email(pid):
         app.logger.error(f'send_program_email error: {e}')
         return jsonify({'error': str(e)}), 500
 
+def _resolve_welcome_entity(conn, pid):
+    """The welcome-email feature (send-welcome / welcome-recipients) works
+    the same way for youth_programs (classes) and productions with youth
+    cast (e.g. Rising Stars) — checks youth_programs first since that's the
+    more common case, falls back to productions. Returns (entity, kind)
+    with kind 'program' or 'production', or (None, None) if neither matches."""
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if prog:
+        return prog, 'program'
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if prod:
+        return prod, 'production'
+    return None, None
+
 @app.route('/api/youth-programs/<pid>/send-welcome', methods=['POST'])
 def send_program_welcome(pid):
     err = require_auth()
     if err: return err
     d = request.json or {}
-    # mode: 'all' | 'family' | 'participant'
+    # mode: 'all' | 'family' | 'participant' | 'unlogged' ('unlogged' is
+    # 'all' filtered to participants who've never signed into the portal)
     mode       = d.get('mode', 'all')
     family_id  = d.get('family_id')
     youth_id   = d.get('youth_id')
     subject_override = d.get('subject', '').strip()
 
     conn = get_db()
-    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
-    if not prog:
+    entity, kind = _resolve_welcome_entity(conn, pid)
+    if not entity:
         conn.close()
-        return jsonify({'error': 'Program not found'}), 404
+        return jsonify({'error': 'Not found'}), 404
+    prog = entity if kind == 'program' else None
+    prod = entity if kind == 'production' else None
 
-    prog_name = prog.get('name', 'Program')
+    prog_name = entity.get('name', 'Program')
 
     # Load template
     tmpl = get_system_template(conn, 'welcome_email')
@@ -4734,11 +4751,20 @@ def send_program_welcome(pid):
                     if g['email']:
                         recipients.append({'email': g['email'].strip(), 'passphrase': pp, 'family_greeting': greeting, 'age': member_age, 'youth_id': m['id']})
 
-    else:  # all enrolled in program
-        enrolled = fetchall(conn, """
-            SELECT y.* FROM youth_participants y
-            JOIN youth_program_enrollments ype ON ype.youth_id=y.id
-            WHERE ype.program_id=%s AND y.status='active'""", (pid,))
+    else:  # 'all' or 'unlogged' — everyone (currently) enrolled, via
+           # youth_program_enrollments for a program or youth_production_members
+           # for a production, optionally filtered to never-logged-in-yet
+        if kind == 'program':
+            enrolled_sql = """SELECT y.* FROM youth_participants y
+                JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+                WHERE ype.program_id=%s AND y.status='active'"""
+        else:
+            enrolled_sql = """SELECT y.* FROM youth_participants y
+                JOIN youth_production_members ypm ON ypm.youth_id=y.id
+                WHERE ypm.production_id=%s AND y.status='active'"""
+        if mode == 'unlogged':
+            enrolled_sql += " AND y.portal_last_login IS NULL"
+        enrolled = fetchall(conn, enrolled_sql, (pid,))
         for y in enrolled:
             pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
             greeting = f"{y['first_name']} {y['last_name']}"
@@ -4759,7 +4785,7 @@ def send_program_welcome(pid):
     # actually picked, not just the program's overall date range. Falls back to
     # the program's general schedule for addresses not tied to one specific
     # child (the family-level email above) or if no registration row is found.
-    program_schedule_info = _format_registration_schedule(conn, prog, None, {})
+    program_schedule_info = _format_registration_schedule(conn, prog, prod, {})
     program_schedule_block = ''
     if program_schedule_info:
         program_schedule_block = (
@@ -4767,16 +4793,17 @@ def send_program_welcome(pid):
             '<p style="color:#04342C"><strong>You\'re registered for:</strong><br>' + program_schedule_info + '</p></div>'
         )
     schedule_block_by_youth = {}
+    reg_fk_col = 'program_id' if kind == 'program' else 'production_id'
     for r in recipients:
         yid = r.get('youth_id')
         if not yid:
             r['schedule_block'] = program_schedule_block
             continue
         if yid not in schedule_block_by_youth:
-            their_reg = fetchone(conn, '''SELECT * FROM program_registrations
-                WHERE youth_id=%s AND program_id=%s AND status='confirmed'
+            their_reg = fetchone(conn, f'''SELECT * FROM program_registrations
+                WHERE youth_id=%s AND {reg_fk_col}=%s AND status='confirmed'
                 ORDER BY created_at DESC LIMIT 1''', (yid, pid))
-            info = _format_registration_schedule(conn, prog, None, their_reg or {}) if their_reg else program_schedule_info
+            info = _format_registration_schedule(conn, prog, prod, their_reg or {}) if their_reg else program_schedule_info
             block = ''
             if info:
                 block = (
@@ -4798,7 +4825,9 @@ def send_program_welcome(pid):
             deduped.append(r)
 
     if not deduped:
-        return jsonify({'error': 'No email addresses found for the selected recipients'}), 400
+        no_recip_msg = ('No one enrolled here has skipped logging in — everyone with an email on file has signed in at least once'
+            if mode == 'unlogged' else 'No email addresses found for the selected recipients')
+        return jsonify({'error': no_recip_msg}), 400
 
     subject_base = subject_override or subject_tmpl.replace('{{program_name}}', prog_name)
 
@@ -4843,17 +4872,31 @@ def send_program_welcome(pid):
 
 @app.route('/api/youth-programs/<pid>/welcome-recipients', methods=['GET'])
 def get_welcome_recipients(pid):
-    """Preview who would receive the welcome email for a program."""
+    """Preview who would receive the welcome email — works for a youth_programs
+    row or a productions row (e.g. Rising Stars), see _resolve_welcome_entity."""
     err = require_auth()
     if err: return err
     conn = get_db()
-    enrolled = fetchall(conn, """
-        SELECT y.id, y.first_name, y.last_name, y.passphrase, y.family_id,
-               y.status
-        FROM youth_participants y
-        JOIN youth_program_enrollments ype ON ype.youth_id=y.id
-        WHERE ype.program_id=%s AND y.status='active'
-        ORDER BY y.last_name, y.first_name""", (pid,))
+    entity, kind = _resolve_welcome_entity(conn, pid)
+    if not entity:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if kind == 'program':
+        enrolled = fetchall(conn, """
+            SELECT y.id, y.first_name, y.last_name, y.passphrase, y.family_id,
+                   y.status, y.portal_last_login
+            FROM youth_participants y
+            JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+            WHERE ype.program_id=%s AND y.status='active'
+            ORDER BY y.last_name, y.first_name""", (pid,))
+    else:
+        enrolled = fetchall(conn, """
+            SELECT y.id, y.first_name, y.last_name, y.passphrase, y.family_id,
+                   y.status, y.portal_last_login
+            FROM youth_participants y
+            JOIN youth_production_members ypm ON ypm.youth_id=y.id
+            WHERE ypm.production_id=%s AND y.status='active'
+            ORDER BY y.last_name, y.first_name""", (pid,))
 
     result = []
     for y in enrolled:
@@ -4874,6 +4917,7 @@ def get_welcome_recipients(pid):
             'family_name':  family_name,
             'passphrase':   pp,
             'guardians':    guardians,
+            'portal_last_login': y.get('portal_last_login'),
         })
 
     conn.close()

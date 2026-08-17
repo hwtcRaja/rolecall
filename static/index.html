@@ -1592,6 +1592,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-actions">
  <button class="btn btn-secondary" onclick="openInboxImportModal()">📥 Import Older Mail</button>
  <button class="btn btn-secondary" onclick="refreshInboxNow()" id="inbox-refresh-btn">↻ Check for New Mail</button>
+ <button class="btn btn-secondary" onclick="backfillInboxAttachments()" id="inbox-backfill-att-btn" title="Some older messages were imported before attachment capture — this re-checks Gmail for any missing ones">📎 Backfill Attachments</button>
  </div>
  </div>
  <div class="page-body" id="inbox-content"></div>
@@ -7896,7 +7897,7 @@ async function deleteBoardApplication(aid){
 
 // ── Shared Inbox (info@) ───────────────────────────────────────────
 var _inboxThreads = []
-var _inboxFilter = {status:'open', assigned:'all', sort:'newest', q:'', tag:''}
+var _inboxFilter = {status:'open', assigned:'mine', sort:'newest', q:'', tag:''}
 var _inboxOpenThreadId = null
 var _inboxSearchDebounce = null
 var _inboxTeamNamesCache = null
@@ -7940,6 +7941,21 @@ async function refreshInboxNow(){
  if(res&&res.ok){
    toast(res.checked ? 'Found '+res.checked+' new message'+(res.checked!==1?'s':'') : 'Checked — nothing new', 'success')
    renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function backfillInboxAttachments(){
+ var btn = document.getElementById('inbox-backfill-att-btn')
+ if(btn){ btn.disabled=true; btn.textContent='Checking Gmail…' }
+ var res = await api('/api/inbox/backfill-attachments','POST',{})
+ if(btn){ btn.disabled=false; btn.textContent='📎 Backfill Attachments' }
+ if(res&&res.ok){
+   if(res.attachments_found){
+     toast('Found '+res.attachments_found+' missing attachment'+(res.attachments_found!==1?'s':'')+' across '+res.checked+' message'+(res.checked!==1?'s':'')+' checked', 'success')
+   } else {
+     toast(res.checked ? 'Checked '+res.checked+' message'+(res.checked!==1?'s':'')+' — nothing missing' : 'Nothing to check', 'success')
+   }
+   if(_inboxOpenThreadId) openInboxThread(_inboxOpenThreadId)
  } else toast((res&&res.error)||'Error','error')
 }
 
@@ -8023,6 +8039,12 @@ function setInboxFilter(key, val){
  renderInboxThreadList()
 }
 
+function setInboxComboView(status, assigned){
+ _inboxFilter.status = status
+ _inboxFilter.assigned = assigned
+ renderInboxThreadList()
+}
+
 function onInboxSearchInput(){
  _inboxFilter.q = (document.getElementById('inbox-search-input')||{}).value||''
  clearTimeout(_inboxSearchDebounce)
@@ -8043,7 +8065,16 @@ async function renderInboxThreadList(){
  if(badge){ badge.textContent = unreadCount; badge.style.display = unreadCount?'':'none' }
  document.getElementById('inbox-subtitle').textContent = _inboxThreads.length+' conversation'+(_inboxThreads.length!==1?'s':'')
 
- var statusFilters = [{v:'open',l:'Open'},{v:'pending',l:'Pending'},{v:'closed',l:'Closed'},{v:'spam',l:'Spam'},{v:'all',l:'All'}]
+ // 'Assigned to Me' and 'Open' are combo views — each pins both the
+ // status and assigned dimensions together, since 'open' on its own is
+ // ambiguous between 'my open work' and 'the shared unclaimed queue'.
+ // The other statuses don't carry an assignment opinion, so they only
+ // touch the status filter and leave 'assigned' as the user last set it.
+ var comboTabs = [
+   {status:'open', assigned:'mine', l:'Assigned to Me'},
+   {status:'open', assigned:'unassigned', l:'Open'},
+ ]
+ var statusFilters = [{v:'pending',l:'Pending'},{v:'closed',l:'Closed'},{v:'spam',l:'Spam'},{v:'all',l:'All'}]
 
  // Left rail — mirrors Gmail's own Labels list, so filtering by a label
  // works the same way it does there: click it, see just that label.
@@ -8067,6 +8098,10 @@ async function renderInboxThreadList(){
    + '<button class="btn btn-primary btn-sm" onclick="openInboxComposeModal()">✎ New Message</button>'
    + '</div>'
    + '<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">'
+   + comboTabs.map(function(f){
+       var active = _inboxFilter.status===f.status && _inboxFilter.assigned===f.assigned
+       return '<button onclick="setInboxComboView(\''+f.status+'\',\''+f.assigned+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+'</button>'
+     }).join('')
    + statusFilters.map(function(f){
        var active = _inboxFilter.status===f.v
        return '<button onclick="setInboxFilter(\'status\',\''+f.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+'</button>'

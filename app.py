@@ -21624,7 +21624,12 @@ def list_inbox_threads():
         (SELECT body_text FROM inbox_messages m WHERE m.thread_id=t.id ORDER BY created_at DESC LIMIT 1) AS last_body_text
         FROM inbox_threads t WHERE 1=1"""
     params = []
-    if status and status != 'all':
+    if status == 'active':
+        # 'Open or Pending' — used by 'Assigned to Me' so a thread you're
+        # actively corresponding on doesn't vanish from your own queue the
+        # moment your reply flips it from open to pending.
+        sql += " AND t.status NOT IN ('closed','spam')"
+    elif status and status != 'all':
         sql += ' AND t.status=%s'; params.append(status)
     if assigned == 'unassigned':
         sql += " AND (t.assigned_to IS NULL OR t.assigned_to='')"

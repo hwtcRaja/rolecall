@@ -20238,7 +20238,13 @@ def _find_or_create_inbox_thread(conn, participant_email, participant_name, subj
         row = fetchone(conn, f"SELECT thread_id FROM inbox_messages WHERE message_id IN ({placeholders}) LIMIT 1", tuple(candidate_ids))
         if row:
             thread_id = row['thread_id']
-    norm_subject = _reinbox.sub(r'^\s*(re|fwd?)\s*:\s*', '', subject or '', flags=_reinbox.I).strip()
+    norm_subject = subject or ''
+    while True:
+        stripped = _reinbox.sub(r'^\s*(re|fwd?)\s*:\s*', '', norm_subject, flags=_reinbox.I)
+        if stripped == norm_subject:
+            break
+        norm_subject = stripped
+    norm_subject = norm_subject.strip()
     if not thread_id and participant_email:
         row = fetchone(conn, """SELECT id FROM inbox_threads WHERE participant_email=%s AND subject=%s
             AND last_message_at > NOW() - INTERVAL '60 days' ORDER BY last_message_at DESC LIMIT 1""",
@@ -20247,7 +20253,7 @@ def _find_or_create_inbox_thread(conn, participant_email, participant_name, subj
             thread_id = row['id']
     if thread_id:
         execute(conn, """UPDATE inbox_threads SET last_message_at=NOW(), unread=TRUE,
-            status=CASE WHEN status='closed' THEN 'open' ELSE status END WHERE id=%s""", (thread_id,))
+            status=CASE WHEN status IN ('closed','pending') THEN 'open' ELSE status END WHERE id=%s""", (thread_id,))
         return thread_id, False
     thread_id = str(uuid.uuid4())
     execute(conn, """INSERT INTO inbox_threads (id, subject, participant_email, participant_name, status, unread, last_message_at)
@@ -20357,6 +20363,50 @@ def _notify_inbox_assigned(conn, thread_id, assignee_name):
             source='inbox_notify')
     except Exception as e:
         app.logger.warning(f'Inbox assignment notification failed: {e}')
+
+def _extract_inbox_mentions(conn, comment_body, author_name):
+    """Matches '@Full Name' in a comment against active users' actual
+    display names (not a lightweight '@word' regex) so 'Jordan' doesn't
+    false-positive on a comment that's just talking about someone. Longest
+    names are checked first so 'Jordan Lee' matches whole rather than
+    leaving a dangling 'Lee' — matters since several people can share a
+    first name. Excludes the comment's own author, and is case-insensitive
+    since staff won't always match capitalization while typing."""
+    import re as _reinboxmention
+    names = [n['name'] for n in (fetchall(conn,
+        "SELECT name FROM users WHERE COALESCE(active,TRUE)=TRUE AND name IS NOT NULL AND name!=''") or [])
+        if n.get('name') and n['name'] != author_name]
+    if not names:
+        return []
+    names_sorted = sorted(set(names), key=len, reverse=True)
+    mentioned = []
+    remaining = comment_body
+    for name in names_sorted:
+        pattern = r'@' + _reinboxmention.escape(name) + r'\b'
+        if _reinboxmention.search(pattern, remaining, _reinboxmention.I):
+            mentioned.append(name)
+            remaining = _reinboxmention.sub(pattern, '', remaining, flags=_reinboxmention.I)
+    return mentioned
+
+def _notify_inbox_mentioned(conn, thread_id, mentioned_names, author_name, comment_body):
+    for name in mentioned_names:
+        try:
+            user = fetchone(conn, "SELECT email FROM users WHERE name=%s AND email IS NOT NULL AND email!=''", (name,))
+            if not user:
+                continue
+            thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (thread_id,))
+            if not thread:
+                continue
+            preview = (comment_body or '').strip().replace('\n', ' ')[:200]
+            send_email(user['email'], f'{author_name} mentioned you: {thread.get("subject","(no subject)")}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<p><strong>{author_name}</strong> mentioned you on a conversation with '
+                f'{thread.get("participant_name") or thread.get("participant_email","")} in the RoleCall Inbox:</p>'
+                f'<p style="color:#6b7280;font-size:13px;border-left:3px solid #145466;padding-left:10px">{preview}{"…" if len(preview)==200 else ""}</p>'
+                f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+                source='inbox_notify')
+        except Exception as e:
+            app.logger.warning(f'Inbox mention notification failed for {name}: {e}')
 
 def _process_inbound_email(conn, raw_bytes, gmail_msgid=''):
     """Returns the thread_id this message landed in (or None if it was a
@@ -21049,7 +21099,12 @@ def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name
 
     attachments (optional): list of {'filename','content_type','data'}
     with raw bytes — sent via Resend, mirrored to the Sent folder, and
-    stored in inbox_attachments against the new message row."""
+    stored in inbox_attachments against the new message row.
+
+    Also flips the thread to 'pending' ('waiting on them') if it was
+    'open' — the ticketing-style signal for who owns the next move.
+    _find_or_create_inbox_thread flips it back to 'open' the moment a
+    new inbound message lands, so this never needs manual upkeep."""
     our_message_id = f'<{uuid.uuid4()}@hwtco.org>'
     headers = {'Message-ID': our_message_id}
     if in_reply_to_message_id:
@@ -21063,6 +21118,13 @@ def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name
     ok, err, resend_id = send_email(to_email, subject, html_body, from_email=from_email,
         from_name='Horizon West Theater Company', source='shared_inbox', extra_headers=headers,
         cc=cc_emails or None, bcc=bcc_emails or None, attachments=resend_attachments)
+    if not ok:
+        # Don't record anything on a failed send — an inbox_messages row here
+        # would make a message that was never actually delivered look like a
+        # normal sent reply in the thread history, and marking the thread
+        # unread=FALSE below would make it look like it had been handled,
+        # potentially causing a real inquiry to get dropped.
+        return ok, err
     mid = str(uuid.uuid4())
     execute(conn, """INSERT INTO inbox_messages
         (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, message_id, in_reply_to, sent_by, cc_emails, bcc_emails)
@@ -21074,13 +21136,13 @@ def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name
             VALUES (%s,%s,%s,%s,%s,%s)""",
             (str(uuid.uuid4()), mid, att['filename'], att.get('content_type') or 'application/octet-stream',
              __import__('base64').b64encode(att['data']).decode(), len(att['data'])))
-    execute(conn, "UPDATE inbox_threads SET last_message_at=NOW(), unread=FALSE WHERE id=%s", (thread_id,))
-    if ok:
-        try:
-            _imap_append_sent_copy(to_email, to_name, subject, html_body, our_message_id, in_reply_to_message_id,
-                cc_emails, bcc_emails, attachments)
-        except Exception as e:
-            app.logger.warning(f'Sent-folder sync error (non-fatal): {e}')
+    execute(conn, """UPDATE inbox_threads SET last_message_at=NOW(), unread=FALSE,
+        status=CASE WHEN status='open' THEN 'pending' ELSE status END WHERE id=%s""", (thread_id,))
+    try:
+        _imap_append_sent_copy(to_email, to_name, subject, html_body, our_message_id, in_reply_to_message_id,
+            cc_emails, bcc_emails, attachments)
+    except Exception as e:
+        app.logger.warning(f'Sent-folder sync error (non-fatal): {e}')
     return ok, err
 
 @app.route('/api/inbox/status', methods=['GET'])
@@ -21238,8 +21300,15 @@ def add_inbox_comment(tid):
     cid = str(uuid.uuid4())
     execute(conn, 'INSERT INTO inbox_comments (id, thread_id, author_name, body) VALUES (%s,%s,%s,%s)',
         (cid, tid, author, body))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True, 'id': cid, 'author_name': author})
+    conn.commit()
+    mentioned = _extract_inbox_mentions(conn, body, author)
+    if mentioned:
+        try:
+            _notify_inbox_mentioned(conn, tid, mentioned, author, body)
+        except Exception as e:
+            app.logger.warning(f'Inbox mention notification error: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'id': cid, 'author_name': author, 'mentioned': mentioned})
 
 @app.route('/api/inbox/comments/<cid>', methods=['DELETE'])
 def delete_inbox_comment(cid):
@@ -26018,11 +26087,13 @@ def public_rental_message_submit(token):
         conn.close()
         return jsonify({'error': 'Not found'}), 404
     mid = str(uuid.uuid4())
+    import html as _htmlrental
+    safe_body_html = _htmlrental.escape(body).replace('\n', '<br>')
     execute(conn, '''INSERT INTO rental_messages
         (id, request_id, direction, from_email, from_name, subject, body_html, body_text)
         VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s)''',
         (mid, req['id'], req.get('partner_email', ''), req.get('partner_contact', ''),
-         f'Re: {req.get("title","")}', body.replace('\n', '<br>'), body))
+         f'Re: {req.get("title","")}', safe_body_html, body))
     execute(conn, 'UPDATE rental_requests SET awaiting_feedback=FALSE WHERE id=%s', (req['id'],))
     conn.commit()
     try:

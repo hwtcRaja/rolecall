@@ -3813,6 +3813,26 @@ const AVATAR_COLORS = [
 function avatarColors(name){ return AVATAR_COLORS[((name||'').charCodeAt(0)||0)%AVATAR_COLORS.length] }
 function initials(name){ return (name||'?').split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase() }
 function escHtml(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;") }
+
+// Inbound shared-inbox email bodies are fully untrusted HTML from whoever
+// emails info@hwtco.org — never insert m.body_html into the DOM without
+// running it through this first. Strips scripts/handlers/forms/etc and
+// keeps only the tags/attrs a formatted email actually needs. Falls back
+// to plain-text escaping if DOMPurify failed to load (e.g. CDN blocked),
+// rather than silently rendering raw HTML.
+function sanitizeInboxHtml(html){
+ if(!html) return ''
+ if(typeof DOMPurify === 'undefined'){
+   return '<div style="white-space:pre-wrap">'+escHtml(html)+'</div>'
+ }
+ return DOMPurify.sanitize(html, {
+   ALLOWED_TAGS: ['a','b','strong','i','em','u','p','br','div','span','ul','ol','li','blockquote','table','thead','tbody','tr','td','th','img','h1','h2','h3','h4','h5','h6','hr','pre','code','font'],
+   ALLOWED_ATTR: ['href','src','alt','title','style','target','rel','colspan','rowspan','width','height','align','color','face','size'],
+   ALLOW_DATA_ATTR: false,
+   FORBID_TAGS: ['script','style','iframe','object','embed','form','input','button','svg','link','meta'],
+   FORBID_ATTR: ['onerror','onload','onclick','onmouseover','onfocus','onblur','onchange','onsubmit']
+ })
+}
 function toggleSessionRoster(id){
  var el=document.getElementById(id)
  if(!el) return
@@ -7879,6 +7899,28 @@ var _inboxThreads = []
 var _inboxFilter = {status:'open', assigned:'all', sort:'newest', q:'', tag:''}
 var _inboxOpenThreadId = null
 var _inboxSearchDebounce = null
+var _inboxTeamNamesCache = null
+var _inboxMentionActiveIdx = -1
+
+// Ticketing-style "needs attention" signal: how long a thread has sat
+// without the right side taking the next step. 'open' means nobody on
+// staff has replied yet (or the participant just wrote back) — flagged
+// sooner since that's the case actually at risk of getting missed.
+// 'pending' means staff already replied and the ball is in the
+// participant's court — flagged later since there's nothing to do but wait.
+function inboxStalenessBadge(t){
+ if(!t.last_message_at || (t.status!=='open' && t.status!=='pending')) return ''
+ var ageMs = Date.now() - new Date(t.last_message_at+'Z').getTime()
+ var ageHrs = ageMs / 3600000
+ var thresholdHrs = t.status==='open' ? 24 : 24*7
+ if(ageHrs < thresholdHrs) return ''
+ var days = Math.floor(ageHrs/24)
+ var label = days>=1 ? (days+'d') : (Math.floor(ageHrs)+'h')
+ var text = t.status==='open' ? ('⏰ Needs reply · '+label) : ('⏳ Awaiting them · '+label)
+ var color = t.status==='open' ? '#991b1b' : '#92400e'
+ var bg = t.status==='open' ? '#fee2e2' : '#fef3c7'
+ return '<div style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:'+bg+';color:'+color+';display:inline-block;margin-top:5px">'+text+'</div>'
+}
 
 async function loadInboxPage(){
  var status = await api('/api/inbox/status')
@@ -8051,6 +8093,7 @@ async function renderInboxThreadList(){
        + '<div style="font-weight:'+(t.unread?'800':'600')+';font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(t.participant_name||t.participant_email||'Unknown')+'</div>'
        + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(t.subject||'(no subject)')+'</div>'
        + (preview?'<div style="font-size:11.5px;color:#9ca3af;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(preview)+'</div>':'')
+       + inboxStalenessBadge(t)
        + '</div>'
        + '<div style="text-align:right;flex-shrink:0">'
        + '<span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;background:'+statusMeta.bg+';color:'+statusMeta.c+'">'+t.status.toUpperCase()+'</span>'
@@ -8076,6 +8119,7 @@ async function renderInboxThreadList(){
    }).join('')
  })
  api('/api/inbox/team').then(function(names){
+   if(Array.isArray(names)) _inboxTeamNamesCache = names
    var sel = document.getElementById('inbox-assigned-filter-select')
    if(!sel || !Array.isArray(names)) return
    names.forEach(function(name){
@@ -8108,11 +8152,28 @@ async function openInboxThread(tid){
      + '<strong style="color:'+(out?'#145466':'#374151')+'">'+(out?'HWTC ('+escHtml(m.sent_by||'')+')':escHtml(m.from_name||m.from_email||''))+'</strong>'
      + '<span>'+(m.created_at?m.created_at.slice(0,16).replace('T',' '):'')+'</span></div>'
      + ccHtml
-     + '<div class="inbox-msg-body" style="font-size:13.5px;line-height:1.5">'+(m.body_html||('<div style="white-space:pre-wrap">'+escHtml(m.body_text||'')+'</div>'))+'</div>'
+     + '<div class="inbox-msg-body" style="font-size:13.5px;line-height:1.5">'+(m.body_html?sanitizeInboxHtml(m.body_html):('<div style="white-space:pre-wrap">'+escHtml(m.body_text||'')+'</div>'))+'</div>'
      + attHtml + '</div>'
  }).join('')
 
  var linkedHtml = ''
+ var allAttachments = []
+ ;(t.messages||[]).forEach(function(m){
+   (m.attachments||[]).forEach(function(a){
+     allAttachments.push({id:a.id, filename:a.filename, size_bytes:a.size_bytes,
+       from: m.direction==='outbound' ? ('HWTC ('+(m.sent_by||'')+')') : (m.from_name||m.from_email||''),
+       created_at: m.created_at})
+   })
+ })
+ allAttachments.sort(function(a,b){ return (a.created_at||'') < (b.created_at||'') ? 1 : -1 })
+ var attachmentsHtml = allAttachments.length ? allAttachments.map(function(a){
+     return '<a href="/api/inbox/attachments/'+a.id+'" target="_blank" style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;background:var(--bg);border:1px solid var(--border);text-decoration:none;color:inherit;margin-bottom:5px">'
+       + '<span style="font-size:14px">📎</span>'
+       + '<div style="min-width:0;flex:1">'
+       + '<div style="font-size:12px;color:var(--teal-dark);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(a.filename)+'</div>'
+       + '<div style="font-size:10.5px;color:var(--text-muted)">'+escHtml(a.from||'')+' · '+Math.round((a.size_bytes||0)/1024)+'KB'+(a.created_at?' · '+a.created_at.slice(0,10):'')+'</div>'
+       + '</div></a>'
+   }).join('') : '<div style="font-size:11.5px;color:var(--text-muted);padding:6px 0">No attachments in this conversation yet.</div>'
  if(t.linked_record){
    var lr = t.linked_record
    linkedHtml = '<div style="background:#ede9fe;border:1px solid #ddd6fe;border-radius:8px;padding:10px 12px;margin-bottom:12px">'
@@ -8145,7 +8206,7 @@ async function openInboxThread(tid){
        + '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-muted);margin-bottom:3px">'
        + '<strong style="color:#374151">'+escHtml(c.author_name||'')+'</strong>'
        + '<span>'+(c.created_at?c.created_at.slice(0,16).replace('T',' '):'')+'</span></div>'
-       + '<div style="font-size:12.5px;white-space:pre-wrap;line-height:1.4">'+escHtml(c.body||'')+'</div></div>'
+       + '<div style="font-size:12.5px;white-space:pre-wrap;line-height:1.4">'+highlightInboxMentions(escHtml(c.body||''))+'</div></div>'
    }).join('') : '<div style="font-size:11.5px;color:var(--text-muted);padding:6px 0">No comments yet — leave a note for your team.</div>'
 
  var sidebarHtml = '<div style="width:340px;flex-shrink:0;border-left:1px solid var(--border);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:16px">'
@@ -8180,10 +8241,17 @@ async function openInboxThread(tid){
    + '<div>'
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Tags</div>'
    + tagsHtml + '</div>'
+   + '<div>'
+   + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">📎 Attachments'+(allAttachments.length?' ('+allAttachments.length+')':'')+'</div>'
+   + '<div style="max-height:160px;overflow-y:auto">'+attachmentsHtml+'</div>'
+   + '</div>'
    + '<div style="flex:1;display:flex;flex-direction:column;min-height:120px">'
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Discussion</div>'
    + '<div id="inbox-comments-feed" style="flex:1;overflow-y:auto;margin-bottom:8px">'+commentsHtml+'</div>'
-   + '<textarea id="inbox-comment-input" rows="2" placeholder="Leave a note for your team…" style="width:100%;padding:7px 9px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;resize:vertical;box-sizing:border-box;margin-bottom:6px"></textarea>'
+   + '<div style="position:relative">'
+   + '<textarea id="inbox-comment-input" rows="2" placeholder="Leave a note for your team… (@ to mention someone)" oninput="onInboxCommentInput(event)" onkeydown="onInboxCommentKeydown(event,\''+t.id+'\')" style="width:100%;padding:7px 9px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;resize:vertical;box-sizing:border-box;margin-bottom:6px"></textarea>'
+   + '<div id="inbox-mention-dropdown" style="display:none;position:absolute;bottom:100%;left:0;right:0;background:var(--surface);border:1.5px solid var(--border-md);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);max-height:140px;overflow-y:auto;z-index:10;margin-bottom:2px"></div>'
+   + '</div>'
    + '<button class="btn btn-secondary btn-sm" onclick="submitInboxComment(\''+t.id+'\')">Post</button>'
    + '</div>'
    + '<div style="display:flex;justify-content:space-between;font-size:10px">'
@@ -8229,6 +8297,7 @@ async function openInboxThread(tid){
  if(msgWrap) msgWrap.scrollTop = msgWrap.scrollHeight
  // Populate the assignment dropdown from the team list
  api('/api/inbox/team').then(function(names){
+   if(Array.isArray(names)) _inboxTeamNamesCache = names
    var sel = document.getElementById('inbox-assign-input')
    if(!sel || !Array.isArray(names)) return
    names.forEach(function(name){
@@ -8258,6 +8327,77 @@ async function submitInboxComment(tid){
    document.getElementById('inbox-thread-overlay')?.remove()
    openInboxThread(tid)
  } else toast((res&&res.error)||'Error','error')
+}
+
+// Wraps @Name mentions in <strong> when the name matches someone on the
+// cached team list — cache is populated the first time the inbox page or
+// a thread loads, so this is a no-op (harmless) before that's happened.
+function highlightInboxMentions(escapedText){
+ if(!_inboxTeamNamesCache || !_inboxTeamNamesCache.length) return escapedText
+ var names = _inboxTeamNamesCache.slice().sort(function(a,b){ return b.length-a.length })
+ names.forEach(function(name){
+   var pattern = new RegExp('@'+escHtml(name).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b', 'gi')
+   escapedText = escapedText.replace(pattern, '<strong style="color:#145466">@'+escHtml(name)+'</strong>')
+ })
+ return escapedText
+}
+
+// Lightweight '@' autocomplete for the comment box — finds the '@partial'
+// word run up to the caret, filters the cached team list against it, and
+// renders a click-to-insert dropdown. Not full cursor-following (the
+// dropdown sits under the textarea, not at the caret) but that's a
+// reasonable trade for how small this input is.
+function _inboxMentionQuery(el){
+ var caret = el.selectionStart
+ var upToCaret = el.value.slice(0, caret)
+ var m = upToCaret.match(/@([A-Za-z][A-Za-z '-]*)$/)
+ return m ? m[1] : null
+}
+
+function onInboxCommentInput(event){
+ var el = event.target
+ var query = _inboxMentionQuery(el)
+ var dd = document.getElementById('inbox-mention-dropdown')
+ if(!dd) return
+ if(query===null || !_inboxTeamNamesCache){ dd.style.display='none'; _inboxMentionActiveIdx=-1; return }
+ var matches = _inboxTeamNamesCache.filter(function(n){ return n.toLowerCase().indexOf(query.toLowerCase())===0 })
+ if(!matches.length){ dd.style.display='none'; _inboxMentionActiveIdx=-1; return }
+ _inboxMentionActiveIdx = 0
+ dd.innerHTML = matches.map(function(name,i){
+   return '<div class="inbox-mention-opt" data-name="'+escHtml(name)+'" onmousedown="event.preventDefault();insertInboxMention(\''+escHtml(name).replace(/'/g,"\\'")+'\')" style="padding:6px 10px;font-size:12px;cursor:pointer;background:'+(i===0?'var(--bg)':'transparent')+'">'+escHtml(name)+'</div>'
+ }).join('')
+ dd.style.display='block'
+}
+
+function onInboxCommentKeydown(event, tid){
+ var dd = document.getElementById('inbox-mention-dropdown')
+ var visible = dd && dd.style.display==='block'
+ if(!visible) return
+ var opts = dd.querySelectorAll('.inbox-mention-opt')
+ if(event.key==='ArrowDown'){ event.preventDefault(); _inboxMentionActiveIdx=Math.min(_inboxMentionActiveIdx+1,opts.length-1); _inboxMentionHighlight(opts); return }
+ if(event.key==='ArrowUp'){ event.preventDefault(); _inboxMentionActiveIdx=Math.max(_inboxMentionActiveIdx-1,0); _inboxMentionHighlight(opts); return }
+ if(event.key==='Enter' || event.key==='Tab'){
+   if(opts[_inboxMentionActiveIdx]){ event.preventDefault(); insertInboxMention(opts[_inboxMentionActiveIdx].dataset.name); return }
+ }
+ if(event.key==='Escape'){ dd.style.display='none'; return }
+}
+
+function _inboxMentionHighlight(opts){
+ opts.forEach(function(o,i){ o.style.background = i===_inboxMentionActiveIdx ? 'var(--bg)' : 'transparent' })
+}
+
+function insertInboxMention(name){
+ var el = document.getElementById('inbox-comment-input')
+ if(!el) return
+ var caret = el.selectionStart
+ var before = el.value.slice(0, caret).replace(/@([A-Za-z][A-Za-z '-]*)$/, '@'+name+' ')
+ var after = el.value.slice(caret)
+ el.value = before + after
+ var dd = document.getElementById('inbox-mention-dropdown')
+ if(dd) dd.style.display='none'
+ el.focus()
+ var newCaret = before.length
+ el.setSelectionRange(newCaret, newCaret)
 }
 
 async function requestInboxSummary(tid){
@@ -26885,7 +27025,7 @@ async function loadRentalThread(rid){
   } else {
     wrap.innerHTML = msgs.map(function(m){
       const isOut = m.direction==='outbound'
-      const body = m.body_html || escHtml(m.body_text||'').replace(/\n/g,'<br>')
+      const body = m.body_html ? sanitizeInboxHtml(m.body_html) : escHtml(m.body_text||'').replace(/\n/g,'<br>')
       const when = (m.created_at||'').replace('T',' ').slice(0,16)
       return '<div style="display:flex;justify-content:'+(isOut?'flex-end':'flex-start')+';margin-bottom:10px">'
         + '<div style="max-width:78%;background:'+(isOut?'var(--teal-400)':'var(--surface)')+';color:'+(isOut?'#fff':'var(--text)')+';border:1px solid '+(isOut?'transparent':'var(--border)')+';border-radius:10px;padding:8px 12px;font-size:13px">'
@@ -28829,6 +28969,7 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
 }
 
 </script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
 <script src="https://cdn.quilljs.com/1.3.7/quill.min.js"></script>
 <script src="https://unpkg.com/lucide@0.427.0/dist/umd/lucide.min.js" onerror="window._lucideFailed=true" onload="if(window._currentNavIcons)applyNavIcons(window._currentNavIcons)"></script>
 <!-- ═══════════════ TICKETING UI (Phase 1) — modals + logic ═══════════════ -->

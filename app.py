@@ -16793,6 +16793,174 @@ def _format_registration_schedule(conn, prog, prod, reg):
     return ''
 
 
+def _registration_amount_summary(conn, reg, base_price):
+    """Reconstructs the dollar breakdown for a single registration —
+    subtotal, discounts, total after discounts, amount paid, and balance
+    due — using the same amount_paid_cents-with-fallback logic already
+    used for revenue reporting (see the session/program revenue queries),
+    so an invoice always agrees with what the dashboards say was actually
+    collected rather than computing its own separate answer.
+    'paid_in_full' is comped OR balance_cents <= 0."""
+    is_comped = bool(reg.get('is_comped'))
+    discount = reg.get('discount_amount') or 0
+    sib_discount = reg.get('sibling_discount_amount') or 0
+    if is_comped:
+        paid_cents = 0
+        total_cents = 0
+    elif reg.get('amount_paid_cents') is not None:
+        paid_cents = reg['amount_paid_cents']
+        total_cents = paid_cents + (reg.get('balance_due') or 0)
+    else:
+        # Older/unbackfilled registration with no webhook-confirmed amount
+        # on file yet — best estimate from list price, same fallback used
+        # in the revenue reports. Step Up holds are checked first since a
+        # charged hold is a firmer number than an estimate off list price.
+        step_up = fetchone(conn, """SELECT hold_status, amount FROM step_up_child_holds
+            WHERE registration_id=%s ORDER BY created_at DESC LIMIT 1""", (reg['id'],))
+        if step_up and step_up.get('hold_status') == 'charged':
+            paid_cents = step_up.get('amount') or 0
+        else:
+            paid_cents = max(0, (base_price or 0) * (reg.get('participant_count') or 1) - discount - sib_discount)
+        total_cents = paid_cents + (reg.get('balance_due') or 0)
+    balance_cents = reg.get('balance_due') or 0
+    return {
+        'subtotal_cents': total_cents + discount + sib_discount,
+        'discount_cents': discount,
+        'sibling_discount_cents': sib_discount,
+        'total_cents': total_cents,
+        'paid_cents': paid_cents,
+        'balance_cents': balance_cents,
+        'is_comped': is_comped,
+        'paid_in_full': is_comped or balance_cents <= 0,
+    }
+
+
+def _build_registration_invoice_html(reg, entity_name, schedule_info, summary, invoice_number):
+    """Letterhead-style invoice/receipt for a single registration — meant
+    for a family who wants an official-looking document confirming the
+    student's name, what they registered for, and that they're paid in
+    full (or what's still owed)."""
+    def money(cents):
+        return f'${(cents or 0)/100:,.2f}'
+    student_name = f"{reg.get('child_first_name','')} {reg.get('child_last_name','')}".strip() or 'Participant'
+    guardian_name = reg.get('guardian_name') or ''
+    guardian_email = reg.get('guardian_email') or ''
+    today_str = date.today().strftime('%B %-d, %Y')
+    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_white.png'
+
+    rows = ''
+    label = 'Comped Registration' if summary['is_comped'] else entity_name
+    rows += (f'<tr><td style="padding:8px 0;color:#374151">{label}</td>'
+             f'<td style="padding:8px 0;text-align:right;color:#374151">{money(summary["subtotal_cents"])}</td></tr>')
+    if summary['discount_cents']:
+        rows += (f'<tr><td style="padding:8px 0;color:#6b7280">Discount{" (" + reg["discount_code"] + ")" if reg.get("discount_code") else ""}</td>'
+                 f'<td style="padding:8px 0;text-align:right;color:#6b7280">-{money(summary["discount_cents"])}</td></tr>')
+    if summary['sibling_discount_cents']:
+        rows += (f'<tr><td style="padding:8px 0;color:#6b7280">Sibling Discount</td>'
+                 f'<td style="padding:8px 0;text-align:right;color:#6b7280">-{money(summary["sibling_discount_cents"])}</td></tr>')
+
+    status_color = '#0d3d4d' if summary['paid_in_full'] else '#92400e'
+    status_bg = '#e1f5ee' if summary['paid_in_full'] else '#fef3c7'
+    status_text = 'PAID IN FULL' if summary['paid_in_full'] else f'BALANCE DUE: {money(summary["balance_cents"])}'
+
+    return f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<title>Invoice - {student_name}</title>
+<style>
+@page {{ margin: 50px }}
+* {{ box-sizing: border-box }}
+body {{ font-family: Helvetica, Arial, sans-serif; color: #1a1a18; font-size: 13px }}
+.brand {{ font-size: 20px; font-weight: 700; color: #0d3d4d }}
+.brand-sub {{ font-size: 11px; color: #6b7280; margin-top: 2px }}
+h1 {{ font-size: 22px; font-weight: 700; color: #0d3d4d; text-align: right; margin: 0 }}
+.meta {{ text-align: right; font-size: 11.5px; color: #6b7280; margin-top: 4px }}
+.rule {{ border: none; border-top: 2px solid #145466; margin: 20px 0 }}
+table {{ width: 100%; border-collapse: collapse }}
+.info-label {{ font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #9ca3af; margin-bottom: 3px }}
+.info-value {{ font-size: 14px; font-weight: 600; color: #1a1a18 }}
+.total-row td {{ padding-top: 14px; border-top: 1.5px solid #d1d5db; font-weight: 700; font-size: 15px; color: #0d3d4d }}
+.status-box {{ margin-top: 24px; padding: 14px 18px; border-radius: 8px; background: {status_bg}; color: {status_color}; font-weight: 700; font-size: 15px; text-align: center; letter-spacing: 0.5px }}
+.footer {{ margin-top: 40px; padding-top: 16px; border-top: 1px solid #e8e6e0; font-size: 10.5px; color: #9ca3af; text-align: center }}
+</style></head>
+<body>
+<table><tr>
+<td style="vertical-align:top;width:60%">
+  <div class="brand">Horizon West Theater Company</div>
+  <div class="brand-sub">hwtco.org &middot; info@hwtco.org</div>
+</td>
+<td style="vertical-align:top;width:40%">
+  <h1>INVOICE</h1>
+  <div class="meta">Invoice #{invoice_number}<br/>{today_str}</div>
+</td>
+</tr></table>
+
+<hr class="rule"/>
+
+<table><tr>
+<td style="vertical-align:top;width:50%">
+  <div class="info-label">Billed To</div>
+  <div class="info-value">{guardian_name or student_name}</div>
+  {f'<div style="font-size:12px;color:#6b7280;margin-top:2px">{guardian_email}</div>' if guardian_email else ''}
+</td>
+<td style="vertical-align:top;width:50%">
+  <div class="info-label">Participant</div>
+  <div class="info-value">{student_name}</div>
+  {f'<div style="font-size:12px;color:#6b7280;margin-top:2px">{schedule_info}</div>' if schedule_info else ''}
+</td>
+</tr></table>
+
+<table style="margin-top:28px">
+<tr><td style="padding-bottom:8px;border-bottom:1.5px solid #d1d5db;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#9ca3af">Description</td>
+<td style="padding-bottom:8px;border-bottom:1.5px solid #d1d5db;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#9ca3af;text-align:right">Amount</td></tr>
+{rows}
+<tr class="total-row"><td>Total</td><td style="text-align:right">{money(summary["total_cents"])}</td></tr>
+<tr><td style="padding-top:4px;color:#6b7280">Amount Paid</td><td style="padding-top:4px;text-align:right;color:#6b7280">{money(summary["paid_cents"])}</td></tr>
+</table>
+
+<div class="status-box">{status_text}</div>
+
+<div class="footer">
+Horizon West Theater Company is an all-volunteer 501(c)(3) nonprofit community theater. Thank you for your support!
+</div>
+</body></html>'''
+
+
+@app.route('/api/registrations/<rid>/invoice', methods=['GET'])
+def download_registration_invoice(rid):
+    """Official invoice/receipt PDF for a single confirmed registration —
+    student name, program/class, amount breakdown, and a clear PAID IN
+    FULL / balance due stamp. Works for both youth_programs registrations
+    and production (Rising Stars) registrations, since program_registrations
+    covers both via program_id/production_id."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (rid,))
+    if not reg:
+        conn.close()
+        return jsonify({'error': 'Registration not found'}), 404
+    section = 'rising_stars' if reg.get('production_id') else 'programs'
+    perm_err = require_permission(section, 'view')
+    if perm_err:
+        conn.close()
+        return perm_err
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg['program_id'],)) if reg.get('program_id') else None
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (reg['production_id'],)) if reg.get('production_id') else None
+    if not prog and not prod:
+        conn.close()
+        return jsonify({'error': 'The program or production for this registration no longer exists'}), 404
+    entity_name = (prog or prod).get('name', 'Registration')
+    base_price = (prog or prod).get('price', 0)
+    schedule_info = _format_registration_schedule(conn, prog, prod, reg)
+    summary = _registration_amount_summary(conn, reg, base_price)
+    conn.close()
+    invoice_number = rid[:8].upper()
+    html = _build_registration_invoice_html(reg, entity_name, schedule_info, summary, invoice_number)
+    pdf_b64 = _html_to_pdf_b64(html)
+    student_name = f"{reg.get('child_first_name','')} {reg.get('child_last_name','')}".strip() or 'Participant'
+    return _rental_pdf_response(pdf_b64, f'Invoice - {student_name} - {entity_name}')
+
+
 def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
     """Mark registration confirmed and create participant records."""
     reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
@@ -19482,6 +19650,72 @@ def generate_program_sessions(pid):
         cur += _dt.timedelta(days=1)
 
     conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
+@app.route('/api/programs/<pid>/sessions/bulk-import', methods=['POST'])
+def bulk_import_program_sessions(pid):
+    """Creates many one-off session rows at once from a pre-expanded list
+    of {start_date, start_time, end_time} slots. Unlike /generate (which
+    assumes one uniform daily window repeated across matching weekdays),
+    this is for genuinely irregular schedules — different times on
+    different days, multiple blocks per day, etc. — pasted in and split
+    into individual slots client-side (so the UI can show a live preview/
+    count before committing). This route just validates and bulk-inserts
+    in one transaction."""
+    err = require_permission('programs')
+    if err: return err
+    d = request.json or {}
+    slots = d.get('sessions') or []
+    if not isinstance(slots, list) or not slots:
+        return jsonify({'error': 'No sessions provided'}), 400
+    if len(slots) > 1000:
+        return jsonify({'error': 'Too many sessions in one batch (max 1000) — split into smaller batches'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    location = (d.get('location') or '').strip() or None
+    capacity = d.get('capacity')
+    try: capacity = int(capacity) if capacity is not None else None
+    except Exception: capacity = None
+    price_override = d.get('price_override')
+    try: price_override = int(price_override) if price_override is not None else None
+    except Exception: price_override = None
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) as m FROM program_sessions WHERE program_id=%s', (pid,))
+    sort_order = (max_sort.get('m') or 0) + 1
+    created = 0
+    DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+    for slot in slots:
+        sdate = (slot.get('start_date') or '').strip()
+        stime = (slot.get('start_time') or '').strip()
+        etime = (slot.get('end_time') or '').strip()
+        if not sdate or not stime or not etime:
+            continue
+        try:
+            day_name = DAY_NAMES[date.fromisoformat(sdate).weekday()]
+        except Exception:
+            day_name = ''
+        name = (slot.get('name') or '').strip()
+        if not name:
+            try:
+                dt_s = datetime.strptime(sdate + ' ' + stime, '%Y-%m-%d %H:%M')
+                dt_e = datetime.strptime(sdate + ' ' + etime, '%Y-%m-%d %H:%M')
+                name = f'{dt_s.strftime("%A, %B %-d")} \u00b7 {dt_s.strftime("%-I:%M %p")} \u2013 {dt_e.strftime("%-I:%M %p")}'
+            except Exception:
+                name = f'{sdate} {stime}-{etime}'
+        execute(conn, '''INSERT INTO program_sessions
+            (id, program_id, name, day_of_week, start_time, end_time,
+             start_date, end_date, location, capacity, price_override, status, sort_order)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s)''',
+            (str(uuid.uuid4()), pid, name, day_name, stime, etime,
+             sdate, sdate, location, capacity, price_override, sort_order))
+        sort_order += 1
+        created += 1
+    conn.commit()
+    sync_hours_store_for_program(conn, pid)
+    conn.close()
     return jsonify({'ok': True, 'created': created})
 
 

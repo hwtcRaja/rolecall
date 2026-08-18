@@ -8241,11 +8241,17 @@ async function openInboxThread(tid){
    + '</div>'
 
  var commentsHtml = (t.comments||[]).length ? (t.comments||[]).map(function(c){
-     return '<div style="margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px">'
-       + '<div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--text-muted);margin-bottom:3px">'
+     var isMine = currentUser && c.author_name === currentUser.name
+     var editedTag = c.edited_at ? ' <span style="font-style:italic">(edited)</span>' : ''
+     return '<div class="inbox-comment-row" data-cid="'+c.id+'" style="margin-bottom:10px;padding:8px 10px;background:var(--bg);border-radius:8px">'
+       + '<div style="display:flex;justify-content:space-between;align-items:center;font-size:10.5px;color:var(--text-muted);margin-bottom:3px">'
        + '<strong style="color:#374151">'+escHtml(c.author_name||'')+'</strong>'
-       + '<span>'+(c.created_at?c.created_at.slice(0,16).replace('T',' '):'')+'</span></div>'
-       + '<div style="font-size:12.5px;white-space:pre-wrap;line-height:1.4">'+highlightInboxMentions(escHtml(c.body||''))+'</div></div>'
+       + '<span style="display:flex;align-items:center;gap:6px">'
+       + '<span>'+(c.created_at?c.created_at.slice(0,16).replace('T',' '):'')+editedTag+'</span>'
+       + (isMine ? '<span class="inbox-comment-edit-btn" data-cid="'+c.id+'" style="cursor:pointer;text-decoration:underline">Edit</span>'
+                 + '<span class="inbox-comment-del-btn" data-cid="'+c.id+'" style="cursor:pointer;text-decoration:underline;color:#991b1b">Delete</span>' : '')
+       + '</span></div>'
+       + '<div class="inbox-comment-body" style="font-size:12.5px;white-space:pre-wrap;line-height:1.4">'+highlightInboxMentions(escHtml(c.body||''))+'</div></div>'
    }).join('') : '<div style="font-size:11.5px;color:var(--text-muted);padding:6px 0">No comments yet — leave a note for your team.</div>'
 
  var sidebarHtml = '<div style="width:340px;flex-shrink:0;border-left:1px solid var(--border);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:16px">'
@@ -8339,6 +8345,12 @@ async function openInboxThread(tid){
  // making a successful post look like it silently failed.
  var commentsFeed = document.getElementById('inbox-comments-feed')
  if(commentsFeed) commentsFeed.scrollTop = commentsFeed.scrollHeight
+ overlay.querySelectorAll('.inbox-comment-edit-btn').forEach(function(btn){
+   btn.addEventListener('click', function(){ startEditInboxComment(btn.dataset.cid, t.id) })
+ })
+ overlay.querySelectorAll('.inbox-comment-del-btn').forEach(function(btn){
+   btn.addEventListener('click', function(){ deleteInboxComment(btn.dataset.cid, t.id) })
+ })
  // Populate the assignment dropdown from the team list
  api('/api/inbox/team').then(function(names){
    if(Array.isArray(names)) _inboxTeamNamesCache = names
@@ -8367,6 +8379,54 @@ async function submitInboxComment(tid){
  var body = (input ? input.value : '').trim()
  if(!body){ toast('Write a comment first','error'); return }
  var res = await api('/api/inbox/threads/'+tid+'/comments','POST',{body:body})
+ if(res&&res.ok){
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+ } else toast((res&&res.error)||'Error','error')
+}
+
+// Swaps a comment's body for an inline textarea + Save/Cancel — only
+// reachable for your own comments (the Edit link only renders for those).
+function startEditInboxComment(cid, tid){
+ var row = document.querySelector('.inbox-comment-row[data-cid="'+cid+'"]')
+ if(!row) return
+ var bodyEl = row.querySelector('.inbox-comment-body')
+ if(!bodyEl || row.dataset.editing) return
+ row.dataset.editing = '1'
+ var rawBody = bodyEl.textContent
+ bodyEl.dataset.savedHtml = bodyEl.innerHTML
+ bodyEl.innerHTML = '<textarea class="inbox-comment-edit-input" rows="2" style="width:100%;padding:6px 8px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:12.5px;box-sizing:border-box;margin-bottom:4px">'+escHtml(rawBody)+'</textarea>'
+   + '<div style="display:flex;gap:8px;font-size:11px">'
+   + '<span style="cursor:pointer;text-decoration:underline;color:var(--teal-dark)" onclick="saveEditInboxComment(\''+cid+'\',\''+tid+'\')">Save</span>'
+   + '<span style="cursor:pointer;text-decoration:underline;color:var(--text-muted)" onclick="cancelEditInboxComment(\''+cid+'\')">Cancel</span>'
+   + '</div>'
+ var ta = bodyEl.querySelector('.inbox-comment-edit-input')
+ if(ta){ ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length) }
+}
+
+function cancelEditInboxComment(cid){
+ var row = document.querySelector('.inbox-comment-row[data-cid="'+cid+'"]')
+ if(!row) return
+ var bodyEl = row.querySelector('.inbox-comment-body')
+ if(bodyEl && bodyEl.dataset.savedHtml !== undefined) bodyEl.innerHTML = bodyEl.dataset.savedHtml
+ delete row.dataset.editing
+}
+
+async function saveEditInboxComment(cid, tid){
+ var row = document.querySelector('.inbox-comment-row[data-cid="'+cid+'"]')
+ var ta = row ? row.querySelector('.inbox-comment-edit-input') : null
+ var body = (ta ? ta.value : '').trim()
+ if(!body){ toast('Comment can\'t be empty','error'); return }
+ var res = await api('/api/inbox/comments/'+cid,'PUT',{body:body})
+ if(res&&res.ok){
+   document.getElementById('inbox-thread-overlay')?.remove()
+   openInboxThread(tid)
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function deleteInboxComment(cid, tid){
+ if(!confirm('Delete this note? This can\'t be undone.')) return
+ var res = await api('/api/inbox/comments/'+cid,'DELETE')
  if(res&&res.ok){
    document.getElementById('inbox-thread-overlay')?.remove()
    openInboxThread(tid)

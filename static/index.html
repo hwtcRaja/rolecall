@@ -21054,6 +21054,16 @@ async function unenrollFromProgram(enrollmentId, programId, name, btn){
  renderYouthProgramsPage()
 }
 
+async function openInstructorRegistrationDetail(pid, rid){
+ var data = await api('/api/programs/'+pid+'/registrations')
+ var regs = (data && data.registrations) ? data.registrations : []
+ if(!regs.find(function(r){ return r.id===rid })){
+   toast('Could not load that registration','error')
+   return
+ }
+ openEditRegistrationModal(pid, rid, regs, '/api/programs/'+pid+'/registrations/'+rid)
+}
+
 async function loadInstructorDashboard(){
  var body = document.getElementById('instructor-dashboard-body')
  if(!body) return
@@ -21095,10 +21105,14 @@ async function loadInstructorDashboard(){
    + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:14px">'+upcoming.length+' upcoming session'+(upcoming.length!==1?'s':'')+'</div>'
    + (upcoming.length ? '<div style="max-height:400px;overflow-y:auto">' + upcoming.slice(0,150).map(function(s){
        var isToday = s.start_date === todayStr
+       var bookedBy = s.booked_by || []
+       var rightSide = s.booking_mode
+         ? '<div style="font-size:11px;color:'+(bookedBy.length?'#0d9488':'var(--text-muted)')+';font-weight:'+(bookedBy.length?'700':'400')+';white-space:nowrap;text-align:right;max-width:160px">'+escHtml(bookedBy.join(', ')||'—')+'</div>'
+         : '<div style="font-size:11px;color:var(--text-muted);white-space:nowrap">'+(s.enrolled_count||0)+(s.capacity?'/'+s.capacity:'')+'</div>'
        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:'+(isToday?'#f0fdfa':'var(--bg)')+';border-left:3px solid '+(isToday?'#0d9488':'transparent')+'">'
          + '<div><div style="font-size:12.5px;font-weight:700">'+escHtml(s.program_name)+'</div>'
          + '<div style="font-size:11px;color:var(--text-muted)">'+fmtSessDate(s.start_date)+(s.start_time?' · '+fmtSessTime(s.start_time)+(s.end_time?'–'+fmtSessTime(s.end_time):''):'')+(s.location?' · '+escHtml(s.location):'')+'</div></div>'
-         + '<div style="font-size:11px;color:var(--text-muted);white-space:nowrap">'+(s.enrolled_count||0)+(s.capacity?'/'+s.capacity:'')+'</div>'
+         + rightSide
          + '</div>'
      }).join('') + '</div>' : '<div style="font-size:12px;color:var(--text-muted)">No upcoming sessions scheduled.</div>')
    + '</div>'
@@ -21107,7 +21121,7 @@ async function loadInstructorDashboard(){
    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px">Recent Registrations</div>'
    + (recentRegs.length ? recentRegs.map(function(r){
        var isNew = r.created_at && (new Date() - new Date(r.created_at)) < 7*24*60*60*1000
-       return '<div onclick="openProgramDetail(\''+r.program_id+'\')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:var(--bg);cursor:pointer">'
+       return '<div onclick="openInstructorRegistrationDetail(\''+r.program_id+'\',\''+r.id+'\')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:var(--bg);cursor:pointer">'
          + '<div><div style="font-size:12.5px;font-weight:700">'+escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))+(isNew?' <span style="font-size:9.5px;font-weight:700;background:#dc2626;color:#fff;padding:1px 6px;border-radius:20px;margin-left:4px">NEW</span>':'')+'</div>'
          + '<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.program_name)+' · '+escHtml(r.guardian_name||'')+'</div></div>'
          + '<div style="font-size:10.5px;color:var(--text-muted);white-space:nowrap">'+(r.created_at?r.created_at.slice(0,10):'')+'</div>'
@@ -21123,6 +21137,7 @@ async function openProgramDetail(programId){
  if(!p) return
  window._currentProgramDetailId = programId
  const isAdmin = canEdit('programs')
+ const isInstructor = currentUser?.role==='instructor'
 
  // Build banner
  const type = p.program_type||'class'
@@ -21130,7 +21145,9 @@ async function openProgramDetail(programId){
  document.getElementById('program-detail-header').innerHTML = buildProfileBanner({
  name: p.name,
  sub: PROGRAM_TYPE_LABELS[type]+(p.start_date?' · '+formatDate(p.start_date)+(p.end_date&&p.end_date!==p.start_date?' → '+formatDate(p.end_date):''):''),
- bg, col, backFn:"navTo('youth-programs-page')", backLabel:'← Programs',
+ bg, col,
+ backFn: isInstructor ? "navTo('instructor-dashboard')" : "navTo('youth-programs-page')",
+ backLabel: isInstructor ? '← My Programs' : '← Programs',
  badges:[],
  actions: isAdmin ? [
  {label:'Edit', onclick:"openEditProgramModal('"+programId+"')"},
@@ -21142,7 +21159,9 @@ async function openProgramDetail(programId){
  (p.status==='archived'
  ? {label:'Unarchive', onclick:"unarchiveProgram('"+programId+"')"}
  : {label:'Archive', onclick:"archiveProgram('"+programId+"')", danger:true})
- ].filter(Boolean): []
+ ].filter(Boolean) : (isInstructor ? [
+ {label:'Edit', onclick:"openEditProgramModal('"+programId+"')"}
+ ] : [])
  })
 
  // Load enrolled youth

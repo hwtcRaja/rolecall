@@ -21256,9 +21256,10 @@ async function loadInstructorDashboard(){
        var rightSide = s.booking_mode
          ? '<div style="font-size:11px;color:'+(bookedBy.length?'#0d9488':'var(--text-muted)')+';font-weight:'+(bookedBy.length?'700':'400')+';white-space:nowrap;text-align:right;max-width:160px">'+escHtml(bookedBy.join(', ')||'—')+'</div>'
          : '<div style="font-size:11px;color:var(--text-muted);white-space:nowrap">'+(s.enrolled_count||0)+(s.capacity?'/'+s.capacity:'')+'</div>'
+       var dateStr = fmtSessDate(s.start_date) + (!s.start_time && s.end_date && s.end_date!==s.start_date ? ' – '+fmtSessDate(s.end_date) : '')
        return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:'+(isToday?'#f0fdfa':'var(--bg)')+';border-left:3px solid '+(isToday?'#0d9488':'transparent')+'">'
          + '<div><div style="font-size:12.5px;font-weight:700">'+escHtml(s.program_name)+'</div>'
-         + '<div style="font-size:11px;color:var(--text-muted)">'+fmtSessDate(s.start_date)+(s.start_time?' · '+fmtSessTime(s.start_time)+(s.end_time?'–'+fmtSessTime(s.end_time):''):'')+(s.location?' · '+escHtml(s.location):'')+'</div></div>'
+         + '<div style="font-size:11px;color:var(--text-muted)">'+dateStr+(s.start_time?' · '+fmtSessTime(s.start_time)+(s.end_time?'–'+fmtSessTime(s.end_time):''):'')+(s.location?' · '+escHtml(s.location):'')+'</div></div>'
          + rightSide
          + '</div>'
      }).join('') + '</div>' : '<div style="font-size:12px;color:var(--text-muted)">No upcoming sessions scheduled.</div>')

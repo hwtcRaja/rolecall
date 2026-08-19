@@ -1203,7 +1203,7 @@ def init_db():
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
-        "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff')",
+        "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff','instructor')",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS body_draft TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS title_draft TEXT",
         """CREATE TABLE IF NOT EXISTS kiosk_sessions (

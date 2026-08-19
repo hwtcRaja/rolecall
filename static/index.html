@@ -22597,17 +22597,26 @@ async function loadProgramRegistrations(pid){
     var regBySession = (sessData && sessData.reg_by_session) || {}
     if(sessions.length){
       function fmtSessTime(t){ if(!t) return ''; try{ var pp=t.split(':'),h=parseInt(pp[0]),m=pp[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
+      // Booked sessions first (so they're not buried at the bottom of a
+      // long open-slot list), then chronological within each group.
+      var sortedSessions = sessions.slice().sort(function(a,b){
+        var aBooked = (regBySession[a.id]||[]).length>0, bBooked = (regBySession[b.id]||[]).length>0
+        if(aBooked!==bBooked) return aBooked ? -1 : 1
+        var aKey = (a.start_date||'')+(a.start_time||''), bKey = (b.start_date||'')+(b.start_time||'')
+        return aKey<bKey ? -1 : aKey>bKey ? 1 : 0
+      })
       html += '<div class="card" style="padding:16px 20px;margin-bottom:12px">'
         + '<div style="font-size:14px;font-weight:700;margin-bottom:12px">Session Roster</div>'
-        + sessions.map(function(s){
+        + sortedSessions.map(function(s){
             var sessionRegs = regBySession[s.id] || []
             var confirmed = sessionRegs.filter(function(r){ return r.status==='confirmed' }).length
             var pending = sessionRegs.filter(function(r){ return r.status==='pending_payment' }).length
             var waitlisted = sessionRegs.filter(function(r){ return r.status==='waitlisted' }).length
+            var isBooked = sessionRegs.length > 0
             var timeStr = (s.day_of_week ? s.day_of_week+' ' : '') + (s.start_time ? fmtSessTime(s.start_time)+(s.end_time?' – '+fmtSessTime(s.end_time):'') : '')
             var statusColors = {open:'#dcfce7;color:#166534',closed:'#fee2e2;color:#991b1b',full:'#fef3c7;color:#92400e'}
-            return '<details style="margin-bottom:8px;border:1px solid var(--border);border-radius:10px;overflow:hidden">'
-              + '<summary style="padding:12px 16px;cursor:pointer;font-weight:700;font-size:13px;list-style:none;display:flex;align-items:center;justify-content:space-between;background:var(--bg)">'
+            return '<details style="margin-bottom:8px;border:1px solid '+(isBooked?'#5eead4':'var(--border)')+';border-left:3px solid '+(isBooked?'#0d9488':'var(--border)')+';border-radius:10px;overflow:hidden">'
+              + '<summary style="padding:12px 16px;cursor:pointer;font-weight:700;font-size:13px;list-style:none;display:flex;align-items:center;justify-content:space-between;background:'+(isBooked?'#f0fdfa':'var(--bg)')+'">'
               + '<span>'+escHtml(s.name)+(timeStr?'<span style="font-weight:400;color:var(--text-muted);margin-left:8px;font-size:12px">'+escHtml(timeStr)+'</span>':'')+'</span>'
               + '<span style="display:flex;gap:8px;align-items:center">'
               + '<span style="font-size:12px;color:var(--text-muted)">'+confirmed+' confirmed'+(pending?' · '+pending+' pending':'')+(waitlisted?' · '+waitlisted+' waitlisted':'')+(s.capacity?' / '+s.capacity+' cap':'')+'</span>'

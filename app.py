@@ -3115,11 +3115,11 @@ def get_events():
             })
     except Exception as e:
         app.logger.warning(f'Rental tour calendar merge error: {e}')
-    # Add program/class sessions as synthetic calendar events — lets staff
-    # see class/camp meeting times on the same shared calendar as
-    # everything else, without a real `events` row per session (which
-    # would also drag in waiver/RSVP/hours-logging features that don't
-    # apply to a class meeting).
+    # Add program/class sessions as synthetic calendar events — but only
+    # ones that actually have a registrant. Otherwise a bulk-imported
+    # schedule (which can easily be a few hundred open hourly slots) would
+    # bury the calendar in mostly-empty class times nobody's confirmed
+    # for yet.
     try:
         conn4 = get_db()
         prog_sessions = fetchall(conn4, '''SELECT ps.id, ps.name, ps.start_date, ps.start_time, ps.end_time,
@@ -3127,6 +3127,10 @@ def get_events():
             FROM program_sessions ps
             JOIN youth_programs pg ON pg.id=ps.program_id
             WHERE ps.start_date IS NOT NULL AND ps.start_date != \'\'
+            AND EXISTS (SELECT 1 FROM program_registrations pr
+                WHERE pr.program_id=ps.program_id
+                AND pr.session_ids LIKE \'%%"\' || ps.id || \'"%%\'
+                AND pr.status NOT IN (\'cancelled\',\'waitlisted\'))
             ''') or []
         conn4.close()
         for s in prog_sessions:

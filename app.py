@@ -1690,6 +1690,7 @@ def init_db():
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_failure_reason TEXT",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_count INTEGER DEFAULT 0",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS invoice_memo TEXT DEFAULT ''",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS custom_field_values TEXT DEFAULT '{}'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS store_token TEXT UNIQUE",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS hours_store_enabled BOOLEAN DEFAULT false",
         """CREATE TABLE IF NOT EXISTS store_items (
@@ -16648,6 +16649,49 @@ def insert_registration_row(conn, cols):
             tuple(cols[k] for k in keys))
 
 
+def _backfill_custom_field_values():
+    """One-time backfill: custom question answers used to only get saved
+    into cart_orders.items_json (a payment/order journal, not something
+    staff ever see) and never copied onto the actual program_registrations
+    row. This pulls them back out for any registration that predates the
+    fix. Safe to re-run — only fills in rows that are still empty ('{}' or
+    blank), never overwrites an already-populated value.
+    Returns (checked_count, updated_count)."""
+    conn = get_db()
+    orders = fetchall(conn, 'SELECT items_json FROM cart_orders') or []
+    checked = 0
+    updated = 0
+    for o in orders:
+        try:
+            items = json.loads(o.get('items_json') or '[]')
+        except Exception:
+            continue
+        for it in items:
+            rid = it.get('registration_id')
+            cfv = it.get('custom_field_values')
+            if not rid or not cfv:
+                continue
+            checked += 1
+            reg = fetchone(conn, 'SELECT custom_field_values FROM program_registrations WHERE id=%s', (rid,))
+            if not reg:
+                continue
+            current = (reg.get('custom_field_values') or '').strip()
+            if current in ('', '{}'):
+                execute(conn, 'UPDATE program_registrations SET custom_field_values=%s WHERE id=%s',
+                    (json.dumps(cfv), rid))
+                updated += 1
+    conn.commit()
+    conn.close()
+    return checked, updated
+
+@app.route('/api/admin/backfill-custom-field-values', methods=['POST'])
+def backfill_custom_field_values_route():
+    err = require_permission('programs')
+    if err: return err
+    checked, updated = _backfill_custom_field_values()
+    return jsonify({'ok': True, 'checked': checked, 'updated': updated})
+
+
 def create_grouped_registrations(conn, shared_fields, children, total_amount_cents, status, payment_type, amounts=None):
     """Create one program_registrations row per child (primary + each sibling), all sharing
     a registration_group_id so a single payment/hold can confirm or reference the whole group,
@@ -18324,6 +18368,7 @@ def public_submit_registration(slug):
         'sibling_discount_amount': sibling_discount_amount,
         'session_ids': _json2.dumps(session_ids),
         'reported_under_18': (d.get('reported_under_18') or '').strip(),
+        'custom_field_values': json.dumps(d.get('custom_field_values') or {}),
     }
 
     # Step Up (or similar third-party subsidy) hold — save a card on file now,
@@ -18881,6 +18926,7 @@ def public_register_production(slug):
         'discount_amount': discount_amount,
         'sibling_discount_amount': sibling_discount_amount,
         'reported_under_18': (d.get('reported_under_18') or '').strip(),
+        'custom_field_values': json.dumps(d.get('custom_field_values') or {}),
     }
 
     # Step Up (or similar third-party subsidy) hold — save a card on file now,
@@ -18973,7 +19019,8 @@ def update_production_registration(pid, rid):
         status=%s, child_first_name=%s, child_last_name=%s,
         guardian_name=%s, guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
-        shirt_size=%s, notes=%s, child_dob=%s, invoice_memo=%s, updated_at=NOW()
+        shirt_size=%s, notes=%s, child_dob=%s, invoice_memo=%s,
+        custom_field_values=%s, updated_at=NOW()
         WHERE id=%s AND production_id=%s''',
         (d.get('status'),
          (d.get('child_first_name') or '').strip(),
@@ -18987,6 +19034,7 @@ def update_production_registration(pid, rid):
          (d.get('notes') or '').strip() or None,
          d.get('child_dob') or None,
          (d.get('invoice_memo') or '').strip(),
+         json.dumps(d.get('custom_field_values') or {}),
          rid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -19498,20 +19546,20 @@ def cart_checkout():
              child_first_name, child_last_name, child_dob, shirt_size,
              guardian_name, guardian_email, guardian_phone, notes,
              discount_code, discount_amount, sibling_discount_amount,
-             participant_count, siblings_json,
+             participant_count, siblings_json, custom_field_values,
              payment_type, balance_due, waitlist_position)
             VALUES (%s,%s,'registration',%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,
-                    %s,%s,
+                    %s,%s,%s,
                     %s,%s,%s)''',
             (rid, it['program_id'], status,
              it['child_first_name'], it['child_last_name'],
              it['child_dob'] or None, it['shirt_size'] or None,
              guardian_name, guardian_email, guardian_phone or None, it['notes'] or None,
              it['promo_code'], it['promo_discount'] + it.get('cart_discount_share', 0), it['sibling_discount'],
-             it['participant_count'], _jc.dumps(it['siblings']),
+             it['participant_count'], _jc.dumps(it['siblings']), _jc.dumps(it.get('custom_field_values') or {}),
              'deposit' if use_deposit else 'full', balance_due, wpos))
         reg_ids.append(rid)
         if status == 'confirmed':
@@ -28208,7 +28256,7 @@ def update_registration(pid, rid):
         guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
         session_ids=%s, child_dob=%s, child_first_name=%s, child_last_name=%s,
-        invoice_memo=%s, updated_at=NOW() WHERE id=%s AND program_id=%s''',
+        invoice_memo=%s, custom_field_values=%s, updated_at=NOW() WHERE id=%s AND program_id=%s''',
         (d.get('status'), d.get('notes',''), d.get('shirt_size',''),
          d.get('guardian_name',''), d.get('guardian_email',''),
          d.get('guardian_phone',''), d.get('emergency_contact_name',''),
@@ -28218,6 +28266,7 @@ def update_registration(pid, rid):
          (d.get('child_first_name') or '').strip(),
          (d.get('child_last_name') or '').strip(),
          (d.get('invoice_memo') or '').strip(),
+         _jur.dumps(d.get('custom_field_values') or {}),
          rid, pid))
     conn.commit()
     conn.close()

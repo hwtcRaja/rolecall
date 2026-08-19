@@ -1558,6 +1558,9 @@ def init_db():
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_basis TEXT DEFAULT 'per_child'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS min_age INTEGER""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS max_age INTEGER""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS age_grace_days INTEGER DEFAULT 30""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
         # The real amount Square actually processed for this registration's order —
         # captured from the payment.completed webhook. Revenue reporting should
@@ -2139,6 +2142,9 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_basis TEXT DEFAULT 'per_child'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS min_age INTEGER",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS max_age INTEGER",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS age_grace_days INTEGER DEFAULT 30",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS schedule_type TEXT DEFAULT 'date_range'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_days TEXT DEFAULT '[]'",
@@ -6609,7 +6615,7 @@ def save_registration_settings(pid):
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
         start_date=%s, end_date=%s, form_fields=%s, hours_store_enabled=%s,
-        step_up_hold_enabled=%s, step_up_hold_days=%s
+        step_up_hold_enabled=%s, step_up_hold_days=%s, min_age=%s, max_age=%s, age_grace_days=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -6648,6 +6654,9 @@ def save_registration_settings(pid):
          bool(d.get('hours_store_enabled', False)),
          bool(d.get('step_up_hold_enabled', False)),
          int(d.get('step_up_hold_days') or 14),
+         int(d['min_age']) if d.get('min_age') not in (None, '') else None,
+         int(d['max_age']) if d.get('max_age') not in (None, '') else None,
+         int(d.get('age_grace_days') or 30),
          pid))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
@@ -17508,6 +17517,62 @@ def _registration_not_yet_open(prog):
         return False, None
     return False, None
 
+
+def _check_age_eligibility(dob_str, min_age, max_age, grace_days, ref_date_str):
+    """Checks one participant's age against a program/production's age
+    range — as of the program's own start date, not today, since what
+    matters is how old they'll actually be when it happens. Returns a
+    tuple of (action, message):
+      'ok'       — no restriction, or restriction met. message is None.
+      'waitlist' — under min_age today but turns min_age within
+                   grace_days of the start date (e.g. turns 18 two weeks
+                   after a program that starts before their birthday) —
+                   close enough that we don't want to hard-block, so
+                   route to the waitlist instead with an explanation.
+      'reject'   — outside the age range with no grace period saving it.
+    A program/production with neither min_age nor max_age set always
+    returns 'ok' — this is opt-in per program, not a global restriction.
+    A missing/unparseable date of birth also returns 'ok' rather than
+    blocking, since we can't check what we don't have."""
+    if not min_age and not max_age:
+        return ('ok', None)
+    if not dob_str:
+        return ('ok', None)
+    try:
+        dob = datetime.strptime(dob_str[:10], '%Y-%m-%d').date()
+    except Exception:
+        return ('ok', None)
+    ref_date = date.today()
+    if ref_date_str:
+        try:
+            ref_date = datetime.strptime(ref_date_str[:10], '%Y-%m-%d').date()
+        except Exception:
+            pass
+
+    def age_on(d):
+        return d.year - dob.year - ((d.month, d.day) < (dob.month, dob.day))
+
+    age_on_ref = age_on(ref_date)
+
+    if max_age and age_on_ref > max_age:
+        return ('reject', f'This program is for ages up to {max_age} — the participant will be {age_on_ref} by the program start date.')
+
+    if min_age and age_on_ref < min_age:
+        try:
+            turn_date = dob.replace(year=dob.year + min_age)
+        except ValueError:
+            # Feb 29 birthday landing on a non-leap turning year
+            turn_date = dob.replace(year=dob.year + min_age, month=3, day=1)
+        days_short = (turn_date - ref_date).days
+        if grace_days and 0 <= days_short <= grace_days:
+            return ('waitlist',
+                f"This program requires participants to be {min_age}+ by the start date. The participant turns "
+                f"{min_age} shortly after — rather than turning them away outright, we've added them to the "
+                f"waitlist in case there's flexibility closer to the date.")
+        return ('reject', f'This program requires participants to be at least {min_age} years old by the start date.')
+
+    return ('ok', None)
+
 # ── Public registration page ──────────────────────────────────────────────────
 
 @app.route('/register/<slug>')
@@ -18379,6 +18444,68 @@ def public_submit_registration(slug):
         conn.close()
         return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
 
+    # Age eligibility — opt-in per program via min_age/max_age in
+    # Registration Settings. Checked against the program's own start date
+    # (not today), and before the capacity check, so an age-ineligible
+    # child sees the age-specific message rather than a generic "full"
+    # waitlist message if both happen to apply.
+    age_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'dob': d.get('child_dob')}]
+    for s in (d.get('siblings') or []):
+        if isinstance(s, dict):
+            age_children.append({'first_name': (s.get('first_name') or '').strip(), 'dob': s.get('dob')})
+    age_grace_note = None
+    needs_age_waitlist = False
+    for c in age_children:
+        _action, _msg = _check_age_eligibility(c['dob'], p.get('min_age'), p.get('max_age'), p.get('age_grace_days'), p.get('start_date'))
+        if _action == 'reject':
+            conn.close()
+            return jsonify({'error': (f"{c['first_name']}: " if c['first_name'] else '') + _msg}), 400
+        if _action == 'waitlist':
+            needs_age_waitlist = True
+            age_grace_note = _msg
+
+    if needs_age_waitlist:
+        # Same per-child waitlist pattern as the capacity-full path below,
+        # just with an age-specific note on each row so staff can see why
+        # (distinct from a capacity waitlist) when reviewing the queue.
+        siblings_agewl = d.get('siblings') or []
+        if not isinstance(siblings_agewl, list): siblings_agewl = []
+        agewl_children = [{'first_name': d.get('child_first_name','').strip(), 'last_name': d.get('child_last_name','').strip(),
+                            'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+        for s in siblings_agewl:
+            agewl_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
+                                    'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+        import uuid as _uwlage
+        agewl_group_id = str(_uwlage.uuid4())
+        agewl_ids = []
+        agewl_positions = []
+        for child in agewl_children:
+            wpos = next_waitlist_position(conn, p['id'])
+            wrid = str(_uwlage.uuid4())
+            agewl_ids.append(wrid)
+            agewl_positions.append(wpos)
+            execute(conn, '''INSERT INTO program_registrations
+                (id, program_id, registration_type, status, waitlist_position, registration_group_id,
+                 child_first_name, child_last_name, child_dob, shirt_size,
+                 guardian_name, guardian_email, guardian_phone,
+                 emergency_contact_name, emergency_contact_phone, notes, participant_count, siblings_json)
+                VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,'[]')''',
+                (wrid, p['id'], wpos, agewl_group_id,
+                 child['first_name'], child['last_name'], child['dob'] or None, child['shirt_size'] or None,
+                 d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
+                 d.get('emergency_contact_name','').strip() or None,
+                 d.get('emergency_contact_phone','').strip() or None,
+                 ('Age eligibility: ' + age_grace_note) if age_grace_note else None))
+        conn.commit()
+        try:
+            pos_desc = f'#{agewl_positions[0]}' if len(agewl_positions) == 1 else ', '.join(f'#{wp}' for wp in agewl_positions)
+            send_email([email], f'You\'re on the waitlist — {p["name"]}',
+                build_waitlist_email_html(d.get('guardian_name',''), p['name'], pos_desc, is_plural=len(agewl_positions) > 1))
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': agewl_positions[0],
+                        'registration_id': agewl_ids[0], 'age_note': age_grace_note})
+
     # Check capacity
     reg_count = get_registration_count(conn, p['id'])
     cap = p.get('capacity')
@@ -19028,6 +19155,58 @@ def public_register_production(slug):
     if _not_yet:
         conn.close()
         return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
+
+    # Age eligibility — same opt-in min_age/max_age/age_grace_days check as
+    # the youth program flow, checked against the production's start date.
+    age_children_p = [{'first_name': (d.get('child_first_name') or '').strip(), 'dob': d.get('child_dob')}]
+    for s in (d.get('siblings') or []):
+        if isinstance(s, dict):
+            age_children_p.append({'first_name': (s.get('first_name') or '').strip(), 'dob': s.get('dob')})
+    age_grace_note_p = None
+    needs_age_waitlist_p = False
+    for c in age_children_p:
+        _action, _msg = _check_age_eligibility(c['dob'], prod.get('min_age'), prod.get('max_age'), prod.get('age_grace_days'), prod.get('start_date'))
+        if _action == 'reject':
+            conn.close()
+            return jsonify({'error': (f"{c['first_name']}: " if c['first_name'] else '') + _msg}), 400
+        if _action == 'waitlist':
+            needs_age_waitlist_p = True
+            age_grace_note_p = _msg
+
+    if needs_age_waitlist_p:
+        siblings_agewl_p = d.get('siblings') or []
+        if not isinstance(siblings_agewl_p, list): siblings_agewl_p = []
+        agewl_children_p = [{'first_name': (d.get('child_first_name') or '').strip(), 'last_name': (d.get('child_last_name') or '').strip(), 'dob': d.get('child_dob')}]
+        for s in siblings_agewl_p:
+            agewl_children_p.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(), 'dob': s.get('dob')})
+        agewl_group_id_p = str(_uc2.uuid4())
+        agewl_positions_p = []
+        agewl_ids_p = []
+        for child in agewl_children_p:
+            pos_row = fetchone(conn, "SELECT COALESCE(MAX(waitlist_position),0)+1 AS pos FROM program_registrations WHERE production_id=%s AND status='waitlisted'", (prod['id'],))
+            wpos = (pos_row or {}).get('pos', 1)
+            wrid = str(_uc2.uuid4())
+            agewl_ids_p.append(wrid)
+            agewl_positions_p.append(wpos)
+            execute(conn, '''INSERT INTO program_registrations
+                (id, production_id, registration_type, status, waitlist_position, registration_group_id,
+                 child_first_name, child_last_name, child_dob,
+                 guardian_name, guardian_email, guardian_phone, notes)
+                VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (wrid, prod['id'], wpos, agewl_group_id_p,
+                 child['first_name'], child['last_name'], child.get('dob') or None,
+                 (d.get('guardian_name') or '').strip(), guardian_email, (d.get('guardian_phone') or '').strip(),
+                 ('Age eligibility: ' + age_grace_note_p) if age_grace_note_p else None))
+        conn.commit()
+        try:
+            pos_desc_p = f'#{agewl_positions_p[0]}' if len(agewl_positions_p) == 1 else ', '.join(f'#{wp}' for wp in agewl_positions_p)
+            send_email([guardian_email], f'You\'re on the waitlist — {prod["name"]}',
+                build_waitlist_email_html(d.get('guardian_name',''), prod['name'], pos_desc_p, is_plural=len(agewl_positions_p) > 1))
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': agewl_positions_p[0],
+                        'registration_id': agewl_ids_p[0], 'age_note': age_grace_note_p})
+
     reg_count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE production_id=%s AND status NOT IN ('waitlisted','cancelled')", (prod['id'],)) or {}).get('c', 0)
     if prod.get('capacity') and reg_count >= prod['capacity']:
         conn.close()
@@ -19282,7 +19461,8 @@ def save_production_registration_settings(pid):
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
-        start_date=%s, end_date=%s, step_up_hold_enabled=%s, step_up_hold_days=%s
+        start_date=%s, end_date=%s, step_up_hold_enabled=%s, step_up_hold_days=%s,
+        min_age=%s, max_age=%s, age_grace_days=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -19314,6 +19494,9 @@ def save_production_registration_settings(pid):
          d.get('end_date') or None,
          bool(d.get('step_up_hold_enabled', False)),
          int(d.get('step_up_hold_days') or 14),
+         int(d['min_age']) if d.get('min_age') not in (None, '') else None,
+         int(d['max_age']) if d.get('max_age') not in (None, '') else None,
+         int(d.get('age_grace_days') or 30),
          pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})

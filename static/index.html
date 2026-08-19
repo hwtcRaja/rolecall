@@ -460,6 +460,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('show-contracts',this)" style="padding-left:28px"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
         <div class="nav-item" onclick="navTo('licensing',this)" style="padding-left:28px"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
 
+        <!-- INSTRUCTOR (restricted role) -->
+        <div class="nav-section" id="nav-section-instructor" style="display:none">My Teaching</div>
+        <div class="nav-item" id="nav-instructor-dashboard" onclick="navTo('instructor-dashboard',this)" style="display:none"><span class="nav-icon"></span>My Programs</div>
+
         <!-- YOUTH EDUCATION -->
         <div class="nav-section">Education &amp; Programming</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon" id="ni-youth"></span>Participants</div>
@@ -1237,6 +1241,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </section>
 
+ <section class="page" id="page-instructor-dashboard">
+ <div class="page-header">
+ <div><div class="page-title">My Programs</div><div class="page-subtitle">Your teaching schedule and registrations</div></div>
+ </div>
+ <div class="page-body" id="instructor-dashboard-body">
+ <div style="padding:30px;text-align:center;color:var(--text-muted)">Loading…</div>
+ </div>
+ </section>
+
  <section class="page" id="page-youth-programs-page">
  <div class="page-header">
  <div><div class="page-title">Programs &amp; Classes</div><div class="page-subtitle" id="youth-programs-subtitle">Classes, workshops, and summer camps</div></div>
@@ -1846,6 +1859,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label>Access Level</label>
  <select id="new-user-role">
  <option value="staff">Staff (set permissions below)</option>
+ <option value="instructor">Instructor (their own programs only)</option>
  <option value="admin">Administrator (full access)</option>
  </select>
  </div>
@@ -3984,7 +3998,7 @@ async function loginSuccess(user){
  clearTimeout(loadTimeout)
  const overlay = document.getElementById('app-loading-overlay')
  if(overlay) overlay.remove()
- navTo('dashboard')
+ navTo(user.role==='instructor' ? 'instructor-dashboard' : 'dashboard', user.role==='instructor' ? document.getElementById('nav-instructor-dashboard') : null)
  pollPendingCount()
  setInterval(pollPendingCount, 60000)
  // Keep Railway dyno warm — ping every 10 minutes
@@ -4133,6 +4147,15 @@ function applyPermissionUI(){
  nav.style.display = visible ? '': 'none'
  })
 
+ // Instructor role gets its own dedicated nav item, independent of the
+ // generic section-permission system — a bare instructor account has no
+ // role_permissions entries at all, so it would otherwise see nothing.
+ var isInstructor = currentUser?.role==='instructor'
+ var instrNav = document.getElementById('nav-instructor-dashboard')
+ var instrSection = document.getElementById('nav-section-instructor')
+ if(instrNav) instrNav.style.display = (isInstructor || isAdmin) ? '' : 'none'
+ if(instrSection) instrSection.style.display = (isInstructor || isAdmin) ? '' : 'none'
+
  // admin-only elements — map each to its section so staff with edit can see them too
  const adminOnlySectionMap = {
  'openVolModal': 'volunteers',
@@ -4221,6 +4244,7 @@ function navTo(page,el){
  if(page==='marquee') loadMarqueePage()
  if(page==='my-time') loadMyTimePage()
  if(page==='rentals') loadRentalsPage()
+ if(page==='instructor-dashboard') loadInstructorDashboard()
  if(page==='responsibility') loadResponsibilityPage()
 }
 
@@ -15605,12 +15629,15 @@ function renderUsersManagement(users){
  + users.map(u=>{
  const isSelf = u.id === currentUser?.id
  const isAdmin = u.role === 'admin'
+ const isInstructor = u.role === 'instructor'
  let perms = {}
  try { perms = JSON.parse(u.role_permissions||'{}') } catch(e){}
  const editCount = PERM_SECTIONS.filter(s=>perms[s.key]==='edit').length
  const viewCount = PERM_SECTIONS.filter(s=>perms[s.key]==='view').length
  const permSummary = isAdmin
  ? '<span style="background:#0d3d4d;color:#fff;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">Admin</span>'
+ : isInstructor
+ ? '<span style="background:#0d9488;color:#fff;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">Instructor</span>'
 : (editCount===0&&viewCount===0
  ? '<span style="background:var(--red-50);color:var(--red-600);border:1px solid var(--red-200);padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">No access</span>'
 : '<span style="font-size:11px;color:var(--text-muted)">'+editCount+' edit · '+viewCount+' view</span>')
@@ -15666,6 +15693,15 @@ function openUserEditModal(uid){
  <input type="text" id="ue-name-${uid}" value="${u.name.replace(/"/g,'&quot;')}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
  <div><label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Email</label>
  <input type="email" id="ue-email-${uid}" value="${u.email}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ </div>
+ <div style="margin-bottom:10px">
+ <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Role</label>
+ <select id="ue-role-${uid}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none" ${isSelf?'disabled title="You can\'t change your own role"':''}>
+ <option value="staff" ${u.role==='staff'?'selected':''}>Staff (set permissions below)</option>
+ <option value="instructor" ${u.role==='instructor'?'selected':''}>Instructor (their own programs only)</option>
+ <option value="admin" ${isAdmin?'selected':''}>Administrator (full access)</option>
+ </select>
+ ${isSelf?'<div style="font-size:10.5px;color:var(--text-muted);margin-top:3px">You can\'t change your own role.</div>':''}
  </div>
  <div style="margin-bottom:14px">
  <label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">New Password <span style="font-weight:400;opacity:0.7">(leave blank to keep current)</span></label>
@@ -15773,14 +15809,15 @@ async function saveUserEdits(uid){
  const name = document.getElementById('ue-name-'+uid)?.value.trim()
  const email = document.getElementById('ue-email-'+uid)?.value.trim()
  const pw = document.getElementById('ue-pw-'+uid)?.value
- const status = document.getElementById('ue-status-'+uid)
+ const role = document.getElementById('ue-role-'+uid)?.value
  if(!name||!email){ toast('Name and email required','error'); return }
  const body = {name, email}
+ if(role) body.role = role
  if(pw && pw.length >= 6) body.password = pw
  else if(pw && pw.length > 0){ toast('Password must be at least 6 characters','error'); return }
  const res = await api('/api/users/'+uid,'PUT',body)
  if(res && res.ok){
- if(_usersCache[uid]){ _usersCache[uid].name=name; _usersCache[uid].email=email }
+ if(_usersCache[uid]){ _usersCache[uid].name=name; _usersCache[uid].email=email; if(role) _usersCache[uid].role=role }
  const modal = document.getElementById('user-edit-modal')
  if(modal) modal.remove()
  const users = await api('/api/users')
@@ -21006,6 +21043,70 @@ async function unenrollFromProgram(enrollmentId, programId, name, btn){
  renderYouthProgramsPage()
 }
 
+async function loadInstructorDashboard(){
+ var body = document.getElementById('instructor-dashboard-body')
+ if(!body) return
+ body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted)">Loading…</div>'
+ var data = await api('/api/instructor/dashboard')
+ if(!data || data.error){
+   body.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load your programs. Contact an admin if this seems wrong.</div>'
+   return
+ }
+ var programs = data.programs||[]
+ var schedule = data.schedule||[]
+ var recentRegs = data.recent_registrations||[]
+
+ if(!programs.length){
+   body.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No programs are assigned to you yet. An admin needs to set you as the instructor on a program\'s details for it to show up here.</div>'
+   return
+ }
+
+ function fmtSessTime(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
+ function fmtSessDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) }catch(e){ return d } }
+
+ var todayStr = new Date().toISOString().slice(0,10)
+ var upcoming = schedule.filter(function(s){ return s.start_date >= todayStr })
+ var todayCount = schedule.filter(function(s){ return s.start_date === todayStr }).length
+
+ var programsHTML = '<div class="card" style="padding:20px;margin-bottom:20px">'
+   + '<div style="font-size:14px;font-weight:700;margin-bottom:14px">Your Programs</div>'
+   + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">'
+   + programs.map(function(p){
+       return '<div onclick="openProgramDetail(\''+p.id+'\')" style="border:1.5px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor=\'var(--teal)\'" onmouseout="this.style.borderColor=\'var(--border)\'">'
+         + '<div style="font-size:13.5px;font-weight:700;margin-bottom:4px">'+escHtml(p.name)+'</div>'
+         + '<div style="font-size:11.5px;color:var(--text-muted)">'+(p.registrant_count||0)+' registered'+(p.status?' · '+escHtml(p.status):'')+'</div>'
+         + '</div>'
+     }).join('')
+   + '</div></div>'
+
+ var scheduleHTML = '<div class="card" style="padding:20px;margin-bottom:20px">'
+   + '<div style="font-size:14px;font-weight:700;margin-bottom:4px">Your Schedule'+(todayCount?' <span style="font-size:11px;font-weight:700;background:#0d9488;color:#fff;padding:2px 8px;border-radius:20px;margin-left:6px">'+todayCount+' today</span>':'')+'</div>'
+   + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:14px">'+upcoming.length+' upcoming session'+(upcoming.length!==1?'s':'')+'</div>'
+   + (upcoming.length ? '<div style="max-height:400px;overflow-y:auto">' + upcoming.slice(0,150).map(function(s){
+       var isToday = s.start_date === todayStr
+       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:'+(isToday?'#f0fdfa':'var(--bg)')+';border-left:3px solid '+(isToday?'#0d9488':'transparent')+'">'
+         + '<div><div style="font-size:12.5px;font-weight:700">'+escHtml(s.program_name)+'</div>'
+         + '<div style="font-size:11px;color:var(--text-muted)">'+fmtSessDate(s.start_date)+(s.start_time?' · '+fmtSessTime(s.start_time)+(s.end_time?'–'+fmtSessTime(s.end_time):''):'')+(s.location?' · '+escHtml(s.location):'')+'</div></div>'
+         + '<div style="font-size:11px;color:var(--text-muted);white-space:nowrap">'+(s.enrolled_count||0)+(s.capacity?'/'+s.capacity:'')+'</div>'
+         + '</div>'
+     }).join('') + '</div>' : '<div style="font-size:12px;color:var(--text-muted)">No upcoming sessions scheduled.</div>')
+   + '</div>'
+
+ var regsHTML = '<div class="card" style="padding:20px">'
+   + '<div style="font-size:14px;font-weight:700;margin-bottom:14px">Recent Registrations</div>'
+   + (recentRegs.length ? recentRegs.map(function(r){
+       var isNew = r.created_at && (new Date() - new Date(r.created_at)) < 7*24*60*60*1000
+       return '<div onclick="openProgramDetail(\''+r.program_id+'\')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:var(--bg);cursor:pointer">'
+         + '<div><div style="font-size:12.5px;font-weight:700">'+escHtml((r.child_first_name||'')+' '+(r.child_last_name||''))+(isNew?' <span style="font-size:9.5px;font-weight:700;background:#dc2626;color:#fff;padding:1px 6px;border-radius:20px;margin-left:4px">NEW</span>':'')+'</div>'
+         + '<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.program_name)+' · '+escHtml(r.guardian_name||'')+'</div></div>'
+         + '<div style="font-size:10.5px;color:var(--text-muted);white-space:nowrap">'+(r.created_at?r.created_at.slice(0,10):'')+'</div>'
+         + '</div>'
+     }).join('') : '<div style="font-size:12px;color:var(--text-muted)">No registrations yet.</div>')
+   + '</div>'
+
+ body.innerHTML = programsHTML + scheduleHTML + regsHTML
+}
+
 async function openProgramDetail(programId){
  const p = allPrograms.find(p=>p.id===programId)
  if(!p) return
@@ -23750,22 +23851,39 @@ async function loadSessionsInModal(pid){
     listEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">No sessions yet. Click + Add Session to create one.</div>'
     return
   }
+  var bookedCount = sessions.filter(function(s){ return (s.enrolled_count||0)>0 }).length
+  var filterToggleHTML = sessions.length>10
+    ? '<label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-muted);margin-bottom:8px;cursor:pointer">'
+      + '<input type="checkbox" id="rs-sessions-booked-only" onchange="loadSessionsInModal(\''+pid+'\')" style="accent-color:var(--teal)"/> '
+      + 'Show booked sessions only ('+bookedCount+' of '+sessions.length+')</label>'
+    : ''
+  var bookedOnly = document.getElementById('rs-sessions-booked-only')?.checked
+  var visible = bookedOnly ? sessions.filter(function(s){ return (s.enrolled_count||0)>0 }) : sessions
+  // Booked sessions first (so they're never buried in a long list), then
+  // chronological within each group.
+  var sorted = visible.slice().sort(function(a,b){
+    var aB = (a.enrolled_count||0)>0, bB = (b.enrolled_count||0)>0
+    if(aB!==bB) return aB ? -1 : 1
+    var aKey = (a.start_date||'')+(a.start_time||''), bKey = (b.start_date||'')+(b.start_time||'')
+    return aKey<bKey ? -1 : aKey>bKey ? 1 : 0
+  })
   function fmtTime(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
   var statusColors = {open:'#dcfce7;color:#166534',closed:'#fee2e2;color:#991b1b',full:'#fef3c7;color:#92400e'}
-  listEl.innerHTML = sessions.map(function(s){
+  listEl.innerHTML = filterToggleHTML + (sorted.length ? sorted.map(function(s){
     var timeStr = (s.day_of_week ? s.day_of_week+' ' : '') + (s.start_time ? fmtTime(s.start_time)+(s.end_time?' – '+fmtTime(s.end_time):'') : '')
     var price = s.price_override !== null && s.price_override !== undefined ? '$'+(s.price_override/100).toFixed(2) : 'Program price'
     var enrolled = s.enrolled_count || 0
+    var isBooked = enrolled > 0
     var cap = s.capacity ? enrolled+'/'+s.capacity : enrolled+' enrolled'
-    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">'
-      + '<div><div style="font-size:13px;font-weight:700">'+escHtml(s.name)+'</div>'
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:'+(isBooked?'#f0fdfa':'var(--bg)')+';border:1px solid '+(isBooked?'#5eead4':'var(--border)')+';border-left:3px solid '+(isBooked?'#0d9488':'var(--border)')+';border-radius:8px;margin-bottom:6px">'
+      + '<div><div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px">'+escHtml(s.name)+(isBooked?'<span style="font-size:10px;font-weight:700;background:#0d9488;color:#fff;padding:1px 7px;border-radius:20px">'+enrolled+' booked</span>':'')+'</div>'
       + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">'+escHtml(timeStr||'No time set')+' &nbsp;·&nbsp; '+escHtml(price)+' &nbsp;·&nbsp; '+cap+'</div></div>'
       + '<div style="display:flex;gap:6px;align-items:center">'
       + '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:'+( statusColors[s.status]||statusColors.open)+'">'+(s.status||'open')+'</span>'
       + '<button class="btn btn-secondary btn-sm sess-edit-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px">Edit</button>'
       + '<button class="btn btn-sm sess-del-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
       + '</div></div>'
-  }).join('')
+  }).join('') : '<div style="font-size:12px;color:var(--text-muted);padding:6px 0">No booked sessions yet.</div>')
 
   listEl.querySelectorAll('.sess-edit-btn').forEach(function(btn){
     btn.addEventListener('click', function(){ openAddSessionModal(pid, sessions.find(function(s){ return s.id===btn.dataset.sid })) })
@@ -25429,6 +25547,12 @@ async function setYouthPassphrase(yid, current){
 // ── CALENDAR CHIP CLICK ──
 function openEventChip(eid){
  if(typeof event!== 'undefined' && event) event.stopPropagation()
+ const e = allEvents.find(x=>x.id===eid)
+ if(e && e.is_program_session && e.program_id){
+   navTo('youth-programs-page')
+   setTimeout(()=>openProgramDetail(e.program_id), 50)
+   return
+ }
  openEventDetail(eid)
 }
 

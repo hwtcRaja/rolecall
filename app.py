@@ -16771,7 +16771,8 @@ def instructor_dashboard():
         return jsonify({'programs': [], 'schedule': [], 'recent_registrations': []})
 
     programs = fetchall(conn, '''SELECT yp.id, yp.name, yp.description, yp.status,
-        yp.start_date, yp.end_date, yp.program_type
+        yp.start_date, yp.end_date, yp.program_type, yp.sessions_enabled,
+        COALESCE(yp.booking_mode, FALSE) AS booking_mode
         FROM youth_programs yp
         JOIN volunteers v ON v.id=yp.instructor_id
         WHERE lower(v.email)=%s

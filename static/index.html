@@ -23306,6 +23306,23 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<option value="cart_total"'+(prog.sibling_discount_basis==='cart_total'?' selected':'')+'>The whole cart total (when 2+ children)</option>'
     + '</select></div>'
     + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px" id="rs-sib-example"></div>'
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Age Requirements</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:-8px;margin-bottom:8px">Leave blank for no restriction. Age is checked as of the program\'s start date, not today.</div>'
+    + '<div style="display:flex;gap:6px;margin-bottom:10px">'
+    + '<button type="button" class="btn btn-secondary btn-sm" style="font-size:11.5px" onclick="document.getElementById(\'rs-min-age\').value=18;document.getElementById(\'rs-max-age\').value=\'\'">Adults Only (18+)</button>'
+    + '<button type="button" class="btn btn-secondary btn-sm" style="font-size:11.5px" onclick="document.getElementById(\'rs-min-age\').value=\'\';document.getElementById(\'rs-max-age\').value=\'\'">No Restriction</button>'
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+    + '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Minimum Age</label>'
+    + '<input type="number" id="rs-min-age" value="'+(prog.min_age!=null?prog.min_age:'')+'" placeholder="No minimum" min="0" max="99" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
+    + '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Maximum Age</label>'
+    + '<input type="number" id="rs-max-age" value="'+(prog.max_age!=null?prog.max_age:'')+'" placeholder="No maximum" min="0" max="99" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
+    + '</div>'
+    + '<div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">If someone is just under the minimum age</label>'
+    + '<select id="rs-age-grace" style="width:100%;padding:7px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">'
+    + [[0,'Never allow — block registration'],[14,'Waitlist if they turn old enough within 2 weeks of the start date'],[30,'Waitlist if they turn old enough within 30 days of the start date (default)'],[60,'Waitlist if they turn old enough within 60 days of the start date']]
+        .map(function(o){ return '<option value="'+o[0]+'"'+((prog.age_grace_days!=null?prog.age_grace_days:30)===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('')
+    + '</select></div>'
     + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:14px;border-top:1px solid var(--border);margin-top:4px">Form Fields</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:-6px;margin-bottom:10px">Choose which fields appear on the registration form. Name and email are always included.</div>'
     + (function(){
@@ -24210,6 +24227,9 @@ async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
     sibling_discount_type: (document.getElementById('rs-sib-type')||{}).value||'percent',
     sibling_discount_value: parseInt((document.getElementById('rs-sib-value')||{}).value)||0,
     sibling_discount_basis: (document.getElementById('rs-sib-basis')||{}).value||'per_child',
+    min_age: (document.getElementById('rs-min-age')||{}).value ? parseInt(document.getElementById('rs-min-age').value) : null,
+    max_age: (document.getElementById('rs-max-age')||{}).value ? parseInt(document.getElementById('rs-max-age').value) : null,
+    age_grace_days: parseInt((document.getElementById('rs-age-grace')||{}).value)||0,
     registration_open_date: document.getElementById('rs-open-date').value || null,
     registration_open_time: (document.getElementById('rs-open-time') ? (document.getElementById('rs-open-time').value || null) : null),
     registration_close_date: document.getElementById('rs-close-date').value || null,

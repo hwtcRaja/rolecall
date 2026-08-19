@@ -1219,7 +1219,10 @@ async function submitRegistration(){
   } else if(res.type==='step_up_hold'){
     document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><h2 style="color:#166534;margin-bottom:8px">You\'re registered!</h2><p style="color:#6b7280;font-size:14px">We\'ll bill Step Up directly for this program — your card on file is just our backup, so nothing is charged today. If we haven\'t heard from Step Up by <strong>'+fmtDate(res.charge_by_date)+'</strong>, we\'ll use the card on file to keep things moving. A confirmation will be sent to '+escHtml(email)+'.</p></div></div>'
   } else if(res.type==='waitlisted'){
-    document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><div style="font-size:48px;margin-bottom:16px">\u23f3</div><h2 style="color:#92400e;margin-bottom:8px">You\'re on the waitlist!</h2><p style="color:#6b7280;font-size:14px">You are <strong>#'+res.position+'</strong> on the waitlist. We will email you at '+escHtml(email)+' if a spot opens up.</p></div></div>'
+    var waitlistMsg = res.age_note
+      ? escHtml(res.age_note)
+      : 'You are <strong>#'+res.position+'</strong> on the waitlist. We will email you at '+escHtml(email)+' if a spot opens up.'
+    document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><div style="font-size:48px;margin-bottom:16px">\u23f3</div><h2 style="color:#92400e;margin-bottom:8px">You\'re on the waitlist!</h2><p style="color:#6b7280;font-size:14px">'+waitlistMsg+'</p></div></div>'
   } else {
     document.getElementById('app').innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:40px 24px"><div style="font-size:48px;margin-bottom:16px">\u2713</div><h2 style="color:#166534;margin-bottom:8px">Registration Confirmed!</h2><p style="color:#6b7280;font-size:14px">A confirmation will be sent to '+escHtml(email)+'.</p></div></div>'
   }

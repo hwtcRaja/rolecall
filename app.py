@@ -16788,6 +16788,7 @@ def instructor_dashboard():
          WHERE pr.program_id=ps.program_id AND pr.session_ids LIKE '%%"' || ps.id || '"%%'
          AND pr.status NOT IN ('cancelled','waitlisted')) AS enrolled_count
         FROM program_sessions ps
+        JOIN youth_programs yp ON yp.id=ps.program_id
         WHERE ps.program_id IN ({placeholders}) AND ps.start_date IS NOT NULL AND ps.start_date != ''
         ORDER BY ps.start_date ASC, ps.start_time ASC''', tuple(prog_ids)) or []
 

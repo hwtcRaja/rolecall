@@ -16823,6 +16823,32 @@ def instructor_dashboard():
 
     for p in programs:
         p['registrant_count'] = sum(1 for r in recent_regs if r['program_id'] == p['id'])
+
+    # Simple single-date classes (no sessions_enabled, no program_sessions
+    # rows at all) still have a real teaching date — it just lives on the
+    # program record itself rather than as a session slot. Without this,
+    # they'd never show on the schedule at all even though the instructor
+    # is genuinely scheduled to teach them.
+    prog_ids_with_sessions = set(s['program_id'] for s in schedule)
+    for p in programs:
+        if p['id'] not in prog_ids_with_sessions and p.get('start_date'):
+            schedule.append({
+                'id': 'program_' + p['id'],
+                'name': p['name'],
+                'start_date': p['start_date'],
+                'end_date': p.get('end_date'),
+                'start_time': '',
+                'end_time': '',
+                'location': '',
+                'capacity': None,
+                'program_id': p['id'],
+                'program_name': p['name'],
+                'booking_mode': False,
+                'enrolled_count': p['registrant_count'],
+                'booked_by': [],
+            })
+    schedule.sort(key=lambda s: (s.get('start_date') or '', s.get('start_time') or ''))
+
     conn.close()
     return jsonify({'programs': programs, 'schedule': schedule, 'recent_registrations': recent_regs})
 

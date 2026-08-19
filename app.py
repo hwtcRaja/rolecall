@@ -16784,6 +16784,7 @@ def instructor_dashboard():
     placeholders = ','.join(['%s'] * len(prog_ids))
     schedule = fetchall(conn, f'''SELECT ps.id, ps.name, ps.start_date, ps.start_time, ps.end_time,
         ps.location, ps.capacity, yp.name AS program_name, yp.id AS program_id,
+        COALESCE(yp.booking_mode, FALSE) AS booking_mode,
         (SELECT COUNT(*) FROM program_registrations pr
          WHERE pr.program_id=ps.program_id AND pr.session_ids LIKE '%%"' || ps.id || '"%%'
          AND pr.status NOT IN ('cancelled','waitlisted')) AS enrolled_count
@@ -16791,6 +16792,25 @@ def instructor_dashboard():
         JOIN youth_programs yp ON yp.id=ps.program_id
         WHERE ps.program_id IN ({placeholders}) AND ps.start_date IS NOT NULL AND ps.start_date != ''
         ORDER BY ps.start_date ASC, ps.start_time ASC''', tuple(prog_ids)) or []
+
+    # Booking-mode programs (one-off bookable slots, e.g. a bulk-imported
+    # rehearsal/audition schedule) can easily have hundreds of open, empty
+    # slots — those aren't useful on an instructor's schedule, only the
+    # ones someone actually booked are. Regular classes/camps don't have
+    # this "mostly empty slots" problem, so their sessions always show.
+    schedule = [s for s in schedule if not s['booking_mode'] or (s.get('enrolled_count') or 0) > 0]
+    for s in schedule:
+        s['booked_by'] = []
+        if s['booking_mode'] and (s.get('enrolled_count') or 0) > 0:
+            bookers = fetchall(conn, """SELECT child_first_name, child_last_name, guardian_name
+                FROM program_registrations
+                WHERE program_id=%s AND session_ids LIKE %s
+                AND status NOT IN ('cancelled','waitlisted')""",
+                (s['program_id'], '%"' + s['id'] + '"%')) or []
+            s['booked_by'] = [
+                (f"{b.get('child_first_name','')} {b.get('child_last_name','')}".strip() or b.get('guardian_name',''))
+                for b in bookers
+            ]
 
     recent_regs = fetchall(conn, f'''SELECT pr.id, pr.child_first_name, pr.child_last_name,
         pr.guardian_name, pr.guardian_email, pr.status, pr.created_at,
@@ -19789,7 +19809,7 @@ def get_program_sessions(pid):
 
 @app.route('/api/programs/<pid>/sessions', methods=['POST'])
 def create_program_session(pid):
-    err = require_permission('programs')
+    err = require_own_program(pid)
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -19834,7 +19854,7 @@ def create_program_session(pid):
 @app.route('/api/programs/<pid>/sessions/generate', methods=['POST'])
 def generate_program_sessions(pid):
     """Generate multiple time slots at once for booking mode."""
-    err = require_permission('programs')
+    err = require_own_program(pid)
     if err: return err
     import uuid as _usg
     import datetime as _dt
@@ -19915,7 +19935,7 @@ def bulk_import_program_sessions(pid):
     into individual slots client-side (so the UI can show a live preview/
     count before committing). This route just validates and bulk-inserts
     in one transaction."""
-    err = require_permission('programs')
+    err = require_own_program(pid)
     if err: return err
     d = request.json or {}
     slots = d.get('sessions') or []
@@ -20000,7 +20020,7 @@ def bulk_import_program_sessions(pid):
 
 @app.route('/api/programs/<pid>/sessions/<sid>', methods=['PUT'])
 def update_program_session(pid, sid):
-    err = require_permission('programs')
+    err = require_own_program(pid)
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -20029,7 +20049,7 @@ def update_program_session(pid, sid):
 
 @app.route('/api/programs/<pid>/sessions/<sid>', methods=['DELETE'])
 def delete_program_session(pid, sid):
-    err = require_permission('programs')
+    err = require_own_program(pid)
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM program_sessions WHERE id=%s AND program_id=%s', (sid, pid))

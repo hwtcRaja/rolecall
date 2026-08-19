@@ -15669,6 +15669,7 @@ function openUserEditModal(uid){
  let perms = {}
  try { perms = JSON.parse(u.role_permissions||'{}') } catch(e){}
  const isAdmin = u.role === 'admin'
+ const isSelf = uid === currentUser?.id
 
  // ── Build overlay shell ──
  const overlay = document.createElement('div')

@@ -21054,6 +21054,150 @@ async function unenrollFromProgram(enrollmentId, programId, name, btn){
  renderYouthProgramsPage()
 }
 
+// ── Manage Availability (instructor-facing, deliberately simple) ──────
+// A separate, much smaller tool than the admin Sessions panel (Add Single
+// Session / Generate Slots / Import from Calendar) — instructors don't
+// need bulk-generation wizards, they need to see what's open, add a slot,
+// and remove one that didn't work out. Reuses the exact same backend
+// session routes (already ownership-scoped), just a simpler front end.
+var _maCurrentPid = null
+var _maCurrentSessions = []
+
+async function openManageAvailability(pid, programName){
+ _maCurrentPid = pid
+ var existing = document.getElementById('manage-avail-overlay')
+ if(existing) existing.remove()
+ var overlay = document.createElement('div')
+ overlay.id = 'manage-avail-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ var card = document.createElement('div')
+ card.style.cssText = 'background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;max-height:88vh;overflow-y:auto;box-shadow:var(--shadow-lg)'
+ card.innerHTML = '<div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">'
+   + '<div><div style="font-size:15px;font-weight:700">Manage Availability</div><div style="font-size:12px;color:var(--text-muted);margin-top:1px">'+escHtml(programName)+'</div></div>'
+   + '<button onclick="document.getElementById(\'manage-avail-overlay\').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>'
+   + '</div>'
+   + '<div style="padding:16px 20px">'
+   + '<div id="ma-add-form" style="background:var(--bg);border-radius:10px;padding:12px;margin-bottom:16px">'
+   + '<div style="font-size:12px;font-weight:700;margin-bottom:8px">Add a new available time</div>'
+   + '<div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px">'
+   + '<input type="date" id="ma-date" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+   + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+   + '<input type="time" id="ma-start" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+   + '<input type="time" id="ma-end" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+   + '</div></div>'
+   + '<button class="btn btn-primary btn-sm" style="width:100%" onclick="addAvailabilitySlot()">+ Add This Time</button>'
+   + '</div>'
+   + '<div id="ma-sessions-list" style="font-size:12px;color:var(--text-muted)">Loading…</div>'
+   + '</div>'
+ overlay.appendChild(card)
+ document.body.appendChild(overlay)
+ loadManageAvailabilityList()
+}
+
+function fmtMaTime(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
+function fmtMaDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}) }catch(e){ return d } }
+
+async function loadManageAvailabilityList(){
+ var listEl = document.getElementById('ma-sessions-list')
+ if(!listEl || !_maCurrentPid) return
+ var sessions = await api('/api/programs/'+_maCurrentPid+'/sessions')
+ if(!Array.isArray(sessions)){ listEl.innerHTML = '<div style="color:var(--red-600)">Could not load sessions.</div>'; return }
+ _maCurrentSessions = sessions
+ if(!sessions.length){ listEl.innerHTML = '<div style="padding:10px 0">No availability set yet — add a time above.</div>'; return }
+ var sorted = sessions.slice().sort(function(a,b){
+   var ak=(a.start_date||'')+(a.start_time||''), bk=(b.start_date||'')+(b.start_time||'')
+   return ak<bk?-1:ak>bk?1:0
+ })
+ listEl.innerHTML = '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">'+sessions.length+' time'+(sessions.length!==1?'s':'')+'</div>'
+   + sorted.map(function(s){
+     var isBooked = (s.enrolled_count||0) > 0
+     var editing = document.getElementById('ma-edit-'+s.id+'-active')
+     return '<div class="ma-session-row" data-sid="'+s.id+'" style="padding:9px 10px;border:1.5px solid '+(isBooked?'#5eead4':'var(--border)')+';border-left:3px solid '+(isBooked?'#0d9488':'var(--border)')+';border-radius:8px;margin-bottom:6px;background:'+(isBooked?'#f0fdfa':'var(--surface)')+'">'
+       + '<div class="ma-row-view" style="display:flex;justify-content:space-between;align-items:center">'
+       + '<div><div style="font-size:12.5px;font-weight:700">'+fmtMaDate(s.start_date)+'</div>'
+       + '<div style="font-size:11px;color:var(--text-muted)">'+fmtMaTime(s.start_time)+(s.end_time?' – '+fmtMaTime(s.end_time):'')+'</div></div>'
+       + (isBooked
+           ? '<span style="font-size:10px;font-weight:700;background:#0d9488;color:#fff;padding:2px 8px;border-radius:20px">Booked</span>'
+           : '<div style="display:flex;gap:6px">'
+             + '<span onclick="startEditAvailability(\''+s.id+'\')" style="font-size:11px;color:var(--teal-dark);cursor:pointer;text-decoration:underline">Edit</span>'
+             + '<span onclick="removeAvailabilitySlot(\''+s.id+'\')" style="font-size:11px;color:#991b1b;cursor:pointer;text-decoration:underline">Remove</span>'
+             + '</div>')
+       + '</div>'
+       + '<div class="ma-row-edit" id="ma-edit-'+s.id+'" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">'
+       + '<div style="display:grid;grid-template-columns:1fr;gap:6px;margin-bottom:6px">'
+       + '<input type="date" id="ma-edit-date-'+s.id+'" value="'+(s.start_date||'')+'" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:12px"/>'
+       + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">'
+       + '<input type="time" id="ma-edit-start-'+s.id+'" value="'+(s.start_time||'')+'" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:12px"/>'
+       + '<input type="time" id="ma-edit-end-'+s.id+'" value="'+(s.end_time||'')+'" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:6px;font-family:inherit;font-size:12px"/>'
+       + '</div></div>'
+       + '<div style="display:flex;gap:6px">'
+       + '<button class="btn btn-primary btn-sm" style="font-size:11px;flex:1" onclick="saveEditAvailability(\''+s.id+'\')">Save</button>'
+       + '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="cancelEditAvailability(\''+s.id+'\')">Cancel</button>'
+       + '</div></div>'
+       + '</div>'
+   }).join('')
+}
+
+function startEditAvailability(sid){
+ var row = document.querySelector('.ma-session-row[data-sid="'+sid+'"]')
+ if(!row) return
+ row.querySelector('.ma-row-view').style.display = 'none'
+ row.querySelector('.ma-row-edit').style.display = ''
+}
+function cancelEditAvailability(sid){
+ var row = document.querySelector('.ma-session-row[data-sid="'+sid+'"]')
+ if(!row) return
+ row.querySelector('.ma-row-view').style.display = ''
+ row.querySelector('.ma-row-edit').style.display = 'none'
+}
+
+async function saveEditAvailability(sid){
+ var s = _maCurrentSessions.find(function(x){ return x.id===sid })
+ if(!s) return
+ var date = document.getElementById('ma-edit-date-'+sid).value
+ var start = document.getElementById('ma-edit-start-'+sid).value
+ var end = document.getElementById('ma-edit-end-'+sid).value
+ if(!date || !start){ toast('Date and start time are required','error'); return }
+ var payload = {
+   name: fmtMaDate(date)+' · '+fmtMaTime(start)+(end?' – '+fmtMaTime(end):''),
+   day_of_week: s.day_of_week||'', start_time: start, end_time: end||'',
+   start_date: date, end_date: date, location: s.location||'',
+   capacity: s.capacity||1, price_override: s.price_override, status: s.status||'open',
+   sort_order: s.sort_order||0,
+ }
+ var res = await api('/api/programs/'+_maCurrentPid+'/sessions/'+sid,'PUT',payload)
+ if(res && res.ok){ toast('Updated','success'); loadManageAvailabilityList() }
+ else toast((res&&res.error)||'Error','error')
+}
+
+async function removeAvailabilitySlot(sid){
+ if(!confirm('Remove this available time? This can\'t be undone.')) return
+ var res = await api('/api/programs/'+_maCurrentPid+'/sessions/'+sid,'DELETE')
+ if(res && res.ok){ toast('Removed','success'); loadManageAvailabilityList() }
+ else toast((res&&res.error)||'Error','error')
+}
+
+async function addAvailabilitySlot(){
+ var date = document.getElementById('ma-date').value
+ var start = document.getElementById('ma-start').value
+ var end = document.getElementById('ma-end').value
+ if(!date || !start){ toast('Pick a date and start time','error'); return }
+ var payload = {
+   name: fmtMaDate(date)+' · '+fmtMaTime(start)+(end?' – '+fmtMaTime(end):''),
+   start_date: date, end_date: date, start_time: start, end_time: end||'',
+   capacity: 1, status: 'open',
+ }
+ var res = await api('/api/programs/'+_maCurrentPid+'/sessions','POST',payload)
+ if(res && res.ok){
+   toast('Added','success')
+   document.getElementById('ma-date').value=''
+   document.getElementById('ma-start').value=''
+   document.getElementById('ma-end').value=''
+   loadManageAvailabilityList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
 async function openInstructorRegistrationDetail(pid, rid){
  var data = await api('/api/programs/'+pid+'/registrations')
  var regs = (data && data.registrations) ? data.registrations : []
@@ -21093,9 +21237,12 @@ async function loadInstructorDashboard(){
    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px">Your Programs</div>'
    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">'
    + programs.map(function(p){
-       return '<div onclick="openProgramDetail(\''+p.id+'\')" style="border:1.5px solid var(--border);border-radius:10px;padding:14px;cursor:pointer;transition:border-color 0.15s" onmouseover="this.style.borderColor=\'var(--teal)\'" onmouseout="this.style.borderColor=\'var(--border)\'">'
+       return '<div style="border:1.5px solid var(--border);border-radius:10px;padding:14px">'
+         + '<div onclick="openProgramDetail(\''+p.id+'\')" style="cursor:pointer;margin-bottom:'+(p.sessions_enabled?'10px':'0')+'">'
          + '<div style="font-size:13.5px;font-weight:700;margin-bottom:4px">'+escHtml(p.name)+'</div>'
          + '<div style="font-size:11.5px;color:var(--text-muted)">'+(p.registrant_count||0)+' registered'+(p.status?' · '+escHtml(p.status):'')+'</div>'
+         + '</div>'
+         + (p.sessions_enabled ? '<button class="btn btn-secondary btn-sm" style="width:100%;font-size:11.5px" onclick="event.stopPropagation();openManageAvailability(\''+p.id+'\',\''+escHtml(p.name).replace(/'/g,"\\'")+'\')">📅 Manage Availability</button>' : '')
          + '</div>'
      }).join('')
    + '</div></div>'
@@ -23791,21 +23938,54 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
         if(listEl) listEl.innerHTML = '<div style="color:var(--text-muted)">No sessions found.</div>'
         return
       }
-      listEl.innerHTML = sessions.map(function(s){
-        var checked = savedSids2.indexOf(s.id) !== -1
-        var timeStr = (s.day_of_week?s.day_of_week+' ':'')+(s.start_time?s.start_time+(s.end_time?' – '+s.end_time:''):'')
-        return '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1.5px solid '+(checked?'#145466':'var(--border-md)')+';border-radius:8px;margin-bottom:6px;cursor:pointer;background:'+(checked?'#f0f9ff':'var(--surface)')+'">'
-          + '<input type="checkbox" class="er-session-cb" data-sid="'+s.id+'" '+(checked?'checked':'')+' style="accent-color:#145466" onchange="var l=this.closest(\'label\');l.style.borderColor=this.checked?\'#145466\':\'var(--border-md)\';l.style.background=this.checked?\'#f0f9ff\':\'var(--surface)\'"/>'
-          + '<div><div style="font-size:13px;font-weight:700">'+escHtml(s.name)+'</div>'
-          + (timeStr?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(timeStr)+'</div>':'')
-          + '</div></label>'
-      }).join('')
+      function fmtErTime(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
+      function fmtErDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) }catch(e){ return d } }
+      function sessLabel(s){
+        var dateStr = s.start_date ? fmtErDate(s.start_date)+' · ' : (s.day_of_week?s.day_of_week+' ':'')
+        var timeStr = s.start_time ? fmtErTime(s.start_time)+(s.end_time?' – '+fmtErTime(s.end_time):'') : ''
+        return (dateStr+timeStr) || s.name
+      }
+      if(prog.booking_mode){
+        // Booking mode = one slot per registration — a giant checkbox list
+        // of every open slot doesn't make sense here. Show what's booked
+        // now, plus a dropdown to move them to a different open slot.
+        var currentId = savedSids2[0] || ''
+        var current = sessions.find(function(s){ return s.id===currentId })
+        var sorted = sessions.slice().sort(function(a,b){
+          var ak=(a.start_date||'')+(a.start_time||''), bk=(b.start_date||'')+(b.start_time||'')
+          return ak<bk?-1:ak>bk?1:0
+        })
+        var optionsHtml = '<option value="">— No session —</option>' + sorted.map(function(s){
+          var isFull = s.capacity && (s.enrolled_count||0) >= s.capacity && s.id!==currentId
+          return '<option value="'+s.id+'" '+(s.id===currentId?'selected':'')+' '+(isFull?'disabled':'')+'>'+escHtml(sessLabel(s)+(isFull?' (Full)':''))+'</option>'
+        }).join('')
+        listEl.innerHTML = (current
+            ? '<div style="padding:10px 12px;background:#f0fdfa;border:1.5px solid #5eead4;border-radius:8px;margin-bottom:10px"><div style="font-size:10px;font-weight:700;text-transform:uppercase;color:#0d9488;margin-bottom:2px">Currently Booked</div><div style="font-size:13px;font-weight:700">'+escHtml(sessLabel(current))+'</div></div>'
+            : '<div style="padding:10px 12px;background:#fef3c7;border:1.5px solid #fde68a;border-radius:8px;margin-bottom:10px;font-size:12.5px;color:#92400e">No session currently booked.</div>')
+          + '<label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Move to a different session</label>'
+          + '<select id="er-session-select" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'+optionsHtml+'</select>'
+      } else {
+        listEl.innerHTML = sessions.map(function(s){
+          var checked = savedSids2.indexOf(s.id) !== -1
+          var timeStr = (s.day_of_week?s.day_of_week+' ':'')+(s.start_time?s.start_time+(s.end_time?' – '+s.end_time:''):'')
+          return '<label style="display:flex;align-items:center;gap:8px;padding:7px 10px;border:1.5px solid '+(checked?'#145466':'var(--border-md)')+';border-radius:8px;margin-bottom:6px;cursor:pointer;background:'+(checked?'#f0f9ff':'var(--surface)')+'">'
+            + '<input type="checkbox" class="er-session-cb" data-sid="'+s.id+'" '+(checked?'checked':'')+' style="accent-color:#145466" onchange="var l=this.closest(\'label\');l.style.borderColor=this.checked?\'#145466\':\'var(--border-md)\';l.style.background=this.checked?\'#f0f9ff\':\'var(--surface)\'"/>'
+            + '<div><div style="font-size:13px;font-weight:700">'+escHtml(s.name)+'</div>'
+            + (timeStr?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(timeStr)+'</div>':'')
+            + '</div></label>'
+        }).join('')
+      }
     })
   }
 
   document.getElementById('er-save').addEventListener('click', async function(){
     var sessionIds = []
-    document.querySelectorAll('.er-session-cb:checked').forEach(function(cb){ sessionIds.push(cb.dataset.sid) })
+    if(prog && prog.booking_mode){
+      var sel = document.getElementById('er-session-select')
+      if(sel && sel.value) sessionIds = [sel.value]
+    } else {
+      document.querySelectorAll('.er-session-cb:checked').forEach(function(cb){ sessionIds.push(cb.dataset.sid) })
+    }
     const url = saveEndpoint || ('/api/programs/'+pid+'/registrations/'+rid)
     const payload = {
       status: document.getElementById('er-status').value,

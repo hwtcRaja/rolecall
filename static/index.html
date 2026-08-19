@@ -1241,6 +1241,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
  <div><div class="page-title">Programs &amp; Classes</div><div class="page-subtitle" id="youth-programs-subtitle">Classes, workshops, and summer camps</div></div>
  <div class="page-actions admin-only">
+ <button class="btn btn-secondary" onclick="backfillCustomFieldValues()" id="backfill-cfv-btn" title="Custom question answers used to only be saved in the payment record, not on the registration itself — this recovers them for any registration submitted before that was fixed">📋 Recover Custom Answers</button>
  <button class="btn btn-primary" onclick="openNewProgramModal()">+ New Program</button>
  </div>
  </div>
@@ -7956,6 +7957,17 @@ async function backfillInboxAttachments(){
      toast(res.checked ? 'Checked '+res.checked+' message'+(res.checked!==1?'s':'')+' — nothing missing' : 'Nothing to check', 'success')
    }
    if(_inboxOpenThreadId) openInboxThread(_inboxOpenThreadId)
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function backfillCustomFieldValues(){
+ var btn = document.getElementById('backfill-cfv-btn')
+ if(!confirm('This looks back through payment records to recover custom question answers for older registrations that predate this fix. Safe to run — it only fills in blanks, never overwrites an existing answer. Continue?')) return
+ if(btn){ btn.disabled=true; btn.textContent='Checking…' }
+ var res = await api('/api/admin/backfill-custom-field-values','POST',{})
+ if(btn){ btn.disabled=false; btn.textContent='📋 Recover Custom Answers' }
+ if(res&&res.ok){
+   toast(res.updated ? 'Recovered answers for '+res.updated+' registration'+(res.updated!==1?'s':'')+' (checked '+res.checked+')' : 'Checked '+res.checked+' — nothing missing', 'success')
  } else toast((res&&res.error)||'Error','error')
 }
 
@@ -23512,7 +23524,12 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
 
   // Load sessions for this program if available
   var sessionsHTML = ''
-  var prog = pid ? allPrograms.find(function(p){ return p.id===pid }) : null
+  // pid is null from the production call site, so fall back to the ids
+  // already present on the registration itself — works for both cases.
+  var progId = pid || reg.program_id
+  var prodId = reg.production_id
+  var prog = progId ? allPrograms.find(function(p){ return p.id===progId }) : null
+  var prod = prodId ? allProductions.find(function(p){ return p.id===prodId }) : null
   if(prog && prog.sessions_enabled){
     var savedSids = []
     try{ savedSids = JSON.parse(reg.session_ids||'[]') }catch(e){}
@@ -23520,6 +23537,49 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
     // We'll load and render sessions async after modal is built
     sessionsHTML = '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Sessions</label>'
       + '<div id="er-sessions-list" style="font-size:12px;color:var(--text-muted)">Loading sessions...</div></div>'
+  }
+
+  // Registration Answers — the admin-defined custom questions on the
+  // registration form. Shown read-only by default (this is what someone
+  // opening the modal usually wants: to see what the family wrote), with
+  // an explicit 'Edit' toggle to switch those specific fields to inputs,
+  // rather than always presenting a form to fill out.
+  var customFieldDefs = []
+  try{ customFieldDefs = JSON.parse((prog||prod||{}).custom_fields || '[]') }catch(e){}
+  var customAnswers = {}
+  try{ customAnswers = JSON.parse(reg.custom_field_values || '{}') }catch(e){}
+  var customFieldsHTML = ''
+  if(customFieldDefs.length){
+    var cfViewRows = customFieldDefs.map(function(f){
+      var val = customAnswers[f.name]
+      var displayVal = (val===true) ? 'Yes' : (val===false) ? 'No' : (val && String(val).trim()) ? val : '—'
+      return '<div style="margin-bottom:8px"><div style="font-size:10.5px;font-weight:700;color:var(--text-muted)">'+escHtml(f.name)+'</div>'
+        + '<div style="font-size:13px;color:#1a1a18;white-space:pre-wrap">'+escHtml(String(displayVal))+'</div></div>'
+    }).join('')
+    var cfEditRows = customFieldDefs.map(function(f){
+      var id = 'er-cf-'+f.name.replace(/\s+/g,'-').toLowerCase()
+      var val = customAnswers[f.name]
+      var input = ''
+      if(f.type==='select' && f.options){
+        input = '<select id="'+id+'" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"><option value="">Select...</option>'
+          + f.options.map(function(o){ return '<option value="'+escHtml(o)+'"'+(val===o?' selected':'')+'>'+escHtml(o)+'</option>' }).join('')+'</select>'
+      } else if(f.type==='textarea'){
+        input = '<textarea id="'+id+'" rows="2" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;resize:vertical">'+escHtml(val||'')+'</textarea>'
+      } else if(f.type==='checkbox'){
+        input = '<label style="display:flex;align-items:center;gap:8px;cursor:pointer"><input type="checkbox" id="'+id+'" '+(val?'checked':'')+' style="accent-color:#145466"/> '+escHtml(f.label||f.name)+'</label>'
+      } else {
+        input = '<input type="'+(f.type||'text')+'" id="'+id+'" value="'+escHtml(val||'')+'" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
+      }
+      return '<div class="form-group" style="margin-bottom:10px"><label style="font-size:10.5px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">'+escHtml(f.name)+'</label>'+input+'</div>'
+    }).join('')
+    customFieldsHTML = '<div class="form-group">'
+      + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      + '<label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted)">Registration Answers</label>'
+      + '<span id="er-cf-edit-toggle" style="font-size:11px;color:var(--teal-dark);cursor:pointer;text-decoration:underline">Edit</span>'
+      + '</div>'
+      + '<div id="er-cf-view" style="background:var(--bg);border-radius:8px;padding:10px 12px">'+(cfViewRows||'<div style="font-size:12px;color:var(--text-muted)">No answers on file.</div>')+'</div>'
+      + '<div id="er-cf-edit" style="display:none">'+cfEditRows+'</div>'
+      + '</div>'
   }
 
   // Compute this registration's chronological order among all registrations for this show
@@ -23559,6 +23619,7 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Emergency Contact</label>'
     + '<input id="er-ec-name" value="'+escHtml(reg.emergency_contact_name||'')+'" placeholder="Name" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;margin-bottom:6px;box-sizing:border-box"/>'
     + '<input id="er-ec-phone" value="'+escHtml(reg.emergency_contact_phone||'')+'" placeholder="Phone" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + customFieldsHTML
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Notes</label>'
     + '<textarea id="er-notes" rows="2" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">'+escHtml(reg.notes||'')+'</textarea></div>'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Invoice Memo <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional, appears on the invoice PDF)</span></label>'
@@ -23573,12 +23634,18 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
   document.body.appendChild(overlay)
   document.getElementById('er-close').addEventListener('click', function(){ overlay.remove() })
   document.getElementById('er-cancel').addEventListener('click', function(){ overlay.remove() })
+  var cfToggle = document.getElementById('er-cf-edit-toggle')
+  if(cfToggle) cfToggle.addEventListener('click', function(){
+    document.getElementById('er-cf-view').style.display = 'none'
+    document.getElementById('er-cf-edit').style.display = ''
+    cfToggle.style.display = 'none'
+  })
 
   // Load sessions async if applicable
   if(prog && prog.sessions_enabled){
     var savedSids2 = []
     try{ savedSids2 = JSON.parse(reg.session_ids||'[]') }catch(e){}
-    api('/api/programs/'+pid+'/sessions').then(function(sessions){
+    api('/api/programs/'+progId+'/sessions').then(function(sessions){
       var listEl = document.getElementById('er-sessions-list')
       if(!listEl || !Array.isArray(sessions) || !sessions.length){
         if(listEl) listEl.innerHTML = '<div style="color:var(--text-muted)">No sessions found.</div>'
@@ -23614,6 +23681,16 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
       invoice_memo: document.getElementById('er-invoice-memo').value,
       child_dob: document.getElementById('er-dob').value,
       session_ids: sessionIds,
+      custom_field_values: (function(){
+        var vals = {}
+        customFieldDefs.forEach(function(f){
+          var id = 'er-cf-'+f.name.replace(/\s+/g,'-').toLowerCase()
+          var el = document.getElementById(id)
+          if(!el) return
+          vals[f.name] = el.type==='checkbox' ? el.checked : el.value
+        })
+        return vals
+      })(),
     }
     const res = await api(url, 'PUT', payload)
     if(res && res.ok){

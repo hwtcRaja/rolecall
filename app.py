@@ -2468,6 +2468,34 @@ def require_permission(section, level='edit'):
         return None
     return jsonify({'error': f'Permission denied: need {level} access for {section}. Contact an admin to update your permissions.'}), 403
 
+
+def require_own_program(pid, fallback_section='youth'):
+    """Access check for program-scoped routes that also need to work for
+    the restricted 'instructor' role: admins and anyone with normal
+    section permission pass through as before (via require_permission);
+    an 'instructor' role user is only let through for a program where
+    they're the assigned instructor — matched by their login email
+    against the volunteer record linked as youth_programs.instructor_id
+    (the same field already used elsewhere for instructor pay/contact).
+    This is intentionally narrow: it doesn't change access for any
+    existing role, it only adds a new restricted path for 'instructor'."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if session.get('role') == 'admin':
+        return None
+    if session.get('role') == 'instructor':
+        conn = get_db()
+        me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+        prog = fetchone(conn, '''SELECT v.email AS instructor_email FROM youth_programs yp
+            LEFT JOIN volunteers v ON v.id=yp.instructor_id WHERE yp.id=%s''', (pid,))
+        conn.close()
+        my_email = (me or {}).get('email', '').strip().lower()
+        prog_email = (prog or {}).get('instructor_email') or ''
+        if not prog or not prog_email or prog_email.strip().lower() != my_email:
+            return jsonify({'error': 'You can only manage your own programs'}), 403
+        return None
+    return require_permission(fallback_section)
+
 # ─────────────────────────────────────────────
 #  EMAIL HELPERS
 # ─────────────────────────────────────────────
@@ -3087,6 +3115,38 @@ def get_events():
             })
     except Exception as e:
         app.logger.warning(f'Rental tour calendar merge error: {e}')
+    # Add program/class sessions as synthetic calendar events — lets staff
+    # see class/camp meeting times on the same shared calendar as
+    # everything else, without a real `events` row per session (which
+    # would also drag in waiver/RSVP/hours-logging features that don't
+    # apply to a class meeting).
+    try:
+        conn4 = get_db()
+        prog_sessions = fetchall(conn4, '''SELECT ps.id, ps.name, ps.start_date, ps.start_time, ps.end_time,
+            ps.location, ps.status, pg.id AS program_id, pg.name AS program_name
+            FROM program_sessions ps
+            JOIN youth_programs pg ON pg.id=ps.program_id
+            WHERE ps.start_date IS NOT NULL AND ps.start_date != \'\'
+            ''') or []
+        conn4.close()
+        for s in prog_sessions:
+            events.append({
+                'id': 'session_' + s['id'],
+                'name': s.get('name') or 'Session',
+                'event_date': s.get('start_date', ''),
+                'start_time': s.get('start_time', ''),
+                'end_time': s.get('end_time', ''),
+                'event_type_name': 'Class Session',
+                'event_type_color': '#0d9488',
+                'status': 'scheduled',
+                'location': s.get('location', '') or '',
+                'is_program_session': True,
+                'program_id': s.get('program_id', ''),
+                'program_name': s.get('program_name', ''),
+                'required_waivers': [], 'elics': [], 'staff': [],
+            })
+    except Exception as e:
+        app.logger.warning(f'Program session calendar merge error: {e}')
     return jsonify(events)
 
 @app.route('/api/events', methods=['POST'])
@@ -4470,7 +4530,7 @@ def create_youth_program():
 
 @app.route('/api/youth-programs/<pid>', methods=['PUT'])
 def update_youth_program(pid):
-    err = require_permission('youth')
+    err = require_own_program(pid, 'youth')
     if err: return err
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
@@ -9407,6 +9467,11 @@ def update_user(uid):
     else:
         execute(conn, 'UPDATE users SET name=%s, email=%s WHERE id=%s',
             (d.get('name',''), d.get('email',''), uid))
+    if 'role' in d and d.get('role') in ('admin', 'staff', 'instructor'):
+        if uid == session.get('user_id') and d.get('role') != 'admin':
+            conn.close()
+            return jsonify({'error': "You can't remove your own admin access"}), 400
+        execute(conn, 'UPDATE users SET role=%s WHERE id=%s', (d.get('role'), uid))
     if 'permissions' in d:
         execute(conn, 'UPDATE users SET role_permissions=%s WHERE id=%s',
             (json.dumps(d.get('permissions','[]')), uid))
@@ -16683,6 +16748,58 @@ def _backfill_custom_field_values():
     conn.commit()
     conn.close()
     return checked, updated
+
+@app.route('/api/instructor/dashboard', methods=['GET'])
+def instructor_dashboard():
+    """Everything an instructor needs in one call: which programs they
+    teach, their full session schedule across those programs, and recent
+    registrations so new sign-ups are easy to spot. Scoped entirely by
+    matching their login email against the volunteer record linked as
+    each program's instructor_id — an instructor only ever sees their
+    own programs here, never the full program list."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+    my_email = (me or {}).get('email', '').strip().lower()
+    if not my_email:
+        conn.close()
+        return jsonify({'programs': [], 'schedule': [], 'recent_registrations': []})
+
+    programs = fetchall(conn, '''SELECT yp.id, yp.name, yp.description, yp.status,
+        yp.start_date, yp.end_date, yp.program_type
+        FROM youth_programs yp
+        JOIN volunteers v ON v.id=yp.instructor_id
+        WHERE lower(v.email)=%s
+        ORDER BY yp.start_date DESC NULLS LAST''', (my_email,)) or []
+    prog_ids = [p['id'] for p in programs]
+    if not prog_ids:
+        conn.close()
+        return jsonify({'programs': [], 'schedule': [], 'recent_registrations': []})
+
+    placeholders = ','.join(['%s'] * len(prog_ids))
+    schedule = fetchall(conn, f'''SELECT ps.id, ps.name, ps.start_date, ps.start_time, ps.end_time,
+        ps.location, ps.capacity, yp.name AS program_name, yp.id AS program_id,
+        (SELECT COUNT(*) FROM program_registrations pr
+         WHERE pr.program_id=ps.program_id AND pr.session_ids LIKE '%%"' || ps.id || '"%%'
+         AND pr.status NOT IN ('cancelled','waitlisted')) AS enrolled_count
+        FROM program_sessions ps
+        WHERE ps.program_id IN ({placeholders}) AND ps.start_date IS NOT NULL AND ps.start_date != ''
+        ORDER BY ps.start_date ASC, ps.start_time ASC''', tuple(prog_ids)) or []
+
+    recent_regs = fetchall(conn, f'''SELECT pr.id, pr.child_first_name, pr.child_last_name,
+        pr.guardian_name, pr.guardian_email, pr.status, pr.created_at,
+        yp.name AS program_name, yp.id AS program_id
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.program_id IN ({placeholders}) AND pr.status IN ('confirmed','pending_payment')
+        ORDER BY pr.created_at DESC LIMIT 40''', tuple(prog_ids)) or []
+
+    for p in programs:
+        p['registrant_count'] = sum(1 for r in recent_regs if r['program_id'] == p['id'])
+    conn.close()
+    return jsonify({'programs': programs, 'schedule': schedule, 'recent_registrations': recent_regs})
+
 
 @app.route('/api/admin/backfill-custom-field-values', methods=['POST'])
 def backfill_custom_field_values_route():
@@ -28215,6 +28332,9 @@ def get_registration_status(slug, rid):
 def get_program_registrations(pid):
     err = require_auth()
     if err: return err
+    if session.get('role') == 'instructor':
+        err = require_own_program(pid)
+        if err: return err
     import json as _jreg
     conn = get_db()
     regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type
@@ -28248,6 +28368,9 @@ def get_program_registrations(pid):
 def update_registration(pid, rid):
     err = require_auth()
     if err: return err
+    if session.get('role') == 'instructor':
+        err = require_own_program(pid)
+        if err: return err
     import json as _jur
     d = request.json or {}
     conn = get_db()

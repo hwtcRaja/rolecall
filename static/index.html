@@ -462,7 +462,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
         <!-- INSTRUCTOR (restricted role) -->
         <div class="nav-section" id="nav-section-instructor" style="display:none">My Teaching</div>
-        <div class="nav-item" id="nav-instructor-dashboard" onclick="navTo('instructor-dashboard',this)" style="display:none"><span class="nav-icon"></span>My Programs</div>
+        <div class="nav-item" id="nav-instructor-dashboard" onclick="navTo('instructor-dashboard',this)" style="display:none"><span class="nav-icon" id="ni-instructor-dashboard"></span>My Programs</div>
 
         <!-- YOUTH EDUCATION -->
         <div class="nav-section">Education &amp; Programming</div>
@@ -3969,7 +3969,8 @@ async function loginSuccess(user){
  document.getElementById('sidebar-avatar').textContent=initials(user.name)
  document.getElementById('sidebar-name').textContent=user.name
  const isAdmin = user.role==='admin'
- document.getElementById('sidebar-role').textContent=isAdmin?'Administrator':'Staff'
+ const roleLabels = {admin:'Administrator', instructor:'Instructor'}
+ document.getElementById('sidebar-role').textContent = roleLabels[user.role] || 'Staff'
  applyPermissionUI()
  // Apply default emoji icons immediately so nav isn't empty during load
  applyDefaultNavIcons()
@@ -4155,6 +4156,14 @@ function applyPermissionUI(){
  var instrSection = document.getElementById('nav-section-instructor')
  if(instrNav) instrNav.style.display = (isInstructor || isAdmin) ? '' : 'none'
  if(instrSection) instrSection.style.display = (isInstructor || isAdmin) ? '' : 'none'
+ // Instructors get to see the shared calendar by default (they asked to
+ // see when other things are happening, not just their own classes) —
+ // this only grants visibility, canEdit('events') still gates any actual
+ // edit actions on that page since instructors have no 'events' permission.
+ if(isInstructor){
+   var calNav = document.querySelector(".nav-item[onclick*=\"navTo('events'\"]")
+   if(calNav) calNav.style.display = ''
+ }
 
  // admin-only elements — map each to its section so staff with edit can see them too
  const adminOnlySectionMap = {
@@ -9619,7 +9628,8 @@ const NAV_ICON_DEFAULTS = {
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
  board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
- oncall:'📞', 'hours-store':'🏪', responsibility:'🗂️', licensing:'📄', inbox:'📥'
+ oncall:'📞', 'hours-store':'🏪', responsibility:'🗂️', licensing:'📄', inbox:'📥',
+ 'instructor-dashboard':'🎓'
 }
 
 let _currentNavIcons = {}

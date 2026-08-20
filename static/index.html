@@ -1340,7 +1340,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-youth">
  <div class="page-header">
  <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
- <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">Set Default Passphrases</button><button class="btn btn-secondary admin-only" onclick="backfillParticipantDobs()" title="Recover birthdays that were captured at registration but never saved to the participant's profile">Recover Missing Birthdays</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
+ <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">Set Default Passphrases</button><button class="btn btn-secondary admin-only" onclick="backfillParticipantDobs()" title="Recover birthdays that were captured at registration but never saved to the participant's profile">Recover Missing Birthdays</button><button class="btn btn-secondary admin-only" onclick="backfillEnrolledDates()" title="Fix enrollment dates showing as Invalid Date">Fix Enrollment Dates</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
  </div>
  <div class="page-body">
  <div class="search-bar">
@@ -9184,6 +9184,15 @@ async function backfillParticipantDobs(){
  if(res.no_match > 0) msg += ` (${res.no_match} registration${res.no_match!==1?'s':''} couldn't be matched to a participant)`
  if(res.registrations_with_no_dob_at_all > 0) msg += `. ${res.registrations_with_no_dob_at_all} registration${res.registrations_with_no_dob_at_all!==1?'s never':' never'} had a birthday entered at all — nothing to recover for those.`
  toast(msg, res.fixed > 0 ? 'success' : '')
+ await loadAllData()
+ renderYouth()
+}
+
+async function backfillEnrolledDates(){
+ if(!confirm('Fix enrollment dates that are showing as "Invalid Date"?\n\nThis normalizes old enrollment records that were saved with a full timestamp instead of a plain date. Safe to run anytime.')) return
+ const res = await api('/api/admin/backfill-enrolled-dates','POST')
+ if(res?.error){toast(res.error,'error');return}
+ toast(res.fixed > 0 ? `Fixed ${res.fixed} enrollment date${res.fixed!==1?'s':''}` : 'No malformed enrollment dates found', res.fixed > 0 ? 'success' : '')
  await loadAllData()
  renderYouth()
 }
@@ -25177,6 +25186,10 @@ async function submitYouthProdEnrollment(prodId){
  if(ysiCurrentFilter.category==='rising_stars'&&ysiCurrentFilter.parentId===prodId){
  loadYouthSignInSheet()
  }
+ // This also marks them enrolled server-side (see youth-members POST) —
+ // refresh the Participants page's cached list so that shows up there too.
+ allYouth = await api('/api/youth')
+ populateYouthFilters()
 }
 
 
@@ -25196,6 +25209,11 @@ async function syncCastFromRegistrations(prodId){
   if(res.skipped_no_match > 0) msg += ' ('+res.skipped_no_match+' registration'+(res.skipped_no_match===1?'':'s')+' could not be matched to a participant profile.)'
   toast(msg, 'success')
   loadYouthProdMembers(prodId)
+  // Cast changes affect the Programs column and filter on the Participants
+  // page too — that page reads from a cached allYouth snapshot, so refresh
+  // it here or the change won't show there until the next full page load.
+  allYouth = await api('/api/youth')
+  populateYouthFilters()
 }
 
 async function backfillCastEnrollments(prodId){
@@ -25207,6 +25225,8 @@ async function backfillCastEnrollments(prodId){
   var msg = res.added > 0 ? 'Fixed '+res.added+' cast member'+(res.added===1?'':'s')+' that weren\'t showing as enrolled.' : 'Already in sync — nothing to fix.'
   toast(msg, 'success')
   loadYouthProdMembers(prodId)
+  allYouth = await api('/api/youth')
+  populateYouthFilters()
 }
 
 async function loadYouthProdMembers(prodId){
@@ -25246,6 +25266,10 @@ async function removeYouthFromProd(prodId, memberId){
  await api('/api/productions/'+prodId+'/youth-members/'+memberId,'DELETE')
  toast('Removed','success')
  loadYouthProdMembers(prodId)
+ // This also removes the matching enrollment server-side — refresh the
+ // Participants page's cached list so that shows up there too.
+ allYouth = await api('/api/youth')
+ populateYouthFilters()
 }
 
 async function updateYouthCastRole(prodId, memberId, role){

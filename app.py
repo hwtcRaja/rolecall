@@ -930,6 +930,14 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         # portal folders
         "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT 'General'",
+        # Direct file upload for portal files, replacing the Google Drive link
+        # workflow. drive_url stays around (now optional) for any older rows
+        # that still point at Drive; new uploads populate the columns below instead.
+        "ALTER TABLE portal_files ALTER COLUMN drive_url DROP NOT NULL",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS filename TEXT",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS content_type TEXT DEFAULT ''",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS file_data_b64 TEXT",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS size_bytes INTEGER DEFAULT 0",
         # email settings
         """CREATE TABLE IF NOT EXISTS email_settings (
             id INTEGER PRIMARY KEY DEFAULT 1,
@@ -9775,11 +9783,11 @@ def portal_get_participant(yid):
         all_vals = []
         if prod_ids:
             ph = ','.join(['%s']*len(prod_ids))
-            prod_files = fetchall(conn, f'SELECT * FROM portal_files WHERE production_id IN ({ph}) AND (description IS NULL OR description!=\'__folder__\') ORDER BY folder, title', tuple(prod_ids))
+            prod_files = fetchall(conn, f'SELECT id, program_id, production_id, title, drive_url, description, folder, author_id, filename, content_type, size_bytes, created_at FROM portal_files WHERE production_id IN ({ph}) AND (description IS NULL OR description!=\'__folder__\') ORDER BY folder, title', tuple(prod_ids))
             files.extend(prod_files)
         if prog_ids:
             ph = ','.join(['%s']*len(prog_ids))
-            prog_files = fetchall(conn, f'SELECT * FROM portal_files WHERE program_id IN ({ph}) AND (description IS NULL OR description!=\'__folder__\') ORDER BY folder, title', tuple(prog_ids))
+            prog_files = fetchall(conn, f'SELECT id, program_id, production_id, title, drive_url, description, folder, author_id, filename, content_type, size_bytes, created_at FROM portal_files WHERE program_id IN ({ph}) AND (description IS NULL OR description!=\'__folder__\') ORDER BY folder, title', tuple(prog_ids))
             files.extend(prog_files)
     except Exception as e:
         files = []; errors.append(f'files: {e}')
@@ -9891,12 +9899,13 @@ def portal_get_files():
     program_id    = request.args.get('program_id') or request.args.get('context_id') if request.args.get('context_type','production')=='program' else None
     production_id = request.args.get('production_id') or (request.args.get('context_id') if request.args.get('context_type','production')=='production' else None)
     conn = get_db()
+    portal_files_cols = "id, program_id, production_id, title, drive_url, description, folder, author_id, filename, content_type, size_bytes, created_at"
     if program_id:
-        rows = fetchall(conn, "SELECT * FROM portal_files WHERE program_id=%s AND (description IS NULL OR description!='__folder__') ORDER BY folder, title", (program_id,))
+        rows = fetchall(conn, f"SELECT {portal_files_cols} FROM portal_files WHERE program_id=%s AND (description IS NULL OR description!='__folder__') ORDER BY folder, title", (program_id,))
     elif production_id:
-        rows = fetchall(conn, "SELECT * FROM portal_files WHERE production_id=%s AND (description IS NULL OR description!='__folder__') ORDER BY folder, title", (production_id,))
+        rows = fetchall(conn, f"SELECT {portal_files_cols} FROM portal_files WHERE production_id=%s AND (description IS NULL OR description!='__folder__') ORDER BY folder, title", (production_id,))
     else:
-        rows = fetchall(conn, "SELECT * FROM portal_files WHERE description IS NULL OR description!='__folder__' ORDER BY created_at DESC")
+        rows = fetchall(conn, f"SELECT {portal_files_cols} FROM portal_files WHERE description IS NULL OR description!='__folder__' ORDER BY created_at DESC")
     conn.close()
     return jsonify(rows)
 
@@ -10027,6 +10036,38 @@ def sync_prod_cast_from_registrations(pid):
                     'skipped_no_match': skipped_no_match, 'total_checked': len(regs)})
 
 
+@app.route('/api/productions/<pid>/youth-members/backfill-enrollments', methods=['POST'])
+def backfill_cast_enrollments(pid):
+    """One-time (and safe to re-run) fix for kids who show under Cast but were
+    never marked enrolled — e.g. added to the Cast tab manually before this
+    sync existed. Only meaningful for Rising Stars productions."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT id, stage FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+    if prod.get('stage') != 'rising_stars':
+        conn.close()
+        return jsonify({'ok': True, 'added': 0, 'note': 'Not a Rising Stars production'})
+    members = fetchall(conn, 'SELECT youth_id FROM youth_production_members WHERE production_id=%s', (pid,)) or []
+    added = 0
+    import uuid as _bce
+    for m in members:
+        existing = fetchone(conn, 'SELECT id FROM youth_program_enrollments WHERE youth_id=%s AND production_id=%s', (m['youth_id'], pid))
+        if existing:
+            continue
+        execute(conn, '''INSERT INTO youth_program_enrollments
+            (id, youth_id, production_id, enrolled_date, notes)
+            VALUES (%s,%s,%s,NOW()::TEXT,%s)
+            ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
+            (str(_bce.uuid4()), m['youth_id'], pid, 'Backfilled from cast list'))
+        added += 1
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'added': added, 'total_cast': len(members)})
+
 @app.route('/api/productions/<pid>/youth-members')
 def get_prod_youth_members(pid):
     err = require_auth()
@@ -10049,6 +10090,7 @@ def enroll_youth_in_prod(pid):
         return jsonify({'error': 'No data received'}), 400
     conn = get_db()
     try:
+        prod = fetchone(conn, 'SELECT id, stage FROM productions WHERE id=%s', (pid,))
         youth_ids = d.get('youth_ids') or ([d.get('youth_id')] if d.get('youth_id') else [])
         if not youth_ids:
             conn.close()
@@ -10059,13 +10101,25 @@ def enroll_youth_in_prod(pid):
             if not yid: continue
             mid = str(uuid.uuid4())
             existing = fetchone(conn, 'SELECT id FROM youth_production_members WHERE production_id=%s AND youth_id=%s', (pid, yid))
-            if existing:
+            if not existing:
+                execute(conn, '''INSERT INTO youth_production_members (id,production_id,youth_id,role)
+                    VALUES (%s,%s,%s,%s)''',
+                    (mid, pid, yid, d.get('role','')))
+                enrolled += 1
+            else:
                 skipped += 1
-                continue
-            execute(conn, '''INSERT INTO youth_production_members (id,production_id,youth_id,role)
-                VALUES (%s,%s,%s,%s)''',
-                (mid, pid, yid, d.get('role','')))
-            enrolled += 1
+            # Cast (youth_production_members) and "enrolled" status
+            # (youth_program_enrollments) are two separate tables — staff
+            # adding someone to the Cast tab here should also mark them
+            # enrolled so the two views agree, same as the online
+            # registration flow already does for Rising Stars.
+            if prod and prod.get('stage') == 'rising_stars':
+                import uuid as _ue2
+                execute(conn, '''INSERT INTO youth_program_enrollments
+                    (id, youth_id, production_id, enrolled_date, notes)
+                    VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                    ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
+                    (str(_ue2.uuid4()), yid, pid, 'Added to cast'))
         conn.commit()
         conn.close()
         return jsonify({'ok': True, 'enrolled': enrolled, 'skipped': skipped})
@@ -10091,7 +10145,11 @@ def unenroll_youth_from_prod(pid, mid):
     err = require_auth()
     if err: return err
     conn = get_db()
+    member = fetchone(conn, 'SELECT youth_id FROM youth_production_members WHERE id=%s AND production_id=%s', (mid, pid))
     execute(conn, 'DELETE FROM youth_production_members WHERE id=%s AND production_id=%s', (mid, pid))
+    # Keep the "enrolled" status in sync with the Cast tab — see enroll_youth_in_prod.
+    if member:
+        execute(conn, 'DELETE FROM youth_program_enrollments WHERE youth_id=%s AND production_id=%s', (member['youth_id'], pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -10949,11 +11007,13 @@ def get_portal_instructor_content(context_type, context_id):
     # Use real column names: program_id / production_id (not context_type/context_id)
     try:
         if context_type == 'production':
-            files = fetchall(conn, '''SELECT * FROM portal_files
+            files = fetchall(conn, '''SELECT id, program_id, production_id, title, drive_url, description,
+                folder, author_id, filename, content_type, size_bytes, created_at FROM portal_files
                 WHERE production_id=%s AND (description IS NULL OR description != '__folder__')
                 ORDER BY folder, title''', (context_id,))
         elif context_type == 'program':
-            files = fetchall(conn, '''SELECT * FROM portal_files
+            files = fetchall(conn, '''SELECT id, program_id, production_id, title, drive_url, description,
+                folder, author_id, filename, content_type, size_bytes, created_at FROM portal_files
                 WHERE program_id=%s AND (description IS NULL OR description != '__folder__')
                 ORDER BY folder, title''', (context_id,))
         else:
@@ -13137,29 +13197,87 @@ def delete_portal_announcement_admin(aid):
     return jsonify({'ok': True})
 
 # ── Portal files & folders ──
-# Real table schema: id, program_id, production_id, title, drive_url, description, folder, author_id
+# Real table schema: id, program_id, production_id, title, drive_url, description, folder,
+# author_id, filename, content_type, file_data_b64, size_bytes
+
+PORTAL_FILE_ALLOWED_EXT = {'.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx',
+    '.jpg', '.jpeg', '.png', '.gif', '.txt', '.csv', '.mp3', '.zip'}
+PORTAL_FILE_MAX_BYTES = 20 * 1024 * 1024  # 20MB per file
 
 @app.route('/api/portal/files', methods=['POST'])
 def create_portal_file():
     err = require_auth()
     if err: return err
-    d = request.json or {}
     fid = str(uuid.uuid4())
     conn = get_db()
-    program_id    = d.get('program_id') or None
-    production_id = d.get('production_id') or None
-    title      = d.get('title') or d.get('name','')
-    drive_url  = d.get('drive_url') or d.get('url','')
-    folder     = d.get('folder','General')
-    author_id  = session.get('user_id')
-    execute(conn, '''INSERT INTO portal_files
-        (id, program_id, production_id, title, drive_url, folder, author_id)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-        (fid, program_id, production_id, title, drive_url, folder, author_id))
+    author_id = session.get('user_id')
+
+    # Direct upload (multipart) is the normal path now.
+    if request.files.get('file'):
+        f = request.files['file']
+        program_id    = request.form.get('program_id') or None
+        production_id = request.form.get('production_id') or None
+        title  = (request.form.get('title') or f.filename or '').strip()
+        folder = request.form.get('folder', 'General')
+        if not f.filename:
+            conn.close()
+            return jsonify({'error': 'No file selected'}), 400
+        ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+        if ext not in PORTAL_FILE_ALLOWED_EXT:
+            conn.close()
+            return jsonify({'error': f'"{f.filename}" is not an accepted file type'}), 400
+        data = f.read()
+        if len(data) > PORTAL_FILE_MAX_BYTES:
+            conn.close()
+            return jsonify({'error': f'"{f.filename}" is larger than the 20MB limit'}), 400
+        import base64 as _b64pf
+        execute(conn, '''INSERT INTO portal_files
+            (id, program_id, production_id, title, folder, author_id,
+             filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (fid, program_id, production_id, title or secure_filename(f.filename), folder, author_id,
+             secure_filename(f.filename), f.mimetype or '', _b64pf.b64encode(data).decode(), len(data)))
+    else:
+        # Legacy JSON/drive_url path — kept so nothing already pointing at a
+        # Drive link breaks; the frontend no longer surfaces this option.
+        d = request.json or {}
+        program_id    = d.get('program_id') or None
+        production_id = d.get('production_id') or None
+        title      = d.get('title') or d.get('name','')
+        drive_url  = d.get('drive_url') or d.get('url','')
+        folder     = d.get('folder','General')
+        if not drive_url:
+            conn.close()
+            return jsonify({'error': 'A file or a URL is required'}), 400
+        execute(conn, '''INSERT INTO portal_files
+            (id, program_id, production_id, title, drive_url, folder, author_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+            (fid, program_id, production_id, title, drive_url, folder, author_id))
+
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
     conn.close()
+    if row: row.pop('file_data_b64', None)
     return jsonify(row)
+
+@app.route('/api/portal/files/<fid>/download', methods=['GET'])
+def download_portal_file(fid):
+    """Public — matches the no-auth GET /api/portal/files list, since parents
+    reach this from the family portal without an admin login."""
+    conn = get_db()
+    f = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
+    conn.close()
+    if not f or not f.get('file_data_b64'):
+        return jsonify({'error': 'Not found'}), 404
+    import base64 as _b64pd
+    data = _b64pd.b64decode(f['file_data_b64'])
+    from flask import Response as _PortalResp
+    resp = _PortalResp(data, mimetype=f.get('content_type') or 'application/octet-stream')
+    safe_name = (f.get('filename') or f.get('title') or 'file').replace('"', "'")
+    ascii_name = safe_name.encode('ascii', 'ignore').decode('ascii').strip() or 'file'
+    from urllib.parse import quote
+    resp.headers['Content-Disposition'] = f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(safe_name)}'
+    return resp
 
 @app.route('/api/portal/files/<fid>', methods=['DELETE'])
 def delete_portal_file(fid):
@@ -27987,6 +28105,11 @@ def marquee_overview():
     # Deduped by order for the Square side — sibling registrations sharing one
     # order all carry that order's full amount, so counting each sibling
     # separately would inflate the total.
+    # Scoped to non-draft programs/productions (registration_status != 'draft')
+    # so this total matches exactly what the breakdown below adds up to —
+    # draft programs/productions are excluded from that breakdown too, so a
+    # global all-time sum here was including revenue the sections below never
+    # showed, which is what made the two disagree.
     revenue_row = fetchone(conn, '''WITH reg_revenue AS (
         SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
             pr.status,
@@ -28003,6 +28126,8 @@ def marquee_overview():
         LEFT JOIN productions prod ON prod.id=pr.production_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status IN (\'confirmed\', \'waitlisted\')
+          AND COALESCE(yp.registration_status, \'\') != \'draft\'
+          AND COALESCE(prod.registration_status, \'\') != \'draft\'
         ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_estimate AS (
@@ -28015,6 +28140,8 @@ def marquee_overview():
         LEFT JOIN youth_programs yp ON yp.id=pr.program_id
         LEFT JOIN productions prod ON prod.id=pr.production_id
         WHERE pr.status = \'waitlisted\'
+          AND COALESCE(yp.registration_status, \'\') != \'draft\'
+          AND COALESCE(prod.registration_status, \'\') != \'draft\'
     )
     SELECT
         COALESCE(SUM(confirmed_amount) FILTER (WHERE status=\'confirmed\'), 0) AS confirmed_total,

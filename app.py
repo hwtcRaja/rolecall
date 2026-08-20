@@ -9951,6 +9951,28 @@ def portal_instructor_login():
 #  PRODUCTIONS (additional routes)
 # ─────────────────────────────────────────────
 
+@app.route('/api/admin/backfill-enrolled-dates', methods=['POST'])
+def backfill_enrolled_dates():
+    """One-time cleanup for enrolled_date values stored as a full NOW()::TEXT
+    timestamp (e.g. '2026-05-19 14:32:10.123-04') instead of a plain date —
+    a longstanding bug in the online-registration enroll() path that made
+    dates unparseable on the frontend ('Enrolled Invalid Date'). Normalizes
+    any row where enrolled_date has a space (timestamp) down to just the
+    date portion. Safe to re-run; only touches rows that still need it."""
+    err = require_permission('youth')
+    if err:
+        err = require_permission('rising_stars')
+        if err: return err
+    conn = get_db()
+    before_row = fetchone(conn, "SELECT COUNT(*) AS c FROM youth_program_enrollments WHERE enrolled_date LIKE '% %'")
+    malformed_count = (before_row or {}).get('c', 0)
+    execute(conn, '''UPDATE youth_program_enrollments
+        SET enrolled_date = split_part(enrolled_date, ' ', 1)
+        WHERE enrolled_date LIKE '% %' ''')
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'fixed': malformed_count})
+
 @app.route('/api/admin/backfill-participant-dobs', methods=['POST'])
 def backfill_participant_dobs():
     """Recover birthdays that were correctly captured on a registration but never copied
@@ -10060,7 +10082,7 @@ def backfill_cast_enrollments(pid):
             continue
         execute(conn, '''INSERT INTO youth_program_enrollments
             (id, youth_id, production_id, enrolled_date, notes)
-            VALUES (%s,%s,%s,NOW()::TEXT,%s)
+            VALUES (%s,%s,%s,CURRENT_DATE::TEXT,%s)
             ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
             (str(_bce.uuid4()), m['youth_id'], pid, 'Backfilled from cast list'))
         added += 1
@@ -10117,7 +10139,7 @@ def enroll_youth_in_prod(pid):
                 import uuid as _ue2
                 execute(conn, '''INSERT INTO youth_program_enrollments
                     (id, youth_id, production_id, enrolled_date, notes)
-                    VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                    VALUES (%s,%s,%s,CURRENT_DATE::TEXT,%s)
                     ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
                     (str(_ue2.uuid4()), yid, pid, 'Added to cast'))
         conn.commit()
@@ -17494,13 +17516,13 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             if prog:
                 execute(conn, '''INSERT INTO youth_program_enrollments
                     (id, youth_id, program_id, enrolled_date, notes)
-                    VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                    VALUES (%s,%s,%s,CURRENT_DATE::TEXT,%s)
                     ON CONFLICT (youth_id, program_id) DO NOTHING''',
                     (str(_ue.uuid4()), youth_id, prog['id'], f'Online registration #{reg_id[:8]}'))
             elif prod:
                 execute(conn, '''INSERT INTO youth_program_enrollments
                     (id, youth_id, production_id, enrolled_date, notes)
-                    VALUES (%s,%s,%s,NOW()::TEXT,%s)
+                    VALUES (%s,%s,%s,CURRENT_DATE::TEXT,%s)
                     ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
                     (str(_ue.uuid4()), youth_id, prod['id'], f'Online registration #{reg_id[:8]}'))
                 # Rising Stars: the Cast tab is driven by youth_production_members,

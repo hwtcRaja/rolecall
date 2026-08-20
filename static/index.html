@@ -15331,6 +15331,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div style="font-size:15px;font-weight:600">Cast Members</div>'
  if(isAdmin) s += '<div style="display:flex;gap:8px">'
    + '<button class="btn btn-secondary btn-sm" onclick="syncCastFromRegistrations(\'' + p.id + '\')">Sync from Registrations</button>'
+   + '<button class="btn btn-secondary btn-sm" onclick="backfillCastEnrollments(\'' + p.id + '\')" title="Fixes cast members who aren\'t showing as enrolled on their profile">Fix Enrollment Sync</button>'
    + '<button class="btn btn-primary btn-sm" onclick="loadAndShowYouthProdEnroll(\'' + p.id + '\')">+ Enroll Youth</button>'
    + '</div>'
  s += '</div>'
@@ -21524,7 +21525,7 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
  <div style="font-size:15px;font-weight:700"> Files</div>
  <button class="btn btn-secondary btn-sm" onclick="addPortalFolder('program',window._currentProgramDetailId)">+ New Folder</button>
  </div>
- <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Google Drive links organized into folders for families</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Upload files, organized into folders, for families to view or download</div>
  <!-- Folder list for this program -->
  <div id="prog-folders-current" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px"></div>
  <!-- Add file form -->
@@ -21542,8 +21543,9 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
  </div>
  </div>
  <div style="margin-bottom:10px">
- <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
- <input type="url" id="prog-file-url-current" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">File</label>
+ <input type="file" id="prog-file-input-current" style="width:100%;padding:7px 0;font-family:inherit;font-size:13px"/>
+ <div id="prog-file-upload-status-current" style="font-size:11px;color:var(--text-muted);margin-top:3px"></div>
  </div>
  <button class="btn btn-primary btn-sm" onclick="addProgramFile(window._currentProgramDetailId)">Add File</button>
  </div>
@@ -21634,7 +21636,7 @@ function renderProductionPortalHTML(pid, stage){
  <div style="font-size:14px;font-weight:700"> Files & Folders</div>
  <button class="btn btn-secondary btn-sm" onclick="addPortalFolder('production','${pid}')">+ New Folder</button>
  </div>
- <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Files visible to cast and families in the portal</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload files that are visible to cast and families in the portal</div>
  <div id="prod-folders-${pid}" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px"></div>
  <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:14px">
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
@@ -21650,8 +21652,9 @@ function renderProductionPortalHTML(pid, stage){
  </div>
  </div>
  <div style="margin-bottom:10px">
- <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Google Drive URL</label>
- <input type="url" id="prod-file-url-${pid}" placeholder="https://drive.google.com/…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">File</label>
+ <input type="file" id="prod-file-input-${pid}" style="width:100%;padding:7px 0;font-family:inherit;font-size:13px"/>
+ <div id="prod-file-upload-status-${pid}" style="font-size:11px;color:var(--text-muted);margin-top:3px"></div>
  </div>
  <button class="btn btn-primary btn-sm" onclick="addProductionFile('${pid}')">Add File</button>
  </div>
@@ -22292,7 +22295,7 @@ function renderProductionFiles(pid, files, folders){
  +fls.map(f=>'<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">'
  +'<div style="font-size:18px;flex-shrink:0"></div>'
  +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">'+f.title+'</div></div>'
- +'<a href="'+f.drive_url+'" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;text-decoration:none">Open</a>'
+ +'<a href="'+(f.filename ? '/api/portal/files/'+f.id+'/download' : f.drive_url)+'" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:11px;font-weight:700;text-decoration:none">'+(f.filename?'Download':'Open')+'</a>'
  +'<button onclick="deleteProductionFile(\''+pid+'\',\''+f.id+'\')" class="btn btn-danger btn-sm">Delete</button>'
  +'</div>').join('')
  +'</div>'
@@ -22375,13 +22378,29 @@ async function deleteProductionAnnouncement(pid, aid){
 }
 async function addProductionFile(pid){
  const title = document.getElementById('prod-file-title-'+pid)?.value.trim()
- const url = document.getElementById('prod-file-url-'+pid)?.value.trim()
+ const fileInput = document.getElementById('prod-file-input-'+pid)
+ const file = fileInput?.files[0]
  const folder = document.getElementById('prod-file-folder-'+pid)?.value||'General'
- if(!title||!url){toast('Title and URL required','error');return}
- const res = await api('/api/portal/files','POST',{production_id:pid, title, drive_url:url, folder})
- if(res.error){toast(res.error,'error');return}
- document.getElementById('prod-file-title-'+pid).value=''
- document.getElementById('prod-file-url-'+pid).value=''
+ if(!file){toast('Choose a file to upload','error');return}
+ const statusEl = document.getElementById('prod-file-upload-status-'+pid)
+ if(statusEl) statusEl.textContent = 'Uploading…'
+ const fd = new FormData()
+ fd.append('file', file)
+ fd.append('production_id', pid)
+ fd.append('title', title||'')
+ fd.append('folder', folder)
+ let res
+ try{
+ const r = await fetch('/api/portal/files', {method:'POST', credentials:'include', body:fd})
+ res = await r.json()
+ } catch(e){
+ if(statusEl) statusEl.textContent = ''
+ toast('Upload error','error'); return
+ }
+ if(res.error){ if(statusEl) statusEl.textContent=''; toast(res.error,'error'); return }
+ if(document.getElementById('prod-file-title-'+pid)) document.getElementById('prod-file-title-'+pid).value=''
+ if(fileInput) fileInput.value=''
+ if(statusEl) statusEl.textContent = ''
  await loadProductionPortalContent(pid)
  toast('File added!')
 }
@@ -24492,7 +24511,7 @@ function renderProgramFiles(pid, files, folders){
  ${fls.map(f=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
  <div style="font-size:18px;flex-shrink:0"></div>
  <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${escHtml(f.title)}</div>${f.description&&!f.description.startsWith('__folder__')?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(f.description)}</div>`:''}</div>
- <a href="${f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap">Open</a>
+ <a href="${f.filename ? '/api/portal/files/'+f.id+'/download' : f.drive_url}" target="_blank" style="background:var(--teal);color:#fff;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:700;text-decoration:none;white-space:nowrap">${f.filename?'Download':'Open'}</a>
  <button onclick="deleteProgramFile('${pid}','${f.id}')" class="btn btn-danger btn-sm">Delete</button>
  </div>`).join('')}
  </div>`).join('')
@@ -24603,14 +24622,29 @@ async function deleteProgramAnnouncement(pid, aid){
 
 async function addProgramFile(pid){
  const title = document.getElementById('prog-file-title-current')?.value.trim()
- const url = document.getElementById('prog-file-url-current')?.value.trim()
+ const fileInput = document.getElementById('prog-file-input-current')
+ const file = fileInput?.files[0]
  const folder = document.getElementById('prog-file-folder-current')?.value||'General'
- if(!title||!url){toast('Title and URL required','error');return}
- if(!url.startsWith('http')){toast('Enter a valid URL starting with https://','error');return}
- const res = await api('/api/portal/files','POST',{program_id:pid, title, drive_url:url, folder})
- if(res.error){toast(res.error,'error');return}
- document.getElementById('prog-file-title-current').value=''
- document.getElementById('prog-file-url-current').value=''
+ if(!file){toast('Choose a file to upload','error');return}
+ const statusEl = document.getElementById('prog-file-upload-status-current')
+ if(statusEl) statusEl.textContent = 'Uploading…'
+ const fd = new FormData()
+ fd.append('file', file)
+ fd.append('program_id', pid)
+ fd.append('title', title||'')
+ fd.append('folder', folder)
+ let res
+ try{
+ const r = await fetch('/api/portal/files', {method:'POST', credentials:'include', body:fd})
+ res = await r.json()
+ } catch(e){
+ if(statusEl) statusEl.textContent = ''
+ toast('Upload error','error'); return
+ }
+ if(res.error){ if(statusEl) statusEl.textContent=''; toast(res.error,'error'); return }
+ if(document.getElementById('prog-file-title-current')) document.getElementById('prog-file-title-current').value=''
+ if(fileInput) fileInput.value=''
+ if(statusEl) statusEl.textContent = ''
  await loadProgramPortalContent(pid)
  toast('File added!')
 }
@@ -25160,6 +25194,17 @@ async function syncCastFromRegistrations(prodId){
   if(!res || res.error){ toast((res&&res.error)||'Sync failed','error'); return }
   var msg = res.added > 0 ? 'Added '+res.added+' cast member'+(res.added===1?'':'s')+' from confirmed registrations.' : 'Already up to date — nothing new to add.'
   if(res.skipped_no_match > 0) msg += ' ('+res.skipped_no_match+' registration'+(res.skipped_no_match===1?'':'s')+' could not be matched to a participant profile.)'
+  toast(msg, 'success')
+  loadYouthProdMembers(prodId)
+}
+
+async function backfillCastEnrollments(prodId){
+  const btn = event && event.target
+  if(btn){ btn.disabled = true; btn.textContent = 'Fixing…' }
+  const res = await api('/api/productions/'+prodId+'/youth-members/backfill-enrollments', 'POST')
+  if(btn){ btn.disabled = false; btn.textContent = 'Fix Enrollment Sync' }
+  if(!res || res.error){ toast((res&&res.error)||'Fix failed','error'); return }
+  var msg = res.added > 0 ? 'Fixed '+res.added+' cast member'+(res.added===1?'':'s')+' that weren\'t showing as enrolled.' : 'Already in sync — nothing to fix.'
   toast(msg, 'success')
   loadYouthProdMembers(prodId)
 }
@@ -28819,7 +28864,7 @@ function renderMarqueeDashboardBody(el, data){
       + '</div>'
   })
   html += '</div>'
-  html += '<div style="font-size:11px;color:var(--text-hint);margin:-14px 0 20px">Confirmed = money actually in hand (excludes pending Step Up holds and comp\'d enrollments). Expected adds pending Step Up and waitlist on top \u2014 the optimistic number, not what\'s collected. <strong>Use Confirmed for BloomBooks.</strong></div>'
+  html += '<div style="font-size:11px;color:var(--text-hint);margin:-14px 0 20px">Confirmed = money actually in hand (excludes pending Step Up holds and comp\'d enrollments). Expected adds pending Step Up and waitlist on top \u2014 the optimistic number, not what\'s collected. Both totals are scoped to active (non-draft) programs and productions, matching the breakdown below. <strong>Use Confirmed for BloomBooks.</strong></div>'
 
   // ── Quick actions ──
   html += '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'

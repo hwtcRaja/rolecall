@@ -18214,11 +18214,19 @@ def submit_licensing_request():
             f'<li><b>{c["production_name"]}</b> — Ref {c["ref_number"]}</li>' for c in created
         )
 
-        # Notify admins so someone can action it
+        # Notify the President and Resident Producer only — they're the ones who action
+        # licensing requests, not every admin login.
         try:
             es = get_email_settings()
-            admin_emails = [r['email'] for r in (fetchall(conn, "SELECT email FROM users WHERE email IS NOT NULL AND role='admin'") or []) if r.get('email')]
-            notify_emails = list(set(admin_emails + ['info@hwtco.org']))
+            notify_emails = []
+            president_name = _rc_current_officer_name(conn, 'president')
+            if president_name:
+                pres = fetchone(conn, "SELECT email FROM board_members WHERE name=%s AND status='active'", (president_name,))
+                if pres and pres.get('email'):
+                    notify_emails.append(pres['email'])
+            rp_rows = fetchall(conn, "SELECT email FROM board_members WHERE role ILIKE '%%resident producer%%' AND status='active'") or []
+            notify_emails += [r['email'] for r in rp_rows if r.get('email')]
+            notify_emails = list(set(notify_emails))
             if notify_emails and es.get('resend_api_key'):
                 subject = f'New Show Licensing Request{"s" if len(created) > 1 else ""} — {len(created)} production{"s" if len(created) > 1 else ""}'
                 send_email(

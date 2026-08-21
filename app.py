@@ -8,7 +8,7 @@ import hmac
 import os
 import uuid
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from werkzeug.utils import secure_filename
 import requests
 import re
@@ -2501,6 +2501,7 @@ PERM_LEGACY_FALLBACK = {
     'donor_campaigns': 'donors',
     'donor_tiers': 'donors',
     'donor_templates': 'donors',
+    'daily_overview': 'productions',
 }
 
 
@@ -10242,6 +10243,103 @@ def delete_production_conflict(pid, cid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/productions/<pid>/daily-overview')
+def get_production_daily_overview(pid):
+    """Single-day command-center view for a production: today's (or a chosen
+    date's) schedule blocks, full cast/crew + youth roster with live status
+    (signed in / not yet / called out / no-show), and any flagged conflicts.
+    Used by the Daily Overview dashboard (admins, directors, stage managers)."""
+    err = require_permission('productions', 'view')
+    if err: return err
+    target_date = request.args.get('date') or date.today().isoformat()
+    conn = get_db()
+
+    prod = fetchone(conn, 'SELECT id, name, status FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+
+    events = fetchall(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color
+        FROM events e LEFT JOIN event_types et ON e.event_type_id=et.id
+        WHERE e.production_id=%s AND e.event_date=%s
+        ORDER BY e.start_time ASC NULLS LAST''', (pid, target_date))
+    event_ids = [e['id'] for e in events]
+
+    # Adult cast/crew roster
+    crew = fetchall(conn, '''SELECT pm.id as member_id, pm.role, pm.department, pm.status as member_status,
+        v.id as volunteer_id, v.name, v.phone, v.email
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s ORDER BY v.name''', (pid,))
+
+    # Youth roster
+    youth = fetchall(conn, '''SELECT ypm.id as member_id, ypm.role,
+        y.id as youth_id, y.first_name, y.last_name
+        FROM youth_production_members ypm JOIN youth_participants y ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+
+    # Today's sign-ins
+    crew_signins = {}
+    youth_signins = {}
+    if event_ids:
+        ph = ','.join(['%s']*len(event_ids))
+        for row in fetchall(conn, f'''SELECT volunteer_id, event_id, signed_in_at, signed_out_at
+                FROM prod_attendance WHERE event_id IN ({ph})''', tuple(event_ids)):
+            crew_signins.setdefault(row['volunteer_id'], []).append(row)
+        for row in fetchall(conn, f'''SELECT youth_id, event_id, signed_in_at, signed_out_at
+                FROM youth_sign_ins WHERE event_id IN ({ph})''', tuple(event_ids)):
+            youth_signins.setdefault(row['youth_id'], []).append(row)
+
+    # Today's conflicts/call-outs (covers both youth and adult volunteers)
+    conflicts = fetchall(conn, '''SELECT pc.*, e.name as event_name
+        FROM production_conflicts pc LEFT JOIN events e ON pc.event_id=e.id
+        WHERE pc.production_id=%s AND (e.event_date=%s OR pc.event_id IS NULL)
+        ORDER BY pc.created_at DESC''', (pid, target_date))
+    conflicts_by_youth = {}
+    conflicts_by_volunteer = {}
+    for c in conflicts:
+        if c.get('youth_id'): conflicts_by_youth.setdefault(c['youth_id'], []).append(c)
+        if c.get('volunteer_id'): conflicts_by_volunteer.setdefault(c['volunteer_id'], []).append(c)
+
+    def roster_status(signin_rows, conflict_rows):
+        if conflict_rows:
+            return conflict_rows[-1]['status']  # most recent call-out status
+        if signin_rows:
+            return 'signed_out' if all(r.get('signed_out_at') for r in signin_rows) else 'signed_in'
+        return 'not_yet'
+
+    crew_out = []
+    for m in crew:
+        rows = crew_signins.get(m['volunteer_id'], [])
+        conf = conflicts_by_volunteer.get(m['volunteer_id'], [])
+        crew_out.append({**m, 'status': roster_status(rows, conf),
+            'conflict': conf[-1] if conf else None,
+            'signed_in_at': rows[-1]['signed_in_at'] if rows else None,
+            'signed_out_at': rows[-1]['signed_out_at'] if rows and rows[-1].get('signed_out_at') else None})
+
+    youth_out = []
+    for y in youth:
+        rows = youth_signins.get(y['youth_id'], [])
+        conf = conflicts_by_youth.get(y['youth_id'], [])
+        youth_out.append({**y, 'status': roster_status(rows, conf),
+            'conflict': conf[-1] if conf else None,
+            'signed_in_at': rows[-1]['signed_in_at'] if rows else None,
+            'signed_out_at': rows[-1]['signed_out_at'] if rows and rows[-1].get('signed_out_at') else None})
+
+    all_statuses = [r['status'] for r in crew_out+youth_out]
+    summary = {
+        'total': len(all_statuses),
+        'signed_in': all_statuses.count('signed_in'),
+        'signed_out': all_statuses.count('signed_out'),
+        'not_yet': all_statuses.count('not_yet'),
+        'called_out': sum(1 for s in all_statuses if s in ('absent','sick','late','leaving_early')),
+    }
+
+    conn.close()
+    return jsonify({
+        'production': prod, 'date': target_date, 'events': events,
+        'crew': crew_out, 'youth': youth_out, 'summary': summary,
+    })
+
 @app.route('/api/productions/<pid>/team')
 def get_production_team(pid):
     conn = get_db()
@@ -13318,8 +13416,12 @@ def delete_portal_folder(folder_name):
     return jsonify({'ok': True})
 
 # ── Portal callout (POST = set callout) ──
-@app.route('/api/portal/callout', methods=['POST'])
+@app.route('/api/portal/admin/callout-banner', methods=['POST'])
 def set_portal_callout():
+    """Admin-only: sets the system-wide login-screen announcement banner.
+    Renamed from the old '/api/portal/callout' POST route, which collided
+    with the parent-facing rehearsal call-out submission route below and
+    silently swallowed every parent call-out (wrong handler, admin-gated)."""
     err = require_admin()
     if err: return err
     d = request.json or {}
@@ -13328,6 +13430,90 @@ def set_portal_callout():
         (json.dumps(d.get('callout')),))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+# Call-out lock window: parents can self-report a conflict for an event only
+# until this many hours before the event's scheduled start. After that it's
+# locked and they need to contact the production team directly.
+CALLOUT_LOCK_HOURS = 24
+
+@app.route('/api/portal/production-conflict', methods=['POST'])
+def submit_portal_production_conflict():
+    """Parent-facing: submit a call-out (absent/sick/late/leaving early) for
+    a youth participant on a specific production event. Locks 24 hours
+    before the event's scheduled start time."""
+    d = request.json or {}
+    production_id = d.get('production_id')
+    youth_id = d.get('youth_id')
+    event_id = d.get('event_id')
+    status = d.get('status', 'absent')
+    notes = (d.get('notes') or '').strip()
+    if status not in ('absent', 'sick', 'late', 'leaving_early'):
+        return jsonify({'error': 'Invalid status'}), 400
+    if not production_id or not youth_id:
+        return jsonify({'error': 'Missing production or participant'}), 400
+
+    conn = get_db()
+    event = None
+    if event_id:
+        event = fetchone(conn, 'SELECT id, event_date, start_time, name FROM events WHERE id=%s', (event_id,))
+        if not event:
+            conn.close()
+            return jsonify({'error': 'Event not found'}), 404
+        if event.get('event_date'):
+            ev_date = event['event_date']
+            if not hasattr(ev_date, 'year'):  # string from DB driver, normalize
+                ev_date = datetime.strptime(str(ev_date), '%Y-%m-%d').date()
+            ev_time = event.get('start_time')
+            if isinstance(ev_time, str):
+                try:
+                    ev_time = datetime.strptime(ev_time, '%H:%M:%S').time() if len(ev_time) > 5 else datetime.strptime(ev_time, '%H:%M').time()
+                except Exception:
+                    ev_time = None
+            event_start = datetime.combine(ev_date, ev_time or datetime.min.time())
+            lock_at = event_start - timedelta(hours=CALLOUT_LOCK_HOURS)
+            if datetime.now() >= lock_at:
+                conn.close()
+                return jsonify({'error': f'Call-outs for this event lock {CALLOUT_LOCK_HOURS} hours before it starts. Please contact the production team directly.'}), 400
+
+    # Don't create duplicate call-outs for the same person/event — update instead
+    existing = None
+    if event_id:
+        existing = fetchone(conn, '''SELECT id FROM production_conflicts
+            WHERE production_id=%s AND event_id=%s AND youth_id=%s''', (production_id, event_id, youth_id))
+    if existing:
+        execute(conn, '''UPDATE production_conflicts SET status=%s, notes=%s, source='portal',
+            created_by_portal=TRUE, created_at=NOW() WHERE id=%s''', (status, notes, existing['id']))
+        cid = existing['id']
+    else:
+        cid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO production_conflicts
+            (id, production_id, event_id, youth_id, status, source, notes, approved, created_by_portal)
+            VALUES (%s,%s,%s,%s,%s,'portal',%s,TRUE,TRUE)''',
+            (cid, production_id, event_id, youth_id, status, notes))
+    conn.commit()
+
+    # Notify production team (best-effort — mirrors pattern used elsewhere for portal actions)
+    try:
+        youth = fetchone(conn, 'SELECT first_name, last_name FROM youth_participants WHERE id=%s', (youth_id,))
+        prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
+        admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!='' AND COALESCE(active,TRUE)=TRUE") or []
+        recipients = [a['email'] for a in admins if a.get('email')]
+        if youth and prod and recipients:
+            labels = {'absent':'Absent','sick':'Sick','late':'Running Late','leaving_early':'Leaving Early'}
+            label = labels.get(status, status)
+            subject = f"Call-out: {youth['first_name']} {youth['last_name']} — {label}"
+            html = (f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                    f'<h2 style="color:#145466">Call-out reported</h2>'
+                    f'<p><strong>{youth["first_name"]} {youth["last_name"]}</strong> has been marked '
+                    f'<strong>{label}</strong> for <strong>{prod["name"]}</strong>'
+                    + (f' — {event["name"]}' if event and event.get('name') else '') + '.</p>'
+                    + (f'<p>Notes: {notes}</p>' if notes else '') + '</div>')
+            send_email(recipients, subject, html)
+    except Exception:
+        pass
+
+    conn.close()
+    return jsonify({'ok': True, 'id': cid})
 
 # ── Portal youth update ──
 @app.route('/api/portal/youth/<yid>', methods=['POST'])

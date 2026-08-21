@@ -28707,36 +28707,39 @@ function openLicensingDetail(id){
 }
 
 function licRehearsalSummary(lr){
- let days=[]; try{ days = JSON.parse(lr.rehearsal_days||'[]') }catch(e){}
- if(!Array.isArray(days) || !days.length) return ''
- return `<div style="font-size:12px;color:var(--text-muted)">Rehearsals: ${days.map(escHtml).join(', ')}${lr.rehearsal_start_time?' · '+lr.rehearsal_start_time+'–'+lr.rehearsal_end_time:''}</div>`
+ let blocks=[]; try{ blocks = JSON.parse(lr.rehearsal_blocks||'[]') }catch(e){}
+ if(!Array.isArray(blocks) || !blocks.length) return ''
+ const blockLines = blocks.map(b=>`${(b.days||[]).map(escHtml).join('/')} ${b.start_time}–${b.end_time}`).join(', ')
+ const period = lr.rehearsal_period_start ? `${lr.rehearsal_period_start} – ${lr.rehearsal_period_end}` : ''
+ return `<div style="font-size:12px;color:var(--text-muted)">Rehearsals: ${blockLines}${period?' · '+period:''}</div>`
 }
 
 const REHEARSAL_DAY_OPTIONS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+let _rehearsalBlocks = []
 
 function openRehearsalScheduleModal(id){
  const lr = licensingData.find(x=>x.id===id)
  if(!lr) return
- let savedDays=[]; try{ savedDays = JSON.parse(lr.rehearsal_days||'[]') }catch(e){}
+ try{ _rehearsalBlocks = JSON.parse(lr.rehearsal_blocks||'[]') }catch(e){ _rehearsalBlocks = [] }
+ if(!Array.isArray(_rehearsalBlocks) || !_rehearsalBlocks.length) _rehearsalBlocks = [{days:[], start_time:'', end_time:''}]
  const existing = document.getElementById('rehearsal-schedule-modal')
  if(existing) existing.remove()
  const overlay = document.createElement('div')
  overlay.id = 'rehearsal-schedule-modal'
  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
- overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:24px">
+ overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:24px">
   <div style="font-size:17px;font-weight:800;margin-bottom:4px">Rehearsal schedule</div>
-  <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Needed before approving to produce — BloomBooks uses this to charge the show for studio use at cost.</p>
-  <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px">Rehearsal days</div>
-  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
-   ${REHEARSAL_DAY_OPTIONS.map(d=>`<label style="border:1.5px solid var(--border-md);border-radius:var(--radius);padding:6px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
-     <input type="checkbox" name="rehearsal-day" value="${d}" ${savedDays.includes(d)?'checked':''}/> ${d}
-   </label>`).join('')}
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
-   <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Start time</label>
-    <input type="time" id="rehearsal-start-time" value="${lr.rehearsal_start_time||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
-   <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">End time</label>
-    <input type="time" id="rehearsal-end-time" value="${lr.rehearsal_end_time||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
+  <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Needed before approving to produce — BloomBooks uses this to charge the show for studio use at cost. Add a block for each distinct day/time combination, e.g. Saturdays 11–2 and Thursdays 5–6:30.</p>
+  <div id="rehearsal-blocks-wrap"></div>
+  <button class="btn btn-secondary btn-sm" onclick="addRehearsalBlock()" style="margin-bottom:18px">+ Add time block</button>
+  <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:18px">
+   <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px">Rehearsal period</div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Starts</label>
+     <input type="date" id="rehearsal-period-start" value="${lr.rehearsal_period_start||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Ends</label>
+     <input type="date" id="rehearsal-period-end" value="${lr.rehearsal_period_end||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
+   </div>
   </div>
   <div style="display:flex;gap:8px;justify-content:flex-end">
    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('rehearsal-schedule-modal').remove()">Cancel</button>
@@ -28745,16 +28748,59 @@ function openRehearsalScheduleModal(id){
  </div>`
  document.body.appendChild(overlay)
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+ renderRehearsalBlocks()
+}
+
+function renderRehearsalBlocks(){
+ const wrap = document.getElementById('rehearsal-blocks-wrap')
+ if(!wrap) return
+ wrap.innerHTML = _rehearsalBlocks.map((b,idx)=>`
+  <div style="border:1.5px solid var(--border-md);border-radius:var(--radius);padding:12px;margin-bottom:10px">
+   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+    ${REHEARSAL_DAY_OPTIONS.map(d=>`<label style="border:1.5px solid var(--border-md);border-radius:var(--radius);padding:5px 9px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
+      <input type="checkbox" onchange="toggleRehearsalBlockDay(${idx},'${d}',this.checked)" ${(b.days||[]).includes(d)?'checked':''}/> ${d}
+    </label>`).join('')}
+   </div>
+   <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
+    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Start time</label>
+     <input type="time" value="${b.start_time||''}" oninput="updateRehearsalBlock(${idx},'start_time',this.value)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">End time</label>
+     <input type="time" value="${b.end_time||''}" oninput="updateRehearsalBlock(${idx},'end_time',this.value)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
+    ${_rehearsalBlocks.length>1?`<button class="btn btn-danger btn-sm" onclick="removeRehearsalBlock(${idx})">×</button>`:'<div></div>'}
+   </div>
+  </div>`).join('')
+}
+
+function addRehearsalBlock(){
+ _rehearsalBlocks.push({days:[], start_time:'', end_time:''})
+ renderRehearsalBlocks()
+}
+
+function removeRehearsalBlock(idx){
+ _rehearsalBlocks.splice(idx,1)
+ renderRehearsalBlocks()
+}
+
+function toggleRehearsalBlockDay(idx, day, checked){
+ const b = _rehearsalBlocks[idx]
+ const set = new Set(b.days||[])
+ if(checked) set.add(day); else set.delete(day)
+ b.days = REHEARSAL_DAY_OPTIONS.filter(d=>set.has(d))
+}
+
+function updateRehearsalBlock(idx, field, val){
+ _rehearsalBlocks[idx][field] = val
 }
 
 async function confirmApproveWithSchedule(id){
- const days = Array.from(document.querySelectorAll('input[name="rehearsal-day"]:checked')).map(cb=>cb.value)
- const rehearsal_start_time = document.getElementById('rehearsal-start-time')?.value||''
- const rehearsal_end_time = document.getElementById('rehearsal-end-time')?.value||''
- if(!days.length){ toast('Select at least one rehearsal day','error'); return }
- if(!rehearsal_start_time || !rehearsal_end_time){ toast('Rehearsal start and end time are required','error'); return }
+ const rehearsal_period_start = document.getElementById('rehearsal-period-start')?.value||''
+ const rehearsal_period_end = document.getElementById('rehearsal-period-end')?.value||''
+ const blocks = _rehearsalBlocks.filter(b=>(b.days||[]).length && b.start_time && b.end_time)
+ if(!blocks.length){ toast('Add at least one complete rehearsal block (days + start/end time)','error'); return }
+ if(!rehearsal_period_start || !rehearsal_period_end){ toast('Rehearsal period start and end dates are required','error'); return }
+ if(rehearsal_period_end < rehearsal_period_start){ toast('Rehearsal period end date must be on or after the start date','error'); return }
  const res = await api('/api/licensing-requests/'+id+'/approve-to-produce', 'POST', {
-  approved: true, rehearsal_days: days, rehearsal_start_time, rehearsal_end_time
+  approved: true, rehearsal_blocks: blocks, rehearsal_period_start, rehearsal_period_end
  })
  if(res.error){ toast(res.error,'error'); return }
  const idx = licensingData.findIndex(x=>x.id===id)

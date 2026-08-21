@@ -1403,6 +1403,8 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        # Call-out text alert recipients — per-production, set from the Conflicts tab
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS callout_sms_phones TEXT DEFAULT ''",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_by TEXT",
@@ -7739,7 +7741,9 @@ def get_productions():
             JOIN volunteers v ON pm.volunteer_id=v.id
             WHERE pm.production_id=%s ORDER BY pm.role''', (p['id'],))
         p['required_waivers'] = fetchall(conn,
-            'SELECT pw.*, wt.name as waiver_name FROM production_waivers pw JOIN waiver_types wt ON pw.waiver_type_id=wt.id WHERE pw.production_id=%s', (p['id'],))
+            '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+               FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+               WHERE prw.production_id=%s ORDER BY wt.name''', (p['id'],))
     conn.close()
     return jsonify(prods)
 
@@ -9427,8 +9431,7 @@ def save_email_settings_route():
                 'oncall_report_time TEXT DEFAULT \'08:00\'',
                 'oncall_report_enabled TEXT DEFAULT \'0\'',
                 'slack_bot_token TEXT DEFAULT \'\'',
-                'slack_call_channel TEXT DEFAULT \'\'',
-                'callout_sms_phones TEXT DEFAULT \'\'']:
+                'slack_call_channel TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -9463,7 +9466,7 @@ def save_email_settings_route():
         'twilio_hold_music_url','twilio_audio_hold_music',
         'slack_call_webhook',
         'oncall_report_schedule','oncall_report_time','oncall_report_enabled',
-        'slack_bot_token','slack_call_channel','callout_sms_phones']
+        'slack_bot_token','slack_call_channel']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -10530,24 +10533,46 @@ def remove_program_required_waiver(pid, wid):
 
 @app.route('/api/productions/<pid>/waivers', methods=['POST'])
 def add_prod_waiver(pid):
-    err = require_auth()
+    err = require_permission('productions')
     if err: return err
     d = request.json or {}
     rid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO production_required_waivers (id,production_id,waiver_type_id) VALUES (%s,%s,%s)',
         (rid, pid, d.get('waiver_type_id')))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    conn.commit()
+    row = fetchone(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+        FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+        WHERE prw.id=%s''', (rid,))
+    conn.close()
+    return jsonify(row)
 
 @app.route('/api/productions/<pid>/waivers/<wid>', methods=['DELETE'])
 def remove_prod_waiver(pid, wid):
-    err = require_auth()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_required_waivers WHERE production_id=%s AND waiver_type_id=%s', (pid, wid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/callout-phones', methods=['PUT'])
+def set_production_callout_phones(pid):
+    """Quick action to set the phone numbers that get a text when someone calls
+    out for this production — replaces the old global Settings toggle."""
+    err = require_permission('productions')
+    if err: return err
+    d = request.json or {}
+    phones = d.get('callout_sms_phones', '')
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT id FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+    execute(conn, 'UPDATE productions SET callout_sms_phones=%s WHERE id=%s', (phones, pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'callout_sms_phones': phones})
 
 # ─────────────────────────────────────────────
 #  KIOSK ROUTES
@@ -13498,11 +13523,12 @@ def submit_portal_production_conflict():
             (cid, production_id, event_id, youth_id, status, notes))
     conn.commit()
 
-    # Notify production team by email + text — gated on the existing
-    # "Callout submitted" alert toggle in Settings → Email → Alerts.
+    # Notify production team by email + text — email gated on the existing
+    # "Callout submitted" alert toggle in Settings → Email → Alerts; text
+    # numbers are set per-production, from that production's Conflicts tab.
     try:
         youth = fetchone(conn, 'SELECT first_name, last_name FROM youth_participants WHERE id=%s', (youth_id,))
-        prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
+        prod = fetchone(conn, 'SELECT name, callout_sms_phones FROM productions WHERE id=%s', (production_id,))
         s = get_email_settings()
         if youth and prod and s.get('alert_callouts', True):
             labels = {'absent':'Absent','sick':'Sick','late':'Running Late','leaving_early':'Leaving Early'}
@@ -13520,7 +13546,7 @@ def submit_portal_production_conflict():
                         + (f'<p>Notes: {notes}</p>' if notes else '') + '</div>')
                 send_email(recipients, subject, html)
 
-            phones = [p.strip() for p in (s.get('callout_sms_phones') or '').split(',') if p.strip()]
+            phones = [p.strip() for p in (prod.get('callout_sms_phones') or '').split(',') if p.strip()]
             ts = get_twilio_settings()
             if phones and ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'):
                 sms_body = f"HWTC RoleCall: {who} marked {label} — {prod['name']}{where}."
@@ -13597,6 +13623,48 @@ def portal_production_conflicts(pid):
         conflicts = []
     conn.close()
     return jsonify(conflicts)
+
+@app.route('/api/productions/<pid>/waiver-status')
+def production_waiver_status(pid):
+    """Who has/hasn't signed each required waiver for a production — covers
+    both youth cast (Rising Stars) and adult cast/crew volunteers, mirroring
+    the equivalent view already built for programs/classes."""
+    err = require_permission('productions', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name, wt.can_sign_online
+            FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+            WHERE prw.production_id=%s ORDER BY wt.name''', (pid,))
+    except Exception:
+        conn.close()
+        return jsonify({'required_waivers': [], 'youth': [], 'crew': []})
+    if not required:
+        conn.close()
+        return jsonify({'required_waivers': [], 'youth': [], 'crew': []})
+
+    youth_members = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name
+        FROM youth_production_members ypm JOIN youth_participants y ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+    youth_out = []
+    for y in youth_members:
+        signed = fetchall(conn, 'SELECT waiver_type_id FROM youth_waivers WHERE youth_id=%s', (y['id'],))
+        signed_ids = {s['waiver_type_id'] for s in signed}
+        missing = [r for r in required if r['waiver_type_id'] not in signed_ids]
+        youth_out.append({**y, 'missing_waivers': missing, 'all_signed': len(missing) == 0})
+
+    crew_members = fetchall(conn, '''SELECT v.id, v.name, pm.role
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s ORDER BY v.name''', (pid,))
+    crew_out = []
+    for v in crew_members:
+        signed = fetchall(conn, 'SELECT waiver_type_id FROM volunteer_waivers WHERE volunteer_id=%s', (v['id'],))
+        signed_ids = {s['waiver_type_id'] for s in signed}
+        missing = [r for r in required if r['waiver_type_id'] not in signed_ids]
+        crew_out.append({**v, 'missing_waivers': missing, 'all_signed': len(missing) == 0})
+
+    conn.close()
+    return jsonify({'required_waivers': required, 'youth': youth_out, 'crew': crew_out})
 
 @app.route('/api/portal/program/<pid>/waiver-status')
 def portal_program_waiver_status(pid):

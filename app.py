@@ -1368,6 +1368,13 @@ def init_db():
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_days TEXT DEFAULT '[]'",
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_start_time TEXT DEFAULT ''",
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_end_time TEXT DEFAULT ''",
+        # rehearsal_blocks supersedes the three columns above — supports multiple
+        # day/time combinations (e.g. Sat 11-2 AND Thu 5-6:30) instead of one
+        # uniform time for every rehearsal day. The old columns stay for shows
+        # approved before this existed.
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_blocks TEXT DEFAULT '[]'",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_period_start DATE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_period_end DATE",
         # audit trail columns
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
@@ -18345,9 +18352,10 @@ def update_licensing_request(lid):
 def approve_licensing_request_to_produce(lid):
     """Board sign-off to move forward and produce this show. Requires the signed
     contract to already be on file, and — when approving (not un-approving) —
-    a rehearsal schedule, since that's what BloomBooks uses to charge the show
-    for studio use. This is the flag BloomBooks reads to know a show is ready
-    to be built out (production + budget)."""
+    a rehearsal schedule (one or more day/time blocks) plus a rehearsal date
+    range, since that's what BloomBooks uses to charge the show for studio use.
+    This is the flag BloomBooks reads to know a show is ready to be built out
+    (production + budget)."""
     err = require_permission('licensing')
     if err: return err
     d = request.json or {}
@@ -18362,36 +18370,43 @@ def approve_licensing_request_to_produce(lid):
     approved = bool(d.get('approved', True))
     approver = session.get('user_name', '')
 
-    rehearsal_days = lr.get('rehearsal_days') or '[]'
-    rehearsal_start_time = lr.get('rehearsal_start_time') or ''
-    rehearsal_end_time = lr.get('rehearsal_end_time') or ''
+    rehearsal_blocks = lr.get('rehearsal_blocks') or '[]'
+    rehearsal_period_start = lr.get('rehearsal_period_start')
+    rehearsal_period_end = lr.get('rehearsal_period_end')
     if approved:
-        if 'rehearsal_days' in d:
-            days = d.get('rehearsal_days') or []
-            if not isinstance(days, list) or not days:
+        if 'rehearsal_blocks' in d:
+            blocks = d.get('rehearsal_blocks') or []
+            if not isinstance(blocks, list) or not blocks:
                 conn.close()
-                return jsonify({'error': 'Select at least one rehearsal day'}), 400
-            rehearsal_days = json.dumps(days)
-            rehearsal_start_time = (d.get('rehearsal_start_time') or '').strip()
-            rehearsal_end_time = (d.get('rehearsal_end_time') or '').strip()
-            if not rehearsal_start_time or not rehearsal_end_time:
+                return jsonify({'error': 'Add at least one rehearsal time block'}), 400
+            for b in blocks:
+                if not isinstance(b, dict) or not b.get('days') or not b.get('start_time') or not b.get('end_time'):
+                    conn.close()
+                    return jsonify({'error': 'Each rehearsal block needs at least one day and a start/end time'}), 400
+            rehearsal_blocks = json.dumps(blocks)
+            rehearsal_period_start = (d.get('rehearsal_period_start') or '').strip() or None
+            rehearsal_period_end = (d.get('rehearsal_period_end') or '').strip() or None
+            if not rehearsal_period_start or not rehearsal_period_end:
                 conn.close()
-                return jsonify({'error': 'Rehearsal start and end time are required'}), 400
+                return jsonify({'error': 'Rehearsal period start and end dates are required'}), 400
+            if rehearsal_period_end < rehearsal_period_start:
+                conn.close()
+                return jsonify({'error': 'Rehearsal period end date must be on or after the start date'}), 400
         else:
             try:
-                existing_days = json.loads(rehearsal_days)
+                existing_blocks = json.loads(rehearsal_blocks)
             except Exception:
-                existing_days = []
-            if not existing_days or not lr.get('rehearsal_start_time') or not lr.get('rehearsal_end_time'):
+                existing_blocks = []
+            if not existing_blocks or not lr.get('rehearsal_period_start') or not lr.get('rehearsal_period_end'):
                 conn.close()
-                return jsonify({'error': 'A rehearsal schedule is required to approve this show to produce'}), 400
+                return jsonify({'error': 'A rehearsal schedule and date range is required to approve this show to produce'}), 400
 
     execute(conn, '''UPDATE licensing_requests SET approved_to_produce=%s,
         approved_to_produce_date=%s, approved_to_produce_by=%s,
-        rehearsal_days=%s, rehearsal_start_time=%s, rehearsal_end_time=%s,
+        rehearsal_blocks=%s, rehearsal_period_start=%s, rehearsal_period_end=%s,
         updated_at=NOW() WHERE id=%s''',
         (approved, date.today().isoformat() if approved else None, approver if approved else '',
-         rehearsal_days, rehearsal_start_time, rehearsal_end_time, lid))
+         rehearsal_blocks, rehearsal_period_start, rehearsal_period_end, lid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
     conn.close()

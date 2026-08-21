@@ -15388,14 +15388,6 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '</select>'
  }
  s += '</div>'
- s += '</div>' // end required waivers card
-
- // Waiver status card — who has/hasn't signed
- s += '<div class="card" style="padding:16px;margin-top:16px">'
- s += '<div style="font-size:13px;font-weight:700;margin-bottom:2px"> Waiver Status</div>'
- s += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Who still needs to sign</div>'
- s += '<div id="prod-waiver-status-'+p.id+'"><div style="font-size:12px;color:var(--text-muted);font-style:italic">Loading…</div></div>'
- s += '</div>'
  s += '</div>' // end profile-card
 
  // ── Right content ──
@@ -15405,6 +15397,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += "<button id='prodtab-btn-members' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)' onclick='switchProductionTab(&quot;members&quot;)'>Cast &amp; Crew</button>"
  if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
  s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>Schedule &amp; Conflicts</button>"
+ s += "<button id='prodtab-btn-waivers' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;waivers&quot;)'>Waivers</button>"
  s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>Info</button>"
     s += "<button id='prodtab-btn-tickets' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;tickets&quot;)'>&#127903; Tickets</button>"
  if(p.stage==='rising_stars'){
@@ -15413,6 +15406,9 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  }
  if(canSeePortal) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>Portal Content</button>"
  s += '</div>'
+
+ // Waivers tab — who has/hasn't signed
+ s += '<div id="prodtab-waivers" style="display:none"><div id="prod-waiver-status-'+p.id+'" class="card" style="padding:20px"><div style="color:var(--text-muted)">Loading…</div></div></div>'
 
  // Members tab
  s += '<div id="prodtab-members" class="card" style="padding:20px">'
@@ -16558,28 +16554,39 @@ function renderProductionWaiverStatus(pid, data){
  const el = document.getElementById('prod-waiver-status-'+pid)
  if(!el) return
  if(!data||data.error||!data.required_waivers||!data.required_waivers.length){
- el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No required waivers set for this production.</div>'
+ el.innerHTML = '<div style="font-size:15px;font-weight:600;margin-bottom:4px">Waiver Status</div>'
+ + '<div style="font-size:13px;color:var(--text-muted)">No required waivers set for this production. Add one from the sidebar to start tracking signatures.</div>'
  return
  }
  const all = [...(data.youth||[]).map(p=>({...p, _label:(p.first_name+' '+p.last_name), _isYouth:true})),
  ...(data.crew||[]).map(p=>({...p, _label:p.name, _isYouth:false}))]
  const missing = all.filter(p=>p.missing_waivers&&p.missing_waivers.length)
  const ok = all.filter(p=>!p.missing_waivers||!p.missing_waivers.length)
+ const header = '<div style="display:flex;align-items:center;justify-content:between;margin-bottom:4px">'
+ + '<div style="font-size:15px;font-weight:600">Waiver Status</div></div>'
+ + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:18px">Who still needs to sign · Required: '+data.required_waivers.map(w=>escHtml(w.name)).join(', ')+'</div>'
  if(!all.length){
- el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No cast or crew added yet.</div>'
+ el.innerHTML = header + '<div style="font-size:13px;color:var(--text-muted)">No cast or crew added to this production yet.</div>'
  return
  }
- el.innerHTML = `
- ${missing.length?`
- <div style="background:var(--red-50);border-radius:8px;padding:10px 12px;margin-bottom:10px">
- <div style="font-size:12px;font-weight:700;color:var(--red-600);margin-bottom:6px"> ${missing.length} missing waivers</div>
- ${missing.map(p=>`<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,0.05)">
- <span style="font-weight:600">${escHtml(p._label)}</span>${p._isYouth?' <span style="color:var(--text-hint)">(youth)</span>':''}
- <div style="font-size:11px;color:var(--red-600)">Missing: ${p.missing_waivers.map(w=>escHtml(w.name)).join(', ')}</div>
+ el.innerHTML = header
+ + (missing.length ? `
+ <div style="background:var(--red-50);border-radius:var(--radius);padding:14px 16px;margin-bottom:16px">
+ <div style="font-size:13px;font-weight:700;color:var(--red-600);margin-bottom:10px"> ${missing.length} missing waiver${missing.length!==1?'s':''}</div>
+ <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:2px 24px">
+ ${missing.map(p=>`<div style="padding:8px 0;border-bottom:1px solid rgba(0,0,0,0.06)">
+ <span style="font-weight:600;font-size:13px">${escHtml(p._label)}</span>${p._isYouth?' <span style="color:var(--text-hint);font-size:12px">(youth)</span>':''}
+ <div style="font-size:12px;color:var(--red-600)">Missing: ${p.missing_waivers.map(w=>escHtml(w.name)).join(', ')}</div>
  </div>`).join('')}
- </div>`:''}
- ${ok.length?`<div style="font-size:11px;color:var(--green);font-weight:600"> ${ok.length} of ${all.length} have all required waivers</div>`:''}
- <div style="font-size:10px;color:var(--text-hint);margin-top:8px">Required: ${data.required_waivers.map(w=>escHtml(w.name)).join(', ')}</div>`
+ </div>
+ </div>` : '')
+ + (ok.length ? `
+ <div style="margin-bottom:6px">
+ <div style="font-size:13px;font-weight:700;color:var(--green);margin-bottom:10px"> ${ok.length} of ${all.length} have all required waivers</div>
+ <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:2px 24px">
+ ${ok.map(p=>`<div style="padding:6px 0;font-size:13px;color:var(--text-muted)">${escHtml(p._label)}${p._isYouth?' <span style="color:var(--text-hint);font-size:12px">(youth)</span>':''}</div>`).join('')}
+ </div>
+ </div>` : '')
 }
 
 async function addProdWaiverUI(pid, sel){
@@ -22084,7 +22091,7 @@ function openProductionRegistrationSettingsModal(pid){
 
 function switchProductionTab(tab){
  const pid = window._currentProductionDetailId
- const tabs = ['members','youth','schedule','info','portal','auditions','registrations','tickets']
+ const tabs = ['members','youth','schedule','waivers','info','portal','auditions','registrations','tickets']
  tabs.forEach(t=>{
  const el = document.getElementById('prodtab-'+t)
  if(el) el.style.display = t===tab?'':'none'
@@ -22093,6 +22100,7 @@ function switchProductionTab(tab){
  })
  if(tab==='portal') loadProductionPortalContent(pid)
  if(tab==='youth' && pid) loadYouthProdMembers(pid)
+ if(tab==='waivers' && pid) loadProductionWaiverStatus(pid)
  if(tab==='auditions' && pid){
  const inner = document.getElementById('prodtab-auditions-inner-'+pid)
  if(inner &&!inner.dataset.loaded){

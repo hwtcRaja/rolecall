@@ -1802,6 +1802,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
  <input type="checkbox" id="es-alert-callouts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
  <div><div style="font-size:13px;font-weight:600"> Callout submitted</div><div style="font-size:11px;color:var(--text-muted)">Alert when cast member calls out</div></div>
+ <div style="margin:6px 0 10px 26px;padding:8px 10px;background:var(--bg);border-radius:8px">
+ <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Text alert phone numbers (comma-separated)</label>
+ <input type="text" id="es-callout-sms-phones" placeholder="e.g. 4075551234, 4075555678" style="width:100%;padding:6px 8px;border:1px solid var(--border-md);border-radius:6px;font-size:12px;font-family:inherit"/>
+ </div>
  </label>
  <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
  <input type="checkbox" id="es-alert-conflicts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
@@ -1932,6 +1936,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
  <input type="checkbox" id="es-alert-callouts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
  <div><div style="font-size:13px;font-weight:600"> Callout submitted</div><div style="font-size:11px;color:var(--text-muted)">Alert when cast member calls out</div></div>
+ <div style="margin:6px 0 10px 26px;padding:8px 10px;background:var(--bg);border-radius:8px">
+ <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Text alert phone numbers (comma-separated)</label>
+ <input type="text" id="es-callout-sms-phones" placeholder="e.g. 4075551234, 4075555678" style="width:100%;padding:6px 8px;border:1px solid var(--border-md);border-radius:6px;font-size:12px;font-family:inherit"/>
+ </div>
  </label>
  <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
  <input type="checkbox" id="es-alert-conflicts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
@@ -9768,6 +9776,7 @@ async function loadEmailSettings(){
  chk('es-alert-hours', s.alert_pending_hours!==false)
  chk('es-alert-profiles', s.alert_profile_updates!==false)
  chk('es-alert-callouts', s.alert_callouts!==false)
+ set('es-callout-sms-phones', s.callout_sms_phones||'')
  chk('es-alert-conflicts', s.alert_conflicts!==false)
  chk('es-alert-waivers', s.alert_waivers!==false)
  chk('es-alert-not-opened', s.alert_event_not_opened!==false)
@@ -10727,6 +10736,7 @@ async function saveEmailSettings(){
  alert_pending_hours: chk('es-alert-hours'),
  alert_profile_updates: chk('es-alert-profiles'),
  alert_callouts: chk('es-alert-callouts'),
+ callout_sms_phones: get('es-callout-sms-phones'),
  alert_conflicts: chk('es-alert-conflicts'),
  alert_waivers: chk('es-alert-waivers'),
  alert_event_not_opened: chk('es-alert-not-opened'),

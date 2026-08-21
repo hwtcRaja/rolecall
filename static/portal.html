@@ -1226,7 +1226,7 @@ function buildCalloutBar(productionId, yid){
  window._calloutProdId = productionId
  window._calloutYid = yid
  return '<div style="margin-top:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.2)">'
- +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Need to call out? Click <strong>"Call Out"</strong> next to an upcoming event in the Schedule tab. Call-outs must be submitted at least '+CALLOUT_LOCK_HOURS+' hours before the event starts.</div>'
+ +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Need to call out? Click <strong>"Call Out"</strong> next to the event in the Schedule tab. Call-outs open '+CALLOUT_WINDOW_HOURS+' hours before an event and close once it starts.</div>'
  +'</div>'
 }
 
@@ -1286,8 +1286,9 @@ function switchDetailTab(id, btn){
 const CONFLICT_LABELS = {absent:' Absent',sick:' Sick',late:' Running Late',leaving_early:' Leaving Early'}
 const CONFLICT_COLORS = {absent:'#dc2626',sick:'#dc2626',late:'#d97706',leaving_early:'#d97706'}
 const CONFLICT_BG = {absent:'#fef2f2',sick:'#fef2f2',late:'#fffbeb',leaving_early:'#fffbeb'}
-// Call-outs lock this many hours before an event's scheduled start — keep in sync with CALLOUT_LOCK_HOURS in app.py
-const CALLOUT_LOCK_HOURS = 24
+// Call-outs open this many hours before an event's scheduled start, and stay
+// open until it starts — keep in sync with CALLOUT_WINDOW_HOURS in app.py
+const CALLOUT_WINDOW_HOURS = 24
 
 function eventRow(e, today, conflictByEvent){
  const d = e.event_date ? new Date(e.event_date+'T00:00:00'): null
@@ -1313,19 +1314,27 @@ function eventRow(e, today, conflictByEvent){
  }
  const othersNote = othersCount>0&&!myConflict ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'+othersCount+' other'+(othersCount>1?'s':'')+' have reported a conflict</div>': ''
 
- // Call-out is open for any upcoming event until CALLOUT_LOCK_HOURS before it
- // starts, then locks. Events without a start_time lock at the start of the day.
+ // Call-out is open only within CALLOUT_WINDOW_HOURS before an event starts,
+ // and stays open right up until it starts. Too early or already started = locked.
+ // Events without a start_time use midnight as their start.
  let calloutOpen = false
+ let tooEarly = false
  if(conflictByEvent && !myConflict && e.event_date){
  const timePart = e.start_time || '00:00:00'
  const eventStart = new Date(e.event_date+'T'+timePart)
  if(!isNaN(eventStart.getTime())){
- const lockAt = new Date(eventStart.getTime() - CALLOUT_LOCK_HOURS*60*60*1000)
- calloutOpen = new Date() < lockAt
+ const windowOpensAt = new Date(eventStart.getTime() - CALLOUT_WINDOW_HOURS*60*60*1000)
+ const now = new Date()
+ calloutOpen = now >= windowOpensAt && now < eventStart
+ tooEarly = now < windowOpensAt
  }
  }
- const lockedNote = (conflictByEvent&&!myConflict&&!calloutOpen&&e.event_date)
- ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Call-out window closed — contact the production team directly</div>': ''
+ let lockedNote = ''
+ if(conflictByEvent && !myConflict && e.event_date && !calloutOpen){
+ lockedNote = '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'
+ +(tooEarly ? 'Call-out opens '+CALLOUT_WINDOW_HOURS+' hours before this event': 'Call-out window closed — contact the production team directly')
+ +'</div>'
+ }
 
  const row = '<div class="event-item" style="'+(myConflict?'opacity:0.75;':'')+(isToday?'border-left:3px solid var(--teal-mid);padding-left:8px;':'')+'">'
  +'<div class="event-date-block">'

@@ -264,6 +264,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
  <!-- Programs tab -->
  <div id="portal-main-programs">
  <div class="program-grid" id="program-cards"></div>
+
+ <!-- Archived / past programs and productions — collapsed by default so
+ they don't get confused with anything currently active -->
+ <div id="program-cards-archived-section" style="display:none;margin-top:20px">
+ <div onclick="toggleArchivedPrograms()" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 0;border-top:1px solid var(--border)">
+ <span id="archived-chevron" style="font-size:11px;color:var(--text-muted)">▸</span>
+ <span style="font-size:13px;font-weight:600;color:var(--text-muted)">Past Programs & Productions</span>
+ </div>
+ <div class="program-grid" id="program-cards-archived" style="display:none;margin-top:8px"></div>
+ </div>
+
  <!-- Detail panel for selected program -->
  <div id="program-detail" style="display:none">
  <div class="detail-panel">
@@ -510,54 +521,81 @@ async function loadChildData(yid){
  }
 }
 
+// A program/class is archived once staff sets its status to 'archived'.
+// A production counts as archived once it's completed or cancelled — either
+// way it moves out of the main grid so parents don't mistake it for
+// something current or open for enrollment.
+function isArchivedEnrollment(e){ return e.program_status === 'archived' }
+function isArchivedProduction(p){ return p.status === 'completed' || p.status === 'cancelled' }
+
+function buildProgramCard(type, id, name, col, bodyHTML, archived){
+ const isActive = activeContextId===id && activeContextType===type
+ const card = document.createElement('div')
+ card.className = 'program-card'+(isActive?' active-card':'')+(archived?' archived-card':'')
+ card.dataset.ctxType = type
+ card.dataset.ctxId = id
+ card.dataset.ctxName = name
+ card.dataset.ctxColor = col
+ card.onclick = ()=>selectContext(type,id,name,col)
+ if(archived) card.style.opacity = '0.6'
+ card.innerHTML = '<div class="program-card-bar" style="background:'+(archived?'#9ca3af':col)+'"></div>'
+ +'<div class="program-card-body">'+bodyHTML+'</div>'
+ return card
+}
+
 function renderFamilyContent(){
  document.getElementById('family-loading').style.display = 'none'
  document.getElementById('family-content').style.display = ''
  const {enrollments=[], productions=[]} = activeChildData
  console.log('[Portal] renderFamilyContent — enrollments:', enrollments.length, 'productions:', productions.length, 'raw:', activeChildData)
  const cards = document.getElementById('program-cards')
+ const archiveSection = document.getElementById('program-cards-archived-section')
+ const archiveCards = document.getElementById('program-cards-archived')
  if(!enrollments.length &&!productions.length){
  cards.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon"></div>No programs or productions enrolled yet.</div>'
+ if(archiveSection) archiveSection.style.display = 'none'
  return
  }
  const colors = ['#0d6e6e','#7c3aed','#d97706','#16a34a','#dc2626','#0369a1']
  cards.innerHTML = ''
- let html = ''
+ if(archiveCards) archiveCards.innerHTML = ''
+ let archivedCount = 0
+
  enrollments.forEach((e,i)=>{
  const col = colors[i%colors.length]
- const isActive = activeContextId===e.program_id && activeContextType==='program'
- const card = document.createElement('div')
- card.className = 'program-card'+(isActive?' active-card':'')
- card.dataset.ctxType = 'program'
- card.dataset.ctxId = e.program_id
- card.dataset.ctxName = e.program_name
- card.dataset.ctxColor = col
- card.onclick = ()=>selectContext('program',e.program_id,e.program_name,col)
- card.innerHTML = '<div class="program-card-bar" style="background:'+col+'"></div>'
- +'<div class="program-card-body">'
- +'<div class="program-card-name">'+e.program_name+'</div>'
+ const archived = isArchivedEnrollment(e)
+ const body = '<div class="program-card-name">'+e.program_name+(archived?' <span style="font-size:10px;font-weight:700;color:#6b7280;background:#e5e7eb;padding:2px 7px;border-radius:10px;margin-left:4px">ARCHIVED</span>':'')+'</div>'
  +'<div class="program-card-meta">'
  +(e.instructor_name?'<span> '+e.instructor_name+'</span>':'')
  +(e.start_date?'<span> '+fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):'')+'</span>':'')
- +'</div></div>'
- cards.appendChild(card)
+ +'</div>'
+ const card = buildProgramCard('program', e.program_id, e.program_name, col, body, archived)
+ if(archived){ archivedCount++; if(archiveCards) archiveCards.appendChild(card) }
+ else cards.appendChild(card)
  })
+
  productions.forEach(p=>{
  const col = '#7c3aed'
- const isActive = activeContextId===p.id && activeContextType==='production'
- const card = document.createElement('div')
- card.className = 'program-card'+(isActive?' active-card':'')
- card.dataset.ctxType = 'production'
- card.dataset.ctxId = p.id
- card.onclick = ()=>selectContext('production',p.id,p.name,col)
- card.innerHTML = '<div class="program-card-bar" style="background:'+col+'"></div>'
- +'<div class="program-card-body">'
- +'<div class="program-card-name">⭐ '+p.name+'</div>'
+ const archived = isArchivedProduction(p)
+ const body = '<div class="program-card-name">⭐ '+p.name+(archived?' <span style="font-size:10px;font-weight:700;color:#6b7280;background:#e5e7eb;padding:2px 7px;border-radius:10px;margin-left:4px">ARCHIVED</span>':'')+'</div>'
  +'<div class="program-card-meta"><span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-top:4px;display:inline-block">Rising Stars</span>'
  +(p.cast_role?'<span> Role: '+p.cast_role+'</span>':'')
- +'</div></div>'
- cards.appendChild(card)
+ +'</div>'
+ const card = buildProgramCard('production', p.id, p.name, col, body, archived)
+ if(archived){ archivedCount++; if(archiveCards) archiveCards.appendChild(card) }
+ else cards.appendChild(card)
  })
+
+ if(!cards.innerHTML) cards.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon"></div>No current programs or productions. See Past Programs below.</div>'
+ if(archiveSection) archiveSection.style.display = archivedCount ? '': 'none'
+}
+
+function toggleArchivedPrograms(){
+ const body = document.getElementById('program-cards-archived')
+ const chevron = document.getElementById('archived-chevron')
+ const collapsed = body.style.display === 'none'
+ body.style.display = collapsed ? '': 'none'
+ if(chevron) chevron.textContent = collapsed ? '▾': '▸'
 }
 
 
@@ -1188,7 +1226,7 @@ function buildCalloutBar(productionId, yid){
  window._calloutProdId = productionId
  window._calloutYid = yid
  return '<div style="margin-top:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.2)">'
- +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Need to call out? Click <strong>"Call Out"</strong> next to today\'s event in the Schedule tab.</div>'
+ +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Need to call out? Click <strong>"Call Out"</strong> next to an upcoming event in the Schedule tab. Call-outs must be submitted at least '+CALLOUT_LOCK_HOURS+' hours before the event starts.</div>'
  +'</div>'
 }
 
@@ -1204,7 +1242,7 @@ async function submitCallout(productionId, yid, status){
  const labels = {absent:'Absent',sick:'Sick',late:'Running Late',leaving_early:'Leaving Early'}
  if(!confirm('Mark '+labels[status]+' for today? This will notify the production team.')) return
  const notes = status==='late'||status==='leaving_early' ? (prompt('Any notes? (optional)','') || ''): ''
- const r = await fetch('/api/portal/callout',{
+ const r = await fetch('/api/portal/production-conflict',{
  method:'POST',
  headers:{'Content-Type':'application/json'},
  body:JSON.stringify({production_id:productionId, youth_id:yid, status, notes})
@@ -1248,6 +1286,8 @@ function switchDetailTab(id, btn){
 const CONFLICT_LABELS = {absent:' Absent',sick:' Sick',late:' Running Late',leaving_early:' Leaving Early'}
 const CONFLICT_COLORS = {absent:'#dc2626',sick:'#dc2626',late:'#d97706',leaving_early:'#d97706'}
 const CONFLICT_BG = {absent:'#fef2f2',sick:'#fef2f2',late:'#fffbeb',leaving_early:'#fffbeb'}
+// Call-outs lock this many hours before an event's scheduled start — keep in sync with CALLOUT_LOCK_HOURS in app.py
+const CALLOUT_LOCK_HOURS = 24
 
 function eventRow(e, today, conflictByEvent){
  const d = e.event_date ? new Date(e.event_date+'T00:00:00'): null
@@ -1273,6 +1313,20 @@ function eventRow(e, today, conflictByEvent){
  }
  const othersNote = othersCount>0&&!myConflict ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'+othersCount+' other'+(othersCount>1?'s':'')+' have reported a conflict</div>': ''
 
+ // Call-out is open for any upcoming event until CALLOUT_LOCK_HOURS before it
+ // starts, then locks. Events without a start_time lock at the start of the day.
+ let calloutOpen = false
+ if(conflictByEvent && !myConflict && e.event_date){
+ const timePart = e.start_time || '00:00:00'
+ const eventStart = new Date(e.event_date+'T'+timePart)
+ if(!isNaN(eventStart.getTime())){
+ const lockAt = new Date(eventStart.getTime() - CALLOUT_LOCK_HOURS*60*60*1000)
+ calloutOpen = new Date() < lockAt
+ }
+ }
+ const lockedNote = (conflictByEvent&&!myConflict&&!calloutOpen&&e.event_date)
+ ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Call-out window closed — contact the production team directly</div>': ''
+
  const row = '<div class="event-item" style="'+(myConflict?'opacity:0.75;':'')+(isToday?'border-left:3px solid var(--teal-mid);padding-left:8px;':'')+'">'
  +'<div class="event-date-block">'
  +'<div class="event-date-day">'+day+'</div>'
@@ -1283,8 +1337,9 @@ function eventRow(e, today, conflictByEvent){
  +'<div class="event-meta"><span> '+timeStr+'</span>'+(e.location?'<span> '+e.location+(e.room?' · '+e.room:'')+'</span>':'')+'</div>'
  +conflictBadge
  +othersNote
+ +lockedNote
  +'</div>'
- +(conflictByEvent&&!myConflict&&e.event_date===today
+ +(calloutOpen
  ? '<button onclick="showCalloutForEvent(\''+e.id+'\',\''+e.name+'\')" style="background:var(--red-50);color:var(--red-600);border:1.5px solid #fca5a5;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit">Call Out</button>'
 : '')
  +'</div>'
@@ -1300,7 +1355,7 @@ function showCalloutForEvent(eventId, eventName){
  const s = map[status]
  if(!s){ return }
  const notes = s==='late'||s==='leaving_early' ? (prompt('Any notes? (optional, press Cancel to skip)','') || ''): ''
- fetch('/api/portal/callout',{
+ fetch('/api/portal/production-conflict',{
  method:'POST',
  headers:{'Content-Type':'application/json'},
  body:JSON.stringify({production_id:productionId, youth_id:yid, event_id:eventId, status:s, notes})

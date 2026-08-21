@@ -456,6 +456,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- MAINSTAGE -->
         <div class="nav-section">Mainstage</div>
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions</div>
+        <div class="nav-item" onclick="navTo('daily-overview',this)" style="padding-left:28px"><span class="nav-icon" id="ni-daily-overview"></span>Daily Overview</div>
         <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-cast-signin"></span>Cast Sign-In</div>
         <div class="nav-item" onclick="navTo('show-contracts',this)" style="padding-left:28px"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
         <div class="nav-item" onclick="navTo('licensing',this)" style="padding-left:28px"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
@@ -1090,6 +1091,20 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </select>
  </div>
  <div id="productions-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:20px"></div>
+ </div>
+ </section>
+
+ <!-- DAILY OVERVIEW -->
+ <section class="page" id="page-daily-overview">
+ <div class="page-header">
+ <div><div class="page-title"> Daily Overview</div><div class="page-subtitle">Today's schedule, roster status, and conflicts at a glance</div></div>
+ <div class="page-actions" style="display:flex;gap:10px;align-items:center">
+ <select class="filter-select" id="daily-overview-production" onchange="loadDailyOverviewPage()"></select>
+ <input type="date" class="filter-select" id="daily-overview-date" onchange="loadDailyOverviewPage()">
+ </div>
+ </div>
+ <div class="page-body">
+ <div id="daily-overview-content"><div class="loading"><div class="spinner"></div>Loading…</div></div>
  </div>
  </section>
 
@@ -4123,6 +4138,7 @@ const NAV_PERM_MAP = {
 // Mirrors PERM_LEGACY_FALLBACK in app.py - keep the two in sync.
 const PERM_LEGACY_FALLBACK = {
  'licensing': 'productions',
+ 'daily-overview': 'productions',
 }
 
 function resolvePermLevel(section){
@@ -4230,6 +4246,7 @@ function navTo(page,el){
  if(page==='email'){ renderEmailPage(); loadEmailLog() }
  if(page==='oncall') loadOncallPage()
  if(page==='productions') renderProductions()
+ if(page==='daily-overview') loadDailyOverviewPage()
  if(page==='events') renderEventsPage()
  if(page==='notifications') loadPendingHours()
  if(page==='event-logs') loadEventLogs()
@@ -15161,6 +15178,101 @@ function populateProdVolSelect(){
  if(!sel) return
  sel.innerHTML='<option value="">— Select volunteer —</option>'+
  volunteers.map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DAILY OVERVIEW DASHBOARD — single-day command center for a production:
+// today's schedule, full roster with live sign-in/call-out status, conflicts.
+// ═══════════════════════════════════════════════════════════════
+const DAILY_STATUS_LABELS = {
+ signed_in:'Signed In', signed_out:'Signed Out', not_yet:'Not Yet',
+ absent:'Absent', sick:'Sick', late:'Running Late', leaving_early:'Leaving Early'
+}
+const DAILY_STATUS_COLORS = {
+ signed_in:['#EAF3DE','#3B6D11'], signed_out:['#EFEFEC','#5F5E5A'], not_yet:['#FFF8E1','#92650A'],
+ absent:['#FCEBEB','#A32D2D'], sick:['#FCEBEB','#A32D2D'], late:['#FFF3E0','#B45309'], leaving_early:['#FFF3E0','#B45309']
+}
+
+function populateDailyOverviewProductionSelect(){
+ const sel = document.getElementById('daily-overview-production')
+ if(!sel) return
+ const current = sel.value
+ const mainstage = allProductions.filter(p=>p.stage!=='rising_stars')
+ const rs = allProductions.filter(p=>p.stage==='rising_stars')
+ sel.innerHTML = '<option value="">Select a production…</option>'
+ + (mainstage.length ? '<optgroup label="Mainstage">'+mainstage.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')+'</optgroup>': '')
+ + (rs.length ? '<optgroup label="Rising Stars">'+rs.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')+'</optgroup>': '')
+ if(current && [...sel.options].some(o=>o.value===current)) sel.value = current
+}
+
+async function loadDailyOverviewPage(){
+ populateDailyOverviewProductionSelect()
+ const dateInput = document.getElementById('daily-overview-date')
+ if(dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0,10)
+ const sel = document.getElementById('daily-overview-production')
+ const content = document.getElementById('daily-overview-content')
+ if(!sel.value){
+ if(allProductions.length){ sel.value = allProductions[0].id }
+ else { content.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><p>No productions yet</p></div>'; return }
+ }
+ const pid = sel.value
+ const dateStr = dateInput.value || new Date().toISOString().slice(0,10)
+ content.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
+ const data = await api(`/api/productions/${pid}/daily-overview?date=${dateStr}`)
+ if(data.error){ content.innerHTML = `<div class="empty-state"><div class="empty-icon"></div><p>${data.error}</p></div>`; return }
+ content.innerHTML = renderDailyOverviewHTML(data)
+}
+
+function renderDailyOverviewHTML(data){
+ const {production, date: dateStr, events, crew, youth, summary} = data
+ const isToday = dateStr === new Date().toISOString().slice(0,10)
+
+ const summaryCards = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+ <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700">${summary.total}</div><div style="font-size:12px;color:var(--text-muted)">On the roster</div></div>
+ <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700;color:#3B6D11">${summary.signed_in}</div><div style="font-size:12px;color:var(--text-muted)">Signed In</div></div>
+ <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700;color:#92650A">${summary.not_yet}</div><div style="font-size:12px;color:var(--text-muted)">Not Yet Arrived</div></div>
+ <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700;color:#A32D2D">${summary.called_out}</div><div style="font-size:12px;color:var(--text-muted)">Called Out</div></div>
+ </div>`
+
+ const scheduleHTML = events.length
+ ? `<div class="card" style="padding:16px;margin-bottom:20px">
+ <div style="font-weight:600;margin-bottom:10px">${isToday?"Today's":formatDate(dateStr)+"'s"} Schedule — ${production.name}</div>
+ ${events.map(e=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+ <span style="width:8px;height:8px;border-radius:50%;background:${e.event_type_color?'var(--'+e.event_type_color+'-mid, #145466)':'#145466'};flex-shrink:0"></span>
+ <div style="flex:1"><div style="font-weight:600;font-size:14px">${e.name}</div>
+ <div style="font-size:12px;color:var(--text-muted)">${e.start_time?fmtTime(e.start_time):'Time TBD'}${e.end_time?' – '+fmtTime(e.end_time):''}${e.location?' · '+e.location:''}</div></div>
+ </div>`).join('')}
+ </div>`
+ : `<div class="card" style="padding:16px;margin-bottom:20px;color:var(--text-muted)">No events scheduled for ${production.name} on ${formatDate(dateStr)}.</div>`
+
+ function rosterTable(title, rows, nameFn){
+ if(!rows.length) return ''
+ return `<div class="card" style="padding:16px;margin-bottom:20px">
+ <div style="font-weight:600;margin-bottom:10px">${title} (${rows.length})</div>
+ <table style="width:100%;border-collapse:collapse;font-size:13px">
+ <thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase">
+ <th style="padding:6px 8px">Name</th><th style="padding:6px 8px">Role</th><th style="padding:6px 8px">Status</th><th style="padding:6px 8px">Detail</th>
+ </tr></thead><tbody>
+ ${rows.map(r=>{
+ const [bg,col] = DAILY_STATUS_COLORS[r.status]||['#EFEFEC','#5F5E5A']
+ const detail = r.conflict
+ ? (r.conflict.notes || '—')
+ : (r.signed_in_at ? 'In: '+fmtTime(new Date(r.signed_in_at).toTimeString().slice(0,5))+(r.signed_out_at?' · Out: '+fmtTime(new Date(r.signed_out_at).toTimeString().slice(0,5)):''): '—')
+ return `<tr style="border-top:1px solid var(--border)">
+ <td style="padding:8px">${nameFn(r)}</td>
+ <td style="padding:8px;color:var(--text-muted)">${r.role||'—'}</td>
+ <td style="padding:8px"><span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap">${DAILY_STATUS_LABELS[r.status]||r.status}</span></td>
+ <td style="padding:8px;color:var(--text-muted);font-size:12px">${detail}</td>
+ </tr>`
+ }).join('')}
+ </tbody></table>
+ </div>`
+ }
+
+ return summaryCards + scheduleHTML
+ + rosterTable('Youth Roster', youth, r=>`${r.first_name} ${r.last_name}`)
+ + rosterTable('Cast & Crew', crew, r=>r.name)
+ + (!youth.length && !crew.length ? '<div class="empty-state"><div class="empty-icon"></div><p>No one is on the roster for this production yet.</p></div>': '')
 }
 
 function renderProductions(){

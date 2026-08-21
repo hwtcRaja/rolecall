@@ -9427,7 +9427,8 @@ def save_email_settings_route():
                 'oncall_report_time TEXT DEFAULT \'08:00\'',
                 'oncall_report_enabled TEXT DEFAULT \'0\'',
                 'slack_bot_token TEXT DEFAULT \'\'',
-                'slack_call_channel TEXT DEFAULT \'\'']:
+                'slack_call_channel TEXT DEFAULT \'\'',
+                'callout_sms_phones TEXT DEFAULT \'\'']:
         try:
             execute(conn, f'ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS {col}')
             conn.commit()
@@ -9462,7 +9463,7 @@ def save_email_settings_route():
         'twilio_hold_music_url','twilio_audio_hold_music',
         'slack_call_webhook',
         'oncall_report_schedule','oncall_report_time','oncall_report_enabled',
-        'slack_bot_token','slack_call_channel']
+        'slack_bot_token','slack_call_channel','callout_sms_phones']
     sets = []; vals = []
     for key in allowed:
         if key in d:
@@ -13431,16 +13432,17 @@ def set_portal_callout():
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
-# Call-out lock window: parents can self-report a conflict for an event only
-# until this many hours before the event's scheduled start. After that it's
-# locked and they need to contact the production team directly.
-CALLOUT_LOCK_HOURS = 24
+# Call-out window: parents can self-report a conflict for an event only
+# within this many hours before its scheduled start, right up until it
+# starts. Outside that window (too early, or after the event has begun)
+# it's locked and they need to contact the production team directly.
+CALLOUT_WINDOW_HOURS = 24
 
 @app.route('/api/portal/production-conflict', methods=['POST'])
 def submit_portal_production_conflict():
     """Parent-facing: submit a call-out (absent/sick/late/leaving early) for
-    a youth participant on a specific production event. Locks 24 hours
-    before the event's scheduled start time."""
+    a youth participant on a specific production event. Open only within the
+    24 hours before the event's scheduled start, and closes once it starts."""
     d = request.json or {}
     production_id = d.get('production_id')
     youth_id = d.get('youth_id')
@@ -13470,10 +13472,14 @@ def submit_portal_production_conflict():
                 except Exception:
                     ev_time = None
             event_start = datetime.combine(ev_date, ev_time or datetime.min.time())
-            lock_at = event_start - timedelta(hours=CALLOUT_LOCK_HOURS)
-            if datetime.now() >= lock_at:
+            window_opens_at = event_start - timedelta(hours=CALLOUT_WINDOW_HOURS)
+            now = datetime.now()
+            if now >= event_start:
                 conn.close()
-                return jsonify({'error': f'Call-outs for this event lock {CALLOUT_LOCK_HOURS} hours before it starts. Please contact the production team directly.'}), 400
+                return jsonify({'error': 'This event has already started. Please contact the production team directly.'}), 400
+            if now < window_opens_at:
+                conn.close()
+                return jsonify({'error': f'Call-outs open {CALLOUT_WINDOW_HOURS} hours before this event starts.'}), 400
 
     # Don't create duplicate call-outs for the same person/event — update instead
     existing = None
@@ -13492,23 +13498,42 @@ def submit_portal_production_conflict():
             (cid, production_id, event_id, youth_id, status, notes))
     conn.commit()
 
-    # Notify production team (best-effort — mirrors pattern used elsewhere for portal actions)
+    # Notify production team by email + text — gated on the existing
+    # "Callout submitted" alert toggle in Settings → Email → Alerts.
     try:
         youth = fetchone(conn, 'SELECT first_name, last_name FROM youth_participants WHERE id=%s', (youth_id,))
         prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
-        admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!='' AND COALESCE(active,TRUE)=TRUE") or []
-        recipients = [a['email'] for a in admins if a.get('email')]
-        if youth and prod and recipients:
+        s = get_email_settings()
+        if youth and prod and s.get('alert_callouts', True):
             labels = {'absent':'Absent','sick':'Sick','late':'Running Late','leaving_early':'Leaving Early'}
             label = labels.get(status, status)
-            subject = f"Call-out: {youth['first_name']} {youth['last_name']} — {label}"
-            html = (f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
-                    f'<h2 style="color:#145466">Call-out reported</h2>'
-                    f'<p><strong>{youth["first_name"]} {youth["last_name"]}</strong> has been marked '
-                    f'<strong>{label}</strong> for <strong>{prod["name"]}</strong>'
-                    + (f' — {event["name"]}' if event and event.get('name') else '') + '.</p>'
-                    + (f'<p>Notes: {notes}</p>' if notes else '') + '</div>')
-            send_email(recipients, subject, html)
+            who = f"{youth['first_name']} {youth['last_name']}"
+            where = f" for {event['name']}" if event and event.get('name') else ''
+
+            recipients = get_recipient_emails(s)
+            if recipients:
+                subject = f"Call-out: {who} — {label}"
+                html = (f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                        f'<h2 style="color:#145466">Call-out reported</h2>'
+                        f'<p><strong>{who}</strong> has been marked '
+                        f'<strong>{label}</strong> for <strong>{prod["name"]}</strong>{where}.</p>'
+                        + (f'<p>Notes: {notes}</p>' if notes else '') + '</div>')
+                send_email(recipients, subject, html)
+
+            phones = [p.strip() for p in (s.get('callout_sms_phones') or '').split(',') if p.strip()]
+            ts = get_twilio_settings()
+            if phones and ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'):
+                sms_body = f"HWTC RoleCall: {who} marked {label} — {prod['name']}{where}."
+                try:
+                    from twilio.rest import Client as _TwClient
+                    client = _TwClient(ts['account_sid'], ts['auth_token'])
+                    for phone in phones:
+                        try:
+                            client.messages.create(body=sms_body, from_=ts['from_phone'], to=phone)
+                        except Exception as sms_err:
+                            app.logger.warning(f'Call-out SMS to {phone} failed: {sms_err}')
+                except Exception as tw_err:
+                    app.logger.warning(f'Call-out SMS setup failed: {tw_err}')
     except Exception:
         pass
 

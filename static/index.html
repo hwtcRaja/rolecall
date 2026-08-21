@@ -3682,6 +3682,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="modal-header"><div class="modal-title" id="production-modal-title">New Production</div><button class="modal-close" onclick="closeModal('modal-production')">×</button></div>
  <div class="modal-body">
  <input type="hidden" id="prod-edit-id"/>
+ <input type="hidden" id="prod-from-licensing-id"/>
+ <div class="form-group" id="prod-import-lic-wrap"><label>Import from approved license request <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>
+ <select id="prod-import-lic" onchange="importFromLicensingRequest(this.value)"><option value="">— Start from scratch —</option></select>
+ </div>
  <div class="form-group"><label>Production Name *</label><input type="text" id="prod-name" placeholder="e.g. The Wizard of Oz"/></div>
  <div class="form-row">
  <div class="form-group"><label>Type</label>
@@ -15449,6 +15453,7 @@ function openProductionDetail(prodId, fromPage){
 function openProductionModal(){
  document.getElementById('production-modal-title').textContent='New Production'
  document.getElementById('prod-edit-id').value=''
+ document.getElementById('prod-from-licensing-id').value=''
  ;['prod-name','prod-desc','prod-image-url'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
  document.getElementById('prod-start').value=''
  document.getElementById('prod-end').value=''
@@ -15459,7 +15464,42 @@ function openProductionModal(){
  updateStageUI()
  const pdesel2=document.getElementById('prod-default-elic')
  if(pdesel2) pdesel2.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
+ const importWrap=document.getElementById('prod-import-lic-wrap')
+ if(importWrap) importWrap.style.display=''
+ loadApprovedUnlinkedLicensing()
  openModal('modal-production')
+}
+
+let approvedUnlinkedLicensing = []
+
+async function loadApprovedUnlinkedLicensing(){
+ const sel = document.getElementById('prod-import-lic')
+ if(!sel) return
+ sel.innerHTML='<option value="">— Start from scratch —</option>'
+ try{
+  const rows = await api('/api/licensing-requests/approved-unlinked')
+  approvedUnlinkedLicensing = Array.isArray(rows) ? rows : []
+  sel.innerHTML='<option value="">— Start from scratch —</option>'
+   + approvedUnlinkedLicensing.map(lr=>`<option value="${lr.id}">${escHtml(lr.production_name)}${lr.venue_name?' — '+escHtml(lr.venue_name):''}</option>`).join('')
+ }catch(e){}
+}
+
+function importFromLicensingRequest(licId){
+ document.getElementById('prod-from-licensing-id').value = licId||''
+ if(!licId) return
+ const lr = approvedUnlinkedLicensing.find(x=>x.id===licId)
+ if(!lr) return
+ document.getElementById('prod-name').value = lr.production_name||''
+ document.getElementById('prod-start').value = lr.production_start_date||''
+ document.getElementById('prod-end').value = lr.production_end_date||''
+ const typeMap = {musical:'musical', play:'play'}
+ const t = (lr.production_type||'').toLowerCase()
+ document.getElementById('prod-type').value = typeMap[t] || 'other'
+ const descParts = []
+ if(lr.licensor||lr.licensor_other) descParts.push('Licensor: '+(lr.licensor||lr.licensor_other))
+ if(lr.venue_name) descParts.push('Venue: '+lr.venue_name)
+ if(lr.ref_number) descParts.push('Licensing ref: '+lr.ref_number)
+ document.getElementById('prod-desc').value = descParts.join(' · ')
 }
 
 function openEditProductionModal(pid){
@@ -15467,6 +15507,9 @@ function openEditProductionModal(pid){
  if(!p) return
  document.getElementById('production-modal-title').textContent='Edit Production'
  document.getElementById('prod-edit-id').value=p.id
+ document.getElementById('prod-from-licensing-id').value=''
+ const importWrap=document.getElementById('prod-import-lic-wrap')
+ if(importWrap) importWrap.style.display='none'
  document.getElementById('prod-name').value=p.name||''
  document.getElementById('prod-desc').value=p.description||''
  const imgEl=document.getElementById('prod-image-url'); if(imgEl) imgEl.value=p.image_url||''
@@ -15497,6 +15540,10 @@ async function saveProduction(){
  description:document.getElementById('prod-desc').value.trim(),
  image_url:document.getElementById('prod-image-url')?.value.trim()||null,
  default_elic_id:document.getElementById('prod-default-elic')?.value||null
+ }
+ if(!editId){
+  const licId = document.getElementById('prod-from-licensing-id')?.value
+  if(licId) data.from_licensing_request_id = licId
  }
  let res
  if(editId) res=await api(`/api/productions/${editId}`,'PUT',data)
@@ -28638,12 +28685,13 @@ function openLicensingDetail(id){
    ${lr.contract_received ? `
    <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">Board sign-off to move forward and build this show out in BloomBooks (production + budget). Once approved, it becomes eligible to import there.</p>
    ${lr.approved_to_produce
-     ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+     ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
          <span style="background:#F3E8FF;color:#7E22CE;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px">✓ Approved${lr.approved_to_produce_by?' by '+escHtml(lr.approved_to_produce_by):''}${lr.approved_to_produce_date?' on '+lr.approved_to_produce_date:''}</span>
          ${lr.built_in_bloombooks?`<span style="font-size:11px;color:var(--text-muted)">Already built in BloomBooks</span>`:''}
          <button class="btn btn-secondary btn-sm" onclick="setApprovedToProduce('${lr.id}', false)" ${lr.built_in_bloombooks?'disabled title="Already built in BloomBooks"':''}>Un-approve</button>
-        </div>`
-     : `<button class="btn btn-primary btn-sm" onclick="setApprovedToProduce('${lr.id}', true)">Mark Approved to Produce</button>`}
+        </div>
+        ${licRehearsalSummary(lr)}`
+     : `<button class="btn btn-primary btn-sm" onclick="openRehearsalScheduleModal('${lr.id}')">Mark Approved to Produce</button>`}
    ` : `<p style="font-size:12px;color:var(--text-muted);margin:0">Signed contract must be received before this can be approved to produce.</p>`}
   </div>
 
@@ -28656,6 +28704,66 @@ function openLicensingDetail(id){
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
  const fileInput = document.getElementById('lic-d-file')
  if(fileInput) fileInput.onchange = function(){ uploadLicensingContractFile(id, this.files[0]) }
+}
+
+function licRehearsalSummary(lr){
+ let days=[]; try{ days = JSON.parse(lr.rehearsal_days||'[]') }catch(e){}
+ if(!Array.isArray(days) || !days.length) return ''
+ return `<div style="font-size:12px;color:var(--text-muted)">Rehearsals: ${days.map(escHtml).join(', ')}${lr.rehearsal_start_time?' · '+lr.rehearsal_start_time+'–'+lr.rehearsal_end_time:''}</div>`
+}
+
+const REHEARSAL_DAY_OPTIONS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+
+function openRehearsalScheduleModal(id){
+ const lr = licensingData.find(x=>x.id===id)
+ if(!lr) return
+ let savedDays=[]; try{ savedDays = JSON.parse(lr.rehearsal_days||'[]') }catch(e){}
+ const existing = document.getElementById('rehearsal-schedule-modal')
+ if(existing) existing.remove()
+ const overlay = document.createElement('div')
+ overlay.id = 'rehearsal-schedule-modal'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:24px">
+  <div style="font-size:17px;font-weight:800;margin-bottom:4px">Rehearsal schedule</div>
+  <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Needed before approving to produce — BloomBooks uses this to charge the show for studio use at cost.</p>
+  <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px">Rehearsal days</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
+   ${REHEARSAL_DAY_OPTIONS.map(d=>`<label style="border:1.5px solid var(--border-md);border-radius:var(--radius);padding:6px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
+     <input type="checkbox" name="rehearsal-day" value="${d}" ${savedDays.includes(d)?'checked':''}/> ${d}
+   </label>`).join('')}
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:18px">
+   <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Start time</label>
+    <input type="time" id="rehearsal-start-time" value="${lr.rehearsal_start_time||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
+   <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">End time</label>
+    <input type="time" id="rehearsal-end-time" value="${lr.rehearsal_end_time||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
+  </div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+   <button class="btn btn-secondary btn-sm" onclick="document.getElementById('rehearsal-schedule-modal').remove()">Cancel</button>
+   <button class="btn btn-primary btn-sm" onclick="confirmApproveWithSchedule('${id}')">Approve to Produce</button>
+  </div>
+ </div>`
+ document.body.appendChild(overlay)
+ overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+}
+
+async function confirmApproveWithSchedule(id){
+ const days = Array.from(document.querySelectorAll('input[name="rehearsal-day"]:checked')).map(cb=>cb.value)
+ const rehearsal_start_time = document.getElementById('rehearsal-start-time')?.value||''
+ const rehearsal_end_time = document.getElementById('rehearsal-end-time')?.value||''
+ if(!days.length){ toast('Select at least one rehearsal day','error'); return }
+ if(!rehearsal_start_time || !rehearsal_end_time){ toast('Rehearsal start and end time are required','error'); return }
+ const res = await api('/api/licensing-requests/'+id+'/approve-to-produce', 'POST', {
+  approved: true, rehearsal_days: days, rehearsal_start_time, rehearsal_end_time
+ })
+ if(res.error){ toast(res.error,'error'); return }
+ const idx = licensingData.findIndex(x=>x.id===id)
+ if(idx>-1) licensingData[idx] = res
+ document.getElementById('rehearsal-schedule-modal')?.remove()
+ renderLicensingSummaryCards()
+ renderLicensingList()
+ openLicensingDetail(id)
+ toast('Marked approved to produce!')
 }
 
 async function saveLicensingDetail(id){

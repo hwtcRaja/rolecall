@@ -1802,10 +1802,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
  <input type="checkbox" id="es-alert-callouts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
  <div><div style="font-size:13px;font-weight:600"> Callout submitted</div><div style="font-size:11px;color:var(--text-muted)">Alert when cast member calls out</div></div>
- <div style="margin:6px 0 10px 26px;padding:8px 10px;background:var(--bg);border-radius:8px">
- <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Text alert phone numbers (comma-separated)</label>
- <input type="text" id="es-callout-sms-phones" placeholder="e.g. 4075551234, 4075555678" style="width:100%;padding:6px 8px;border:1px solid var(--border-md);border-radius:6px;font-size:12px;font-family:inherit"/>
- </div>
  </label>
  <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
  <input type="checkbox" id="es-alert-conflicts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
@@ -1936,10 +1932,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
  <input type="checkbox" id="es-alert-callouts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
  <div><div style="font-size:13px;font-weight:600"> Callout submitted</div><div style="font-size:11px;color:var(--text-muted)">Alert when cast member calls out</div></div>
- <div style="margin:6px 0 10px 26px;padding:8px 10px;background:var(--bg);border-radius:8px">
- <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:4px">Text alert phone numbers (comma-separated)</label>
- <input type="text" id="es-callout-sms-phones" placeholder="e.g. 4075551234, 4075555678" style="width:100%;padding:6px 8px;border:1px solid var(--border-md);border-radius:6px;font-size:12px;font-family:inherit"/>
- </div>
  </label>
  <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);cursor:pointer">
  <input type="checkbox" id="es-alert-conflicts" style="width:16px;height:16px;accent-color:var(--teal-400)"/>
@@ -9776,7 +9768,6 @@ async function loadEmailSettings(){
  chk('es-alert-hours', s.alert_pending_hours!==false)
  chk('es-alert-profiles', s.alert_profile_updates!==false)
  chk('es-alert-callouts', s.alert_callouts!==false)
- set('es-callout-sms-phones', s.callout_sms_phones||'')
  chk('es-alert-conflicts', s.alert_conflicts!==false)
  chk('es-alert-waivers', s.alert_waivers!==false)
  chk('es-alert-not-opened', s.alert_event_not_opened!==false)
@@ -10736,7 +10727,6 @@ async function saveEmailSettings(){
  alert_pending_hours: chk('es-alert-hours'),
  alert_profile_updates: chk('es-alert-profiles'),
  alert_callouts: chk('es-alert-callouts'),
- callout_sms_phones: get('es-callout-sms-phones'),
  alert_conflicts: chk('es-alert-conflicts'),
  alert_waivers: chk('es-alert-waivers'),
  alert_event_not_opened: chk('es-alert-not-opened'),
@@ -15386,7 +15376,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div style="font-size:12px;color:var(--text-hint)">None assigned</div>'
  } else {
  rw.forEach(function(w){
- var xBtn = isAdmin ? '<button onclick="removeProdWaiverUI(\'' + p.id + '\',\'' + w.id + '\')" style="background:none;border:none;cursor:pointer;color:var(--red-600);font-size:13px">×</button>': ''
+ var xBtn = isAdmin ? '<button onclick="removeProdWaiverUI(\'' + p.id + '\',\'' + w.waiver_type_id + '\')" style="background:none;border:none;cursor:pointer;color:var(--red-600);font-size:13px">×</button>': ''
  s += '<div style="font-size:12px;background:var(--red-50);color:var(--red-600);padding:4px 10px;border-radius:8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between">' + w.waiver_name + xBtn + '</div>'
  })
  }
@@ -15397,6 +15387,14 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  available.forEach(function(wt){ s += '<option value="'+wt.id+'">'+wt.name+'</option>' })
  s += '</select>'
  }
+ s += '</div>'
+ s += '</div>' // end required waivers card
+
+ // Waiver status card — who has/hasn't signed
+ s += '<div class="card" style="padding:16px;margin-top:16px">'
+ s += '<div style="font-size:13px;font-weight:700;margin-bottom:2px"> Waiver Status</div>'
+ s += '<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">Who still needs to sign</div>'
+ s += '<div id="prod-waiver-status-'+p.id+'"><div style="font-size:12px;color:var(--text-muted);font-style:italic">Loading…</div></div>'
  s += '</div>'
  s += '</div>' // end profile-card
 
@@ -15559,6 +15557,7 @@ function openProductionDetail(prodId, fromPage){
  const memberStatusColors={confirmed:'var(--green-600)',pending:'var(--amber-600)',dropped:'var(--text-hint)'}
 
  document.getElementById('production-detail-content').innerHTML = buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes, canSeePortal)
+ loadProductionWaiverStatus(p.id)
 
  window._currentProductionDetailId = p.id
  if(canSeePortal){
@@ -16543,6 +16542,46 @@ async function removeEventWaiverUI(eid, wid){
  toast('Removed')
 }
 
+async function loadProductionWaiverStatus(pid){
+ const el = document.getElementById('prod-waiver-status-'+pid)
+ if(!el) return
+ try {
+ const data = await api(`/api/productions/${pid}/waiver-status`)
+ renderProductionWaiverStatus(pid, data)
+ } catch(e){
+ console.error('loadProductionWaiverStatus error:', e)
+ el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">Could not load waiver status.</div>'
+ }
+}
+
+function renderProductionWaiverStatus(pid, data){
+ const el = document.getElementById('prod-waiver-status-'+pid)
+ if(!el) return
+ if(!data||data.error||!data.required_waivers||!data.required_waivers.length){
+ el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No required waivers set for this production.</div>'
+ return
+ }
+ const all = [...(data.youth||[]).map(p=>({...p, _label:(p.first_name+' '+p.last_name), _isYouth:true})),
+ ...(data.crew||[]).map(p=>({...p, _label:p.name, _isYouth:false}))]
+ const missing = all.filter(p=>p.missing_waivers&&p.missing_waivers.length)
+ const ok = all.filter(p=>!p.missing_waivers||!p.missing_waivers.length)
+ if(!all.length){
+ el.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No cast or crew added yet.</div>'
+ return
+ }
+ el.innerHTML = `
+ ${missing.length?`
+ <div style="background:var(--red-50);border-radius:8px;padding:10px 12px;margin-bottom:10px">
+ <div style="font-size:12px;font-weight:700;color:var(--red-600);margin-bottom:6px"> ${missing.length} missing waivers</div>
+ ${missing.map(p=>`<div style="font-size:12px;padding:5px 0;border-bottom:1px solid rgba(0,0,0,0.05)">
+ <span style="font-weight:600">${escHtml(p._label)}</span>${p._isYouth?' <span style="color:var(--text-hint)">(youth)</span>':''}
+ <div style="font-size:11px;color:var(--red-600)">Missing: ${p.missing_waivers.map(w=>escHtml(w.name)).join(', ')}</div>
+ </div>`).join('')}
+ </div>`:''}
+ ${ok.length?`<div style="font-size:11px;color:var(--green);font-weight:600"> ${ok.length} of ${all.length} have all required waivers</div>`:''}
+ <div style="font-size:10px;color:var(--text-hint);margin-top:8px">Required: ${data.required_waivers.map(w=>escHtml(w.name)).join(', ')}</div>`
+}
+
 async function addProdWaiverUI(pid, sel){
  const wtid=sel.value
  if(!wtid) return
@@ -16558,7 +16597,7 @@ async function addProdWaiverUI(pid, sel){
 async function removeProdWaiverUI(pid, wid){
  await removeProductionWaiver(pid, wid)
  const prod=allProductions.find(p=>p.id===pid)
- if(prod) prod.required_waivers=(prod.required_waivers||[]).filter(w=>w.id!==wid)
+ if(prod) prod.required_waivers=(prod.required_waivers||[]).filter(w=>w.waiver_type_id!==wid)
  openProductionDetail(pid)
  toast('Removed')
 }
@@ -22117,6 +22156,16 @@ async function loadProductionScheduleConflicts(pid){
  }
  const statusLabel = {absent:'Absent',sick:'Sick',late:'Late',leaving_early:'Leaving Early'}
 
+ // Call-out text alert numbers — per production
+ const prod = allProductions.find(p=>p.id===pid)
+ const phonesForm = isAdmin ? '<div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">'
+ +'<div style="font-size:13px;font-weight:700;margin-bottom:4px"> Call-Out Text Alerts</div>'
+ +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Phone numbers texted whenever someone calls out for this production (comma-separated)</div>'
+ +'<div style="display:flex;gap:8px">'
+ +'<input type="text" id="sc-callout-phones-'+pid+'" value="'+escHtml(prod?.callout_sms_phones||'')+'" placeholder="e.g. 4075551234, 4075555678" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">'
+ +'<button class="btn btn-secondary btn-sm" onclick="saveProdCalloutPhones(\''+pid+'\')">Save</button>'
+ +'</div></div>': ''
+
  // Add Conflict modal helper
  const evOptions = events.map(e=>'<option value="'+e.id+'">'+e.name+(e.event_date?' ('+formatDate(e.event_date)+')':'')+'</option>').join('')
  const addForm = isAdmin ? '<div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:20px">'
@@ -22146,7 +22195,7 @@ async function loadProductionScheduleConflicts(pid){
  +'</div>': ''
 
  // Group events with their conflicts
- let html = addEventBtn + addForm
+ let html = phonesForm + addEventBtn + addForm
  if(!events.length){
  html += addEventBtn ? '': '<div style="color:var(--text-muted);font-size:13px">No events added to this production yet.</div>'
  if(!isAdmin) el.innerHTML = html + '<div style="color:var(--text-muted);font-size:13px">No events added to this production yet.</div>'
@@ -22228,6 +22277,15 @@ async function submitScConflict(pid){
  document.getElementById('sc-notes-'+pid).value=''
  await loadProductionScheduleConflicts(pid)
  toast('Conflict added')
+}
+
+async function saveProdCalloutPhones(pid){
+ const val = document.getElementById('sc-callout-phones-'+pid)?.value.trim()||''
+ const res = await api('/api/productions/'+pid+'/callout-phones','PUT',{callout_sms_phones:val})
+ if(res?.error){toast(res.error,'error');return}
+ const prod = allProductions.find(p=>p.id===pid)
+ if(prod) prod.callout_sms_phones = val
+ toast('Call-out text numbers saved','success')
 }
 
 function switchProdPortalTab(tab, btn){

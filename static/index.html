@@ -28521,6 +28521,19 @@ function renderLicensingList(){
  + '</tbody></table></div></div>'
 }
 
+function licDetailRow(label, value){
+ if(!value) return ''
+ return `<div style="margin-bottom:6px"><span style="color:var(--text-muted)">${label}:</span> ${value}</div>`
+}
+
+function licDetailSection(title, rowsHtml){
+ if(!rowsHtml || !rowsHtml.trim()) return ''
+ return `<div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
+  <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:8px">${title}</div>
+  <div style="font-size:13px">${rowsHtml}</div>
+ </div>`
+}
+
 function openLicensingDetail(id){
  const lr = licensingData.find(x=>x.id===id)
  if(!lr) return
@@ -28542,13 +28555,46 @@ function openLicensingDetail(id){
   <div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px;font-size:13px;display:grid;grid-template-columns:1fr 1fr;gap:8px 16px">
    <div><span style="color:var(--text-muted)">Licensor:</span> ${escHtml(lr.licensor||lr.licensor_other||'—')}</div>
    <div><span style="color:var(--text-muted)">Requester:</span> ${escHtml(lr.requester_name||'—')} ${lr.requester_email?'('+escHtml(lr.requester_email)+')':''}</div>
+   <div><span style="color:var(--text-muted)">Production type:</span> ${escHtml(lr.production_type||lr.production_type_other||'—')}</div>
+   <div><span style="color:var(--text-muted)">Edition:</span> ${escHtml(lr.production_edition||'—')}</div>
    <div><span style="color:var(--text-muted)">Production dates:</span> ${escHtml(lr.production_start_date||'—')} – ${escHtml(lr.production_end_date||'—')}</div>
-   <div><span style="color:var(--text-muted)">Venue:</span> ${escHtml(lr.venue_name||'—')}</div>
+   <div><span style="color:var(--text-muted)">Venue:</span> ${escHtml(lr.venue_name||'—')}${lr.venue_address?' — '+escHtml(lr.venue_address):''}</div>
+   <div><span style="color:var(--text-muted)">Venue / audience capacity:</span> ${lr.venue_capacity||'—'} / ${lr.audience_capacity||'—'}</div>
    <div><span style="color:var(--text-muted)">Performances:</span> ${lr.number_of_shows||'—'}</div>
    <div><span style="color:var(--text-muted)">Expected performers:</span> ${lr.expected_performers||'—'}</div>
    <div><span style="color:var(--text-muted)">Scripts needed:</span> ${lr.scripts_needed||'—'}</div>
    <div><span style="color:var(--text-muted)">Ticket price range:</span> ${fmtMoney(lr.lowest_ticket_price_cents)} – ${fmtMoney(lr.highest_ticket_price_cents)}</div>
+   <div><span style="color:var(--text-muted)">Avg. ticket price:</span> ${fmtMoney(lr.average_ticket_price_cents)}</div>
   </div>
+
+  ${licDetailSection('Performance dates', (()=>{
+    let dates=[]; try{ dates = JSON.parse(lr.performance_dates||'[]') }catch(e){}
+    return Array.isArray(dates)&&dates.length ? `<div style="font-size:13px">${dates.map(d=>escHtml(String(d))).join(', ')}</div>` : ''
+  })())}
+
+  ${licDetailSection('Scripts, materials &amp; shipping', [
+    licDetailRow('Additional scripts', (()=>{ let a=[]; try{a=JSON.parse(lr.additional_scripts||'[]')}catch(e){}; return Array.isArray(a)&&a.length?a.map(escHtml).join(', '):'' })()),
+    licDetailRow('Materials needed by', lr.materials_needed_by),
+    licDetailRow('Ship to', [lr.ship_to_name, lr.ship_to_address, lr.ship_to_phone].filter(Boolean).map(escHtml).join(' · ')),
+  ].join(''))}
+
+  ${licDetailSection('Orchestra &amp; tracks', [
+    licDetailRow('Live orchestra', lr.has_live_orchestra ? `Yes${lr.orchestra_size?' — '+lr.orchestra_size+' piece(s)':''}${lr.orchestra_instruments?' — '+escHtml(lr.orchestra_instruments):''}` : ''),
+    licDetailRow('Full score needed', lr.needs_full_score ? 'Yes' : ''),
+    licDetailRow('Rehearsal tracks', lr.needs_rehearsal_tracks ? 'Requested' : ''),
+    licDetailRow('Performance tracks', lr.needs_performance_tracks ? 'Requested' : ''),
+  ].join(''))}
+
+  ${licDetailSection('Add-ons requested', [
+    licDetailRow('Streaming license', lr.addon_streaming_license ? 'Yes' : ''),
+    licDetailRow('Video recording license', lr.addon_video_recording_license ? 'Yes' : ''),
+    licDetailRow('Marketing package', lr.addon_marketing_package ? `Yes${lr.addon_marketing_notes?' — '+escHtml(lr.addon_marketing_notes):''}` : ''),
+    licDetailRow('Logo choice', lr.addon_logo_choice),
+    licDetailRow('Youth production', lr.addon_youth_production ? 'Yes' : ''),
+    licDetailRow('Choreography guides', lr.addon_choreography_guides ? 'Yes' : ''),
+    licDetailRow('Director&#39;s guide', lr.addon_directors_guide ? 'Yes' : ''),
+    licDetailRow('Broadway Media scenic', lr.addon_broadway_media_scenic ? 'Yes' : ''),
+  ].join(''))}
   ${lr.additional_requests?`<div style="font-size:12px;color:var(--text-muted);margin-bottom:16px"><strong>Additional requests:</strong> ${escHtml(lr.additional_requests)}</div>`:''}
 
   <div style="border-top:1px solid var(--border);padding-top:16px;margin-bottom:14px">

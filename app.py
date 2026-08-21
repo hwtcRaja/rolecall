@@ -1363,6 +1363,11 @@ def init_db():
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS approved_to_produce_date DATE",
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS approved_to_produce_by TEXT DEFAULT ''",
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS built_in_bloombooks BOOLEAN DEFAULT FALSE",
+        # rehearsal schedule, captured at the moment a show is approved to produce so
+        # BloomBooks has something real to charge the show for studio use against
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_days TEXT DEFAULT '[]'",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_start_time TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_end_time TEXT DEFAULT ''",
         # audit trail columns
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
@@ -7742,11 +7747,31 @@ def create_production():
              d.get('start_date') or None, d.get('end_date') or None,
              d.get('description',''), d.get('status','upcoming'),
              d.get('default_elic_id') or None))
+    lic_id = d.get('from_licensing_request_id')
+    if lic_id:
+        lr = fetchone(conn, "SELECT id FROM licensing_requests WHERE id=%s AND approved_to_produce=TRUE AND (production_id IS NULL OR production_id='')", (lic_id,))
+        if lr:
+            execute(conn, 'UPDATE licensing_requests SET production_id=%s, updated_at=NOW() WHERE id=%s', (pid, lic_id))
     conn.commit()
     prod = fetchone(conn, '''SELECT p.*, COALESCE(p.stage,'mainstage') as stage, v.name as default_elic_name FROM productions p LEFT JOIN elics el ON p.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE p.id=%s''', (pid,))
     prod['members'] = []
     conn.close()
     return jsonify(prod)
+
+@app.route('/api/licensing-requests/approved-unlinked', methods=['GET'])
+def list_approved_unlinked_licensing_requests():
+    """Approved-to-produce licensing requests not yet tied to a RoleCall
+    production — available to prefill a new Production from."""
+    err = require_permission('productions')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT id, ref_number, production_name, production_type, production_type_other,
+                                     production_start_date, production_end_date, venue_name, licensor, licensor_other
+                             FROM licensing_requests
+                             WHERE approved_to_produce=TRUE AND (production_id IS NULL OR production_id='')
+                             ORDER BY production_name""") or []
+    conn.close()
+    return jsonify(rows)
 
 @app.route('/api/productions/<pid>', methods=['PUT'])
 def update_production(pid):
@@ -18319,8 +18344,10 @@ def update_licensing_request(lid):
 @app.route('/api/licensing-requests/<lid>/approve-to-produce', methods=['POST'])
 def approve_licensing_request_to_produce(lid):
     """Board sign-off to move forward and produce this show. Requires the signed
-    contract to already be on file. This is the flag BloomBooks reads to know a
-    show is ready to be built out (production + budget)."""
+    contract to already be on file, and — when approving (not un-approving) —
+    a rehearsal schedule, since that's what BloomBooks uses to charge the show
+    for studio use. This is the flag BloomBooks reads to know a show is ready
+    to be built out (production + budget)."""
     err = require_permission('licensing')
     if err: return err
     d = request.json or {}
@@ -18334,9 +18361,37 @@ def approve_licensing_request_to_produce(lid):
         return jsonify({'error': 'Contract must be on file before approving to produce'}), 400
     approved = bool(d.get('approved', True))
     approver = session.get('user_name', '')
+
+    rehearsal_days = lr.get('rehearsal_days') or '[]'
+    rehearsal_start_time = lr.get('rehearsal_start_time') or ''
+    rehearsal_end_time = lr.get('rehearsal_end_time') or ''
+    if approved:
+        if 'rehearsal_days' in d:
+            days = d.get('rehearsal_days') or []
+            if not isinstance(days, list) or not days:
+                conn.close()
+                return jsonify({'error': 'Select at least one rehearsal day'}), 400
+            rehearsal_days = json.dumps(days)
+            rehearsal_start_time = (d.get('rehearsal_start_time') or '').strip()
+            rehearsal_end_time = (d.get('rehearsal_end_time') or '').strip()
+            if not rehearsal_start_time or not rehearsal_end_time:
+                conn.close()
+                return jsonify({'error': 'Rehearsal start and end time are required'}), 400
+        else:
+            try:
+                existing_days = json.loads(rehearsal_days)
+            except Exception:
+                existing_days = []
+            if not existing_days or not lr.get('rehearsal_start_time') or not lr.get('rehearsal_end_time'):
+                conn.close()
+                return jsonify({'error': 'A rehearsal schedule is required to approve this show to produce'}), 400
+
     execute(conn, '''UPDATE licensing_requests SET approved_to_produce=%s,
-        approved_to_produce_date=%s, approved_to_produce_by=%s, updated_at=NOW() WHERE id=%s''',
-        (approved, date.today().isoformat() if approved else None, approver if approved else '', lid))
+        approved_to_produce_date=%s, approved_to_produce_by=%s,
+        rehearsal_days=%s, rehearsal_start_time=%s, rehearsal_end_time=%s,
+        updated_at=NOW() WHERE id=%s''',
+        (approved, date.today().isoformat() if approved else None, approver if approved else '',
+         rehearsal_days, rehearsal_start_time, rehearsal_end_time, lid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
     conn.close()

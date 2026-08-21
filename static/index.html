@@ -1225,6 +1225,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <option value="not_requested">Not Yet Requested</option>
  <option value="requested">Requested — Awaiting Contract</option>
  <option value="contract_on_file">Contract on File</option>
+ <option value="approved_to_produce">Approved to Produce</option>
  <option value="expiring_soon">Expiring Soon</option>
  <option value="expired">Expired — Needs Renewal</option>
  </select>
@@ -28454,11 +28455,12 @@ function copyShowQuestionsLink(){
 // ── Licensing Requests ──
 let licensingData = []
 const LIC_CONTRACT_BADGES = {
- not_requested:   {label:'Not Yet Requested',        bg:'var(--bg)',        col:'var(--text-muted)'},
- requested:       {label:'Requested — Awaiting Contract', bg:'#EFF6FF',    col:'#1D4ED8'},
- contract_on_file:{label:'Contract on File',         bg:'var(--green-light)', col:'var(--green)'},
- expiring_soon:   {label:'Expiring Soon',            bg:'var(--amber-light)', col:'var(--amber-600)'},
- expired:         {label:'Expired — Needs Renewal',  bg:'var(--red-light)',  col:'var(--red-600)'},
+ not_requested:      {label:'Not Yet Requested',        bg:'var(--bg)',        col:'var(--text-muted)'},
+ requested:          {label:'Requested — Awaiting Contract', bg:'#EFF6FF',    col:'#1D4ED8'},
+ contract_on_file:   {label:'Contract on File',         bg:'var(--green-light)', col:'var(--green)'},
+ approved_to_produce:{label:'Approved to Produce',      bg:'#F3E8FF',        col:'#7E22CE'},
+ expiring_soon:      {label:'Expiring Soon',            bg:'var(--amber-light)', col:'var(--amber-600)'},
+ expired:            {label:'Expired — Needs Renewal',  bg:'var(--red-light)',  col:'var(--red-600)'},
 }
 const LIC_STATUS_LABELS = {new:'New', in_review:'In Review', approved:'Approved', denied:'Denied'}
 
@@ -28474,7 +28476,7 @@ async function loadLicensingPage(){
 function renderLicensingSummaryCards(){
  const el = document.getElementById('lic-summary-cards')
  if(!el) return
- const counts = {not_requested:0, requested:0, contract_on_file:0, expiring_soon:0, expired:0}
+ const counts = {not_requested:0, requested:0, contract_on_file:0, approved_to_produce:0, expiring_soon:0, expired:0}
  licensingData.forEach(lr=>{ if(counts[lr.contract_status]!==undefined) counts[lr.contract_status]++ })
  el.innerHTML = Object.entries(counts).map(([key,count])=>{
   const b = LIC_CONTRACT_BADGES[key]
@@ -28585,6 +28587,20 @@ function openLicensingDetail(id){
    </div>
   </div>
 
+  <div style="border-top:1px solid var(--border);padding-top:16px;margin-bottom:14px">
+   <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:10px">Approved to Produce</div>
+   ${lr.contract_received ? `
+   <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">Board sign-off to move forward and build this show out in BloomBooks (production + budget). Once approved, it becomes eligible to import there.</p>
+   ${lr.approved_to_produce
+     ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+         <span style="background:#F3E8FF;color:#7E22CE;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px">✓ Approved${lr.approved_to_produce_by?' by '+escHtml(lr.approved_to_produce_by):''}${lr.approved_to_produce_date?' on '+lr.approved_to_produce_date:''}</span>
+         ${lr.built_in_bloombooks?`<span style="font-size:11px;color:var(--text-muted)">Already built in BloomBooks</span>`:''}
+         <button class="btn btn-secondary btn-sm" onclick="setApprovedToProduce('${lr.id}', false)" ${lr.built_in_bloombooks?'disabled title="Already built in BloomBooks"':''}>Un-approve</button>
+        </div>`
+     : `<button class="btn btn-primary btn-sm" onclick="setApprovedToProduce('${lr.id}', true)">Mark Approved to Produce</button>`}
+   ` : `<p style="font-size:12px;color:var(--text-muted);margin:0">Signed contract must be received before this can be approved to produce.</p>`}
+  </div>
+
   <div style="display:flex;gap:8px;justify-content:flex-end;border-top:1px solid var(--border);padding-top:16px">
    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('licensing-detail-modal').remove()">Cancel</button>
    <button class="btn btn-primary btn-sm" onclick="saveLicensingDetail('${lr.id}')">Save</button>
@@ -28615,6 +28631,17 @@ async function saveLicensingDetail(id){
  renderLicensingSummaryCards()
  renderLicensingList()
  toast('Licensing request updated!')
+}
+
+async function setApprovedToProduce(id, approved){
+ const res = await api('/api/licensing-requests/'+id+'/approve-to-produce', 'POST', {approved})
+ if(res.error){ toast(res.error,'error'); return }
+ const idx = licensingData.findIndex(x=>x.id===id)
+ if(idx>-1) licensingData[idx] = res
+ renderLicensingSummaryCards()
+ renderLicensingList()
+ openLicensingDetail(id)
+ toast(approved?'Marked approved to produce!':'Un-approved')
 }
 
 async function uploadLicensingContractFile(id, file){

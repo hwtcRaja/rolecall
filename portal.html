@@ -264,6 +264,17 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
  <!-- Programs tab -->
  <div id="portal-main-programs">
  <div class="program-grid" id="program-cards"></div>
+
+ <!-- Archived / past programs and productions — collapsed by default so
+ they don't get confused with anything currently active -->
+ <div id="program-cards-archived-section" style="display:none;margin-top:20px">
+ <div onclick="toggleArchivedPrograms()" style="display:flex;align-items:center;gap:6px;cursor:pointer;padding:8px 0;border-top:1px solid var(--border)">
+ <span id="archived-chevron" style="font-size:11px;color:var(--text-muted)">▸</span>
+ <span style="font-size:13px;font-weight:600;color:var(--text-muted)">Past Programs & Productions</span>
+ </div>
+ <div class="program-grid" id="program-cards-archived" style="display:none;margin-top:8px"></div>
+ </div>
+
  <!-- Detail panel for selected program -->
  <div id="program-detail" style="display:none">
  <div class="detail-panel">
@@ -510,54 +521,81 @@ async function loadChildData(yid){
  }
 }
 
+// A program/class is archived once staff sets its status to 'archived'.
+// A production counts as archived once it's completed or cancelled — either
+// way it moves out of the main grid so parents don't mistake it for
+// something current or open for enrollment.
+function isArchivedEnrollment(e){ return e.program_status === 'archived' }
+function isArchivedProduction(p){ return p.status === 'completed' || p.status === 'cancelled' }
+
+function buildProgramCard(type, id, name, col, bodyHTML, archived){
+ const isActive = activeContextId===id && activeContextType===type
+ const card = document.createElement('div')
+ card.className = 'program-card'+(isActive?' active-card':'')+(archived?' archived-card':'')
+ card.dataset.ctxType = type
+ card.dataset.ctxId = id
+ card.dataset.ctxName = name
+ card.dataset.ctxColor = col
+ card.onclick = ()=>selectContext(type,id,name,col)
+ if(archived) card.style.opacity = '0.6'
+ card.innerHTML = '<div class="program-card-bar" style="background:'+(archived?'#9ca3af':col)+'"></div>'
+ +'<div class="program-card-body">'+bodyHTML+'</div>'
+ return card
+}
+
 function renderFamilyContent(){
  document.getElementById('family-loading').style.display = 'none'
  document.getElementById('family-content').style.display = ''
  const {enrollments=[], productions=[]} = activeChildData
  console.log('[Portal] renderFamilyContent — enrollments:', enrollments.length, 'productions:', productions.length, 'raw:', activeChildData)
  const cards = document.getElementById('program-cards')
+ const archiveSection = document.getElementById('program-cards-archived-section')
+ const archiveCards = document.getElementById('program-cards-archived')
  if(!enrollments.length &&!productions.length){
  cards.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon"></div>No programs or productions enrolled yet.</div>'
+ if(archiveSection) archiveSection.style.display = 'none'
  return
  }
  const colors = ['#0d6e6e','#7c3aed','#d97706','#16a34a','#dc2626','#0369a1']
  cards.innerHTML = ''
- let html = ''
+ if(archiveCards) archiveCards.innerHTML = ''
+ let archivedCount = 0
+
  enrollments.forEach((e,i)=>{
  const col = colors[i%colors.length]
- const isActive = activeContextId===e.program_id && activeContextType==='program'
- const card = document.createElement('div')
- card.className = 'program-card'+(isActive?' active-card':'')
- card.dataset.ctxType = 'program'
- card.dataset.ctxId = e.program_id
- card.dataset.ctxName = e.program_name
- card.dataset.ctxColor = col
- card.onclick = ()=>selectContext('program',e.program_id,e.program_name,col)
- card.innerHTML = '<div class="program-card-bar" style="background:'+col+'"></div>'
- +'<div class="program-card-body">'
- +'<div class="program-card-name">'+e.program_name+'</div>'
+ const archived = isArchivedEnrollment(e)
+ const body = '<div class="program-card-name">'+e.program_name+(archived?' <span style="font-size:10px;font-weight:700;color:#6b7280;background:#e5e7eb;padding:2px 7px;border-radius:10px;margin-left:4px">ARCHIVED</span>':'')+'</div>'
  +'<div class="program-card-meta">'
  +(e.instructor_name?'<span> '+e.instructor_name+'</span>':'')
  +(e.start_date?'<span> '+fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):'')+'</span>':'')
- +'</div></div>'
- cards.appendChild(card)
+ +'</div>'
+ const card = buildProgramCard('program', e.program_id, e.program_name, col, body, archived)
+ if(archived){ archivedCount++; if(archiveCards) archiveCards.appendChild(card) }
+ else cards.appendChild(card)
  })
+
  productions.forEach(p=>{
  const col = '#7c3aed'
- const isActive = activeContextId===p.id && activeContextType==='production'
- const card = document.createElement('div')
- card.className = 'program-card'+(isActive?' active-card':'')
- card.dataset.ctxType = 'production'
- card.dataset.ctxId = p.id
- card.onclick = ()=>selectContext('production',p.id,p.name,col)
- card.innerHTML = '<div class="program-card-bar" style="background:'+col+'"></div>'
- +'<div class="program-card-body">'
- +'<div class="program-card-name">⭐ '+p.name+'</div>'
+ const archived = isArchivedProduction(p)
+ const body = '<div class="program-card-name">⭐ '+p.name+(archived?' <span style="font-size:10px;font-weight:700;color:#6b7280;background:#e5e7eb;padding:2px 7px;border-radius:10px;margin-left:4px">ARCHIVED</span>':'')+'</div>'
  +'<div class="program-card-meta"><span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-top:4px;display:inline-block">Rising Stars</span>'
  +(p.cast_role?'<span> Role: '+p.cast_role+'</span>':'')
- +'</div></div>'
- cards.appendChild(card)
+ +'</div>'
+ const card = buildProgramCard('production', p.id, p.name, col, body, archived)
+ if(archived){ archivedCount++; if(archiveCards) archiveCards.appendChild(card) }
+ else cards.appendChild(card)
  })
+
+ if(!cards.innerHTML) cards.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon"></div>No current programs or productions. See Past Programs below.</div>'
+ if(archiveSection) archiveSection.style.display = archivedCount ? '': 'none'
+}
+
+function toggleArchivedPrograms(){
+ const body = document.getElementById('program-cards-archived')
+ const chevron = document.getElementById('archived-chevron')
+ const collapsed = body.style.display === 'none'
+ body.style.display = collapsed ? '': 'none'
+ if(chevron) chevron.textContent = collapsed ? '▾': '▸'
 }
 
 
@@ -638,10 +676,50 @@ async function selectContext(type, id, name, color){
  if(type==='program'){
  const e = activeChildData.enrollments?.find(e=>e.program_id===id)
  if(e){ ctxName=e.program_name; instructor=e.instructor_name||''; dateStr=e.start_date?fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''):''
-      // Store instructor details for About section
+      // Store instructor details for About section (from cached data)
       window._ctxInstructorBio = e.instructor_bio||''
       window._ctxInstructorPhoto = e.instructor_photo||''
       window._ctxInstructorName = e.instructor_name||''
+      // Also fetch fresh instructor data in case cache is stale
+      fetch('/api/portal/program/'+id+'/instructor')
+        .then(r=>r.json()).then(info=>{
+          if(info && (info.instructor_bio || info.instructor_photo)){
+            window._ctxInstructorBio = info.instructor_bio||''
+            window._ctxInstructorPhoto = info.instructor_photo||''
+            window._ctxInstructorName = info.instructor_name||window._ctxInstructorName
+            // Re-inject the card with fresh data
+            const existingAbout = document.getElementById('portal-instructor-about')
+            if(existingAbout) existingAbout.remove()
+            const tabStrip = document.getElementById('detail-tabs')
+            if(tabStrip && tabStrip.parentNode && (window._ctxInstructorBio || window._ctxInstructorPhoto)){
+              const _initials = window._ctxInstructorName.charAt(0)
+              const _avatarStyle = 'width:72px;height:72px;border-radius:50%;background:var(--teal-light);'
+                + 'display:flex;align-items:center;justify-content:center;flex-shrink:0;'
+                + 'font-size:24px;font-weight:800;color:var(--teal-dark)'
+              const freshPhoto = window._ctxInstructorPhoto
+                ? '<img src="'+window._ctxInstructorPhoto+'" id="instr-photo-img"'
+                  + ' style="width:72px;height:72px;border-radius:50%;'
+                  + 'object-fit:cover;flex-shrink:0;border:2px solid var(--border)">'
+                : '<div style="'+_avatarStyle+'">'+_initials+'</div>'
+              const d2 = document.createElement('div')
+              d2.id = 'portal-instructor-about'
+              d2.style.cssText = 'padding:16px 20px 0'
+              const bioHtml = window._ctxInstructorBio
+                ? '<div style="font-size:13px;color:var(--text-muted);line-height:1.6">'+window._ctxInstructorBio.replace(/\n/g,'<br>')+'</div>'
+                : ''
+              d2.innerHTML = '<div style="background:var(--surface);border:1px solid var(--border);'
+                + 'border-radius:12px;padding:16px;display:flex;gap:14px;align-items:flex-start">'
+                + freshPhoto
+                + '<div style="flex:1;min-width:0">'
+                + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;'
+                + 'letter-spacing:0.6px;color:var(--text-muted);margin-bottom:4px">Your Instructor</div>'
+                + '<div style="font-size:15px;font-weight:700;margin-bottom:6px">'+window._ctxInstructorName+'</div>'
+                + bioHtml
+                + '</div></div>'
+              tabStrip.parentNode.insertBefore(d2, tabStrip)
+            }
+          }
+        }).catch(()=>{})
     }
  // Check if cast in this program's audition
  const pp = portalSession?.passphrase||''
@@ -715,7 +793,7 @@ async function selectContext(type, id, name, color){
  +(type==='production'?buildCalloutBar(id, activeChildId):'')
 
  // Build tabs
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
  const past = events.filter(e=>e.event_date&&e.event_date<today).sort((a,b)=>b.event_date.localeCompare(a.event_date))
 
@@ -831,7 +909,8 @@ async function selectContext(type, id, name, color){
     aboutDiv.id = 'portal-instructor-about'
     aboutDiv.style.cssText = 'padding:16px 20px 0'
     const photoHTML = window._ctxInstructorPhoto
-      ? `<img src="${window._ctxInstructorPhoto}" alt="${window._ctxInstructorName}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border)">`
+      ? `<img src="${window._ctxInstructorPhoto}" alt="${window._ctxInstructorName}" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex-shrink:0;border:2px solid var(--border)" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
+        + `<div style="width:72px;height:72px;border-radius:50%;background:var(--teal-light);display:none;align-items:center;justify-content:center;flex-shrink:0;font-size:24px;font-weight:800;color:var(--teal-dark)">${window._ctxInstructorName.charAt(0)}</div>`
       : `<div style="width:72px;height:72px;border-radius:50%;background:var(--teal-light);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:24px;font-weight:800;color:var(--teal-dark)">${window._ctxInstructorName.charAt(0)}</div>`
     aboutDiv.innerHTML = `<div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;display:flex;gap:14px;align-items:flex-start">
       ${photoHTML}
@@ -1147,7 +1226,7 @@ function buildCalloutBar(productionId, yid){
  window._calloutProdId = productionId
  window._calloutYid = yid
  return '<div style="margin-top:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.2)">'
- +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Need to call out? Click <strong>"Call Out"</strong> next to today\'s event in the Schedule tab.</div>'
+ +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Absent, sick, running late, or leaving early? Click <strong>"Absent / Sick / Late"</strong> next to the event in the Schedule tab. Opens '+CALLOUT_WINDOW_HOURS+' hours before an event and closes once it starts.</div>'
  +'</div>'
 }
 
@@ -1163,7 +1242,7 @@ async function submitCallout(productionId, yid, status){
  const labels = {absent:'Absent',sick:'Sick',late:'Running Late',leaving_early:'Leaving Early'}
  if(!confirm('Mark '+labels[status]+' for today? This will notify the production team.')) return
  const notes = status==='late'||status==='leaving_early' ? (prompt('Any notes? (optional)','') || ''): ''
- const r = await fetch('/api/portal/callout',{
+ const r = await fetch('/api/portal/production-conflict',{
  method:'POST',
  headers:{'Content-Type':'application/json'},
  body:JSON.stringify({production_id:productionId, youth_id:yid, status, notes})
@@ -1207,6 +1286,9 @@ function switchDetailTab(id, btn){
 const CONFLICT_LABELS = {absent:' Absent',sick:' Sick',late:' Running Late',leaving_early:' Leaving Early'}
 const CONFLICT_COLORS = {absent:'#dc2626',sick:'#dc2626',late:'#d97706',leaving_early:'#d97706'}
 const CONFLICT_BG = {absent:'#fef2f2',sick:'#fef2f2',late:'#fffbeb',leaving_early:'#fffbeb'}
+// Call-outs open this many hours before an event's scheduled start, and stay
+// open until it starts — keep in sync with CALLOUT_WINDOW_HOURS in app.py
+const CALLOUT_WINDOW_HOURS = 24
 
 function eventRow(e, today, conflictByEvent){
  const d = e.event_date ? new Date(e.event_date+'T00:00:00'): null
@@ -1232,6 +1314,28 @@ function eventRow(e, today, conflictByEvent){
  }
  const othersNote = othersCount>0&&!myConflict ? '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'+othersCount+' other'+(othersCount>1?'s':'')+' have reported a conflict</div>': ''
 
+ // Call-out is open only within CALLOUT_WINDOW_HOURS before an event starts,
+ // and stays open right up until it starts. Too early or already started = locked.
+ // Events without a start_time use midnight as their start.
+ let calloutOpen = false
+ let tooEarly = false
+ if(conflictByEvent && !myConflict && e.event_date){
+ const timePart = e.start_time || '00:00:00'
+ const eventStart = new Date(e.event_date+'T'+timePart)
+ if(!isNaN(eventStart.getTime())){
+ const windowOpensAt = new Date(eventStart.getTime() - CALLOUT_WINDOW_HOURS*60*60*1000)
+ const now = new Date()
+ calloutOpen = now >= windowOpensAt && now < eventStart
+ tooEarly = now < windowOpensAt
+ }
+ }
+ let lockedNote = ''
+ if(conflictByEvent && !myConflict && e.event_date && !calloutOpen){
+ lockedNote = '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'
+ +(tooEarly ? 'Call-out opens '+CALLOUT_WINDOW_HOURS+' hours before this event': 'Call-out window closed — contact the production team directly')
+ +'</div>'
+ }
+
  const row = '<div class="event-item" style="'+(myConflict?'opacity:0.75;':'')+(isToday?'border-left:3px solid var(--teal-mid);padding-left:8px;':'')+'">'
  +'<div class="event-date-block">'
  +'<div class="event-date-day">'+day+'</div>'
@@ -1242,9 +1346,10 @@ function eventRow(e, today, conflictByEvent){
  +'<div class="event-meta"><span> '+timeStr+'</span>'+(e.location?'<span> '+e.location+(e.room?' · '+e.room:'')+'</span>':'')+'</div>'
  +conflictBadge
  +othersNote
+ +lockedNote
  +'</div>'
- +(conflictByEvent&&!myConflict&&e.event_date===today
- ? '<button onclick="showCalloutForEvent(\''+e.id+'\',\''+e.name+'\')" style="background:var(--red-50);color:var(--red-600);border:1.5px solid #fca5a5;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit">Call Out</button>'
+ +(calloutOpen
+ ? '<button onclick="showCalloutForEvent(\''+e.id+'\',\''+e.name+'\')" style="background:var(--red-50);color:var(--red-600);border:1.5px solid #fca5a5;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit">Absent / Sick / Late</button>'
 : '')
  +'</div>'
  return row
@@ -1259,7 +1364,7 @@ function showCalloutForEvent(eventId, eventName){
  const s = map[status]
  if(!s){ return }
  const notes = s==='late'||s==='leaving_early' ? (prompt('Any notes? (optional, press Cancel to skip)','') || ''): ''
- fetch('/api/portal/callout',{
+ fetch('/api/portal/production-conflict',{
  method:'POST',
  headers:{'Content-Type':'application/json'},
  body:JSON.stringify({production_id:productionId, youth_id:yid, event_id:eventId, status:s, notes})
@@ -1279,7 +1384,7 @@ function buildGeneralInfoHTML(content){
 
 function buildProductionOverviewHTML(prod, events, announcements, conflicts, childId, prodId){
  if(!prod) return '<div class="empty-state"><div class="icon"></div>Production info loading…</div>'
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const now = new Date()
  const upcoming = (events||[]).filter(e=>e.event_date&&e.event_date>=today).sort((a,b)=>a.event_date.localeCompare(b.event_date)||(a.start_time||'').localeCompare(b.start_time||''))
  const todayEvts = (events||[]).filter(e=>e.event_date===today)
@@ -1668,6 +1773,57 @@ async function loadPortalAuditionsTab(contextType, contextId, passphrase, partic
  </div>
 
  <div id="aud-submit-status" style="font-size:13px"></div>
+
+ ${(settings.allow_slots && (settings.slots||[]).filter(s=>s.status!=='cancelled').length > 0) ? `
+ <div class="form-group">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:10px">Audition Type</label>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px">
+ <label id="aud-type-virtual-label" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border:2px solid #145466;border-radius:10px;cursor:pointer;background:#f0f9ff">
+ <input type="radio" name="aud-type" value="virtual" checked style="accent-color:#145466;flex-shrink:0;width:16px;height:16px"
+   onclick="document.getElementById('aud-slots-picker').style.display='none';this.closest('.form-group').querySelectorAll('label[id^=aud-type]').forEach(function(l){l.style.borderColor='var(--border-md)';l.style.background='#fff'});document.getElementById('aud-type-virtual-label').style.borderColor='#145466';document.getElementById('aud-type-virtual-label').style.background='#f0f9ff'">
+ <span style="font-size:13px;font-weight:600;color:#0d3d4d">Virtual submission</span>
+ </label>
+ <label id="aud-type-inperson-label" style="display:flex;align-items:center;gap:8px;padding:10px 14px;border:2px solid var(--border-md);border-radius:10px;cursor:pointer;background:#fff">
+ <input type="radio" name="aud-type" value="in_person" style="accent-color:#145466;flex-shrink:0;width:16px;height:16px"
+   onclick="document.getElementById('aud-slots-picker').style.display='';this.closest('.form-group').querySelectorAll('label[id^=aud-type]').forEach(function(l){l.style.borderColor='var(--border-md)';l.style.background='#fff'});document.getElementById('aud-type-inperson-label').style.borderColor='#145466';document.getElementById('aud-type-inperson-label').style.background='#f0f9ff'">
+ <span style="font-size:13px;font-weight:600;color:#0d3d4d">Book an in-person slot</span>
+ </label>
+ </div>
+ <div id="aud-slots-picker" style="display:none">
+ <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">Choose Your Time Slot</div>
+ ${(()=>{
+   function fmt12(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+'\u202f'+a }catch(e){ return t } }
+   var byDate = {}
+   ;(settings.slots||[]).filter(function(s){ return s.status!=='cancelled' }).forEach(function(s){
+     var d = s.slot_date||'TBD'; if(!byDate[d]) byDate[d]=[]
+     byDate[d].push(s)
+   })
+   return Object.keys(byDate).sort().map(function(date){
+     var dateLabel = date==='TBD' ? 'Available Slots' : (function(){ try{ return new Date(date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) }catch(e){ return date } })()
+     return '<div style="margin-bottom:14px">'
+       + '<div style="font-size:13px;font-weight:700;color:#145466;margin-bottom:8px;padding-bottom:6px;border-bottom:2px solid #e0f2fe">'+dateLabel+'</div>'
+       + '<div style="display:flex;flex-direction:column;gap:6px">'
+       + byDate[date].map(function(s){
+           var booked=parseInt(s.booked_count||0), cap=parseInt(s.capacity||1), full=booked>=cap
+           var timeStr = s.start_time ? fmt12(s.start_time)+(s.end_time?' \u2013 '+fmt12(s.end_time):'') : ''
+           var spotsLeft = cap - booked
+           return '<label style="display:flex;align-items:center;gap:10px;padding:10px 14px;border:1.5px solid '+(full?'#e5e7eb':'#d1d5db')+';border-radius:10px;cursor:'+(full?'not-allowed':'pointer')+';opacity:'+(full?'0.5':'1')+';background:'+(full?'#f9fafb':'#fff')+'">'
+             + '<input type="radio" name="aud-slot" value="'+s.id+'" '+(full?'disabled':'')+' style="accent-color:#145466;flex-shrink:0;width:16px;height:16px">'
+             + '<div style="flex:1;min-width:0">'
+             + '<div style="font-size:14px;font-weight:700;color:'+(full?'#9ca3af':'#0d3d4d')+'">'+timeStr+'</div>'
+             + (s.location?'<div style="font-size:12px;color:#6b7280;margin-top:1px">'+escHtml(s.location)+'</div>':'')
+             + '</div>'
+             + (full ? '<span style="font-size:11px;color:#dc2626;font-weight:700;flex-shrink:0">Full</span>'
+               : spotsLeft<=3 ? '<span style="font-size:11px;color:#f59e0b;font-weight:700;flex-shrink:0">'+spotsLeft+' left</span>' : '')
+             + '</label>'
+         }).join('')
+       + '</div></div>'
+   }).join('')
+ })()}
+ </div>
+ </div>
+ ` : ''}
+
  <button onclick="submitPortalAudition('${contextType}','${contextId}','${escHtml(passphrase)}','${participantId||''}')"
  style="width:100%;background:#145466;color:#fff;border:none;border-radius:var(--radius);padding:13px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer">
  Submit Audition</button>
@@ -1709,7 +1865,9 @@ async function submitPortalAudition(contextType, contextId, passphrase, particip
  roles_requested: roles_requested,
  role_requested: role||null,
  video_url: video||null, resume_url: resume||null,
- headshot_url: headshot||null, notes: notes||null
+ headshot_url: headshot||null, notes: notes||null,
+ audition_type: (document.querySelector('input[name="aud-type"]:checked')||{}).value || 'virtual',
+ slot_id: (document.querySelector('input[name="aud-slot"]:checked')||{}).value || null,
  }
  const r = await fetch('/api/auditions/submit',{
  method:'POST', headers:{'Content-Type':'application/json'},
@@ -2042,7 +2200,7 @@ async function selectInstructorContext(type, id, name, el){
  ? {files: rawContent, announcements: []}
 : {files: rawContent.files||[], announcements: rawContent.announcements||[]}
 
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
 
  document.getElementById('instructor-main').innerHTML = `
@@ -2222,6 +2380,12 @@ function fmtDateTime(ts){
 
 function escHtml(s){
  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+// "Today" in the browser's own local timezone — see index.html for why
+// new Date().toISOString() is wrong for this.
+function todayLocalISO(){
+ const d = new Date()
+ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
 }
 
 let toastTimer = null

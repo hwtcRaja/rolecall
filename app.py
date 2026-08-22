@@ -890,6 +890,9 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
         "ALTER TABLE callout_relay_threads ALTER COLUMN guardian_phone DROP NOT NULL",
+        # Lets staff hide the Auditions tab entirely for programs/productions
+        # that never use it, instead of it always showing "not currently open".
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS tab_visible BOOLEAN DEFAULT TRUE",
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
@@ -5381,7 +5384,8 @@ def portal_family_threads():
 @app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['GET'])
 def get_audition_settings(context_type, context_id):
     conn = get_db()
-    row = fetchone(conn, '''SELECT *, COALESCE(allow_slots, FALSE) AS allow_slots
+    row = fetchone(conn, '''SELECT *, COALESCE(allow_slots, FALSE) AS allow_slots,
+        COALESCE(tab_visible, TRUE) AS tab_visible
         FROM audition_settings WHERE context_id=%s AND context_type=%s''',
         (context_id, context_type))
     # Load slots
@@ -5392,10 +5396,13 @@ def get_audition_settings(context_type, context_id):
         ORDER BY as2.slot_date, as2.start_time''', (context_id, context_type)) or []
     conn.close()
     if not row:
+        # No settings ever configured for this program/production — default
+        # to visible so nothing that already relied on this tab breaks;
+        # staff can explicitly hide it once they've set anything up.
         resp = jsonify({'context_type': context_type, 'context_id': context_id,
             'is_open': False, 'roles': [], 'allow_video_link': True,
             'allow_resume_link': True, 'allow_headshot_link': True,
-            'allow_slots': False, 'slots': slots})
+            'allow_slots': False, 'tab_visible': True, 'slots': slots})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     try: row['roles'] = json.loads(row.get('roles') or '[]')
@@ -5427,21 +5434,22 @@ def save_audition_settings(context_type, context_id):
     allow_resume = bool(d.get('allow_resume_link', True))
     allow_head   = bool(d.get('allow_headshot_link', True))
     allow_slots  = bool(d.get('allow_slots', False))
+    tab_visible  = bool(d.get('tab_visible', True))
     if existing:
         execute(conn, """UPDATE audition_settings SET is_open=%s,title=%s,description=%s,
             audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
             email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
-            allow_slots=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            allow_slots=%s, tab_visible=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
-             email_sub,allow_video,allow_resume,allow_head,allow_slots,context_id,context_type))
+             email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,context_id,context_type))
     else:
         sid = str(uuid.uuid4())
         execute(conn, """INSERT INTO audition_settings
             (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
-             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
-             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots))
+             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -24083,17 +24091,22 @@ def twilio_sms():
         target_row = None
         # Optional "@1234 message" prefix picks a specific conversation by
         # the customer's last 4 digits, in case more than one person has
-        # texted in recently. "@8272908493 message" (a full number) instead
-        # starts a brand-new conversation with that number from scratch.
+        # texted in recently. "@8272908493 message" (a full number, however
+        # it's punctuated — dashes/parens/+1 are all fine) instead starts a
+        # brand-new conversation with that number from scratch.
         msg_body = body
+        used_explicit_code = False
         if body.startswith('@') and ' ' in body:
             code, rest = body[1:].split(' ', 1)
-            if code.isdigit() and len(code) == 4:
+            code_digits = ''.join(ch for ch in code if ch.isdigit())
+            if len(code_digits) == 4:
+                used_explicit_code = True
                 target_row = fetchone(conn, '''SELECT * FROM sms_conversations
-                    WHERE RIGHT(customer_phone, 4)=%s ORDER BY last_message_at DESC LIMIT 1''', (code,))
+                    WHERE RIGHT(customer_phone, 4)=%s ORDER BY last_message_at DESC LIMIT 1''', (code_digits,))
                 msg_body = rest.strip()
-            elif code.isdigit() and len(code) >= 10:
-                target_phone = normalize_to_e164(code)
+            elif len(code_digits) >= 10:
+                used_explicit_code = True
+                target_phone = normalize_to_e164(code_digits)
                 target_row = fetchone(conn, '''SELECT * FROM sms_conversations
                     WHERE RIGHT(customer_phone,10)=RIGHT(%s,10)
                     ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
@@ -24104,7 +24117,28 @@ def twilio_sms():
                     target_row = fetchone(conn, '''SELECT * FROM sms_conversations
                         WHERE customer_phone=%s ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
                 msg_body = rest.strip()
-        if not target_row:
+            # Anything else after "@" (not 4 digits, not 10+) isn't a
+            # recognizable code — treat the whole thing as a plain reply
+            # below rather than guessing, so a typo never silently misfires
+            # to the wrong person.
+
+        if used_explicit_code and not target_row:
+            # A code was given but nothing matched it — do NOT fall back to
+            # "most recent conversation," since that's how a mistyped number
+            # ends up texting the wrong person. Tell the on-call person instead.
+            conn.close()
+            try:
+                from twilio.rest import Client as _TwClient
+                client = _TwClient(ts['account_sid'], ts['auth_token'])
+                client.messages.create(
+                    body="RoleCall: No matching conversation found for that number/code. Double-check it and try again, or just reply with no @code to use your most recent conversation.",
+                    from_=ts['from_phone'], to=from_num)
+            except Exception as e:
+                app.logger.warning(f'Failed to send "no match" notice to on-call: {e}')
+            twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+            return twiml, 200, {'Content-Type': 'text/xml'}
+
+        if not used_explicit_code:
             target_row = fetchone(conn, '''SELECT * FROM sms_conversations
                 WHERE last_message_at > NOW() - INTERVAL '4 hours'
                 ORDER BY last_message_at DESC LIMIT 1''')

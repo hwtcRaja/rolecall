@@ -2844,7 +2844,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <option value="class">Class</option>
  <option value="workshop">Workshop</option>
  <option value="camp">Summer Camp</option>
- <option value="production">Production</option>
  <option value="other">Other</option>
  </select>
  </div>
@@ -20613,7 +20612,10 @@ function renderYouthProgramsPage(){
  var grid = document.getElementById('youth-programs-grid')
  if(!grid) return
  var filtered = allPrograms.filter(function(p){
-  if((p.program_type||'class')==='production') return false
+  // Note: program_type 'production' entries are NOT hidden here anymore —
+  // they used to vanish silently (invisible on this page AND on the actual
+  // Productions page, since that's a different table). Now shown with a
+  // warning badge so anyone who picked the wrong type can find and fix it.
   if(search && !p.name.toLowerCase().includes(search) && !(p.description||'').toLowerCase().includes(search)) return false
   if(filterType && (p.program_type||'class') !== filterType) return false
   if(filterStatus && (p.status||'active') !== filterStatus) return false
@@ -20645,7 +20647,10 @@ function toggleProgGroup(type){
 }
 
 function _renderGrouped(grid, filtered, isAdmin){
- var TYPE_ORDER=['class','workshop','camp','other']
+ // 'production' isn't a real group here — actual Productions live in a
+ // separate system entirely. This puts anything mistakenly saved with that
+ // type into its own flagged group instead of silently disappearing.
+ var TYPE_ORDER=['class','workshop','camp','production','other']
  var groups={}
  filtered.forEach(function(p){ var t=p.program_type||'class'; if(!groups[t]) groups[t]=[]; groups[t].push(p) })
  var html=''
@@ -20661,7 +20666,8 @@ function _renderGrouped(grid, filtered, isAdmin){
    +'<div style="flex:1"><span style="font-size:16px;font-weight:800;color:'+col+'">'+label+'s</span>'
    +'<span style="font-size:12px;color:var(--text-muted);margin-left:10px">'+progs.length+' program'+(progs.length!==1?'s':'')
    +(totalEnrolled?' &middot; '+totalEnrolled+' enrolled':'')
-   +(openCount?' &middot; <span style=\"color:#166534;font-weight:700\">'+openCount+' open</span>':'')+'</span></div>'
+   +(openCount?' &middot; <span style=\"color:#166534;font-weight:700\">'+openCount+' open</span>':'')
+   +(type==='production'?' &middot; <span style=\"color:#B45309;font-weight:700\">⚠ wrong type — edit and change to Class/Workshop/Camp</span>':'')+'</span></div>'
    +'<span id="yp-chevron-'+type+'" style="font-size:16px;color:var(--text-muted)">\u25be</span></div>'
    +'<div id="yp-group-'+type+'">'
   // sub-group by season

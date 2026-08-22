@@ -1226,7 +1226,7 @@ function buildCalloutBar(productionId, yid){
  window._calloutProdId = productionId
  window._calloutYid = yid
  return '<div style="margin-top:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,0.2)">'
- +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Need to call out? Click <strong>"Call Out"</strong> next to the event in the Schedule tab. Call-outs open '+CALLOUT_WINDOW_HOURS+' hours before an event and close once it starts.</div>'
+ +'<div style="font-size:12px;color:rgba(255,255,255,0.8)">Absent, sick, running late, or leaving early? Click <strong>"Absent / Sick / Late"</strong> next to the event in the Schedule tab. Opens '+CALLOUT_WINDOW_HOURS+' hours before an event and closes once it starts.</div>'
  +'</div>'
 }
 
@@ -1349,7 +1349,7 @@ function eventRow(e, today, conflictByEvent){
  +lockedNote
  +'</div>'
  +(calloutOpen
- ? '<button onclick="showCalloutForEvent(\''+e.id+'\',\''+e.name+'\')" style="background:var(--red-50);color:var(--red-600);border:1.5px solid #fca5a5;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit">Call Out</button>'
+ ? '<button onclick="showCalloutForEvent(\''+e.id+'\',\''+e.name+'\')" style="background:var(--red-50);color:var(--red-600);border:1.5px solid #fca5a5;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit">Absent / Sick / Late</button>'
 : '')
  +'</div>'
  return row

@@ -11628,6 +11628,7 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
  const el = document.getElementById(containerId)
  if(!el) return
  const isOpen = !!settings.is_open
+ const tabVisible = settings.tab_visible!==false
  const roles = settings.roles || []
  const slots = settings.slots || []
  const castCount = submissions.filter(s=>s.status==='cast').length
@@ -11662,6 +11663,8 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
    <div style="display:flex;gap:8px;align-items:center">
     <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;background:${isOpen?'#dcfce7':'#f3f4f6'};color:${isOpen?'#166534':'#6b7280'}">${isOpen?'Open':'Closed'}</span>
     <button class="btn ${isOpen?'btn-secondary':'btn-primary'} btn-sm" onclick="toggleAuditionOpen('${contextType}','${contextId}','${containerId}',${!isOpen})">${isOpen?'Close Submissions':'Open Submissions'}</button>
+    <span style="font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;background:${tabVisible?'#e0f2fe':'#fef2f2'};color:${tabVisible?'#145466':'#991b1b'}">Tab: ${tabVisible?'Visible':'Hidden'}</span>
+    <button class="btn btn-secondary btn-sm" onclick="toggleAuditionTabVisible('${contextType}','${contextId}','${containerId}',${!tabVisible})">${tabVisible?'Hide From Portal':'Show In Portal'}</button>
     <button class="btn btn-secondary btn-sm" onclick="openAuditionSettingsModal('${contextType}','${contextId}','${containerId}')">Settings</button>
    </div>
   </div>
@@ -11891,6 +11894,14 @@ async function toggleAuditionOpen(contextType, contextId, containerId, newState)
  loadAuditionsTab(contextType, contextId, containerId)
 }
 
+async function toggleAuditionTabVisible(contextType, contextId, containerId, newState){
+ const s = await api(`/api/auditions/settings/${contextType}/${contextId}`)
+ const updated = Object.assign({}, s, {tab_visible: newState})
+ await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', updated)
+ toast(newState ? 'Auditions tab is now visible in the family portal': 'Auditions tab hidden from the family portal', 'success')
+ loadAuditionsTab(contextType, contextId, containerId)
+}
+
 async function updateAuditionStatus(sid, contextId, status){
  if(status === 'cast'){
  // Prompt for the specific role being cast
@@ -12029,6 +12040,10 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  </div>
  <input type="hidden" id="aud-s-is-open" data-open="${settings.is_open?'true':'false'}" />
  <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+ <label style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:var(--radius);padding:12px 14px;cursor:pointer">
+ <input type="checkbox" id="aud-s-tab-visible" ${settings.tab_visible!==false?'checked':''} style="accent-color:var(--teal);width:16px;height:16px">
+ <span style="font-size:13px"><strong>Show Auditions tab in family portal</strong><br><span style="font-weight:400;color:var(--text-muted)">Turn off for programs/productions that never hold auditions, so families don't see an empty tab.</span></span>
+ </label>
  <div class="form-group">
  <label>Audition Title <span style="font-weight:400;color:var(--text-muted)">(shown on portal)</span></label>
  <input type="text" id="aud-s-title" value="${escHtml(settings.title||'')}" placeholder="e.g. Spring Musical Auditions"/>
@@ -12137,6 +12152,7 @@ async function saveAuditionSettings(contextType, contextId, containerId){
    allow_resume_link: !!document.getElementById('aud-s-resume')?.checked,
    allow_headshot_link: !!document.getElementById('aud-s-headshot')?.checked,
    allow_slots: allowSlots,
+   tab_visible: !!document.getElementById('aud-s-tab-visible')?.checked,
  }
  console.log('saveAuditionSettings payload:', data)
  const res = await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', data)

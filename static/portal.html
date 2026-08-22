@@ -655,13 +655,16 @@ async function selectContext(type, id, name, color){
  const conflictsUrl = type==='production' ? '/api/portal/production/'+id+'/conflicts'+(activeChildId?'?youth_id='+activeChildId:''): null
  const teamUrl = type==='production' ? '/api/productions/'+id+'/team': null
  const generalUrl = type==='production' ? '/api/productions/'+id+'/general-content': null
- const [events, profileData, conflicts, teamMembers, generalContent] = await Promise.all([
+ const auditionSettingsUrl = '/api/auditions/settings/'+type+'/'+id
+ const [events, profileData, conflicts, teamMembers, generalContent, auditionSettings] = await Promise.all([
  fetch(endpoint).then(r=>r.json()).catch(()=>[]),
  activeChildId ? fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json()).catch(()=>null): Promise.resolve(null),
  conflictsUrl ? fetch(conflictsUrl).then(r=>r.json()).catch(()=>[]): Promise.resolve([]),
  teamUrl ? fetch(teamUrl).then(r=>r.json()).catch(()=>[]): Promise.resolve([]),
- generalUrl ? fetch(generalUrl).then(r=>r.json()).catch(()=>null): Promise.resolve(null)
+ generalUrl ? fetch(generalUrl).then(r=>r.json()).catch(()=>null): Promise.resolve(null),
+ fetch(auditionSettingsUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
  ])
+ window._ctxAuditionSettings = auditionSettings
  // Build conflict lookup by event_id
  const conflictByEvent = {}
  ;(conflicts||[]).forEach(c=>{ if(c.event_id){ if(!conflictByEvent[c.event_id]) conflictByEvent[c.event_id]=[]; conflictByEvent[c.event_id].push(c) } })
@@ -812,8 +815,9 @@ async function selectContext(type, id, name, color){
  }
  if(isProduction && teamMembers.length) tabDefs.push({id:'team', label:'Meet the Team'})
  if(isProduction) tabDefs.push({id:'conflicts', label:'Conflicts'+(conflicts.filter(c=>c.is_mine).length?' ('+conflicts.filter(c=>c.is_mine).length+')':'')})
- // Add Auditions tab if open (loaded async — add as placeholder, fill when clicked)
- tabDefs.push({id:'auditions', label:' Auditions'})
+ // Auditions tab only shows if staff have explicitly enabled it for this
+ // program/production — most classes and non-audition shows never use it.
+ if(auditionSettings && auditionSettings.tab_visible!==false) tabDefs.push({id:'auditions', label:' Auditions'})
  tabDefs.push({id:'messages', label:' Messages'})
  // Profile tab removed — shown at top of page instead
 

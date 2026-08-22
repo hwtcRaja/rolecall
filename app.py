@@ -24032,20 +24032,37 @@ def lookup_contact_name_by_phone(phone):
         conn.close()
     return None
 
+def normalize_to_e164(raw):
+    """Best-effort normalize a US phone number to E.164 (+1XXXXXXXXXX) —
+    used when an on-call person kicks off a brand-new text from their own
+    phone by number rather than replying to an existing conversation."""
+    digits = ''.join(ch for ch in (raw or '') if ch.isdigit())
+    if len(digits) == 10:
+        return '+1' + digits
+    if len(digits) == 11 and digits.startswith('1'):
+        return '+' + digits
+    return raw
+
 @app.route('/twilio/sms', methods=['POST'])
 def twilio_sms():
     """Inbound SMS webhook.
 
-    Two very different things land here:
+    Three things can land here:
     1. A customer texting the HWTC number for the first time (or continuing
        a conversation) — forward it to whoever's on call.
-    2. The on-call person REPLYING on their own phone. Their reply is sent
-       to the HWTC Twilio number (since that's who the forwarded message
-       appeared to come from), so without tracking, it looks identical to a
-       new customer message and gets re-broadcast instead of delivered back
-       to the actual customer. We tell the two apart by checking whether the
-       From number matches whoever is currently on call, and route the
-       on-call person's replies to the most recently active customer thread.
+    2. The on-call person REPLYING on their own phone to an existing
+       conversation. Their reply is sent to the HWTC Twilio number (since
+       that's who the forwarded message appeared to come from), so without
+       tracking, it looks identical to a new customer message and gets
+       re-broadcast instead of delivered back to the actual customer. We
+       tell the two apart by checking whether the From number matches
+       whoever is currently on call, and route their replies to the most
+       recently active customer thread — or a specific one via "@1234
+       message" (last 4 digits of that customer's number).
+    3. The on-call person STARTING a brand-new text from their own phone to
+       someone who's never messaged in — "@8272908493 message", using the
+       full number instead of just the last 4. This creates the conversation
+       on the spot, so the reply-relay works from then on like any other.
     """
     oncall = get_oncall_now()
     ts = get_twilio_settings()
@@ -24064,15 +24081,28 @@ def twilio_sms():
     if is_oncall_replying:
         conn = get_db()
         target_row = None
-        # Optional "@1234 message" prefix lets the on-call person pick a
-        # specific conversation by the customer's last 4 digits, in case
-        # more than one person has texted in recently.
+        # Optional "@1234 message" prefix picks a specific conversation by
+        # the customer's last 4 digits, in case more than one person has
+        # texted in recently. "@8272908493 message" (a full number) instead
+        # starts a brand-new conversation with that number from scratch.
         msg_body = body
         if body.startswith('@') and ' ' in body:
             code, rest = body[1:].split(' ', 1)
             if code.isdigit() and len(code) == 4:
                 target_row = fetchone(conn, '''SELECT * FROM sms_conversations
                     WHERE RIGHT(customer_phone, 4)=%s ORDER BY last_message_at DESC LIMIT 1''', (code,))
+                msg_body = rest.strip()
+            elif code.isdigit() and len(code) >= 10:
+                target_phone = normalize_to_e164(code)
+                target_row = fetchone(conn, '''SELECT * FROM sms_conversations
+                    WHERE RIGHT(customer_phone,10)=RIGHT(%s,10)
+                    ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
+                if not target_row:
+                    execute(conn, '''INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at)
+                        VALUES (%s,%s,NOW())''', (target_phone, forward_to))
+                    conn.commit()
+                    target_row = fetchone(conn, '''SELECT * FROM sms_conversations
+                        WHERE customer_phone=%s ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
                 msg_body = rest.strip()
         if not target_row:
             target_row = fetchone(conn, '''SELECT * FROM sms_conversations

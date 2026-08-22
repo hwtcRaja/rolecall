@@ -1407,8 +1407,9 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS updated_by TEXT",
-        # Call-out text alert recipients — per-production, set from the Conflicts tab
-        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS callout_sms_phones TEXT DEFAULT ''",
+        # Call-out text alert recipients — per-production, chosen from added crew members;
+        # texts go to whatever phone number is on file on their volunteer profile.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS callout_alert_volunteer_ids TEXT DEFAULT '[]'",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_by TEXT",
@@ -7775,7 +7776,7 @@ def get_productions():
         ORDER BY p.start_date DESC NULLS LAST""")
     for p in prods:
         p['members'] = fetchall(conn, '''
-            SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
+            SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email, v.phone as volunteer_phone
             FROM production_members pm
             JOIN volunteers v ON pm.volunteer_id=v.id
             WHERE pm.production_id=%s ORDER BY pm.role''', (p['id'],))
@@ -7783,6 +7784,10 @@ def get_productions():
             '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online, wt.min_age, wt.max_age
                FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
                WHERE prw.production_id=%s ORDER BY wt.name''', (p['id'],))
+        try:
+            p['callout_alert_volunteer_ids'] = json.loads(p.get('callout_alert_volunteer_ids') or '[]')
+        except Exception:
+            p['callout_alert_volunteer_ids'] = []
     conn.close()
     return jsonify(prods)
 
@@ -10348,10 +10353,35 @@ def get_production_daily_overview(pid):
 
     def roster_status(signin_rows, conflict_rows):
         if conflict_rows:
-            return conflict_rows[-1]['status']  # most recent call-out status
+            return conflict_rows[-1]['status']  # called-out ahead of time: absent/sick/late/leaving_early
         if signin_rows:
             return 'signed_out' if all(r.get('signed_out_at') for r in signin_rows) else 'signed_in'
-        return 'not_yet'
+        # No call-out on record and never signed in — only a genuine "no show"
+        # once today's event has actually started; before that, still expected.
+        return 'no_show' if any_event_started else 'not_yet'
+
+    # Has at least one of today's events already started? Drives the not_yet vs no_show split above.
+    now_dt = datetime.now()
+    any_event_started = False
+    for e in events:
+        ev_date = e.get('event_date')
+        if not ev_date:
+            continue
+        if not hasattr(ev_date, 'year'):
+            try:
+                ev_date = datetime.strptime(str(ev_date)[:10], '%Y-%m-%d').date()
+            except Exception:
+                continue
+        ev_time = e.get('start_time')
+        if isinstance(ev_time, str):
+            try:
+                ev_time = datetime.strptime(ev_time, '%H:%M:%S').time() if len(ev_time) > 5 else datetime.strptime(ev_time, '%H:%M').time()
+            except Exception:
+                ev_time = None
+        ev_start = datetime.combine(ev_date, ev_time or datetime.min.time())
+        if ev_start <= now_dt:
+            any_event_started = True
+            break
 
     crew_out = []
     for m in crew:
@@ -10378,6 +10408,7 @@ def get_production_daily_overview(pid):
         'signed_out': all_statuses.count('signed_out'),
         'not_yet': all_statuses.count('not_yet'),
         'called_out': sum(1 for s in all_statuses if s in ('absent','sick','late','leaving_early')),
+        'no_show': all_statuses.count('no_show'),
     }
 
     conn.close()
@@ -10598,23 +10629,30 @@ def remove_prod_waiver(pid, wid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
-@app.route('/api/productions/<pid>/callout-phones', methods=['PUT'])
-def set_production_callout_phones(pid):
-    """Quick action to set the phone numbers that get a text when someone calls
-    out for this production — replaces the old global Settings toggle."""
+@app.route('/api/productions/<pid>/callout-recipients', methods=['PUT'])
+def set_production_callout_recipients(pid):
+    """Set which added crew members get a text when someone calls out for this
+    production. Texts go to whatever phone number is on their volunteer profile."""
     err = require_permission('productions')
     if err: return err
     d = request.json or {}
-    phones = d.get('callout_sms_phones', '')
+    volunteer_ids = d.get('volunteer_ids') or []
+    if not isinstance(volunteer_ids, list):
+        return jsonify({'error': 'volunteer_ids must be a list'}), 400
     conn = get_db()
     prod = fetchone(conn, 'SELECT id FROM productions WHERE id=%s', (pid,))
     if not prod:
         conn.close()
         return jsonify({'error': 'Production not found'}), 404
-    execute(conn, 'UPDATE productions SET callout_sms_phones=%s WHERE id=%s', (phones, pid))
+    # Only keep ids that are actually members of this production
+    valid_ids = {r['volunteer_id'] for r in fetchall(conn,
+        'SELECT volunteer_id FROM production_members WHERE production_id=%s', (pid,))}
+    volunteer_ids = [v for v in volunteer_ids if v in valid_ids]
+    execute(conn, 'UPDATE productions SET callout_alert_volunteer_ids=%s WHERE id=%s',
+        (json.dumps(volunteer_ids), pid))
     conn.commit()
     conn.close()
-    return jsonify({'ok': True, 'callout_sms_phones': phones})
+    return jsonify({'ok': True, 'callout_alert_volunteer_ids': volunteer_ids})
 
 # ─────────────────────────────────────────────
 #  KIOSK ROUTES
@@ -13567,10 +13605,11 @@ def submit_portal_production_conflict():
 
     # Notify production team by email + text — email gated on the existing
     # "Callout submitted" alert toggle in Settings → Email → Alerts; text
-    # numbers are set per-production, from that production's Conflicts tab.
+    # recipients are chosen per-production from added crew members, using
+    # whatever phone number is on file on their volunteer profile.
     try:
         youth = fetchone(conn, 'SELECT first_name, last_name FROM youth_participants WHERE id=%s', (youth_id,))
-        prod = fetchone(conn, 'SELECT name, callout_sms_phones FROM productions WHERE id=%s', (production_id,))
+        prod = fetchone(conn, 'SELECT name, callout_alert_volunteer_ids FROM productions WHERE id=%s', (production_id,))
         s = get_email_settings()
         if youth and prod and s.get('alert_callouts', True):
             labels = {'absent':'Absent','sick':'Sick','late':'Running Late','leaving_early':'Leaving Early'}
@@ -13578,20 +13617,39 @@ def submit_portal_production_conflict():
             who = f"{youth['first_name']} {youth['last_name']}"
             where = f" for {event['name']}" if event and event.get('name') else ''
 
+            # Event date if this call-out is tied to a specific event, else today's date
+            if event and event.get('event_date'):
+                ev_date = event['event_date']
+                try:
+                    ev_date = ev_date if hasattr(ev_date, 'strftime') else datetime.strptime(str(ev_date)[:10], '%Y-%m-%d').date()
+                    date_str = ev_date.strftime('%a, %b %-d')
+                except Exception:
+                    date_str = str(ev_date)
+            else:
+                date_str = date.today().strftime('%a, %b %-d')
+
             recipients = get_recipient_emails(s)
             if recipients:
                 subject = f"Call-out: {who} — {label}"
                 html = (f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
                         f'<h2 style="color:#145466">Call-out reported</h2>'
                         f'<p><strong>{who}</strong> has been marked '
-                        f'<strong>{label}</strong> for <strong>{prod["name"]}</strong>{where}.</p>'
+                        f'<strong>{label}</strong> for <strong>{prod["name"]}</strong>{where} on {date_str}.</p>'
                         + (f'<p>Notes: {notes}</p>' if notes else '') + '</div>')
                 send_email(recipients, subject, html)
 
-            phones = [p.strip() for p in (prod.get('callout_sms_phones') or '').split(',') if p.strip()]
+            try:
+                vol_ids = json.loads(prod.get('callout_alert_volunteer_ids') or '[]')
+            except Exception:
+                vol_ids = []
+            phones = []
+            if vol_ids:
+                ph = ','.join(['%s']*len(vol_ids))
+                phones = [r['phone'] for r in fetchall(conn,
+                    f'SELECT phone FROM volunteers WHERE id IN ({ph})', tuple(vol_ids)) if r.get('phone')]
             ts = get_twilio_settings()
             if phones and ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'):
-                sms_body = f"HWTC RoleCall: {who} marked {label} — {prod['name']}{where}."
+                sms_body = f"HWTC RoleCall: {who} marked {label}{where} on {date_str} — {prod['name']}."
                 try:
                     from twilio.rest import Client as _TwClient
                     client = _TwClient(ts['account_sid'], ts['auth_token'])

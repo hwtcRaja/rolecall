@@ -793,7 +793,7 @@ async function selectContext(type, id, name, color){
  +(type==='production'?buildCalloutBar(id, activeChildId):'')
 
  // Build tabs
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
  const past = events.filter(e=>e.event_date&&e.event_date<today).sort((a,b)=>b.event_date.localeCompare(a.event_date))
 
@@ -1384,7 +1384,7 @@ function buildGeneralInfoHTML(content){
 
 function buildProductionOverviewHTML(prod, events, announcements, conflicts, childId, prodId){
  if(!prod) return '<div class="empty-state"><div class="icon"></div>Production info loading…</div>'
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const now = new Date()
  const upcoming = (events||[]).filter(e=>e.event_date&&e.event_date>=today).sort((a,b)=>a.event_date.localeCompare(b.event_date)||(a.start_time||'').localeCompare(b.start_time||''))
  const todayEvts = (events||[]).filter(e=>e.event_date===today)
@@ -2200,7 +2200,7 @@ async function selectInstructorContext(type, id, name, el){
  ? {files: rawContent, announcements: []}
 : {files: rawContent.files||[], announcements: rawContent.announcements||[]}
 
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const upcoming = events.filter(e=>!e.event_date||e.event_date>=today).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
 
  document.getElementById('instructor-main').innerHTML = `
@@ -2380,6 +2380,12 @@ function fmtDateTime(ts){
 
 function escHtml(s){
  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+}
+// "Today" in the browser's own local timezone — see index.html for why
+// new Date().toISOString() is wrong for this.
+function todayLocalISO(){
+ const d = new Date()
+ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
 }
 
 let toastTimer = null

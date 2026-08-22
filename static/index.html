@@ -3858,6 +3858,14 @@ const AVATAR_COLORS = [
 function avatarColors(name){ return AVATAR_COLORS[((name||'').charCodeAt(0)||0)%AVATAR_COLORS.length] }
 function initials(name){ return (name||'?').split(' ').map(p=>p[0]).join('').substring(0,2).toUpperCase() }
 function escHtml(s){ return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;") }
+// "Today" in the browser's own local timezone — NOT new Date().toISOString(),
+// which is always UTC and rolls over to the next day hours before local
+// midnight (e.g. ~8pm Eastern), causing "TODAY" badges and date defaults to
+// be wrong for the evening. Use this everywhere "today's date" is needed.
+function todayLocalISO(){
+ const d = new Date()
+ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
+}
 
 // Inbound shared-inbox email bodies are fully untrusted HTML from whoever
 // emails info@hwtco.org — never insert m.body_html into the DOM without
@@ -4399,7 +4407,7 @@ async function renderDashboard(){
  if(todayEl) todayEl.textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})
 
  // Today's events
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const in7 = new Date(Date.now()+7*86400000).toISOString().split('T')[0]
  const todayEvts = allEvents.filter(e=>e.event_date===today).sort((a,b)=>(a.start_time||'').localeCompare(b.start_time||''))
  const upcomingEvts = allEvents.filter(e=>e.event_date>today&&e.event_date<=in7).sort((a,b)=>a.event_date.localeCompare(b.event_date))
@@ -4554,7 +4562,7 @@ async function renderDashboard(){
 async function renderDashboardOncall(){
  const el = document.getElementById('dash-oncall')
  if(!el) return
- const today = new Date().toISOString().slice(0,10)
+ const today = todayLocalISO()
  const nowTime = new Date().toTimeString().slice(0,5)
  const nowDow = new Date().getDay()===0?6:new Date().getDay()-1
  // Load schedule if not already loaded
@@ -5374,7 +5382,7 @@ function onEventSelect(){
 
 function openLogTimeModal(volId,prefillHours=null){
  document.getElementById('lt-vol-id').value=volId||''
- document.getElementById('lt-date').value=new Date().toISOString().split('T')[0]
+ document.getElementById('lt-date').value=todayLocalISO()
  document.getElementById('lt-hours').value=prefillHours||''
  document.getElementById('lt-role').value=''
  document.getElementById('lt-pay-type').value='volunteer'
@@ -5503,7 +5511,7 @@ function populateHoursQuickAdd(){
  }
  // Set today's date if empty
  var dEl = document.getElementById('qt-date')
- if(dEl &&!dEl.value) dEl.value = new Date().toISOString().split('T')[0]
+ if(dEl &&!dEl.value) dEl.value = todayLocalISO()
 }
 
 async function quickAddTime(){
@@ -5568,7 +5576,7 @@ async function renderHsEventBonuses(){
  const res = await api('/api/admin/hours-store/event-bonuses')
  const rows = (res && res.events) || []
  if(!rows.length){ el.innerHTML = '<span style="color:var(--text-hint)">No events currently have a bonus set up.</span>'; return }
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  el.innerHTML = rows.map(function(e){
   const isPast = e.event_date && e.event_date < today
   const detail = e.hours_store_bonus_type==='multiplier'
@@ -6041,7 +6049,7 @@ function renderWaivers(){
 
 function openWaiverModal(volId){
  document.getElementById('waiver-vol-id').value=volId
- document.getElementById('waiver-signed').value=new Date().toISOString().split('T')[0]
+ document.getElementById('waiver-signed').value=todayLocalISO()
  document.getElementById('waiver-expiry').value=''
  document.getElementById('waiver-file').value=''
  document.getElementById('waiver-ec-name').value=''
@@ -7035,7 +7043,7 @@ async function openYouthIncidentModal(yid, iid){
  document.getElementById('yi-id').value = iid||''
  document.getElementById('yi-youth-id').value = yid
  document.getElementById('yi-title').value = inc?.title||''
- document.getElementById('yi-date').value = inc?.incident_date||new Date().toISOString().split('T')[0]
+ document.getElementById('yi-date').value = inc?.incident_date||todayLocalISO()
  document.getElementById('yi-severity').value = inc?.severity||'minor'
  document.getElementById('yi-description').value = inc?.description||''
  document.getElementById('yi-followup').value = inc?.follow_up||''
@@ -9337,7 +9345,7 @@ async function saveYouth(){
  // Add new
  for(const pid of selectedProgramIds){
  if(!currentIds.includes(pid)){
- await api(`/api/youth/${yid}/enrollments`,'POST',{program_id:pid,enrolled_date:new Date().toISOString().split('T')[0]})
+ await api(`/api/youth/${yid}/enrollments`,'POST',{program_id:pid,enrolled_date:todayLocalISO()})
  }
  }
  // Remove deselected
@@ -9369,7 +9377,7 @@ async function deleteYouth(yid){
 
 function openYouthWaiverModal(yid){
  document.getElementById('yw-youth-id').value=yid
- document.getElementById('yw-signed').value=new Date().toISOString().split('T')[0]
+ document.getElementById('yw-signed').value=todayLocalISO()
  document.getElementById('yw-expiry').value=''
  document.getElementById('yw-signed-by').value=''
  document.getElementById('yw-file').value=''
@@ -9599,7 +9607,7 @@ async function saveNote(){
 function openHistoryModal(volId){
  document.getElementById('history-vol-id').value=volId
  ;['history-event','history-role','history-notes'].forEach(id=>document.getElementById(id).value='')
- document.getElementById('history-date').value=new Date().toISOString().split('T')[0]
+ document.getElementById('history-date').value=todayLocalISO()
  openModal('modal-history')
 }
 async function saveHistory(){
@@ -10618,7 +10626,7 @@ function openOncallModalForDate(dateStr,hour){openOncallModal(null,dateStr,hour)
 
 function openOncallModal(id,prefillDate,prefillHour){
  var item=id?_oncallList.find(function(r){return r.id===id}):null
- var today=prefillDate||new Date().toISOString().slice(0,10)
+ var today=prefillDate||todayLocalISO()
  var nextWeek=new Date(new Date(today+'T12:00:00').getTime()+6*86400000).toISOString().slice(0,10)
  var defaultStart=prefillHour!=null?String(prefillHour).padStart(2,'0')+':00':(item?item.start_time||'08:00':'08:00')
  var defaultEnd=prefillHour!=null?String(Math.min((prefillHour||8)+2,22)).padStart(2,'0')+':00':(item?item.end_time||'22:00':'22:00')
@@ -13447,7 +13455,7 @@ function renderDonationRow(d, donorId){
 function openAddDonationModal(donorId){
  const existing = document.getElementById('donation-modal')
  if(existing) existing.remove()
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const overlay = document.createElement('div')
  overlay.id = 'donation-modal'
  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
@@ -15232,7 +15240,7 @@ function populateDailyOverviewProductionSelect(){
 async function loadDailyOverviewPage(){
  populateDailyOverviewProductionSelect()
  const dateInput = document.getElementById('daily-overview-date')
- if(dateInput && !dateInput.value) dateInput.value = new Date().toISOString().slice(0,10)
+ if(dateInput && !dateInput.value) dateInput.value = todayLocalISO()
  const sel = document.getElementById('daily-overview-production')
  const content = document.getElementById('daily-overview-content')
  if(!sel.value){
@@ -15240,7 +15248,7 @@ async function loadDailyOverviewPage(){
  else { content.innerHTML = '<div class="empty-state"><div class="empty-icon"></div><p>No productions yet</p></div>'; return }
  }
  const pid = sel.value
- const dateStr = dateInput.value || new Date().toISOString().slice(0,10)
+ const dateStr = dateInput.value || todayLocalISO()
  content.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
  const data = await api(`/api/productions/${pid}/daily-overview?date=${dateStr}`)
  if(data.error){ content.innerHTML = `<div class="empty-state"><div class="empty-icon"></div><p>${data.error}</p></div>`; return }
@@ -15249,7 +15257,7 @@ async function loadDailyOverviewPage(){
 
 function renderDailyOverviewHTML(data){
  const {production, date: dateStr, events, crew, youth, summary} = data
- const isToday = dateStr === new Date().toISOString().slice(0,10)
+ const isToday = dateStr === todayLocalISO()
 
  const summaryCards = `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
  <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700">${summary.total}</div><div style="font-size:12px;color:var(--text-muted)">On the roster</div></div>
@@ -15791,7 +15799,7 @@ async function removeMember(mid,prodId){
 
 function openEnrollModal(yid){
  document.getElementById('enroll-youth-id').value=yid
- document.getElementById('enroll-date').value=new Date().toISOString().split('T')[0]
+ document.getElementById('enroll-date').value=todayLocalISO()
  document.getElementById('enroll-notes').value=''
  const y=allYouth.find(y=>y.id===yid)
  document.getElementById('enroll-modal-title').textContent=`Enroll ${y?.first_name||''} in Program`
@@ -17559,7 +17567,7 @@ const STATUS_COLORS = {
  cancelled:['#FEF2F2','#DC2626',' Cancelled']
 }
 
-let calDayDate = new Date().toISOString().split('T')[0]
+let calDayDate = todayLocalISO()
 
 function setEventsView(v){
  eventsView=v
@@ -17577,7 +17585,7 @@ function setEventsView(v){
 }
 
 function renderTodayView(){
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const in14 = new Date(Date.now()+14*86400000).toISOString().split('T')[0]
  document.getElementById('today-date-label').textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
 
@@ -17727,7 +17735,7 @@ function renderCalendar(events){
  document.getElementById('cal-month-label').textContent=label
  const firstDay=new Date(calYear,calMonth,1).getDay()
  const daysInMonth=new Date(calYear,calMonth+1,0).getDate()
- const today=new Date().toISOString().split('T')[0]
+ const today=todayLocalISO()
 
  // Build event map by date
  const byDate={}
@@ -20189,7 +20197,7 @@ async function loadRisingStarsSignIn(prodId, eventId, isAdmin){
  ysiAdultRoster = prod?.members || []
 
  // Build conflict lookup by youth_id (today's approved conflicts for this event or general)
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  ysiConflicts = {}
  ;(rawConflicts||[]).filter(c=>c.approved&&(!c.event_date||c.event_date===today)&&(!eventId||!c.event_id||c.event_id===eventId))
 .forEach(c=>{ if(c.youth_id) ysiConflicts[c.youth_id]=c })
@@ -21489,7 +21497,7 @@ async function loadInstructorDashboard(){
  function fmtSessTime(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
  function fmtSessDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) }catch(e){ return d } }
 
- var todayStr = new Date().toISOString().slice(0,10)
+ var todayStr = todayLocalISO()
  var upcoming = schedule.filter(function(s){ return s.start_date >= todayStr })
  var todayCount = schedule.filter(function(s){ return s.start_date === todayStr }).length
 
@@ -21581,7 +21589,7 @@ async function openProgramDetail(programId){
 .filter(e=>e.program_id===programId)
 .sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
 
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const upcoming = progEvents.filter(e=>!e.event_date||e.event_date>=today)
  const past = progEvents.filter(e=>e.event_date&&e.event_date<today)
 
@@ -22187,7 +22195,7 @@ async function loadProductionScheduleConflicts(pid){
  Promise.resolve(allEvents.filter(e=>e.production_id===pid).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))),
  api('/api/productions/'+pid+'/conflicts')
  ])
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const byEvent = {}
  conflicts.forEach(c=>{ const k=c.event_id||'__none__'; if(!byEvent[k]) byEvent[k]=[]; byEvent[k].push(c) })
  const statusStyle = {
@@ -22397,7 +22405,7 @@ async function loadProductionOverview(pid){
  api('/api/portal/instructor/content/production/'+pid).catch(()=>({announcements:[]}))
  ])
  const evts = allEvents.filter(e=>e.production_id===pid).sort((a,b)=>(a.event_date||'').localeCompare(b.event_date||''))
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const upcoming = evts.filter(e=>!e.event_date||e.event_date>=today).slice(0,5)
  const past = evts.filter(e=>e.event_date&&e.event_date<today).slice(-3).reverse()
  const todayEvts = evts.filter(e=>e.event_date===today)
@@ -22920,7 +22928,7 @@ async function loadProductionConflicts(pid){
  return
  }
  // Group: pending approval | today | upcoming/past
- const today = new Date().toISOString().split('T')[0]
+ const today = todayLocalISO()
  const pending = conflicts.filter(c=>!c.approved)
  const approved = conflicts.filter(c=>c.approved)
  let html = ''
@@ -26248,7 +26256,7 @@ async function loadMyTimePage(){
     + '<option value="independent">Independent / Other Work</option>'
     + '</select></div>'
     + '<div class="form-group"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Date</label>'
-    + '<input type="date" id="myt-date" value="'+new Date().toISOString().slice(0,10)+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+    + '<input type="date" id="myt-date" value="'+todayLocalISO()+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
     + '</div>'
     + '<div id="myt-event-row" class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Event</label>'
     + '<select id="myt-event" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
@@ -26507,7 +26515,7 @@ function renderRentalsPage(){
   // Signed/active/completed partnerships have their own Ongoing/Completed
   // filters below — once a contract is signed there's no pending decision
   // left to make here, so they come out of Needs Attention for good.
-  const today = new Date().toISOString().slice(0,10)
+  const today = todayLocalISO()
   const hasUpcomingTour = r => !!(r.tour_scheduled_date && r.tour_scheduled_date >= today)
   const needsAttention = r => !r.awaiting_feedback && !hasUpcomingTour(r) && !['denied','cancelled','signed','active','completed'].includes(r.status)
   const isOngoing = r => ['signed','active'].includes(r.status)
@@ -26739,7 +26747,7 @@ function renderRentalPaymentStatus(r){
     const paidCents = r.installment_paid_cents||0
     const totalCents = r.installment_total_cents||0
     const allPaid = paidCount === totalCount
-    const isOverdue = !allPaid && r.installment_next_due_date && r.installment_next_due_date < new Date().toISOString().slice(0,10)
+    const isOverdue = !allPaid && r.installment_next_due_date && r.installment_next_due_date < todayLocalISO()
     const leadCutoff = new Date(Date.now() + 7*24*60*60*1000).toISOString().slice(0,10)
     const needsSending = (r.installment_unsent_count||0) > 0 && r.installment_next_unsent_due_date && r.installment_next_unsent_due_date <= leadCutoff
     const bg = allPaid ? '#f0fdf4' : (isOverdue || needsSending) ? '#fef2f2' : '#fffbeb'
@@ -26775,7 +26783,7 @@ function renderRentalPaymentStatus(r){
     } else {
       const finalPaid = r.final_invoice_status === 'PAID'
       const finalAmt = '$'+((r.final_amount_cents||0)/100).toFixed(2)
-      const isOverdue = !finalPaid && r.final_due_date && r.final_due_date < new Date().toISOString().slice(0,10)
+      const isOverdue = !finalPaid && r.final_due_date && r.final_due_date < todayLocalISO()
       const bg = finalPaid ? '#f0fdf4' : (isOverdue ? '#fef2f2' : '#fffbeb')
       const border = finalPaid ? '#86efac' : (isOverdue ? '#fecaca' : '#fde68a')
       const color = finalPaid ? '#166534' : (isOverdue ? '#991b1b' : '#92400e')
@@ -26840,7 +26848,7 @@ function openDepositInvoiceModal(agreementId){
    </div>
    <div class="form-group" style="margin-bottom:18px">
     <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Due Date</label>
-    <input type="date" id="dep-due-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+    <input type="date" id="dep-due-date" value="${todayLocalISO()}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
    </div>
    <div style="display:flex;gap:8px;justify-content:flex-end">
     <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
@@ -26955,7 +26963,7 @@ function openPaymentPlanModal(agreementId, totalCents, defaultMonths){
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px"># of Months</label>
     <input type="number" id="pp-months" min="2" max="24" value="${defaultMonths||6}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">First Due Date</label>
-    <input type="date" id="pp-start-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+    <input type="date" id="pp-start-date" value="${todayLocalISO()}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
    </div>
    <button type="button" class="btn btn-secondary btn-sm" onclick="regeneratePaymentPlanRows()" style="margin-bottom:14px">↻ Rebuild Even Schedule</button>
    <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Amounts, labels, and dates below are editable — rebuilding the schedule resets any edits.</div>
@@ -26974,7 +26982,7 @@ function openPaymentPlanModal(agreementId, totalCents, defaultMonths){
 function regeneratePaymentPlanRows(){
   const total = Math.round((parseFloat((document.getElementById('pp-total')||{}).value)||0)*100)
   const months = Math.max(2, parseInt((document.getElementById('pp-months')||{}).value)||6)
-  const startDate = (document.getElementById('pp-start-date')||{}).value || new Date().toISOString().slice(0,10)
+  const startDate = (document.getElementById('pp-start-date')||{}).value || todayLocalISO()
   const base = Math.floor(total/months)
   const remainder = total - (base*months)
   const rows = []
@@ -27057,7 +27065,7 @@ async function openRentalPaymentsListModal(agreementId){
   body.innerHTML = payments.map(function(p){
     const paid = p.square_invoice_status === 'PAID'
     const scheduled = !paid && !p.sent_at
-    const today = new Date().toISOString().slice(0,10)
+    const today = todayLocalISO()
     const leadCutoff = new Date(Date.now() + 7*24*60*60*1000).toISOString().slice(0,10)
     const needsSending = scheduled && p.due_date && p.due_date <= leadCutoff
     const overdue = !paid && !scheduled && p.due_date && p.due_date < today
@@ -27189,7 +27197,7 @@ function openMarkRentalSignedModal(aid){
    </div>
    <div class="form-group" style="margin-bottom:18px">
     <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Date Signed</label>
-    <input type="date" id="mark-signed-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
+    <input type="date" id="mark-signed-date" value="${todayLocalISO()}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;box-sizing:border-box"/>
    </div>
    <div style="display:flex;gap:8px;justify-content:flex-end">
     <button class="btn btn-secondary" onclick="this.closest('[style*=fixed]').remove()">Cancel</button>
@@ -27358,7 +27366,7 @@ async function openGenerateContractModal(rid){
       <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px"># of Months</label>
       <input type="number" id="gcpp-months" min="2" max="24" value="${req.billing_months||6}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
       <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">First Due Date</label>
-      <input type="date" id="gcpp-start-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
+      <input type="date" id="gcpp-start-date" value="${todayLocalISO()}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
      </div>
      <button type="button" class="btn btn-secondary btn-sm" onclick="regenerateContractPaymentPlanRows('${rid}')">↻ Rebuild Even Schedule</button>
      <div style="font-size:11px;color:var(--text-muted);margin:8px 0 6px">This schedule is embedded in the contract as Exhibit A and reused exactly when invoices are sent later — editable below.</div>
@@ -27476,7 +27484,7 @@ function regenerateContractPaymentPlanRows(rid){
   if(!req) return
   const total = req.total_amount||0
   const months = Math.max(2, parseInt((document.getElementById('gcpp-months')||{}).value)||6)
-  const startDate = (document.getElementById('gcpp-start-date')||{}).value || new Date().toISOString().slice(0,10)
+  const startDate = (document.getElementById('gcpp-start-date')||{}).value || todayLocalISO()
   const base = Math.floor(total/months)
   const remainder = total - (base*months)
   const rows = []

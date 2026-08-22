@@ -8,7 +8,7 @@ import hmac
 import os
 import uuid
 import json
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from werkzeug.utils import secure_filename
 import requests
 import re
@@ -705,11 +705,18 @@ def init_db():
         id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
         color TEXT DEFAULT 'blue',
         created_at TIMESTAMP DEFAULT NOW())""")
+    c.execute("ALTER TABLE event_types ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''")
 
-    # seed default event types (name has UNIQUE constraint so ON CONFLICT works correctly)
+    # seed default event types (name has UNIQUE constraint so ON CONFLICT works correctly).
+    # Distinct colors per category so the calendar reads at a glance —
+    # Rising Stars / Workshops & Classes / Mainstage Production each get
+    # their own swatch instead of sharing generic Rehearsal/Performance
+    # colors with every other production.
     for et in [
         ('Rehearsal', 'amber'), ('Performance', 'teal'), ('Meeting', 'blue'),
         ('Build Day', 'pink'), ('Strike', 'purple'), ('Other', 'gray'),
+        ('Mainstage Production', 'indigo'), ('Rising Stars', 'cyan'),
+        ('Workshop / Class', 'green'), ('Artistic Partnership', 'violet'),
     ]:
         c.execute("INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s) ON CONFLICT (name) DO NOTHING",
                   (str(__import__('uuid').uuid4()), et[0], et[1]))
@@ -794,6 +801,10 @@ def init_db():
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_for_volunteering BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS can_sign_online BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS expires_days INTEGER",
+        # Age restrictions — e.g. a "Minor Liability" waiver that only applies to
+        # participants under 18. Either bound can be left NULL for no limit.
+        "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS min_age INTEGER",
+        "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS max_age INTEGER",
         "ALTER TABLE youth_program_enrollments ALTER COLUMN program_id DROP NOT NULL",
         "ALTER TABLE youth_program_enrollments ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_youth_production_enrollment ON youth_program_enrollments(youth_id, production_id) WHERE production_id IS NOT NULL",
@@ -1036,7 +1047,124 @@ def init_db():
             imported BOOLEAN DEFAULT FALSE,
             submitted_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS board_positions (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            summary TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            responsibilities TEXT DEFAULT '',
+            qualifications TEXT DEFAULT '',
+            time_commitment TEXT DEFAULT '',
+            term_length TEXT DEFAULT '',
+            status TEXT DEFAULT 'open',
+            display_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS board_applications (
+            id TEXT PRIMARY KEY,
+            position_id TEXT REFERENCES board_positions(id) ON DELETE SET NULL,
+            full_name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            phone TEXT DEFAULT '',
+            address TEXT DEFAULT '',
+            why_interested TEXT DEFAULT '',
+            relevant_experience TEXT DEFAULT '',
+            availability TEXT DEFAULT '',
+            status TEXT DEFAULT 'submitted',
+            internal_notes TEXT DEFAULT '',
+            interview_date TEXT DEFAULT '',
+            reviewed_by TEXT DEFAULT '',
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS board_application_files (
+            id TEXT PRIMARY KEY,
+            application_id TEXT NOT NULL REFERENCES board_applications(id) ON DELETE CASCADE,
+            file_label TEXT DEFAULT '',
+            filename TEXT NOT NULL,
+            content_type TEXT DEFAULT '',
+            file_data_b64 TEXT NOT NULL,
+            size_bytes INTEGER DEFAULT 0,
+            uploaded_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_occurrence_id TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS show_on_lobby BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_request_id TEXT",
+        "CREATE INDEX IF NOT EXISTS idx_events_rental_occurrence ON events(rental_occurrence_id)",
+        "CREATE INDEX IF NOT EXISTS idx_events_rental_request ON events(rental_request_id)",
+        # Guards against the exact race that caused duplicate events: with
+        # multiple gunicorn workers, two processes could both run the
+        # startup backfill at once, each see "no event for this occurrence
+        # yet", and both insert one. This unique index (created only once
+        # _dedupe_rental_events has cleared any existing duplicates — it
+        # fails harmlessly and retries next deploy until then) plus the
+        # ON CONFLICT DO NOTHING on the insert closes that race for good.
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_events_rental_occurrence ON events(rental_occurrence_id) WHERE rental_occurrence_id IS NOT NULL",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS custom_terms TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS poc_name TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS poc_email TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS poc_phone TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS additional_terms TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS hwtc_signed_name TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS hwtc_signed_title TEXT DEFAULT ''",
+        "ALTER TABLE rental_agreements ADD COLUMN IF NOT EXISTS hwtc_signed_at TIMESTAMP",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_signatory_name TEXT DEFAULT ''",
+        "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS rental_signatory_title TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS inbox_threads (
+            id TEXT PRIMARY KEY,
+            subject TEXT DEFAULT '',
+            participant_email TEXT DEFAULT '',
+            participant_name TEXT DEFAULT '',
+            status TEXT DEFAULT 'open',
+            assigned_to TEXT DEFAULT '',
+            unread BOOLEAN DEFAULT TRUE,
+            internal_notes TEXT DEFAULT '',
+            last_message_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS inbox_messages (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL REFERENCES inbox_threads(id) ON DELETE CASCADE,
+            direction TEXT NOT NULL,
+            from_email TEXT DEFAULT '',
+            from_name TEXT DEFAULT '',
+            to_emails TEXT DEFAULT '',
+            subject TEXT DEFAULT '',
+            body_html TEXT DEFAULT '',
+            body_text TEXT DEFAULT '',
+            message_id TEXT,
+            in_reply_to TEXT DEFAULT '',
+            sent_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_inbox_messages_message_id ON inbox_messages(message_id) WHERE message_id IS NOT NULL AND message_id!=''",
+        "CREATE INDEX IF NOT EXISTS idx_inbox_messages_thread ON inbox_messages(thread_id)",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS linked_record_type TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS linked_record_id TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS tags TEXT DEFAULT '[]'",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS ai_summary TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS ai_summary_action TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS ai_summary_at TIMESTAMP",
+        "ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS cc_emails TEXT DEFAULT ''",
+        "ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS bcc_emails TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS inbox_attachments (
+            id TEXT PRIMARY KEY,
+            message_id TEXT NOT NULL REFERENCES inbox_messages(id) ON DELETE CASCADE,
+            filename TEXT NOT NULL,
+            content_type TEXT DEFAULT '',
+            file_data_b64 TEXT NOT NULL,
+            size_bytes INTEGER DEFAULT 0,
+            uploaded_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS idx_inbox_attachments_message ON inbox_attachments(message_id)",
+        """CREATE TABLE IF NOT EXISTS inbox_comments (
+            id TEXT PRIMARY KEY,
+            thread_id TEXT NOT NULL REFERENCES inbox_threads(id) ON DELETE CASCADE,
+            author_name TEXT NOT NULL,
+            body TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS idx_inbox_comments_thread ON inbox_comments(thread_id)",
+        "ALTER TABLE inbox_comments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP",
+        "ALTER TABLE inbox_messages ADD COLUMN IF NOT EXISTS gmail_msgid TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS gmail_synced_tags TEXT DEFAULT '[]'",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS gmail_synced_status TEXT DEFAULT ''",
+        "ALTER TABLE inbox_threads ADD COLUMN IF NOT EXISTS gmail_last_synced_at TIMESTAMP",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS portal_message_threads (
             id TEXT PRIMARY KEY,
@@ -1079,7 +1207,7 @@ def init_db():
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
-        "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff')",
+        "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff','instructor')",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS body_draft TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS title_draft TEXT",
         """CREATE TABLE IF NOT EXISTS kiosk_sessions (
@@ -1174,6 +1302,58 @@ def init_db():
             submitted_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
         # licensing request contract tracking (has the licensor been asked, do we have the signed contract, when does it expire)
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS batch_id TEXT",
+        # backfill every other licensing_requests column too — this table pre-dated most of
+        # these fields, so CREATE TABLE IF NOT EXISTS never applied them on existing deployments
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE SET NULL",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS requested_by TEXT REFERENCES users(id) ON DELETE SET NULL",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS requester_name TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS requester_email TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS production_type TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS production_type_other TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS production_edition TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS licensor TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS licensor_other TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS production_start_date TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS production_end_date TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS venue_name TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS venue_address TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS venue_capacity INTEGER",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS audience_capacity INTEGER",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS performance_dates TEXT DEFAULT '[]'",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS number_of_shows INTEGER",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS lowest_ticket_price_cents INTEGER",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS highest_ticket_price_cents INTEGER",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS average_ticket_price_cents INTEGER",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS expected_performers INTEGER",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS scripts_needed INTEGER",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS additional_scripts TEXT DEFAULT '[]'",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS has_live_orchestra BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS needs_full_score BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS orchestra_size INTEGER",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS orchestra_instruments TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS needs_rehearsal_tracks BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS needs_performance_tracks BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS ship_to_name TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS ship_to_address TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS ship_to_phone TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS materials_needed_by TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS addon_streaming_license BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS addon_video_recording_license BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS addon_marketing_package BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS addon_marketing_notes TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS addon_logo_choice TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS addon_youth_production BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS addon_choreography_guides BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS addon_directors_guide BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS addon_broadway_media_scenic BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS additional_requests TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'new'",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS admin_notes TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS reviewed_by TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()",
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS licensor_requested BOOLEAN DEFAULT FALSE",
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS licensor_requested_date DATE",
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_received BOOLEAN DEFAULT FALSE",
@@ -1181,6 +1361,24 @@ def init_db():
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_expires_date DATE",
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_file_name TEXT DEFAULT ''",
         "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS contract_file_original_name TEXT DEFAULT ''",
+        # board sign-off to move forward producing the show — the trigger BloomBooks watches
+        # for to build out the production/budget. Only settable once contract_received is true.
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS approved_to_produce BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS approved_to_produce_date DATE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS approved_to_produce_by TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS built_in_bloombooks BOOLEAN DEFAULT FALSE",
+        # rehearsal schedule, captured at the moment a show is approved to produce so
+        # BloomBooks has something real to charge the show for studio use against
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_days TEXT DEFAULT '[]'",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_start_time TEXT DEFAULT ''",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_end_time TEXT DEFAULT ''",
+        # rehearsal_blocks supersedes the three columns above — supports multiple
+        # day/time combinations (e.g. Sat 11-2 AND Thu 5-6:30) instead of one
+        # uniform time for every rehearsal day. The old columns stay for shows
+        # approved before this existed.
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_blocks TEXT DEFAULT '[]'",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_period_start DATE",
+        "ALTER TABLE licensing_requests ADD COLUMN IF NOT EXISTS rehearsal_period_end DATE",
         # audit trail columns
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS created_by TEXT",
@@ -1209,6 +1407,9 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS updated_by TEXT",
+        # Call-out text alert recipients — per-production, chosen from added crew members;
+        # texts go to whatever phone number is on file on their volunteer profile.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS callout_alert_volunteer_ids TEXT DEFAULT '[]'",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS created_by TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS updated_by TEXT",
@@ -1265,7 +1466,7 @@ def init_db():
             recurrence_pattern TEXT DEFAULT '',
             recurrence_end_date TEXT DEFAULT '',
             estimated_attendance INTEGER,
-            rate_type TEXT DEFAULT 'hourly',
+            rate_type TEXT DEFAULT 'Hour',
             rate_amount INTEGER DEFAULT 0,
             total_amount INTEGER DEFAULT 0,
             status TEXT DEFAULT 'pending',
@@ -1434,6 +1635,9 @@ def init_db():
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS sibling_discount_basis TEXT DEFAULT 'per_child'""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS min_age INTEGER""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS max_age INTEGER""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS age_grace_days INTEGER DEFAULT 30""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
         # The real amount Square actually processed for this registration's order —
         # captured from the payment.completed webhook. Revenue reporting should
@@ -1565,6 +1769,8 @@ def init_db():
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_failed_at TIMESTAMP",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_failure_reason TEXT",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS payment_attempt_count INTEGER DEFAULT 0",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS invoice_memo TEXT DEFAULT ''",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS custom_field_values TEXT DEFAULT '{}'",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS store_token TEXT UNIQUE",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS hours_store_enabled BOOLEAN DEFAULT false",
         """CREATE TABLE IF NOT EXISTS store_items (
@@ -2013,6 +2219,9 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_type TEXT DEFAULT 'percent'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_value INTEGER DEFAULT 0",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sibling_discount_basis TEXT DEFAULT 'per_child'",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS min_age INTEGER",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS max_age INTEGER",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS age_grace_days INTEGER DEFAULT 30",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS program_location TEXT DEFAULT ''",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS schedule_type TEXT DEFAULT 'date_range'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS meeting_days TEXT DEFAULT '[]'",
@@ -2100,6 +2309,34 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS revenue_split_notes TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_frequency TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_months INTEGER",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS billing_installments_plan TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS equipment_selections TEXT DEFAULT ''",
+
+        # ── Artistic Partnership: equipment catalog (checked/unchecked per contract) ──
+        """CREATE TABLE IF NOT EXISTS rental_equipment_items (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            default_allowed BOOLEAN DEFAULT TRUE,
+            sort_order INTEGER DEFAULT 0,
+            active BOOLEAN DEFAULT TRUE,
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE rental_equipment_items ADD COLUMN IF NOT EXISTS default_quantity TEXT DEFAULT ''",
+        "ALTER TABLE rental_equipment_items ADD COLUMN IF NOT EXISTS default_notes TEXT DEFAULT ''",
+
+        # ── Artistic Partnership: contract clause library (editable legal text) ──
+        # category: '' = all categories, 'fee_based' = open_partnership + closed_rental,
+        #   or a specific category key. billing_frequency: '' = applies regardless.
+        # clause_number drives display (e.g. '2.1', '2.2.1'); sort_order drives ordering.
+        """CREATE TABLE IF NOT EXISTS rental_contract_clauses (
+            id TEXT PRIMARY KEY,
+            category TEXT DEFAULT '',
+            billing_frequency TEXT DEFAULT '',
+            clause_number TEXT NOT NULL,
+            title TEXT NOT NULL,
+            body_template TEXT NOT NULL,
+            sort_order INTEGER DEFAULT 0,
+            active BOOLEAN DEFAULT TRUE,
+            updated_at TIMESTAMP DEFAULT NOW())""",
 
         # ── Artistic Partnership: message thread (self-service portal) ──
         """CREATE TABLE IF NOT EXISTS rental_messages (
@@ -2125,11 +2362,18 @@ def init_db():
         except Exception:
             conn.rollback()
 
-    # Seed board meeting event type if not exists
+    # Seed board meeting event type if not exists — color is a named
+    # TYPE_COLORS key ('slate'), not a raw hex value: the frontend swatch
+    # picker only resolves named keys, so a literal hex here used to fall
+    # through to the default blue and made every Board Meeting render
+    # indistinguishable from a plain "Meeting" event on the calendar.
     try:
-        existing = fetchone(conn, "SELECT id FROM event_types WHERE LOWER(name)='board meeting'")
+        existing = fetchone(conn, "SELECT id, color FROM event_types WHERE LOWER(name)='board meeting'")
         if not existing:
-            execute(conn, "INSERT INTO event_types (id,name,color) VALUES (%s,'Board Meeting','#145466')", (str(uuid.uuid4()),))
+            execute(conn, "INSERT INTO event_types (id,name,color) VALUES (%s,'Board Meeting','slate')", (str(uuid.uuid4()),))
+            conn.commit()
+        elif (existing.get('color') or '').startswith('#'):
+            execute(conn, "UPDATE event_types SET color='slate' WHERE id=%s", (existing['id'],))
             conn.commit()
     except Exception:
         try: conn.rollback()
@@ -2264,6 +2508,7 @@ PERM_LEGACY_FALLBACK = {
     'donor_campaigns': 'donors',
     'donor_tiers': 'donors',
     'donor_templates': 'donors',
+    'daily_overview': 'productions',
 }
 
 
@@ -2277,6 +2522,55 @@ def resolve_perm_level(perms, section):
     if legacy and perms.get(legacy):
         return perms[legacy]
     return 'none'
+
+
+def today_eastern():
+    """Today's date in America/New_York, not the server's (likely UTC) clock.
+    The Railway server runs on UTC, which rolls over to the next calendar day
+    hours before it's actually midnight in Florida — use this anywhere a
+    'today' default matters, matching the pattern already used in get_oncall_now()."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo('America/New_York')).date()
+
+
+def now_eastern():
+    """Current wall-clock time in America/New_York as a naive datetime, for
+    comparing against event date/start_time fields — those are entered by
+    staff in local time and stored without timezone info, so comparing them
+    against a naive UTC datetime.now() would be off by several hours."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo('America/New_York')).replace(tzinfo=None)
+
+
+def compute_age(dob_val):
+    """Age in whole years from a date-of-birth value (date object or
+    YYYY-MM-DD-ish string). Returns None if it can't be parsed."""
+    if not dob_val:
+        return None
+    try:
+        if hasattr(dob_val, 'year'):
+            d = dob_val
+        else:
+            d = datetime.strptime(str(dob_val)[:10], '%Y-%m-%d').date()
+        today = date.today()
+        return today.year - d.year - ((today.month, today.day) < (d.month, d.day))
+    except Exception:
+        return None
+
+
+def waiver_applies_to_age(waiver_row, age):
+    """Whether a waiver's age restriction (if any) covers this age.
+    Unknown age defaults to True (still require it) so missing birthdate
+    data never silently hides a required waiver."""
+    if age is None:
+        return True
+    min_age = waiver_row.get('min_age')
+    max_age = waiver_row.get('max_age')
+    if min_age is not None and age < min_age:
+        return False
+    if max_age is not None and age > max_age:
+        return False
+    return True
 
 
 def require_permission(section, level='edit'):
@@ -2306,6 +2600,34 @@ def require_permission(section, level='edit'):
     if level == 'edit' and user_level == 'edit':
         return None
     return jsonify({'error': f'Permission denied: need {level} access for {section}. Contact an admin to update your permissions.'}), 403
+
+
+def require_own_program(pid, fallback_section='youth'):
+    """Access check for program-scoped routes that also need to work for
+    the restricted 'instructor' role: admins and anyone with normal
+    section permission pass through as before (via require_permission);
+    an 'instructor' role user is only let through for a program where
+    they're the assigned instructor — matched by their login email
+    against the volunteer record linked as youth_programs.instructor_id
+    (the same field already used elsewhere for instructor pay/contact).
+    This is intentionally narrow: it doesn't change access for any
+    existing role, it only adds a new restricted path for 'instructor'."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if session.get('role') == 'admin':
+        return None
+    if session.get('role') == 'instructor':
+        conn = get_db()
+        me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+        prog = fetchone(conn, '''SELECT v.email AS instructor_email FROM youth_programs yp
+            LEFT JOIN volunteers v ON v.id=yp.instructor_id WHERE yp.id=%s''', (pid,))
+        conn.close()
+        my_email = (me or {}).get('email', '').strip().lower()
+        prog_email = (prog or {}).get('instructor_email') or ''
+        if not prog or not prog_email or prog_email.strip().lower() != my_email:
+            return jsonify({'error': 'You can only manage your own programs'}), 403
+        return None
+    return require_permission(fallback_section)
 
 # ─────────────────────────────────────────────
 #  EMAIL HELPERS
@@ -2480,16 +2802,23 @@ def build_waitlist_email_html(guardian_name, program_name, position_desc, is_plu
 </div>'''
 
 
-def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source='', attachments=None):
+def send_email(to_emails, subject, html_body, from_email=None, from_name=None, source='', attachments=None, extra_headers=None, cc=None, bcc=None):
     """Send via Resend API. from_email/from_name override settings default.
     attachments: optional list of {'filename': str, 'content_b64': str} dicts —
-    content_b64 is the base64-encoded file content (e.g. a PDF)."""
+    content_b64 is the base64-encoded file content (e.g. a PDF).
+    extra_headers: optional dict of raw email headers (e.g. In-Reply-To,
+    References, Message-ID) — used by the shared inbox to thread replies
+    properly in the recipient's mail client. cc/bcc: optional list or
+    comma-separated string of additional recipients. Returns
+    (ok, error_or_none); on success the Resend response id is also
+    returned as a third value when extra_headers is supplied, so callers
+    can store it for threading."""
     settings = get_email_settings()
     api_key = settings.get('resend_api_key','').strip()
     if not api_key:
         app.logger.warning('Resend API key not configured  -  email not sent')
         _log_email(to_emails, subject, html_body, 'failed', 'Resend API key not configured', source)
-        return False, 'Resend API key not configured'
+        return (False, 'Resend API key not configured', None) if extra_headers is not None else (False, 'Resend API key not configured')
     # Build from address
     if from_email:
         base_email = from_email
@@ -2509,14 +2838,25 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None, s
     if isinstance(to_emails, str):
         to_emails = [e.strip() for e in to_emails.split(',') if e.strip()]
     if not to_emails:
-        return False, 'No recipients'
+        return (False, 'No recipients', None) if extra_headers is not None else (False, 'No recipients')
+    def _split_addrs(v):
+        if not v:
+            return []
+        return [e.strip() for e in v.split(',') if e.strip()] if isinstance(v, str) else [e.strip() for e in v if e and e.strip()]
+    cc_list, bcc_list = _split_addrs(cc), _split_addrs(bcc)
     try:
         import requests as _req
         payload = {'from': from_addr, 'to': to_emails, 'subject': subject, 'html': html_body}
+        if cc_list:
+            payload['cc'] = cc_list
+        if bcc_list:
+            payload['bcc'] = bcc_list
         if attachments:
             payload['attachments'] = [
                 {'filename': a['filename'], 'content': a['content_b64']} for a in attachments
             ]
+        if extra_headers:
+            payload['headers'] = extra_headers
         resp = _req.post('https://api.resend.com/emails',
             headers={'Authorization': f'Bearer {api_key}', 'Content-Type': 'application/json'},
             json=payload,
@@ -2525,13 +2865,19 @@ def send_email(to_emails, subject, html_body, from_email=None, from_name=None, s
             err = f'Resend error {resp.status_code}: {resp.text[:200]}'
             app.logger.error(f'Resend error: {resp.status_code} {resp.text}')
             _log_email(to_emails, subject, html_body, 'failed', err, source)
-            return False, err
+            return (False, err, None) if extra_headers is not None else (False, err)
         _log_email(to_emails, subject, html_body, 'sent', '', source)
+        if extra_headers is not None:
+            try:
+                resend_id = resp.json().get('id')
+            except Exception:
+                resend_id = None
+            return True, None, resend_id
         return True, None
     except Exception as e:
         app.logger.error(f'Email send error: {e}')
         _log_email(to_emails, subject, html_body, 'failed', str(e), source)
-        return False, str(e)
+        return (False, str(e), None) if extra_headers is not None else (False, str(e))
 
 def _log_email(to_emails, subject, html_body, status, error_msg='', source=''):
     """Log email send attempt to email_log table."""
@@ -2613,8 +2959,11 @@ def get_waiver_summary(conn, vol_id):
         'SELECT vw.*, wt.name as type_name FROM volunteer_waivers vw JOIN waiver_types wt ON vw.waiver_type_id=wt.id WHERE vw.volunteer_id=%s ORDER BY vw.signed_date DESC',
         (vol_id,))
     today = _date.today()
-    # Check required waivers first
-    required = fetchall(conn, 'SELECT id FROM waiver_types WHERE required_for_volunteering=TRUE OR required_all=TRUE')
+    # Check required waivers first — respecting any age restriction on the waiver type
+    vol = fetchone(conn, 'SELECT birthday FROM volunteers WHERE id=%s', (vol_id,))
+    vol_age = compute_age(vol.get('birthday')) if vol else None
+    required = fetchall(conn, 'SELECT id, min_age, max_age FROM waiver_types WHERE required_for_volunteering=TRUE OR required_all=TRUE')
+    required = [r for r in required if waiver_applies_to_age(r, vol_age)]
     signed_type_ids = set(w['waiver_type_id'] for w in waivers)
     has_missing_required = any(r['id'] not in signed_type_ids for r in required)
 
@@ -2841,7 +3190,11 @@ def get_events():
             pass
         e['status'] = e.get('status') or 'draft'
     conn.close()
-    # Add rental occurrences as synthetic calendar events
+    # Add rental occurrences as synthetic calendar events — but only for
+    # occurrences that don't already have a real linked event (see
+    # _sync_rental_events_for_request). Going forward every approved
+    # occurrence gets a real event, so this is now just a safety net for
+    # any edge case where the sync hasn't run yet.
     try:
         conn2 = get_db()
         rentals = fetchall(conn2, '''SELECT ro.*, rr.title, rr.start_time AS req_start, rr.end_time AS req_end,
@@ -2850,7 +3203,8 @@ def get_events():
             JOIN rental_requests rr ON rr.id=ro.request_id
             LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
             LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
-            WHERE ro.status != \'cancelled\' ''') or []
+            WHERE ro.status != \'cancelled\'
+            AND NOT EXISTS (SELECT 1 FROM events e2 WHERE e2.rental_occurrence_id=ro.id)''') or []
         conn2.close()
         for r in rentals:
             events.append({
@@ -2897,6 +3251,42 @@ def get_events():
             })
     except Exception as e:
         app.logger.warning(f'Rental tour calendar merge error: {e}')
+    # Add program/class sessions as synthetic calendar events — but only
+    # ones that actually have a registrant. Otherwise a bulk-imported
+    # schedule (which can easily be a few hundred open hourly slots) would
+    # bury the calendar in mostly-empty class times nobody's confirmed
+    # for yet.
+    try:
+        conn4 = get_db()
+        prog_sessions = fetchall(conn4, '''SELECT ps.id, ps.name, ps.start_date, ps.start_time, ps.end_time,
+            ps.location, ps.status, pg.id AS program_id, pg.name AS program_name
+            FROM program_sessions ps
+            JOIN youth_programs pg ON pg.id=ps.program_id
+            WHERE ps.start_date IS NOT NULL AND ps.start_date != \'\'
+            AND EXISTS (SELECT 1 FROM program_registrations pr
+                WHERE pr.program_id=ps.program_id
+                AND pr.session_ids LIKE \'%%"\' || ps.id || \'"%%\'
+                AND pr.status NOT IN (\'cancelled\',\'waitlisted\'))
+            ''') or []
+        conn4.close()
+        for s in prog_sessions:
+            events.append({
+                'id': 'session_' + s['id'],
+                'name': s.get('name') or 'Session',
+                'event_date': s.get('start_date', ''),
+                'start_time': s.get('start_time', ''),
+                'end_time': s.get('end_time', ''),
+                'event_type_name': 'Class Session',
+                'event_type_color': '#0d9488',
+                'status': 'scheduled',
+                'location': s.get('location', '') or '',
+                'is_program_session': True,
+                'program_id': s.get('program_id', ''),
+                'program_name': s.get('program_name', ''),
+                'required_waivers': [], 'elics': [], 'staff': [],
+            })
+    except Exception as e:
+        app.logger.warning(f'Program session calendar merge error: {e}')
     return jsonify(events)
 
 @app.route('/api/events', methods=['POST'])
@@ -2911,8 +3301,8 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode,show_on_lobby)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
@@ -2923,7 +3313,8 @@ def create_event():
          d.get('hours_store_bonus_type') or None,
          d.get('hours_store_bonus_multiplier') or None,
          d.get('hours_store_bonus_flat_cents') or None,
-         d.get('kiosk_signin_mode') or 'auto'))
+         d.get('kiosk_signin_mode') or 'auto',
+         d.get('show_on_lobby', True)))
     conn.commit()
     # Auto-assign program instructor/default ELIC when event belongs to a program
     program_id = d.get('program_id') or None
@@ -3003,7 +3394,7 @@ def update_event(eid):
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
         rsvp_enabled=%s,rsvp_message=%s,rsvp_kind=%s,invite_headline=%s,hide_block_names=%s,status=%s,carpools_enabled=%s,
         hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s,
-        kiosk_signin_mode=%s WHERE id=%s''',
+        kiosk_signin_mode=%s,show_on_lobby=%s WHERE id=%s''',
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
@@ -3016,7 +3407,7 @@ def update_event(eid):
          d.get('hours_store_bonus_type') or None,
          d.get('hours_store_bonus_multiplier') or None,
          d.get('hours_store_bonus_flat_cents') or None,
-         d.get('kiosk_signin_mode') or 'auto', eid))
+         d.get('kiosk_signin_mode') or 'auto', d.get('show_on_lobby', True), eid))
     # Kiosk state is driven by event_logs, not events.status — if the status
     # actually changed to open/closed here, mirror it into event_logs too.
     if new_status != prev_status and new_status in ('open', 'closed'):
@@ -3055,54 +3446,57 @@ def update_event(eid):
     conn.close()
     return jsonify(row)
 
+def _delete_event_cascade(conn, eid):
+    """Delete an event and everything that references it (waivers, ELIC
+    assignments, checklist responses, logged hours, carpools). Used by the
+    manual delete-event route and by the rental-event sync when an
+    approved booking's date is edited or the request is denied/withdrawn."""
+    cur = conn.cursor()
+    def try_sql(sql, params=()):
+        try:
+            cur.execute('SAVEPOINT sp')
+            cur.execute(sql, params)
+            cur.execute('RELEASE SAVEPOINT sp')
+        except Exception as e:
+            cur.execute('ROLLBACK TO SAVEPOINT sp')
+            app.logger.warning(f'_delete_event_cascade skip: {e}')
+
+    try_sql('UPDATE youth_sign_ins SET event_id=NULL WHERE event_id=%s', (eid,))
+    try_sql('UPDATE kiosk_sessions SET event_id=NULL WHERE event_id=%s', (eid,))
+    try_sql('DELETE FROM event_waivers WHERE event_id=%s', (eid,))
+    try_sql('DELETE FROM event_elics WHERE event_id=%s', (eid,))
+    try_sql('DELETE FROM event_checklist_responses WHERE event_id=%s', (eid,))
+    try_sql('DELETE FROM hours WHERE event_id=%s', (eid,))
+
+    try:
+        cur.execute('SAVEPOINT sp_carpools')
+        cur.execute('SELECT id FROM carpools WHERE event_id=%s', (eid,))
+        carpool_ids = [r[0] for r in cur.fetchall()]
+        for cid in carpool_ids:
+            cur.execute('DELETE FROM carpool_members WHERE carpool_id=%s', (cid,))
+        if carpool_ids:
+            cur.execute('DELETE FROM carpools WHERE event_id=%s', (eid,))
+        cur.execute('RELEASE SAVEPOINT sp_carpools')
+    except Exception as e:
+        cur.execute('ROLLBACK TO SAVEPOINT sp_carpools')
+        app.logger.warning(f'_delete_event_cascade carpools: {e}')
+
+    # The main delete — if this fails we want the real error
+    cur.execute('DELETE FROM events WHERE id=%s', (eid,))
+    conn.commit()
+    cur.close()
+
 @app.route('/api/events/<eid>', methods=['DELETE'])
 def delete_event(eid):
     err = require_permission('events')
     if err: return err
     conn = get_db()
-    cur = conn.cursor()
     try:
-        def try_sql(sql, params=()):
-            try:
-                cur.execute('SAVEPOINT sp')
-                cur.execute(sql, params)
-                cur.execute('RELEASE SAVEPOINT sp')
-            except Exception as e:
-                cur.execute('ROLLBACK TO SAVEPOINT sp')
-                app.logger.warning(f'delete_event skip: {e}')
-
-        try_sql('UPDATE youth_sign_ins SET event_id=NULL WHERE event_id=%s', (eid,))
-        try_sql('UPDATE kiosk_sessions SET event_id=NULL WHERE event_id=%s', (eid,))
-        try_sql('DELETE FROM event_waivers WHERE event_id=%s', (eid,))
-        try_sql('DELETE FROM event_elics WHERE event_id=%s', (eid,))
-        try_sql('DELETE FROM event_checklist_responses WHERE event_id=%s', (eid,))
-        try_sql('DELETE FROM hours WHERE event_id=%s', (eid,))
-
-        # Carpools
-        try:
-            cur.execute('SAVEPOINT sp_carpools')
-            cur.execute('SELECT id FROM carpools WHERE event_id=%s', (eid,))
-            carpool_ids = [r[0] for r in cur.fetchall()]
-            for cid in carpool_ids:
-                cur.execute('DELETE FROM carpool_members WHERE carpool_id=%s', (cid,))
-            if carpool_ids:
-                cur.execute('DELETE FROM carpools WHERE event_id=%s', (eid,))
-            cur.execute('RELEASE SAVEPOINT sp_carpools')
-        except Exception as e:
-            cur.execute('ROLLBACK TO SAVEPOINT sp_carpools')
-            app.logger.warning(f'delete_event carpools: {e}')
-
-        # The main delete  -  if this fails we want the real error
-        cur.execute('DELETE FROM events WHERE id=%s', (eid,))
-        conn.commit()
-        cur.close()
+        _delete_event_cascade(conn, eid)
         conn.close()
         return jsonify({'ok': True})
-
     except Exception as e:
         try: conn.rollback()
-        except: pass
-        try: cur.close()
         except: pass
         conn.close()
         app.logger.error(f'delete_event {eid}: {e}')
@@ -3994,10 +4388,11 @@ def create_waiver_type():
     tid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, '''INSERT INTO waiver_types (id,name,description,template_body,can_sign_online)
-            VALUES (%s,%s,%s,%s,%s)''',
+        execute(conn, '''INSERT INTO waiver_types (id,name,description,template_body,can_sign_online,min_age,max_age)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
             (tid, (d.get('name') or '').strip(), d.get('description',''),
-             d.get('template_body',''), bool(d.get('can_sign_online',False))))
+             d.get('template_body',''), bool(d.get('can_sign_online',False)),
+             d.get('min_age') or None, d.get('max_age') or None))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -4013,9 +4408,9 @@ def update_waiver_type(tid):
     d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE waiver_types SET name=%s, description=%s, template_body=%s,
-        can_sign_online=%s WHERE id=%s''',
+        can_sign_online=%s, min_age=%s, max_age=%s WHERE id=%s''',
         (d.get('name',''), d.get('description',''), d.get('template_body',''),
-         bool(d.get('can_sign_online',False)), tid))
+         bool(d.get('can_sign_online',False)), d.get('min_age') or None, d.get('max_age') or None, tid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM waiver_types WHERE id=%s', (tid,))
     conn.close()
@@ -4276,7 +4671,7 @@ def create_youth_program():
 
 @app.route('/api/youth-programs/<pid>', methods=['PUT'])
 def update_youth_program(pid):
-    err = require_permission('youth')
+    err = require_own_program(pid, 'youth')
     if err: return err
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
@@ -4475,24 +4870,41 @@ def send_program_email(pid):
         app.logger.error(f'send_program_email error: {e}')
         return jsonify({'error': str(e)}), 500
 
+def _resolve_welcome_entity(conn, pid):
+    """The welcome-email feature (send-welcome / welcome-recipients) works
+    the same way for youth_programs (classes) and productions with youth
+    cast (e.g. Rising Stars) — checks youth_programs first since that's the
+    more common case, falls back to productions. Returns (entity, kind)
+    with kind 'program' or 'production', or (None, None) if neither matches."""
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
+    if prog:
+        return prog, 'program'
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if prod:
+        return prod, 'production'
+    return None, None
+
 @app.route('/api/youth-programs/<pid>/send-welcome', methods=['POST'])
 def send_program_welcome(pid):
     err = require_auth()
     if err: return err
     d = request.json or {}
-    # mode: 'all' | 'family' | 'participant'
+    # mode: 'all' | 'family' | 'participant' | 'unlogged' ('unlogged' is
+    # 'all' filtered to participants who've never signed into the portal)
     mode       = d.get('mode', 'all')
     family_id  = d.get('family_id')
     youth_id   = d.get('youth_id')
     subject_override = d.get('subject', '').strip()
 
     conn = get_db()
-    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (pid,))
-    if not prog:
+    entity, kind = _resolve_welcome_entity(conn, pid)
+    if not entity:
         conn.close()
-        return jsonify({'error': 'Program not found'}), 404
+        return jsonify({'error': 'Not found'}), 404
+    prog = entity if kind == 'program' else None
+    prod = entity if kind == 'production' else None
 
-    prog_name = prog.get('name', 'Program')
+    prog_name = entity.get('name', 'Program')
 
     # Load template
     tmpl = get_system_template(conn, 'welcome_email')
@@ -4543,11 +4955,20 @@ def send_program_welcome(pid):
                     if g['email']:
                         recipients.append({'email': g['email'].strip(), 'passphrase': pp, 'family_greeting': greeting, 'age': member_age, 'youth_id': m['id']})
 
-    else:  # all enrolled in program
-        enrolled = fetchall(conn, """
-            SELECT y.* FROM youth_participants y
-            JOIN youth_program_enrollments ype ON ype.youth_id=y.id
-            WHERE ype.program_id=%s AND y.status='active'""", (pid,))
+    else:  # 'all' or 'unlogged' — everyone (currently) enrolled, via
+           # youth_program_enrollments for a program or youth_production_members
+           # for a production, optionally filtered to never-logged-in-yet
+        if kind == 'program':
+            enrolled_sql = """SELECT y.* FROM youth_participants y
+                JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+                WHERE ype.program_id=%s AND y.status='active'"""
+        else:
+            enrolled_sql = """SELECT y.* FROM youth_participants y
+                JOIN youth_production_members ypm ON ypm.youth_id=y.id
+                WHERE ypm.production_id=%s AND y.status='active'"""
+        if mode == 'unlogged':
+            enrolled_sql += " AND y.portal_last_login IS NULL"
+        enrolled = fetchall(conn, enrolled_sql, (pid,))
         for y in enrolled:
             pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
             greeting = f"{y['first_name']} {y['last_name']}"
@@ -4568,7 +4989,7 @@ def send_program_welcome(pid):
     # actually picked, not just the program's overall date range. Falls back to
     # the program's general schedule for addresses not tied to one specific
     # child (the family-level email above) or if no registration row is found.
-    program_schedule_info = _format_registration_schedule(conn, prog, None, {})
+    program_schedule_info = _format_registration_schedule(conn, prog, prod, {})
     program_schedule_block = ''
     if program_schedule_info:
         program_schedule_block = (
@@ -4576,16 +4997,17 @@ def send_program_welcome(pid):
             '<p style="color:#04342C"><strong>You\'re registered for:</strong><br>' + program_schedule_info + '</p></div>'
         )
     schedule_block_by_youth = {}
+    reg_fk_col = 'program_id' if kind == 'program' else 'production_id'
     for r in recipients:
         yid = r.get('youth_id')
         if not yid:
             r['schedule_block'] = program_schedule_block
             continue
         if yid not in schedule_block_by_youth:
-            their_reg = fetchone(conn, '''SELECT * FROM program_registrations
-                WHERE youth_id=%s AND program_id=%s AND status='confirmed'
+            their_reg = fetchone(conn, f'''SELECT * FROM program_registrations
+                WHERE youth_id=%s AND {reg_fk_col}=%s AND status='confirmed'
                 ORDER BY created_at DESC LIMIT 1''', (yid, pid))
-            info = _format_registration_schedule(conn, prog, None, their_reg or {}) if their_reg else program_schedule_info
+            info = _format_registration_schedule(conn, prog, prod, their_reg or {}) if their_reg else program_schedule_info
             block = ''
             if info:
                 block = (
@@ -4607,7 +5029,9 @@ def send_program_welcome(pid):
             deduped.append(r)
 
     if not deduped:
-        return jsonify({'error': 'No email addresses found for the selected recipients'}), 400
+        no_recip_msg = ('No one enrolled here has skipped logging in — everyone with an email on file has signed in at least once'
+            if mode == 'unlogged' else 'No email addresses found for the selected recipients')
+        return jsonify({'error': no_recip_msg}), 400
 
     subject_base = subject_override or subject_tmpl.replace('{{program_name}}', prog_name)
 
@@ -4652,17 +5076,31 @@ def send_program_welcome(pid):
 
 @app.route('/api/youth-programs/<pid>/welcome-recipients', methods=['GET'])
 def get_welcome_recipients(pid):
-    """Preview who would receive the welcome email for a program."""
+    """Preview who would receive the welcome email — works for a youth_programs
+    row or a productions row (e.g. Rising Stars), see _resolve_welcome_entity."""
     err = require_auth()
     if err: return err
     conn = get_db()
-    enrolled = fetchall(conn, """
-        SELECT y.id, y.first_name, y.last_name, y.passphrase, y.family_id,
-               y.status
-        FROM youth_participants y
-        JOIN youth_program_enrollments ype ON ype.youth_id=y.id
-        WHERE ype.program_id=%s AND y.status='active'
-        ORDER BY y.last_name, y.first_name""", (pid,))
+    entity, kind = _resolve_welcome_entity(conn, pid)
+    if not entity:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if kind == 'program':
+        enrolled = fetchall(conn, """
+            SELECT y.id, y.first_name, y.last_name, y.passphrase, y.family_id,
+                   y.status, y.portal_last_login
+            FROM youth_participants y
+            JOIN youth_program_enrollments ype ON ype.youth_id=y.id
+            WHERE ype.program_id=%s AND y.status='active'
+            ORDER BY y.last_name, y.first_name""", (pid,))
+    else:
+        enrolled = fetchall(conn, """
+            SELECT y.id, y.first_name, y.last_name, y.passphrase, y.family_id,
+                   y.status, y.portal_last_login
+            FROM youth_participants y
+            JOIN youth_production_members ypm ON ypm.youth_id=y.id
+            WHERE ypm.production_id=%s AND y.status='active'
+            ORDER BY y.last_name, y.first_name""", (pid,))
 
     result = []
     for y in enrolled:
@@ -4683,6 +5121,7 @@ def get_welcome_recipients(pid):
             'family_name':  family_name,
             'passphrase':   pp,
             'guardians':    guardians,
+            'portal_last_login': y.get('portal_last_login'),
         })
 
     conn.close()
@@ -5359,13 +5798,387 @@ def publish_cast_list(context_type, context_id):
             SET cast_list_published=TRUE, cast_list=%s, updated_at=NOW()
             WHERE context_type=%s AND context_id=%s""",
             (cast_json, context_type, context_id))
-    else:
-        execute(conn, """UPDATE audition_settings
-            SET cast_list_published=FALSE, updated_at=NOW()
-            WHERE context_type=%s AND context_id=%s""",
-            (context_type, context_id))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+# ── Board Position Applications ──────────────────────────────────────────
+# Public: browse open board positions and apply (name/contact, why
+# interested, optional resume/reference-letter/other attachments — stored
+# as base64 in Postgres rather than local disk, since Railway's filesystem
+# is ephemeral and these are private applicant documents that shouldn't
+# live in the GitHub-backed image storage used for public assets).
+# Admin: create/edit openings and move applicants through a review pipeline
+# (submitted → reviewing → interview → approved/declined/withdrawn).
+
+BOARD_APP_STATUS_LABELS = {
+    'submitted': 'New', 'reviewing': 'Under Review', 'interview': 'Interview',
+    'approved': 'Approved', 'declined': 'Declined', 'withdrawn': 'Withdrawn',
+}
+BOARD_APP_ALLOWED_EXT = {'.pdf', '.doc', '.docx', '.jpg', '.jpeg', '.png'}
+BOARD_APP_MAX_FILE_BYTES = 8 * 1024 * 1024  # 8MB per file
+
+def _board_position_public(p):
+    return {
+        'id': p['id'], 'title': p['title'], 'summary': p.get('summary') or '',
+        'description': p.get('description') or '', 'responsibilities': p.get('responsibilities') or '',
+        'qualifications': p.get('qualifications') or '', 'time_commitment': p.get('time_commitment') or '',
+        'term_length': p.get('term_length') or '',
+    }
+
+@app.route('/board/apply')
+def board_apply_landing():
+    conn = get_db()
+    positions = fetchall(conn, "SELECT * FROM board_positions WHERE status='open' ORDER BY display_order, created_at") or []
+    conn.close()
+    cards = ''.join(f'''<div class="pos-card">
+      <h3>{p["title"]}</h3>
+      <p class="meta">{(p.get("time_commitment") or "")}{" · " + p.get("term_length") if p.get("term_length") else ""}</p>
+      <p>{(p.get("summary") or "")}</p>
+      <a class="apply-btn" href="/board/apply/{p["id"]}">Apply for this Position</a>
+    </div>''' for p in positions)
+    if not positions:
+        cards = '<div style="text-align:center;color:#6b7280;padding:40px 0">There are no open Board positions right now. Please check back later, or contact us if you\'d like to be notified of future openings.</div>'
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Board Position Openings – Horizon West Theater Company</title>
+<style>
+body{{font-family:Georgia,serif;color:#1a2332;margin:0;background:#f8fafc}}
+.wrap{{max-width:760px;margin:0 auto;padding:40px 20px}}
+.header{{text-align:center;margin-bottom:32px}}
+.header h1{{color:#0d3d4d;font-size:26px;margin-bottom:6px}}
+.header p{{color:#6b7280;font-size:14px}}
+.pos-card{{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:24px;margin-bottom:18px;box-shadow:0 1px 4px rgba(0,0,0,0.04)}}
+.pos-card h3{{color:#145466;margin:0 0 4px}}
+.pos-card .meta{{color:#6b7280;font-size:12.5px;margin:0 0 12px;font-family:-apple-system,sans-serif}}
+.pos-card p{{font-size:14.5px;line-height:1.6}}
+.apply-btn{{display:inline-block;margin-top:8px;background:#145466;color:#fff;text-decoration:none;padding:10px 22px;border-radius:8px;font-family:-apple-system,sans-serif;font-weight:700;font-size:13.5px}}
+</style></head><body>
+<div class="wrap">
+<div class="header"><h1>Board Position Openings</h1><p>Horizon West Theater Company is an all-volunteer nonprofit board — every position below is unpaid.</p></div>
+{cards}
+</div></body></html>'''
+
+@app.route('/board/apply/<position_id>')
+def board_apply_form(position_id):
+    conn = get_db()
+    pos = fetchone(conn, "SELECT * FROM board_positions WHERE id=%s AND status='open'", (position_id,))
+    conn.close()
+    if not pos:
+        return '<div style="font-family:sans-serif;text-align:center;padding:60px;color:#0d3d4d">This position is no longer accepting applications. <a href="/board/apply">See open positions</a>.</div>', 404
+    detail_rows = ''.join(f'<div style="margin-bottom:14px"><strong>{label}</strong><div style="margin-top:2px;white-space:pre-wrap">{pos.get(key) or ""}</div></div>'
+        for key, label in [('description','About This Role'), ('responsibilities','Responsibilities'),
+                            ('qualifications','Qualifications'), ('time_commitment','Time Commitment'), ('term_length','Term Length')] if pos.get(key))
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Apply – {pos["title"]} – Horizon West Theater Company</title>
+<style>
+body{{font-family:Georgia,serif;color:#1a2332;margin:0;background:#f8fafc}}
+.wrap{{max-width:680px;margin:0 auto;padding:40px 20px}}
+h1{{color:#0d3d4d;font-size:24px;margin-bottom:4px}}
+.sub{{color:#6b7280;font-family:-apple-system,sans-serif;font-size:13px;margin-bottom:24px}}
+.detail-card{{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:20px;margin-bottom:24px;font-size:14px;line-height:1.6}}
+.detail-card strong{{color:#145466;font-family:-apple-system,sans-serif;font-size:12.5px;text-transform:uppercase;letter-spacing:0.03em}}
+form{{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:24px;font-family:-apple-system,sans-serif}}
+label{{display:block;font-weight:700;font-size:13px;color:#0d3d4d;margin:16px 0 6px}}
+label:first-child{{margin-top:0}}
+input[type=text],input[type=email],input[type=tel],textarea{{width:100%;padding:11px 13px;border:1.5px solid #d1d5db;border-radius:8px;font-size:14px;font-family:inherit;box-sizing:border-box}}
+textarea{{min-height:90px;resize:vertical}}
+input[type=file]{{width:100%;font-size:13px;padding:8px 0}}
+.file-hint{{font-size:11.5px;color:#9ca3af;margin-top:2px}}
+.required{{color:#dc2626}}
+.submit-btn{{margin-top:20px;background:#145466;color:#fff;border:none;padding:14px;border-radius:8px;font-size:15px;font-weight:700;width:100%;cursor:pointer}}
+.submit-btn:disabled{{background:#9ca3af}}
+#form-error{{color:#dc2626;font-size:13px;margin-top:8px;display:none}}
+#form-success{{background:#dcfce7;color:#166534;padding:20px;border-radius:10px;text-align:center;font-weight:700;font-family:-apple-system,sans-serif}}
+</style></head><body>
+<div class="wrap">
+<h1>{pos["title"]}</h1>
+<div class="sub">Volunteer Board Position — Horizon West Theater Company</div>
+{f'<div class="detail-card">{detail_rows}</div>' if detail_rows else ''}
+<form id="apply-form" onsubmit="return submitBoardApp(event)">
+ <label>Full Name <span class="required">*</span></label>
+ <input type="text" name="full_name" required/>
+ <label>Email <span class="required">*</span></label>
+ <input type="email" name="email" required/>
+ <label>Phone</label>
+ <input type="tel" name="phone"/>
+ <label>Address</label>
+ <input type="text" name="address"/>
+ <label>Why are you interested in this position? <span class="required">*</span></label>
+ <textarea name="why_interested" required></textarea>
+ <label>Relevant experience</label>
+ <textarea name="relevant_experience"></textarea>
+ <label>Availability (meeting nights, time commitment, etc.)</label>
+ <textarea name="availability"></textarea>
+ <label>Resume</label>
+ <input type="file" name="resume" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"/>
+ <div class="file-hint">PDF, Word, or image — up to 8MB</div>
+ <label>Letter(s) of Recommendation</label>
+ <input type="file" name="letters" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"/>
+ <div class="file-hint">Optional — you can select multiple files</div>
+ <label>Other Attachments</label>
+ <input type="file" name="other" multiple accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"/>
+ <div id="form-error"></div>
+ <button type="submit" class="submit-btn" id="submit-btn">Submit Application</button>
+</form>
+<div id="form-success" style="display:none">✓ Application Submitted!<div style="font-weight:400;margin-top:6px;font-size:13.5px">Thank you for your interest — we'll be in touch soon.</div></div>
+</div>
+<script>
+async function submitBoardApp(e){{
+  e.preventDefault()
+  const form = document.getElementById('apply-form')
+  const btn = document.getElementById('submit-btn')
+  const err = document.getElementById('form-error')
+  err.style.display='none'
+  btn.disabled=true; btn.textContent='Submitting...'
+  try {{
+    const res = await fetch('/api/board/apply/{position_id}', {{method:'POST', body:new FormData(form)}})
+    const data = await res.json()
+    if(data.ok){{
+      form.style.display='none'
+      document.getElementById('form-success').style.display=''
+      window.scrollTo(0,0)
+    }} else {{
+      err.textContent = data.error || 'Something went wrong — please try again.'
+      err.style.display=''
+      btn.disabled=false; btn.textContent='Submit Application'
+    }}
+  }} catch(ex) {{
+    err.textContent = 'Network error — please try again.'
+    err.style.display=''
+    btn.disabled=false; btn.textContent='Submit Application'
+  }}
+  return false
+}}
+</script></body></html>'''
+
+@app.route('/api/board/apply/<position_id>', methods=['POST'])
+def submit_board_application(position_id):
+    import base64 as _b64ba
+    conn = get_db()
+    pos = fetchone(conn, "SELECT * FROM board_positions WHERE id=%s AND status='open'", (position_id,))
+    if not pos:
+        conn.close()
+        return jsonify({'error': 'This position is no longer accepting applications'}), 404
+    full_name = (request.form.get('full_name') or '').strip()
+    email = (request.form.get('email') or '').strip().lower()
+    why_interested = (request.form.get('why_interested') or '').strip()
+    if not full_name or not email or not why_interested:
+        conn.close()
+        return jsonify({'error': 'Name, email, and why you\'re interested are required'}), 400
+
+    # Validate every attached file up front — before writing anything — so
+    # a bad file doesn't leave a half-saved application behind.
+    labeled_files = []
+    for field, label in [('resume', 'Resume'), ('letters', 'Letter of Recommendation'), ('other', 'Other')]:
+        for f in request.files.getlist(field):
+            if not f or not f.filename:
+                continue
+            ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+            if ext not in BOARD_APP_ALLOWED_EXT:
+                conn.close()
+                return jsonify({'error': f'"{f.filename}" is not an accepted file type (PDF, Word doc, or image only)'}), 400
+            data = f.read()
+            if len(data) > BOARD_APP_MAX_FILE_BYTES:
+                conn.close()
+                return jsonify({'error': f'"{f.filename}" is larger than the 8MB limit'}), 400
+            labeled_files.append((label, secure_filename(f.filename), f.mimetype or '', data))
+
+    aid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO board_applications
+        (id, position_id, full_name, email, phone, address, why_interested, relevant_experience, availability)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        aid, position_id, full_name, email,
+        (request.form.get('phone') or '').strip(), (request.form.get('address') or '').strip(),
+        why_interested, (request.form.get('relevant_experience') or '').strip(),
+        (request.form.get('availability') or '').strip(),
+    ))
+    for label, filename, content_type, data in labeled_files:
+        execute(conn, """INSERT INTO board_application_files
+            (id, application_id, file_label, filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)""", (
+            str(uuid.uuid4()), aid, label, filename, content_type, _b64ba.b64encode(data).decode(), len(data)))
+    conn.commit()
+
+    try:
+        s = get_email_settings()
+        recipients = list(get_recipient_emails(s))
+        if not recipients:
+            admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL AND email!='' AND active=TRUE") or []
+            recipients = [u['email'] for u in admins if u.get('email')]
+        if recipients:
+            send_email(recipients, f'New Board Application: {full_name} — {pos["title"]}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                f'<h2 style="color:#145466">New Board Position Application</h2>'
+                f'<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:160px">Position</td><td style="padding:8px 12px">{pos["title"]}</td></tr>'
+                f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Name</td><td style="padding:8px 12px">{full_name}</td></tr>'
+                f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Email</td><td style="padding:8px 12px">{email}</td></tr>'
+                f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Attachments</td><td style="padding:8px 12px">{len(labeled_files) or "None"}</td></tr>'
+                f'</table><p style="color:#9ca3af;font-size:12px">Review the full application in RoleCall under Board → Applications.</p></div>')
+        send_email(email, f'Application Received — {pos["title"]}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+            f'<p>Hi {full_name.split(" ")[0]},</p>'
+            f'<p>Thank you for applying for the <strong>{pos["title"]}</strong> position on our Board. '
+            f'We\'ve received your application and will be in touch soon.</p>'
+            f'<p>Horizon West Theater Company</p></div>')
+    except Exception as e:
+        app.logger.error(f'Board application notify failed: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/positions', methods=['GET'])
+def list_board_positions():
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    positions = fetchall(conn, """SELECT p.*,
+        (SELECT COUNT(*) FROM board_applications a WHERE a.position_id=p.id) AS application_count,
+        (SELECT COUNT(*) FROM board_applications a WHERE a.position_id=p.id AND a.status='submitted') AS new_count
+        FROM board_positions p ORDER BY p.display_order, p.created_at""") or []
+    conn.close()
+    return jsonify(positions)
+
+@app.route('/api/board/positions', methods=['POST'])
+def create_board_position():
+    err = require_permission('board')
+    if err: return err
+    d = request.json or {}
+    title = (d.get('title') or '').strip()
+    if not title:
+        return jsonify({'error': 'Title is required'}), 400
+    conn = get_db()
+    pid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO board_positions
+        (id, title, summary, description, responsibilities, qualifications, time_commitment, term_length, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        pid, title, (d.get('summary') or '').strip(), (d.get('description') or '').strip(),
+        (d.get('responsibilities') or '').strip(), (d.get('qualifications') or '').strip(),
+        (d.get('time_commitment') or '').strip(), (d.get('term_length') or '').strip(),
+        d.get('status') or 'open'))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': pid})
+
+@app.route('/api/board/positions/<pid>', methods=['PUT'])
+def update_board_position(pid):
+    err = require_permission('board')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM board_positions WHERE id=%s', (pid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, """UPDATE board_positions SET title=%s, summary=%s, description=%s,
+        responsibilities=%s, qualifications=%s, time_commitment=%s, term_length=%s,
+        status=%s, updated_at=NOW() WHERE id=%s""", (
+        (d.get('title') or '').strip(), (d.get('summary') or '').strip(), (d.get('description') or '').strip(),
+        (d.get('responsibilities') or '').strip(), (d.get('qualifications') or '').strip(),
+        (d.get('time_commitment') or '').strip(), (d.get('term_length') or '').strip(),
+        d.get('status') or 'open', pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/positions/<pid>', methods=['DELETE'])
+def delete_board_position(pid):
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    count = fetchone(conn, 'SELECT COUNT(*) AS c FROM board_applications WHERE position_id=%s', (pid,))
+    if count and count.get('c'):
+        conn.close()
+        return jsonify({'error': 'This position has applications on file — close it instead of deleting so those records stay linked'}), 400
+    execute(conn, 'DELETE FROM board_positions WHERE id=%s', (pid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/applications', methods=['GET'])
+def list_board_applications():
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT a.*, p.title AS position_title,
+        (SELECT COUNT(*) FROM board_application_files f WHERE f.application_id=a.id) AS file_count
+        FROM board_applications a LEFT JOIN board_positions p ON p.id=a.position_id
+        ORDER BY a.submitted_at DESC""") or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/board/applications/<aid>', methods=['GET'])
+def get_board_application(aid):
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    app_row = fetchone(conn, """SELECT a.*, p.title AS position_title FROM board_applications a
+        LEFT JOIN board_positions p ON p.id=a.position_id WHERE a.id=%s""", (aid,))
+    if not app_row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    files = fetchall(conn, """SELECT id, file_label, filename, content_type, size_bytes, uploaded_at
+        FROM board_application_files WHERE application_id=%s ORDER BY uploaded_at""", (aid,)) or []
+    conn.close()
+    app_row['files'] = files
+    return jsonify(app_row)
+
+@app.route('/api/board/applications/<aid>', methods=['PUT'])
+def update_board_application(aid):
+    err = require_permission('board')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM board_applications WHERE id=%s', (aid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    fields, params = [], []
+    if 'status' in d:
+        if d['status'] not in BOARD_APP_STATUS_LABELS:
+            conn.close()
+            return jsonify({'error': 'Invalid status'}), 400
+        fields.append('status=%s'); params.append(d['status'])
+        user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+        fields.append('reviewed_by=%s'); params.append((user or {}).get('name', 'Staff'))
+    if 'internal_notes' in d:
+        fields.append('internal_notes=%s'); params.append(d.get('internal_notes') or '')
+    if 'interview_date' in d:
+        fields.append('interview_date=%s'); params.append(d.get('interview_date') or '')
+    if not fields:
+        conn.close()
+        return jsonify({'error': 'Nothing to update'}), 400
+    fields.append('updated_at=NOW()')
+    params.append(aid)
+    execute(conn, f'UPDATE board_applications SET {", ".join(fields)} WHERE id=%s', tuple(params))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/applications/<aid>', methods=['DELETE'])
+def delete_board_application(aid):
+    err = require_permission('board')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM board_applications WHERE id=%s', (aid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/board/applications/<aid>/files/<fid>', methods=['GET'])
+def download_board_application_file(aid, fid):
+    err = require_permission('board')
+    if err: return err
+    import base64 as _b64bd
+    conn = get_db()
+    f = fetchone(conn, 'SELECT * FROM board_application_files WHERE id=%s AND application_id=%s', (fid, aid))
+    conn.close()
+    if not f:
+        return jsonify({'error': 'Not found'}), 404
+    data = _b64bd.b64decode(f['file_data_b64'])
+    from flask import Response as _BoardResp
+    resp = _BoardResp(data, mimetype=f.get('content_type') or 'application/octet-stream')
+    safe_name = (f.get('filename') or 'file').replace('"', "'")
+    ascii_name = safe_name.encode('ascii', 'ignore').decode('ascii').strip() or 'file'
+    from urllib.parse import quote
+    resp.headers['Content-Disposition'] = f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{quote(safe_name)}'
+    return resp
 
 
 @app.route('/api/auditions/cast-list/<context_type>/<context_id>', methods=['GET'])
@@ -5933,7 +6746,7 @@ def save_registration_settings(pid):
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
         start_date=%s, end_date=%s, form_fields=%s, hours_store_enabled=%s,
-        step_up_hold_enabled=%s, step_up_hold_days=%s
+        step_up_hold_enabled=%s, step_up_hold_days=%s, min_age=%s, max_age=%s, age_grace_days=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -5972,6 +6785,9 @@ def save_registration_settings(pid):
          bool(d.get('hours_store_enabled', False)),
          bool(d.get('step_up_hold_enabled', False)),
          int(d.get('step_up_hold_days') or 14),
+         int(d['min_age']) if d.get('min_age') not in (None, '') else None,
+         int(d['max_age']) if d.get('max_age') not in (None, '') else None,
+         int(d.get('age_grace_days') or 30),
          pid))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
@@ -6978,12 +7794,18 @@ def get_productions():
         ORDER BY p.start_date DESC NULLS LAST""")
     for p in prods:
         p['members'] = fetchall(conn, '''
-            SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email
+            SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email, v.phone as volunteer_phone
             FROM production_members pm
             JOIN volunteers v ON pm.volunteer_id=v.id
             WHERE pm.production_id=%s ORDER BY pm.role''', (p['id'],))
         p['required_waivers'] = fetchall(conn,
-            'SELECT pw.*, wt.name as waiver_name FROM production_waivers pw JOIN waiver_types wt ON pw.waiver_type_id=wt.id WHERE pw.production_id=%s', (p['id'],))
+            '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online, wt.min_age, wt.max_age
+               FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+               WHERE prw.production_id=%s ORDER BY wt.name''', (p['id'],))
+        try:
+            p['callout_alert_volunteer_ids'] = json.loads(p.get('callout_alert_volunteer_ids') or '[]')
+        except Exception:
+            p['callout_alert_volunteer_ids'] = []
     conn.close()
     return jsonify(prods)
 
@@ -6999,11 +7821,31 @@ def create_production():
              d.get('start_date') or None, d.get('end_date') or None,
              d.get('description',''), d.get('status','upcoming'),
              d.get('default_elic_id') or None))
+    lic_id = d.get('from_licensing_request_id')
+    if lic_id:
+        lr = fetchone(conn, "SELECT id FROM licensing_requests WHERE id=%s AND approved_to_produce=TRUE AND (production_id IS NULL OR production_id='')", (lic_id,))
+        if lr:
+            execute(conn, 'UPDATE licensing_requests SET production_id=%s, updated_at=NOW() WHERE id=%s', (pid, lic_id))
     conn.commit()
     prod = fetchone(conn, '''SELECT p.*, COALESCE(p.stage,'mainstage') as stage, v.name as default_elic_name FROM productions p LEFT JOIN elics el ON p.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE p.id=%s''', (pid,))
     prod['members'] = []
     conn.close()
     return jsonify(prod)
+
+@app.route('/api/licensing-requests/approved-unlinked', methods=['GET'])
+def list_approved_unlinked_licensing_requests():
+    """Approved-to-produce licensing requests not yet tied to a RoleCall
+    production — available to prefill a new Production from."""
+    err = require_permission('productions')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT id, ref_number, production_name, production_type, production_type_other,
+                                     production_start_date, production_end_date, venue_name, licensor, licensor_other
+                             FROM licensing_requests
+                             WHERE approved_to_produce=TRUE AND (production_id IS NULL OR production_id='')
+                             ORDER BY production_name""") or []
+    conn.close()
+    return jsonify(rows)
 
 @app.route('/api/productions/<pid>', methods=['PUT'])
 def update_production(pid):
@@ -8631,6 +9473,7 @@ def save_email_settings_route():
     conn = get_db()
     # Ensure rental columns exist
     for col in ['rental_approver_emails TEXT DEFAULT \'\'', 'rental_approval_levels TEXT DEFAULT \'[]\'', 'rental_agreement_template TEXT DEFAULT \'\'',
+                'rental_signatory_name TEXT DEFAULT \'\'', 'rental_signatory_title TEXT DEFAULT \'\'',
                 'twilio_account_sid TEXT DEFAULT \'\'', 'twilio_auth_token TEXT DEFAULT \'\'',
                 'twilio_phone TEXT DEFAULT \'\'', 'twilio_fallback_phone TEXT DEFAULT \'\'',
                 'twilio_voice_greeting TEXT DEFAULT \'\'',
@@ -8676,6 +9519,7 @@ def save_email_settings_route():
         'alert_conflicts','alert_waivers','alert_event_not_opened','alert_event_not_closed',
         'auto_send_checklist_report','alert_new_rsvp','alert_role_filled',
         'rental_approver_emails','rental_approval_levels','rental_agreement_template',
+        'rental_signatory_name','rental_signatory_title',
         'twilio_account_sid','twilio_auth_token','twilio_phone','twilio_fallback_phone',
         'twilio_voice_greeting','twilio_voice_no_answer','twilio_voice_unavailable',
         'twilio_after_hours_msg','twilio_coverage_start','twilio_coverage_end',
@@ -8793,6 +9637,11 @@ def update_user(uid):
     else:
         execute(conn, 'UPDATE users SET name=%s, email=%s WHERE id=%s',
             (d.get('name',''), d.get('email',''), uid))
+    if 'role' in d and d.get('role') in ('admin', 'staff', 'instructor'):
+        if uid == session.get('user_id') and d.get('role') != 'admin':
+            conn.close()
+            return jsonify({'error': "You can't remove your own admin access"}), 400
+        execute(conn, 'UPDATE users SET role=%s WHERE id=%s', (d.get('role'), uid))
     if 'permissions' in d:
         execute(conn, 'UPDATE users SET role_permissions=%s WHERE id=%s',
             (json.dumps(d.get('permissions','[]')), uid))
@@ -9119,7 +9968,9 @@ def portal_youth_profile(yid):
         WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC''', (yid,))
     # Get signable waivers not yet signed  -  includes program-required ones
     signed_ids = [w['waiver_type_id'] for w in youth['waivers']]
+    age = compute_age(youth.get('dob'))
     all_signable = fetchall(conn, "SELECT * FROM waiver_types WHERE can_sign_online=TRUE ORDER BY name")
+    all_signable = [w for w in all_signable if waiver_applies_to_age(w, age)]
     # Also include program-required waivers even if not marked can_sign_online (show as required)
     prog_ids = [e['program_id'] for e in fetchall(conn,
         'SELECT program_id FROM youth_program_enrollments WHERE youth_id=%s', (yid,))]
@@ -9129,6 +9980,7 @@ def portal_youth_profile(yid):
         prog_required = fetchall(conn, f'''SELECT wt.* FROM program_required_waivers prw
             JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.program_id IN ({placeholders})''', tuple(prog_ids))
+        prog_required = [w for w in prog_required if waiver_applies_to_age(w, age)]
     # Merge: signable + program-required not yet signed, deduplicated
     all_needed = {w['id']: w for w in all_signable}
     for w in prog_required:
@@ -9460,6 +10312,129 @@ def delete_production_conflict(pid, cid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/productions/<pid>/daily-overview')
+def get_production_daily_overview(pid):
+    """Single-day command-center view for a production: today's (or a chosen
+    date's) schedule blocks, full cast/crew + youth roster with live status
+    (signed in / not yet / called out / no-show), and any flagged conflicts.
+    Used by the Daily Overview dashboard (admins, directors, stage managers)."""
+    err = require_permission('productions', 'view')
+    if err: return err
+    target_date = request.args.get('date') or today_eastern().isoformat()
+    conn = get_db()
+
+    prod = fetchone(conn, 'SELECT id, name, status FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+
+    events = fetchall(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color
+        FROM events e LEFT JOIN event_types et ON e.event_type_id=et.id
+        WHERE e.production_id=%s AND e.event_date=%s
+        ORDER BY e.start_time ASC NULLS LAST''', (pid, target_date))
+    event_ids = [e['id'] for e in events]
+
+    # Adult cast/crew roster
+    crew = fetchall(conn, '''SELECT pm.id as member_id, pm.role, pm.department, pm.status as member_status,
+        v.id as volunteer_id, v.name, v.phone, v.email
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s ORDER BY v.name''', (pid,))
+
+    # Youth roster
+    youth = fetchall(conn, '''SELECT ypm.id as member_id, ypm.role,
+        y.id as youth_id, y.first_name, y.last_name
+        FROM youth_production_members ypm JOIN youth_participants y ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+
+    # Today's sign-ins
+    crew_signins = {}
+    youth_signins = {}
+    if event_ids:
+        ph = ','.join(['%s']*len(event_ids))
+        for row in fetchall(conn, f'''SELECT volunteer_id, event_id, signed_in_at, signed_out_at
+                FROM prod_attendance WHERE event_id IN ({ph})''', tuple(event_ids)):
+            crew_signins.setdefault(row['volunteer_id'], []).append(row)
+        for row in fetchall(conn, f'''SELECT youth_id, event_id, signed_in_at, signed_out_at
+                FROM youth_sign_ins WHERE event_id IN ({ph})''', tuple(event_ids)):
+            youth_signins.setdefault(row['youth_id'], []).append(row)
+
+    # Today's conflicts/call-outs (covers both youth and adult volunteers)
+    conflicts = fetchall(conn, '''SELECT pc.*, e.name as event_name
+        FROM production_conflicts pc LEFT JOIN events e ON pc.event_id=e.id
+        WHERE pc.production_id=%s AND (e.event_date=%s OR pc.event_id IS NULL)
+        ORDER BY pc.created_at DESC''', (pid, target_date))
+    conflicts_by_youth = {}
+    conflicts_by_volunteer = {}
+    for c in conflicts:
+        if c.get('youth_id'): conflicts_by_youth.setdefault(c['youth_id'], []).append(c)
+        if c.get('volunteer_id'): conflicts_by_volunteer.setdefault(c['volunteer_id'], []).append(c)
+
+    def roster_status(signin_rows, conflict_rows):
+        if conflict_rows:
+            return conflict_rows[-1]['status']  # called-out ahead of time: absent/sick/late/leaving_early
+        if signin_rows:
+            return 'signed_out' if all(r.get('signed_out_at') for r in signin_rows) else 'signed_in'
+        # No call-out on record and never signed in — only a genuine "no show"
+        # once today's event has actually started; before that, still expected.
+        return 'no_show' if any_event_started else 'not_yet'
+
+    # Has at least one of today's events already started? Drives the not_yet vs no_show split above.
+    now_dt = now_eastern()
+    any_event_started = False
+    for e in events:
+        ev_date = e.get('event_date')
+        if not ev_date:
+            continue
+        if not hasattr(ev_date, 'year'):
+            try:
+                ev_date = datetime.strptime(str(ev_date)[:10], '%Y-%m-%d').date()
+            except Exception:
+                continue
+        ev_time = e.get('start_time')
+        if isinstance(ev_time, str):
+            try:
+                ev_time = datetime.strptime(ev_time, '%H:%M:%S').time() if len(ev_time) > 5 else datetime.strptime(ev_time, '%H:%M').time()
+            except Exception:
+                ev_time = None
+        ev_start = datetime.combine(ev_date, ev_time or datetime.min.time())
+        if ev_start <= now_dt:
+            any_event_started = True
+            break
+
+    crew_out = []
+    for m in crew:
+        rows = crew_signins.get(m['volunteer_id'], [])
+        conf = conflicts_by_volunteer.get(m['volunteer_id'], [])
+        crew_out.append({**m, 'status': roster_status(rows, conf),
+            'conflict': conf[-1] if conf else None,
+            'signed_in_at': rows[-1]['signed_in_at'] if rows else None,
+            'signed_out_at': rows[-1]['signed_out_at'] if rows and rows[-1].get('signed_out_at') else None})
+
+    youth_out = []
+    for y in youth:
+        rows = youth_signins.get(y['youth_id'], [])
+        conf = conflicts_by_youth.get(y['youth_id'], [])
+        youth_out.append({**y, 'status': roster_status(rows, conf),
+            'conflict': conf[-1] if conf else None,
+            'signed_in_at': rows[-1]['signed_in_at'] if rows else None,
+            'signed_out_at': rows[-1]['signed_out_at'] if rows and rows[-1].get('signed_out_at') else None})
+
+    all_statuses = [r['status'] for r in crew_out+youth_out]
+    summary = {
+        'total': len(all_statuses),
+        'signed_in': all_statuses.count('signed_in'),
+        'signed_out': all_statuses.count('signed_out'),
+        'not_yet': all_statuses.count('not_yet'),
+        'called_out': sum(1 for s in all_statuses if s in ('absent','sick','late','leaving_early')),
+        'no_show': all_statuses.count('no_show'),
+    }
+
+    conn.close()
+    return jsonify({
+        'production': prod, 'date': target_date, 'events': events,
+        'crew': crew_out, 'youth': youth_out, 'summary': summary,
+    })
+
 @app.route('/api/productions/<pid>/team')
 def get_production_team(pid):
     conn = get_db()
@@ -9609,7 +10584,7 @@ def get_program_required_waivers(pid):
     if err: return err
     conn = get_db()
     try:
-        rows = fetchall(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+        rows = fetchall(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online, wt.min_age, wt.max_age
             FROM program_required_waivers prw
             JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.program_id=%s ORDER BY wt.name''', (pid,))
@@ -9629,7 +10604,7 @@ def add_program_required_waiver(pid):
         execute(conn, 'INSERT INTO program_required_waivers (id,program_id,waiver_type_id) VALUES (%s,%s,%s)',
                 (rid, pid, d.get('waiver_type_id')))
         conn.commit()
-        row = fetchone(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+        row = fetchone(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online, wt.min_age, wt.max_age
             FROM program_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.id=%s''', (rid,))
         conn.close()
@@ -9649,24 +10624,53 @@ def remove_program_required_waiver(pid, wid):
 
 @app.route('/api/productions/<pid>/waivers', methods=['POST'])
 def add_prod_waiver(pid):
-    err = require_auth()
+    err = require_permission('productions')
     if err: return err
     d = request.json or {}
     rid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, 'INSERT INTO production_required_waivers (id,production_id,waiver_type_id) VALUES (%s,%s,%s)',
         (rid, pid, d.get('waiver_type_id')))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    conn.commit()
+    row = fetchone(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online, wt.min_age, wt.max_age
+        FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+        WHERE prw.id=%s''', (rid,))
+    conn.close()
+    return jsonify(row)
 
 @app.route('/api/productions/<pid>/waivers/<wid>', methods=['DELETE'])
 def remove_prod_waiver(pid, wid):
-    err = require_auth()
+    err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_required_waivers WHERE production_id=%s AND waiver_type_id=%s', (pid, wid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/productions/<pid>/callout-recipients', methods=['PUT'])
+def set_production_callout_recipients(pid):
+    """Set which added crew members get a text when someone calls out for this
+    production. Texts go to whatever phone number is on their volunteer profile."""
+    err = require_permission('productions')
+    if err: return err
+    d = request.json or {}
+    volunteer_ids = d.get('volunteer_ids') or []
+    if not isinstance(volunteer_ids, list):
+        return jsonify({'error': 'volunteer_ids must be a list'}), 400
+    conn = get_db()
+    prod = fetchone(conn, 'SELECT id FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+    # Only keep ids that are actually members of this production
+    valid_ids = {r['volunteer_id'] for r in fetchall(conn,
+        'SELECT volunteer_id FROM production_members WHERE production_id=%s', (pid,))}
+    volunteer_ids = [v for v in volunteer_ids if v in valid_ids]
+    execute(conn, 'UPDATE productions SET callout_alert_volunteer_ids=%s WHERE id=%s',
+        (json.dumps(volunteer_ids), pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'callout_alert_volunteer_ids': volunteer_ids})
 
 # ─────────────────────────────────────────────
 #  KIOSK ROUTES
@@ -10911,6 +11915,8 @@ def _fire_scheduled_report(r):
 @app.after_request
 def after_request_cron(response):
     try: maybe_run_scheduled_reports()
+    except Exception: pass
+    try: maybe_send_due_rental_invoices()
     except Exception: pass
     return response
 
@@ -12534,8 +13540,12 @@ def delete_portal_folder(folder_name):
     return jsonify({'ok': True})
 
 # ── Portal callout (POST = set callout) ──
-@app.route('/api/portal/callout', methods=['POST'])
+@app.route('/api/portal/admin/callout-banner', methods=['POST'])
 def set_portal_callout():
+    """Admin-only: sets the system-wide login-screen announcement banner.
+    Renamed from the old '/api/portal/callout' POST route, which collided
+    with the parent-facing rehearsal call-out submission route below and
+    silently swallowed every parent call-out (wrong handler, admin-gated)."""
     err = require_admin()
     if err: return err
     d = request.json or {}
@@ -12544,6 +13554,135 @@ def set_portal_callout():
         (json.dumps(d.get('callout')),))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+# Call-out window: parents can self-report a conflict for an event only
+# within this many hours before its scheduled start, right up until it
+# starts. Outside that window (too early, or after the event has begun)
+# it's locked and they need to contact the production team directly.
+CALLOUT_WINDOW_HOURS = 24
+
+@app.route('/api/portal/production-conflict', methods=['POST'])
+def submit_portal_production_conflict():
+    """Parent-facing: submit a call-out (absent/sick/late/leaving early) for
+    a youth participant on a specific production event. Open only within the
+    24 hours before the event's scheduled start, and closes once it starts."""
+    d = request.json or {}
+    production_id = d.get('production_id')
+    youth_id = d.get('youth_id')
+    event_id = d.get('event_id')
+    status = d.get('status', 'absent')
+    notes = (d.get('notes') or '').strip()
+    if status not in ('absent', 'sick', 'late', 'leaving_early'):
+        return jsonify({'error': 'Invalid status'}), 400
+    if not production_id or not youth_id:
+        return jsonify({'error': 'Missing production or participant'}), 400
+
+    conn = get_db()
+    event = None
+    if event_id:
+        event = fetchone(conn, 'SELECT id, event_date, start_time, name FROM events WHERE id=%s', (event_id,))
+        if not event:
+            conn.close()
+            return jsonify({'error': 'Event not found'}), 404
+        if event.get('event_date'):
+            ev_date = event['event_date']
+            if not hasattr(ev_date, 'year'):  # string from DB driver, normalize
+                ev_date = datetime.strptime(str(ev_date), '%Y-%m-%d').date()
+            ev_time = event.get('start_time')
+            if isinstance(ev_time, str):
+                try:
+                    ev_time = datetime.strptime(ev_time, '%H:%M:%S').time() if len(ev_time) > 5 else datetime.strptime(ev_time, '%H:%M').time()
+                except Exception:
+                    ev_time = None
+            event_start = datetime.combine(ev_date, ev_time or datetime.min.time())
+            window_opens_at = event_start - timedelta(hours=CALLOUT_WINDOW_HOURS)
+            now = now_eastern()
+            if now >= event_start:
+                conn.close()
+                return jsonify({'error': 'This event has already started. Please contact the production team directly.'}), 400
+            if now < window_opens_at:
+                conn.close()
+                return jsonify({'error': f'Call-outs open {CALLOUT_WINDOW_HOURS} hours before this event starts.'}), 400
+
+    # Don't create duplicate call-outs for the same person/event — update instead
+    existing = None
+    if event_id:
+        existing = fetchone(conn, '''SELECT id FROM production_conflicts
+            WHERE production_id=%s AND event_id=%s AND youth_id=%s''', (production_id, event_id, youth_id))
+    if existing:
+        execute(conn, '''UPDATE production_conflicts SET status=%s, notes=%s, source='portal',
+            created_by_portal=TRUE, created_at=NOW() WHERE id=%s''', (status, notes, existing['id']))
+        cid = existing['id']
+    else:
+        cid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO production_conflicts
+            (id, production_id, event_id, youth_id, status, source, notes, approved, created_by_portal)
+            VALUES (%s,%s,%s,%s,%s,'portal',%s,TRUE,TRUE)''',
+            (cid, production_id, event_id, youth_id, status, notes))
+    conn.commit()
+
+    # Notify production team by email + text — email gated on the existing
+    # "Callout submitted" alert toggle in Settings → Email → Alerts; text
+    # recipients are chosen per-production from added crew members, using
+    # whatever phone number is on file on their volunteer profile.
+    try:
+        youth = fetchone(conn, 'SELECT first_name, last_name FROM youth_participants WHERE id=%s', (youth_id,))
+        prod = fetchone(conn, 'SELECT name, callout_alert_volunteer_ids FROM productions WHERE id=%s', (production_id,))
+        s = get_email_settings()
+        if youth and prod and s.get('alert_callouts', True):
+            labels = {'absent':'Absent','sick':'Sick','late':'Running Late','leaving_early':'Leaving Early'}
+            label = labels.get(status, status)
+            who = f"{youth['first_name']} {youth['last_name']}"
+            where = f" for {event['name']}" if event and event.get('name') else ''
+
+            # Event date if this call-out is tied to a specific event, else today's date
+            if event and event.get('event_date'):
+                ev_date = event['event_date']
+                try:
+                    ev_date = ev_date if hasattr(ev_date, 'strftime') else datetime.strptime(str(ev_date)[:10], '%Y-%m-%d').date()
+                    date_str = ev_date.strftime('%a, %b %-d')
+                except Exception:
+                    date_str = str(ev_date)
+            else:
+                date_str = today_eastern().strftime('%a, %b %-d')
+
+            recipients = get_recipient_emails(s)
+            if recipients:
+                subject = f"Call-out: {who} — {label}"
+                html = (f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                        f'<h2 style="color:#145466">Call-out reported</h2>'
+                        f'<p><strong>{who}</strong> has been marked '
+                        f'<strong>{label}</strong> for <strong>{prod["name"]}</strong>{where} on {date_str}.</p>'
+                        + (f'<p>Notes: {notes}</p>' if notes else '') + '</div>')
+                send_email(recipients, subject, html)
+
+            try:
+                vol_ids = json.loads(prod.get('callout_alert_volunteer_ids') or '[]')
+            except Exception:
+                vol_ids = []
+            phones = []
+            if vol_ids:
+                ph = ','.join(['%s']*len(vol_ids))
+                phones = [r['phone'] for r in fetchall(conn,
+                    f'SELECT phone FROM volunteers WHERE id IN ({ph})', tuple(vol_ids)) if r.get('phone')]
+            ts = get_twilio_settings()
+            if phones and ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'):
+                sms_body = f"HWTC RoleCall: {who} marked {label}{where} on {date_str} — {prod['name']}."
+                try:
+                    from twilio.rest import Client as _TwClient
+                    client = _TwClient(ts['account_sid'], ts['auth_token'])
+                    for phone in phones:
+                        try:
+                            client.messages.create(body=sms_body, from_=ts['from_phone'], to=phone)
+                        except Exception as sms_err:
+                            app.logger.warning(f'Call-out SMS to {phone} failed: {sms_err}')
+                except Exception as tw_err:
+                    app.logger.warning(f'Call-out SMS setup failed: {tw_err}')
+    except Exception:
+        pass
+
+    conn.close()
+    return jsonify({'ok': True, 'id': cid})
 
 # ── Portal youth update ──
 @app.route('/api/portal/youth/<yid>', methods=['POST'])
@@ -12603,13 +13742,66 @@ def portal_production_conflicts(pid):
     conn.close()
     return jsonify(conflicts)
 
+@app.route('/api/productions/<pid>/waiver-status')
+def production_waiver_status(pid):
+    """Who has/hasn't signed each required waiver for a production — covers
+    both youth cast (Rising Stars) and adult cast/crew volunteers, mirroring
+    the equivalent view already built for programs/classes. Waivers with an
+    age restriction (e.g. a minors-only liability form) only apply to people
+    within that range."""
+    err = require_permission('productions', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name, wt.can_sign_online, wt.min_age, wt.max_age
+            FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+            WHERE prw.production_id=%s ORDER BY wt.name''', (pid,))
+    except Exception:
+        conn.close()
+        return jsonify({'required_waivers': [], 'youth': [], 'crew': []})
+    if not required:
+        conn.close()
+        return jsonify({'required_waivers': [], 'youth': [], 'crew': []})
+
+    youth_members = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name, y.dob
+        FROM youth_production_members ypm JOIN youth_participants y ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+    youth_out = []
+    for y in youth_members:
+        age = compute_age(y.get('dob'))
+        applicable = [r for r in required if waiver_applies_to_age(r, age)]
+        signed = fetchall(conn, 'SELECT waiver_type_id FROM youth_waivers WHERE youth_id=%s', (y['id'],))
+        signed_ids = {s['waiver_type_id'] for s in signed}
+        missing = [r for r in applicable if r['waiver_type_id'] not in signed_ids]
+        youth_out.append({**y, 'missing_waivers': missing, 'all_signed': len(missing) == 0})
+
+    crew_members = fetchall(conn, '''SELECT v.id, v.name, v.birthday, pm.role
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s ORDER BY v.name''', (pid,))
+    crew_out = []
+    for v in crew_members:
+        # Volunteers are adults by construction — fall back to "adult" (30)
+        # rather than "unknown" when birthday isn't on file, so minors-only
+        # waivers don't get wrongly flagged as missing for crew.
+        age = compute_age(v.get('birthday'))
+        if age is None:
+            age = 30
+        applicable = [r for r in required if waiver_applies_to_age(r, age)]
+        signed = fetchall(conn, 'SELECT waiver_type_id FROM volunteer_waivers WHERE volunteer_id=%s', (v['id'],))
+        signed_ids = {s['waiver_type_id'] for s in signed}
+        missing = [r for r in applicable if r['waiver_type_id'] not in signed_ids]
+        crew_out.append({**v, 'missing_waivers': missing, 'all_signed': len(missing) == 0})
+
+    conn.close()
+    return jsonify({'required_waivers': required, 'youth': youth_out, 'crew': crew_out})
+
 @app.route('/api/portal/program/<pid>/waiver-status')
 def portal_program_waiver_status(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
     try:
-        required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name FROM program_required_waivers prw
+        required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name, wt.min_age, wt.max_age FROM program_required_waivers prw
             JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.program_id=%s''', (pid,))
     except Exception:
@@ -12618,15 +13810,17 @@ def portal_program_waiver_status(pid):
     if not required:
         conn.close()
         return jsonify({'required_waivers': [], 'participants': []})
-    enrolled = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name
+    enrolled = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name, y.dob
         FROM youth_participants y
         JOIN youth_program_enrollments ype ON ype.youth_id=y.id
         WHERE ype.program_id=%s AND y.status='active' ORDER BY y.last_name, y.first_name''', (pid,))
     participants = []
     for y in enrolled:
+        age = compute_age(y.get('dob'))
+        applicable = [r for r in required if waiver_applies_to_age(r, age)]
         signed = fetchall(conn, 'SELECT waiver_type_id FROM youth_waivers WHERE youth_id=%s', (y['id'],))
         signed_ids = {s['waiver_type_id'] for s in signed}
-        missing = [r for r in required if r['waiver_type_id'] not in signed_ids]
+        missing = [r for r in applicable if r['waiver_type_id'] not in signed_ids]
         participants.append({**y, 'missing_waivers': missing, 'all_signed': len(missing)==0})
     conn.close()
     return jsonify({'required_waivers': required, 'participants': participants})
@@ -15614,7 +16808,7 @@ def square_create_and_publish_invoice(order_id, customer_id, amount_cents, due_d
                 'delivery_method': 'EMAIL',
                 'title': title[:255],
                 'description': description[:2000] if description else '',
-                'accepted_payment_methods': {'card': True, 'square_gift_card': False, 'bank_transfer': False, 'buy_now_pay_later': False},
+                'accepted_payment_methods': {'card': True, 'square_gift_card': False, 'buy_now_pay_later': False},
             },
         }
         r = requests.post(f'{SQUARE_API_BASE}/v2/invoices', json=create_payload, headers=square_headers(), timeout=15)
@@ -15653,6 +16847,38 @@ def square_get_invoice(invoice_id):
     except Exception as e:
         app.logger.warning(f'Square get invoice exception: {e}')
     return None
+
+
+def square_get_payment(payment_id):
+    """Fetch a payment's full detail directly from Square — used by the
+    registration invoice PDF to show payment method (card brand/last4)
+    and the actual completion timestamp, neither of which is stored
+    locally today (only the payment ID is kept on program_registrations)."""
+    if not SQUARE_ACCESS_TOKEN or not payment_id:
+        return None
+    try:
+        r = requests.get(f'{SQUARE_API_BASE}/v2/payments/{payment_id}', headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment'):
+            return data['payment']
+        app.logger.warning(f'Square get payment failed {r.status_code}: {data}')
+    except Exception as e:
+        app.logger.warning(f'Square get payment exception: {e}')
+    return None
+
+
+def _format_square_timestamp(iso_str):
+    """Square timestamps are UTC ISO-8601 — converts to Eastern for display
+    on the invoice, matching how the rest of RoleCall shows times."""
+    if not iso_str:
+        return ''
+    try:
+        from zoneinfo import ZoneInfo
+        dt = datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
+        dt_et = dt.astimezone(ZoneInfo('America/New_York'))
+        return dt_et.strftime('%B %-d, %Y at %-I:%M %p') + ' ET'
+    except Exception:
+        return iso_str
 
 
 def square_get_order_total_cents(order_id):
@@ -16001,6 +17227,149 @@ def insert_registration_row(conn, cols):
             tuple(cols[k] for k in keys))
 
 
+def _backfill_custom_field_values():
+    """One-time backfill: custom question answers used to only get saved
+    into cart_orders.items_json (a payment/order journal, not something
+    staff ever see) and never copied onto the actual program_registrations
+    row. This pulls them back out for any registration that predates the
+    fix. Safe to re-run — only fills in rows that are still empty ('{}' or
+    blank), never overwrites an already-populated value.
+    Returns (checked_count, updated_count)."""
+    conn = get_db()
+    orders = fetchall(conn, 'SELECT items_json FROM cart_orders') or []
+    checked = 0
+    updated = 0
+    for o in orders:
+        try:
+            items = json.loads(o.get('items_json') or '[]')
+        except Exception:
+            continue
+        for it in items:
+            rid = it.get('registration_id')
+            cfv = it.get('custom_field_values')
+            if not rid or not cfv:
+                continue
+            checked += 1
+            reg = fetchone(conn, 'SELECT custom_field_values FROM program_registrations WHERE id=%s', (rid,))
+            if not reg:
+                continue
+            current = (reg.get('custom_field_values') or '').strip()
+            if current in ('', '{}'):
+                execute(conn, 'UPDATE program_registrations SET custom_field_values=%s WHERE id=%s',
+                    (json.dumps(cfv), rid))
+                updated += 1
+    conn.commit()
+    conn.close()
+    return checked, updated
+
+@app.route('/api/instructor/dashboard', methods=['GET'])
+def instructor_dashboard():
+    """Everything an instructor needs in one call: which programs they
+    teach, their full session schedule across those programs, and recent
+    registrations so new sign-ups are easy to spot. Scoped entirely by
+    matching their login email against the volunteer record linked as
+    each program's instructor_id — an instructor only ever sees their
+    own programs here, never the full program list."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+    my_email = (me or {}).get('email', '').strip().lower()
+    if not my_email:
+        conn.close()
+        return jsonify({'programs': [], 'schedule': [], 'recent_registrations': []})
+
+    programs = fetchall(conn, '''SELECT yp.id, yp.name, yp.description, yp.status,
+        yp.start_date, yp.end_date, yp.program_type, yp.sessions_enabled,
+        COALESCE(yp.booking_mode, FALSE) AS booking_mode
+        FROM youth_programs yp
+        JOIN volunteers v ON v.id=yp.instructor_id
+        WHERE lower(v.email)=%s
+        ORDER BY yp.start_date DESC NULLS LAST''', (my_email,)) or []
+    prog_ids = [p['id'] for p in programs]
+    if not prog_ids:
+        conn.close()
+        return jsonify({'programs': [], 'schedule': [], 'recent_registrations': []})
+
+    placeholders = ','.join(['%s'] * len(prog_ids))
+    schedule = fetchall(conn, f'''SELECT ps.id, ps.name, ps.start_date, ps.start_time, ps.end_time,
+        ps.location, ps.capacity, yp.name AS program_name, yp.id AS program_id,
+        COALESCE(yp.booking_mode, FALSE) AS booking_mode,
+        (SELECT COUNT(*) FROM program_registrations pr
+         WHERE pr.program_id=ps.program_id AND pr.session_ids LIKE '%%"' || ps.id || '"%%'
+         AND pr.status NOT IN ('cancelled','waitlisted')) AS enrolled_count
+        FROM program_sessions ps
+        JOIN youth_programs yp ON yp.id=ps.program_id
+        WHERE ps.program_id IN ({placeholders}) AND ps.start_date IS NOT NULL AND ps.start_date != ''
+        ORDER BY ps.start_date ASC, ps.start_time ASC''', tuple(prog_ids)) or []
+
+    # Booking-mode programs (one-off bookable slots, e.g. a bulk-imported
+    # rehearsal/audition schedule) can easily have hundreds of open, empty
+    # slots — those aren't useful on an instructor's schedule, only the
+    # ones someone actually booked are. Regular classes/camps don't have
+    # this "mostly empty slots" problem, so their sessions always show.
+    schedule = [s for s in schedule if not s['booking_mode'] or (s.get('enrolled_count') or 0) > 0]
+    for s in schedule:
+        s['booked_by'] = []
+        if s['booking_mode'] and (s.get('enrolled_count') or 0) > 0:
+            bookers = fetchall(conn, """SELECT child_first_name, child_last_name, guardian_name
+                FROM program_registrations
+                WHERE program_id=%s AND session_ids LIKE %s
+                AND status NOT IN ('cancelled','waitlisted')""",
+                (s['program_id'], '%"' + s['id'] + '"%')) or []
+            s['booked_by'] = [
+                (f"{b.get('child_first_name','')} {b.get('child_last_name','')}".strip() or b.get('guardian_name',''))
+                for b in bookers
+            ]
+
+    recent_regs = fetchall(conn, f'''SELECT pr.id, pr.child_first_name, pr.child_last_name,
+        pr.guardian_name, pr.guardian_email, pr.status, pr.created_at,
+        yp.name AS program_name, yp.id AS program_id
+        FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE pr.program_id IN ({placeholders}) AND pr.status IN ('confirmed','pending_payment')
+        ORDER BY pr.created_at DESC LIMIT 40''', tuple(prog_ids)) or []
+
+    for p in programs:
+        p['registrant_count'] = sum(1 for r in recent_regs if r['program_id'] == p['id'])
+
+    # Simple single-date classes (no sessions_enabled, no program_sessions
+    # rows at all) still have a real teaching date — it just lives on the
+    # program record itself rather than as a session slot. Without this,
+    # they'd never show on the schedule at all even though the instructor
+    # is genuinely scheduled to teach them.
+    prog_ids_with_sessions = set(s['program_id'] for s in schedule)
+    for p in programs:
+        if p['id'] not in prog_ids_with_sessions and p.get('start_date'):
+            schedule.append({
+                'id': 'program_' + p['id'],
+                'name': p['name'],
+                'start_date': p['start_date'],
+                'end_date': p.get('end_date'),
+                'start_time': '',
+                'end_time': '',
+                'location': '',
+                'capacity': None,
+                'program_id': p['id'],
+                'program_name': p['name'],
+                'booking_mode': False,
+                'enrolled_count': p['registrant_count'],
+                'booked_by': [],
+            })
+    schedule.sort(key=lambda s: (s.get('start_date') or '', s.get('start_time') or ''))
+
+    conn.close()
+    return jsonify({'programs': programs, 'schedule': schedule, 'recent_registrations': recent_regs})
+
+
+@app.route('/api/admin/backfill-custom-field-values', methods=['POST'])
+def backfill_custom_field_values_route():
+    err = require_permission('programs')
+    if err: return err
+    checked, updated = _backfill_custom_field_values()
+    return jsonify({'ok': True, 'checked': checked, 'updated': updated})
+
+
 def create_grouped_registrations(conn, shared_fields, children, total_amount_cents, status, payment_type, amounts=None):
     """Create one program_registrations row per child (primary + each sibling), all sharing
     a registration_group_id so a single payment/hold can confirm or reference the whole group,
@@ -16178,6 +17547,221 @@ def _format_registration_schedule(conn, prog, prod, reg):
         return out
 
     return ''
+
+
+def _registration_amount_summary(conn, reg, base_price):
+    """Reconstructs the dollar breakdown for a single registration —
+    subtotal, discounts, total after discounts, amount paid, and balance
+    due — using the same amount_paid_cents-with-fallback logic already
+    used for revenue reporting (see the session/program revenue queries),
+    so an invoice always agrees with what the dashboards say was actually
+    collected rather than computing its own separate answer.
+    'paid_in_full' is comped OR balance_cents <= 0."""
+    is_comped = bool(reg.get('is_comped'))
+    discount = reg.get('discount_amount') or 0
+    sib_discount = reg.get('sibling_discount_amount') or 0
+    if is_comped:
+        paid_cents = 0
+        total_cents = 0
+    elif reg.get('amount_paid_cents') is not None:
+        paid_cents = reg['amount_paid_cents']
+        total_cents = paid_cents + (reg.get('balance_due') or 0)
+    else:
+        # Older/unbackfilled registration with no webhook-confirmed amount
+        # on file yet — best estimate from list price, same fallback used
+        # in the revenue reports. Step Up holds are checked first since a
+        # charged hold is a firmer number than an estimate off list price.
+        step_up = fetchone(conn, """SELECT hold_status, amount FROM step_up_child_holds
+            WHERE registration_id=%s ORDER BY created_at DESC LIMIT 1""", (reg['id'],))
+        if step_up and step_up.get('hold_status') == 'charged':
+            paid_cents = step_up.get('amount') or 0
+        else:
+            paid_cents = max(0, (base_price or 0) * (reg.get('participant_count') or 1) - discount - sib_discount)
+        total_cents = paid_cents + (reg.get('balance_due') or 0)
+    balance_cents = reg.get('balance_due') or 0
+    return {
+        'subtotal_cents': total_cents + discount + sib_discount,
+        'discount_cents': discount,
+        'sibling_discount_cents': sib_discount,
+        'total_cents': total_cents,
+        'paid_cents': paid_cents,
+        'balance_cents': balance_cents,
+        'is_comped': is_comped,
+        'paid_in_full': is_comped or balance_cents <= 0,
+    }
+
+
+def _build_registration_invoice_html(reg, entity_name, schedule_info, summary, invoice_number, payment_info=None, memo=''):
+    """Letterhead-style invoice/receipt for a single registration — meant
+    for a family who wants an official-looking document confirming the
+    student's name, what they registered for, and that they're paid in
+    full (or what's still owed). payment_info (optional) is
+    {'brand','last4','paid_at_display'} pulled live from Square — omitted
+    entirely for comped/free/non-card registrations rather than showing
+    blank fields."""
+    def money(cents):
+        return f'${(cents or 0)/100:,.2f}'
+    student_name = f"{reg.get('child_first_name','')} {reg.get('child_last_name','')}".strip() or 'Participant'
+    guardian_name = reg.get('guardian_name') or ''
+    guardian_email = reg.get('guardian_email') or ''
+    today_str = date.today().strftime('%B %-d, %Y')
+    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png'
+
+    rows = ''
+    label = 'Comped Registration' if summary['is_comped'] else entity_name
+    rows += (f'<tr><td style="padding:8px 0;color:#374151">{label}</td>'
+             f'<td style="padding:8px 0;text-align:right;color:#374151">{money(summary["subtotal_cents"])}</td></tr>')
+    if summary['discount_cents']:
+        rows += (f'<tr><td style="padding:8px 0;color:#6b7280">Discount{" (" + reg["discount_code"] + ")" if reg.get("discount_code") else ""}</td>'
+                 f'<td style="padding:8px 0;text-align:right;color:#6b7280">-{money(summary["discount_cents"])}</td></tr>')
+    if summary['sibling_discount_cents']:
+        rows += (f'<tr><td style="padding:8px 0;color:#6b7280">Sibling Discount</td>'
+                 f'<td style="padding:8px 0;text-align:right;color:#6b7280">-{money(summary["sibling_discount_cents"])}</td></tr>')
+
+    status_color = '#0d3d4d' if summary['paid_in_full'] else '#92400e'
+    status_bg = '#e1f5ee' if summary['paid_in_full'] else '#fef3c7'
+    status_text = 'PAID IN FULL' if summary['paid_in_full'] else f'BALANCE DUE: {money(summary["balance_cents"])}'
+
+    payment_block = ''
+    if payment_info and payment_info.get('last4'):
+        brand = (payment_info.get('brand') or '').replace('_', ' ').title()
+        paid_at = payment_info.get('paid_at_display') or ''
+        payment_block = (
+            '<table style="margin-top:16px"><tr><td style="vertical-align:top;width:50%">'
+            '<div class="info-label">Payment Method</div>'
+            f'<div style="font-size:13px;color:#374151">{brand} ending in {payment_info["last4"]}</div>'
+            '</td><td style="vertical-align:top;width:50%">'
+            '<div class="info-label">Payment Date</div>'
+            f'<div style="font-size:13px;color:#374151">{paid_at or "&mdash;"}</div>'
+            '</td></tr></table>'
+        )
+
+    memo_block = ''
+    if memo and memo.strip():
+        memo_block = (
+            '<div style="margin-top:20px;padding:12px 14px;background:#f8fafc;border-left:3px solid #d1d5db;border-radius:0 8px 8px 0">'
+            '<div class="info-label" style="margin-bottom:4px">Memo</div>'
+            f'<div style="font-size:12.5px;color:#374151;white-space:pre-wrap;line-height:1.5">{memo.strip()}</div>'
+            '</div>'
+        )
+
+    return f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<title>Invoice - {student_name}</title>
+<style>
+@page {{ margin: 50px }}
+* {{ box-sizing: border-box }}
+body {{ font-family: Helvetica, Arial, sans-serif; color: #1a1a18; font-size: 13px }}
+.brand {{ font-size: 18px; font-weight: 700; color: #0d3d4d }}
+.brand-sub {{ font-size: 11px; color: #6b7280; margin-top: 2px }}
+h1 {{ font-size: 22px; font-weight: 700; color: #0d3d4d; text-align: right; margin: 0 }}
+.meta {{ text-align: right; font-size: 11.5px; color: #6b7280; margin-top: 4px }}
+.rule {{ border: none; border-top: 2px solid #145466; margin: 20px 0 }}
+table {{ width: 100%; border-collapse: collapse }}
+.info-label {{ font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #9ca3af; margin-bottom: 3px }}
+.info-value {{ font-size: 14px; font-weight: 600; color: #1a1a18 }}
+.total-row td {{ padding-top: 14px; border-top: 1.5px solid #d1d5db; font-weight: 700; font-size: 15px; color: #0d3d4d }}
+.status-box {{ margin-top: 24px; padding: 14px 18px; border-radius: 8px; background: {status_bg}; color: {status_color}; font-weight: 700; font-size: 15px; text-align: center; letter-spacing: 0.5px }}
+.footer {{ margin-top: 40px; padding-top: 16px; border-top: 1px solid #e8e6e0; font-size: 10.5px; color: #9ca3af; text-align: center }}
+</style></head>
+<body>
+<table><tr>
+<td style="vertical-align:top;width:60%">
+  <img src="{logo_url}" alt="Horizon West Theater Company" style="height:44px;width:158px;margin-bottom:6px"/>
+  <div class="brand">Horizon West Theater Company</div>
+  <div class="brand-sub">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
+  <div class="brand-sub">hwtco.org &middot; info@hwtco.org</div>
+</td>
+<td style="vertical-align:top;width:40%">
+  <h1>INVOICE</h1>
+  <div class="meta">Invoice #{invoice_number}<br/>{today_str}</div>
+</td>
+</tr></table>
+
+<hr class="rule"/>
+
+<table><tr>
+<td style="vertical-align:top;width:50%">
+  <div class="info-label">Billed To</div>
+  <div class="info-value">{guardian_name or student_name}</div>
+  {f'<div style="font-size:12px;color:#6b7280;margin-top:2px">{guardian_email}</div>' if guardian_email else ''}
+</td>
+<td style="vertical-align:top;width:50%">
+  <div class="info-label">Participant</div>
+  <div class="info-value">{student_name}</div>
+  {f'<div style="font-size:12px;color:#6b7280;margin-top:2px">{schedule_info}</div>' if schedule_info else ''}
+</td>
+</tr></table>
+
+<table style="margin-top:28px">
+<tr><td style="padding-bottom:8px;border-bottom:1.5px solid #d1d5db;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#9ca3af">Description</td>
+<td style="padding-bottom:8px;border-bottom:1.5px solid #d1d5db;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#9ca3af;text-align:right">Amount</td></tr>
+{rows}
+<tr class="total-row"><td>Total</td><td style="text-align:right">{money(summary["total_cents"])}</td></tr>
+<tr><td style="padding-top:4px;color:#6b7280">Amount Paid</td><td style="padding-top:4px;text-align:right;color:#6b7280">{money(summary["paid_cents"])}</td></tr>
+</table>
+
+{payment_block}
+
+<div class="status-box">{status_text}</div>
+
+{memo_block}
+
+<div class="footer">
+Horizon West Theater Company is an all-volunteer 501(c)(3) nonprofit community theater. Thank you for your support!
+</div>
+</body></html>'''
+
+
+@app.route('/api/registrations/<rid>/invoice', methods=['GET'])
+def download_registration_invoice(rid):
+    """Official invoice/receipt PDF for a single confirmed registration —
+    student name, program/class, amount breakdown, payment method (fetched
+    live from Square when a payment ID is on file), and a clear PAID IN
+    FULL / balance due stamp. Works for both youth_programs registrations
+    and production (Rising Stars) registrations, since program_registrations
+    covers both via program_id/production_id."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (rid,))
+    if not reg:
+        conn.close()
+        return jsonify({'error': 'Registration not found'}), 404
+    section = 'rising_stars' if reg.get('production_id') else 'programs'
+    perm_err = require_permission(section, 'view')
+    if perm_err:
+        conn.close()
+        return perm_err
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg['program_id'],)) if reg.get('program_id') else None
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (reg['production_id'],)) if reg.get('production_id') else None
+    if not prog and not prod:
+        conn.close()
+        return jsonify({'error': 'The program or production for this registration no longer exists'}), 404
+    entity_name = (prog or prod).get('name', 'Registration')
+    base_price = (prog or prod).get('price', 0)
+    schedule_info = _format_registration_schedule(conn, prog, prod, reg)
+    summary = _registration_amount_summary(conn, reg, base_price)
+    conn.close()
+
+    payment_info = None
+    if reg.get('square_payment_id'):
+        sp = square_get_payment(reg['square_payment_id'])
+        if sp:
+            card = (sp.get('card_details') or {}).get('card') or {}
+            if card.get('last_4'):
+                payment_info = {
+                    'brand': card.get('card_brand', ''),
+                    'last4': card.get('last_4', ''),
+                    'paid_at_display': _format_square_timestamp(sp.get('created_at', '')),
+                }
+
+    invoice_number = rid[:8].upper()
+    html = _build_registration_invoice_html(reg, entity_name, schedule_info, summary, invoice_number,
+        payment_info=payment_info, memo=reg.get('invoice_memo', ''))
+    pdf_b64 = _html_to_pdf_b64(html)
+    student_name = f"{reg.get('child_first_name','')} {reg.get('child_last_name','')}".strip() or 'Participant'
+    return _rental_pdf_response(pdf_b64, f'Invoice - {student_name} - {entity_name}')
 
 
 def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
@@ -16432,6 +18016,62 @@ def _registration_not_yet_open(prog):
     except Exception:
         return False, None
     return False, None
+
+
+def _check_age_eligibility(dob_str, min_age, max_age, grace_days, ref_date_str):
+    """Checks one participant's age against a program/production's age
+    range — as of the program's own start date, not today, since what
+    matters is how old they'll actually be when it happens. Returns a
+    tuple of (action, message):
+      'ok'       — no restriction, or restriction met. message is None.
+      'waitlist' — under min_age today but turns min_age within
+                   grace_days of the start date (e.g. turns 18 two weeks
+                   after a program that starts before their birthday) —
+                   close enough that we don't want to hard-block, so
+                   route to the waitlist instead with an explanation.
+      'reject'   — outside the age range with no grace period saving it.
+    A program/production with neither min_age nor max_age set always
+    returns 'ok' — this is opt-in per program, not a global restriction.
+    A missing/unparseable date of birth also returns 'ok' rather than
+    blocking, since we can't check what we don't have."""
+    if not min_age and not max_age:
+        return ('ok', None)
+    if not dob_str:
+        return ('ok', None)
+    try:
+        dob = datetime.strptime(dob_str[:10], '%Y-%m-%d').date()
+    except Exception:
+        return ('ok', None)
+    ref_date = date.today()
+    if ref_date_str:
+        try:
+            ref_date = datetime.strptime(ref_date_str[:10], '%Y-%m-%d').date()
+        except Exception:
+            pass
+
+    def age_on(d):
+        return d.year - dob.year - ((d.month, d.day) < (dob.month, dob.day))
+
+    age_on_ref = age_on(ref_date)
+
+    if max_age and age_on_ref > max_age:
+        return ('reject', f'This program is for ages up to {max_age} — the participant will be {age_on_ref} by the program start date.')
+
+    if min_age and age_on_ref < min_age:
+        try:
+            turn_date = dob.replace(year=dob.year + min_age)
+        except ValueError:
+            # Feb 29 birthday landing on a non-leap turning year
+            turn_date = dob.replace(year=dob.year + min_age, month=3, day=1)
+        days_short = (turn_date - ref_date).days
+        if grace_days and 0 <= days_short <= grace_days:
+            return ('waitlist',
+                f"This program requires participants to be {min_age}+ by the start date. The participant turns "
+                f"{min_age} shortly after — rather than turning them away outright, we've added them to the "
+                f"waitlist in case there's flexibility closer to the date.")
+        return ('reject', f'This program requires participants to be at least {min_age} years old by the start date.')
+
+    return ('ok', None)
 
 # ── Public registration page ──────────────────────────────────────────────────
 
@@ -16860,7 +18500,9 @@ def _cents(v):
 
 def _licensing_contract_status(row):
     """Derive a simple contract-tracking status for a licensing request:
-    not_requested -> requested -> contract_on_file -> expiring_soon -> expired"""
+    not_requested -> requested -> contract_on_file -> approved_to_produce -> expiring_soon -> expired
+    approved_to_produce sits ahead of contract_on_file once the board has signed off on
+    moving forward — it's the point BloomBooks watches to build out the production/budget."""
     if row.get('contract_received'):
         exp = row.get('contract_expires_date')
         if exp:
@@ -16873,6 +18515,8 @@ def _licensing_contract_status(row):
                     return 'expiring_soon'
             except Exception:
                 pass
+        if row.get('approved_to_produce'):
+            return 'approved_to_produce'
         return 'contract_on_file'
     if row.get('licensor_requested'):
         return 'requested'
@@ -17012,11 +18656,19 @@ def submit_licensing_request():
             f'<li><b>{c["production_name"]}</b> — Ref {c["ref_number"]}</li>' for c in created
         )
 
-        # Notify admins so someone can action it
+        # Notify the President and Resident Producer only — they're the ones who action
+        # licensing requests, not every admin login.
         try:
             es = get_email_settings()
-            admin_emails = [r['email'] for r in (fetchall(conn, "SELECT email FROM users WHERE email IS NOT NULL AND role='admin'") or []) if r.get('email')]
-            notify_emails = list(set(admin_emails + ['info@hwtco.org']))
+            notify_emails = []
+            president_name = _rc_current_officer_name(conn, 'president')
+            if president_name:
+                pres = fetchone(conn, "SELECT email FROM board_members WHERE name=%s AND status='active'", (president_name,))
+                if pres and pres.get('email'):
+                    notify_emails.append(pres['email'])
+            rp_rows = fetchall(conn, "SELECT email FROM board_members WHERE role ILIKE '%%resident producer%%' AND status='active'") or []
+            notify_emails += [r['email'] for r in rp_rows if r.get('email')]
+            notify_emails = list(set(notify_emails))
             if notify_emails and es.get('resend_api_key'):
                 subject = f'New Show Licensing Request{"s" if len(created) > 1 else ""} — {len(created)} production{"s" if len(created) > 1 else ""}'
                 send_email(
@@ -17100,6 +18752,71 @@ def update_licensing_request(lid):
          licensor_requested, licensor_requested_date or None,
          contract_received, contract_received_date or None,
          contract_expires_date or None, lid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    conn.close()
+    row = _attach_contract_status(row)
+    return jsonify(row)
+
+@app.route('/api/licensing-requests/<lid>/approve-to-produce', methods=['POST'])
+def approve_licensing_request_to_produce(lid):
+    """Board sign-off to move forward and produce this show. Requires the signed
+    contract to already be on file, and — when approving (not un-approving) —
+    a rehearsal schedule (one or more day/time blocks) plus a rehearsal date
+    range, since that's what BloomBooks uses to charge the show for studio use.
+    This is the flag BloomBooks reads to know a show is ready to be built out
+    (production + budget)."""
+    err = require_permission('licensing')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    lr = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
+    if not lr:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if not lr.get('contract_received'):
+        conn.close()
+        return jsonify({'error': 'Contract must be on file before approving to produce'}), 400
+    approved = bool(d.get('approved', True))
+    approver = session.get('user_name', '')
+
+    rehearsal_blocks = lr.get('rehearsal_blocks') or '[]'
+    rehearsal_period_start = lr.get('rehearsal_period_start')
+    rehearsal_period_end = lr.get('rehearsal_period_end')
+    if approved:
+        if 'rehearsal_blocks' in d:
+            blocks = d.get('rehearsal_blocks') or []
+            if not isinstance(blocks, list) or not blocks:
+                conn.close()
+                return jsonify({'error': 'Add at least one rehearsal time block'}), 400
+            for b in blocks:
+                if not isinstance(b, dict) or not b.get('days') or not b.get('start_time') or not b.get('end_time'):
+                    conn.close()
+                    return jsonify({'error': 'Each rehearsal block needs at least one day and a start/end time'}), 400
+            rehearsal_blocks = json.dumps(blocks)
+            rehearsal_period_start = (d.get('rehearsal_period_start') or '').strip() or None
+            rehearsal_period_end = (d.get('rehearsal_period_end') or '').strip() or None
+            if not rehearsal_period_start or not rehearsal_period_end:
+                conn.close()
+                return jsonify({'error': 'Rehearsal period start and end dates are required'}), 400
+            if rehearsal_period_end < rehearsal_period_start:
+                conn.close()
+                return jsonify({'error': 'Rehearsal period end date must be on or after the start date'}), 400
+        else:
+            try:
+                existing_blocks = json.loads(rehearsal_blocks)
+            except Exception:
+                existing_blocks = []
+            if not existing_blocks or not lr.get('rehearsal_period_start') or not lr.get('rehearsal_period_end'):
+                conn.close()
+                return jsonify({'error': 'A rehearsal schedule and date range is required to approve this show to produce'}), 400
+
+    execute(conn, '''UPDATE licensing_requests SET approved_to_produce=%s,
+        approved_to_produce_date=%s, approved_to_produce_by=%s,
+        rehearsal_blocks=%s, rehearsal_period_start=%s, rehearsal_period_end=%s,
+        updated_at=NOW() WHERE id=%s''',
+        (approved, date.today().isoformat() if approved else None, approver if approved else '',
+         rehearsal_blocks, rehearsal_period_start, rehearsal_period_end, lid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
     conn.close()
@@ -17304,6 +19021,68 @@ def public_submit_registration(slug):
         conn.close()
         return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
 
+    # Age eligibility — opt-in per program via min_age/max_age in
+    # Registration Settings. Checked against the program's own start date
+    # (not today), and before the capacity check, so an age-ineligible
+    # child sees the age-specific message rather than a generic "full"
+    # waitlist message if both happen to apply.
+    age_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'dob': d.get('child_dob')}]
+    for s in (d.get('siblings') or []):
+        if isinstance(s, dict):
+            age_children.append({'first_name': (s.get('first_name') or '').strip(), 'dob': s.get('dob')})
+    age_grace_note = None
+    needs_age_waitlist = False
+    for c in age_children:
+        _action, _msg = _check_age_eligibility(c['dob'], p.get('min_age'), p.get('max_age'), p.get('age_grace_days'), p.get('start_date'))
+        if _action == 'reject':
+            conn.close()
+            return jsonify({'error': (f"{c['first_name']}: " if c['first_name'] else '') + _msg}), 400
+        if _action == 'waitlist':
+            needs_age_waitlist = True
+            age_grace_note = _msg
+
+    if needs_age_waitlist:
+        # Same per-child waitlist pattern as the capacity-full path below,
+        # just with an age-specific note on each row so staff can see why
+        # (distinct from a capacity waitlist) when reviewing the queue.
+        siblings_agewl = d.get('siblings') or []
+        if not isinstance(siblings_agewl, list): siblings_agewl = []
+        agewl_children = [{'first_name': d.get('child_first_name','').strip(), 'last_name': d.get('child_last_name','').strip(),
+                            'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+        for s in siblings_agewl:
+            agewl_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
+                                    'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+        import uuid as _uwlage
+        agewl_group_id = str(_uwlage.uuid4())
+        agewl_ids = []
+        agewl_positions = []
+        for child in agewl_children:
+            wpos = next_waitlist_position(conn, p['id'])
+            wrid = str(_uwlage.uuid4())
+            agewl_ids.append(wrid)
+            agewl_positions.append(wpos)
+            execute(conn, '''INSERT INTO program_registrations
+                (id, program_id, registration_type, status, waitlist_position, registration_group_id,
+                 child_first_name, child_last_name, child_dob, shirt_size,
+                 guardian_name, guardian_email, guardian_phone,
+                 emergency_contact_name, emergency_contact_phone, notes, participant_count, siblings_json)
+                VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,1,'[]')''',
+                (wrid, p['id'], wpos, agewl_group_id,
+                 child['first_name'], child['last_name'], child['dob'] or None, child['shirt_size'] or None,
+                 d.get('guardian_name','').strip(), email, d.get('guardian_phone','').strip() or None,
+                 d.get('emergency_contact_name','').strip() or None,
+                 d.get('emergency_contact_phone','').strip() or None,
+                 ('Age eligibility: ' + age_grace_note) if age_grace_note else None))
+        conn.commit()
+        try:
+            pos_desc = f'#{agewl_positions[0]}' if len(agewl_positions) == 1 else ', '.join(f'#{wp}' for wp in agewl_positions)
+            send_email([email], f'You\'re on the waitlist — {p["name"]}',
+                build_waitlist_email_html(d.get('guardian_name',''), p['name'], pos_desc, is_plural=len(agewl_positions) > 1))
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': agewl_positions[0],
+                        'registration_id': agewl_ids[0], 'age_note': age_grace_note})
+
     # Check capacity
     reg_count = get_registration_count(conn, p['id'])
     cap = p.get('capacity')
@@ -17462,6 +19241,7 @@ def public_submit_registration(slug):
         'sibling_discount_amount': sibling_discount_amount,
         'session_ids': _json2.dumps(session_ids),
         'reported_under_18': (d.get('reported_under_18') or '').strip(),
+        'custom_field_values': json.dumps(d.get('custom_field_values') or {}),
     }
 
     # Step Up (or similar third-party subsidy) hold — save a card on file now,
@@ -17952,6 +19732,58 @@ def public_register_production(slug):
     if _not_yet:
         conn.close()
         return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
+
+    # Age eligibility — same opt-in min_age/max_age/age_grace_days check as
+    # the youth program flow, checked against the production's start date.
+    age_children_p = [{'first_name': (d.get('child_first_name') or '').strip(), 'dob': d.get('child_dob')}]
+    for s in (d.get('siblings') or []):
+        if isinstance(s, dict):
+            age_children_p.append({'first_name': (s.get('first_name') or '').strip(), 'dob': s.get('dob')})
+    age_grace_note_p = None
+    needs_age_waitlist_p = False
+    for c in age_children_p:
+        _action, _msg = _check_age_eligibility(c['dob'], prod.get('min_age'), prod.get('max_age'), prod.get('age_grace_days'), prod.get('start_date'))
+        if _action == 'reject':
+            conn.close()
+            return jsonify({'error': (f"{c['first_name']}: " if c['first_name'] else '') + _msg}), 400
+        if _action == 'waitlist':
+            needs_age_waitlist_p = True
+            age_grace_note_p = _msg
+
+    if needs_age_waitlist_p:
+        siblings_agewl_p = d.get('siblings') or []
+        if not isinstance(siblings_agewl_p, list): siblings_agewl_p = []
+        agewl_children_p = [{'first_name': (d.get('child_first_name') or '').strip(), 'last_name': (d.get('child_last_name') or '').strip(), 'dob': d.get('child_dob')}]
+        for s in siblings_agewl_p:
+            agewl_children_p.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(), 'dob': s.get('dob')})
+        agewl_group_id_p = str(_uc2.uuid4())
+        agewl_positions_p = []
+        agewl_ids_p = []
+        for child in agewl_children_p:
+            pos_row = fetchone(conn, "SELECT COALESCE(MAX(waitlist_position),0)+1 AS pos FROM program_registrations WHERE production_id=%s AND status='waitlisted'", (prod['id'],))
+            wpos = (pos_row or {}).get('pos', 1)
+            wrid = str(_uc2.uuid4())
+            agewl_ids_p.append(wrid)
+            agewl_positions_p.append(wpos)
+            execute(conn, '''INSERT INTO program_registrations
+                (id, production_id, registration_type, status, waitlist_position, registration_group_id,
+                 child_first_name, child_last_name, child_dob,
+                 guardian_name, guardian_email, guardian_phone, notes)
+                VALUES (%s,%s,'registration','waitlisted',%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (wrid, prod['id'], wpos, agewl_group_id_p,
+                 child['first_name'], child['last_name'], child.get('dob') or None,
+                 (d.get('guardian_name') or '').strip(), guardian_email, (d.get('guardian_phone') or '').strip(),
+                 ('Age eligibility: ' + age_grace_note_p) if age_grace_note_p else None))
+        conn.commit()
+        try:
+            pos_desc_p = f'#{agewl_positions_p[0]}' if len(agewl_positions_p) == 1 else ', '.join(f'#{wp}' for wp in agewl_positions_p)
+            send_email([guardian_email], f'You\'re on the waitlist — {prod["name"]}',
+                build_waitlist_email_html(d.get('guardian_name',''), prod['name'], pos_desc_p, is_plural=len(agewl_positions_p) > 1))
+        except Exception: pass
+        conn.close()
+        return jsonify({'ok': True, 'type': 'waitlisted', 'position': agewl_positions_p[0],
+                        'registration_id': agewl_ids_p[0], 'age_note': age_grace_note_p})
+
     reg_count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE production_id=%s AND status NOT IN ('waitlisted','cancelled')", (prod['id'],)) or {}).get('c', 0)
     if prod.get('capacity') and reg_count >= prod['capacity']:
         conn.close()
@@ -18019,6 +19851,7 @@ def public_register_production(slug):
         'discount_amount': discount_amount,
         'sibling_discount_amount': sibling_discount_amount,
         'reported_under_18': (d.get('reported_under_18') or '').strip(),
+        'custom_field_values': json.dumps(d.get('custom_field_values') or {}),
     }
 
     # Step Up (or similar third-party subsidy) hold — save a card on file now,
@@ -18111,7 +19944,8 @@ def update_production_registration(pid, rid):
         status=%s, child_first_name=%s, child_last_name=%s,
         guardian_name=%s, guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
-        shirt_size=%s, notes=%s, child_dob=%s, updated_at=NOW()
+        shirt_size=%s, notes=%s, child_dob=%s, invoice_memo=%s,
+        custom_field_values=%s, updated_at=NOW()
         WHERE id=%s AND production_id=%s''',
         (d.get('status'),
          (d.get('child_first_name') or '').strip(),
@@ -18124,6 +19958,8 @@ def update_production_registration(pid, rid):
          d.get('shirt_size') or None,
          (d.get('notes') or '').strip() or None,
          d.get('child_dob') or None,
+         (d.get('invoice_memo') or '').strip(),
+         json.dumps(d.get('custom_field_values') or {}),
          rid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -18202,7 +20038,8 @@ def save_production_registration_settings(pid):
         registration_note=%s,
         program_location=%s, schedule_type=%s, meeting_days=%s,
         meeting_start_time=%s, meeting_end_time=%s, single_date=%s, schedule_notes=%s,
-        start_date=%s, end_date=%s, step_up_hold_enabled=%s, step_up_hold_days=%s
+        start_date=%s, end_date=%s, step_up_hold_enabled=%s, step_up_hold_days=%s,
+        min_age=%s, max_age=%s, age_grace_days=%s
         WHERE id=%s''',
         (d.get('registration_status') or 'draft',
          d.get('registration_form_type') or 'youth',
@@ -18234,6 +20071,9 @@ def save_production_registration_settings(pid):
          d.get('end_date') or None,
          bool(d.get('step_up_hold_enabled', False)),
          int(d.get('step_up_hold_days') or 14),
+         int(d['min_age']) if d.get('min_age') not in (None, '') else None,
+         int(d['max_age']) if d.get('max_age') not in (None, '') else None,
+         int(d.get('age_grace_days') or 30),
          pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -18635,20 +20475,20 @@ def cart_checkout():
              child_first_name, child_last_name, child_dob, shirt_size,
              guardian_name, guardian_email, guardian_phone, notes,
              discount_code, discount_amount, sibling_discount_amount,
-             participant_count, siblings_json,
+             participant_count, siblings_json, custom_field_values,
              payment_type, balance_due, waitlist_position)
             VALUES (%s,%s,'registration',%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,
-                    %s,%s,
+                    %s,%s,%s,
                     %s,%s,%s)''',
             (rid, it['program_id'], status,
              it['child_first_name'], it['child_last_name'],
              it['child_dob'] or None, it['shirt_size'] or None,
              guardian_name, guardian_email, guardian_phone or None, it['notes'] or None,
              it['promo_code'], it['promo_discount'] + it.get('cart_discount_share', 0), it['sibling_discount'],
-             it['participant_count'], _jc.dumps(it['siblings']),
+             it['participant_count'], _jc.dumps(it['siblings']), _jc.dumps(it.get('custom_field_values') or {}),
              'deposit' if use_deposit else 'full', balance_due, wpos))
         reg_ids.append(rid)
         if status == 'confirmed':
@@ -18756,7 +20596,7 @@ def get_program_sessions(pid):
 
 @app.route('/api/programs/<pid>/sessions', methods=['POST'])
 def create_program_session(pid):
-    err = require_permission('programs')
+    err = require_own_program(pid)
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -18801,7 +20641,7 @@ def create_program_session(pid):
 @app.route('/api/programs/<pid>/sessions/generate', methods=['POST'])
 def generate_program_sessions(pid):
     """Generate multiple time slots at once for booking mode."""
-    err = require_permission('programs')
+    err = require_own_program(pid)
     if err: return err
     import uuid as _usg
     import datetime as _dt
@@ -18872,6 +20712,72 @@ def generate_program_sessions(pid):
     return jsonify({'ok': True, 'created': created})
 
 
+@app.route('/api/programs/<pid>/sessions/bulk-import', methods=['POST'])
+def bulk_import_program_sessions(pid):
+    """Creates many one-off session rows at once from a pre-expanded list
+    of {start_date, start_time, end_time} slots. Unlike /generate (which
+    assumes one uniform daily window repeated across matching weekdays),
+    this is for genuinely irregular schedules — different times on
+    different days, multiple blocks per day, etc. — pasted in and split
+    into individual slots client-side (so the UI can show a live preview/
+    count before committing). This route just validates and bulk-inserts
+    in one transaction."""
+    err = require_own_program(pid)
+    if err: return err
+    d = request.json or {}
+    slots = d.get('sessions') or []
+    if not isinstance(slots, list) or not slots:
+        return jsonify({'error': 'No sessions provided'}), 400
+    if len(slots) > 1000:
+        return jsonify({'error': 'Too many sessions in one batch (max 1000) — split into smaller batches'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    location = (d.get('location') or '').strip() or None
+    capacity = d.get('capacity')
+    try: capacity = int(capacity) if capacity is not None else None
+    except Exception: capacity = None
+    price_override = d.get('price_override')
+    try: price_override = int(price_override) if price_override is not None else None
+    except Exception: price_override = None
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) as m FROM program_sessions WHERE program_id=%s', (pid,))
+    sort_order = (max_sort.get('m') or 0) + 1
+    created = 0
+    DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+    for slot in slots:
+        sdate = (slot.get('start_date') or '').strip()
+        stime = (slot.get('start_time') or '').strip()
+        etime = (slot.get('end_time') or '').strip()
+        if not sdate or not stime or not etime:
+            continue
+        try:
+            day_name = DAY_NAMES[date.fromisoformat(sdate).weekday()]
+        except Exception:
+            day_name = ''
+        name = (slot.get('name') or '').strip()
+        if not name:
+            try:
+                dt_s = datetime.strptime(sdate + ' ' + stime, '%Y-%m-%d %H:%M')
+                dt_e = datetime.strptime(sdate + ' ' + etime, '%Y-%m-%d %H:%M')
+                name = f'{dt_s.strftime("%A, %B %-d")} \u00b7 {dt_s.strftime("%-I:%M %p")} \u2013 {dt_e.strftime("%-I:%M %p")}'
+            except Exception:
+                name = f'{sdate} {stime}-{etime}'
+        execute(conn, '''INSERT INTO program_sessions
+            (id, program_id, name, day_of_week, start_time, end_time,
+             start_date, end_date, location, capacity, price_override, status, sort_order)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'open',%s)''',
+            (str(uuid.uuid4()), pid, name, day_name, stime, etime,
+             sdate, sdate, location, capacity, price_override, sort_order))
+        sort_order += 1
+        created += 1
+    conn.commit()
+    sync_hours_store_for_program(conn, pid)
+    conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
 
     err = require_permission('programs')
     if err: return err
@@ -18901,7 +20807,7 @@ def generate_program_sessions(pid):
 
 @app.route('/api/programs/<pid>/sessions/<sid>', methods=['PUT'])
 def update_program_session(pid, sid):
-    err = require_permission('programs')
+    err = require_own_program(pid)
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -18930,7 +20836,7 @@ def update_program_session(pid, sid):
 
 @app.route('/api/programs/<pid>/sessions/<sid>', methods=['DELETE'])
 def delete_program_session(pid, sid):
-    err = require_permission('programs')
+    err = require_own_program(pid)
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM program_sessions WHERE id=%s AND program_id=%s', (sid, pid))
@@ -19112,42 +21018,21 @@ def my_delete_pending_hours(hid):
 
 # ── Lobby TV Display ──────────────────────────────────────────────────────────
 
-LOBBY_THEME_FILES = {
-    'standard': 'lobby_standard.html',
-    'jungle': 'lobby_jungle.html',
-    'seuss': 'lobby_standard.html',  # seuss uses standard file + theme CSS
-}
-
-def get_active_lobby_file():
-    try:
-        conn = get_db()
-        row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_active_theme'")
-        conn.close()
-        theme = (row or {}).get('value') or 'standard'
-        filename = LOBBY_THEME_FILES.get(theme, 'lobby_standard.html')
-        # Fall back to lobby.html if themed file doesn't exist
-        import os as _oslob
-        if not _oslob.path.exists(os.path.join('static', filename)):
-            return 'lobby.html'
-        return filename
-    except Exception:
-        return 'lobby.html'
-
 @app.route('/lobby')
 def lobby_page():
-    return send_from_directory('static', get_active_lobby_file())
+    """Always serves lobby.html — the theme system (standard/jungle/seuss,
+    each its own separate file) got confusing in practice, since editing
+    one theme's file had zero effect if a different theme was actually
+    active. Back to one file, one thing to keep updated."""
+    return send_from_directory('static', 'lobby.html')
 
 @app.route('/lobby/standard')
 def lobby_standard_page():
-    import os as _oslob
-    f = 'lobby_standard.html' if _oslob.path.exists('static/lobby_standard.html') else 'lobby.html'
-    return send_from_directory('static', f)
+    return send_from_directory('static', 'lobby.html')
 
 @app.route('/lobby/jungle')
 def lobby_jungle_page():
-    import os as _oslob
-    f = 'lobby_jungle.html' if _oslob.path.exists('static/lobby_jungle.html') else 'lobby.html'
-    return send_from_directory('static', f)
+    return send_from_directory('static', 'lobby.html')
 
 @app.route('/lobby2')
 def lobby2_page():
@@ -19160,29 +21045,6 @@ def lobby2_page():
     except Exception:
         sandbox = 'lobby_jungle.html'
     return send_from_directory('static', sandbox)
-
-@app.route('/api/admin/lobby-active-theme', methods=['GET'])
-def get_lobby_active_theme():
-    err = require_auth()
-    if err: return err
-    conn = get_db()
-    row = fetchone(conn, "SELECT value FROM settings WHERE key='lobby_active_theme'")
-    conn.close()
-    return jsonify({'theme': (row or {}).get('value') or 'standard'})
-
-@app.route('/api/admin/lobby-active-theme', methods=['PUT'])
-def set_lobby_active_theme():
-    err = require_auth()
-    if err: return err
-    d = request.json or {}
-    theme = d.get('theme', 'standard')
-    if theme not in LOBBY_THEME_FILES:
-        return jsonify({'error': 'Unknown theme'}), 400
-    conn = get_db()
-    execute(conn, """INSERT INTO settings (key, value) VALUES ('lobby_active_theme', %s)
-        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (theme,))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True, 'theme': theme, 'file': LOBBY_THEME_FILES[theme]})
 
 @app.route('/api/public/lobby-data', methods=['GET'])
 def public_lobby_data():
@@ -19197,6 +21059,7 @@ def public_lobby_data():
         upcoming_events = fetchall(conn, '''SELECT name, event_date, start_time, end_time, location
             FROM events
             WHERE event_date >= %s AND COALESCE(status,'active') != 'cancelled'
+            AND COALESCE(show_on_lobby, TRUE) = TRUE
             ORDER BY event_date, start_time LIMIT 12''', (today,)) or []
         conn.close()
     except Exception as e:
@@ -19265,7 +21128,18 @@ def public_lobby_data():
         try: conn.close()
         except Exception: pass
 
-    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner, 'lobby_banner_pos': lobby_banner_pos, 'lobby_banner_zoom': lobby_banner_zoom, 'lobby_banner_fit': lobby_banner_fit, 'lobby_sched_bg': lobby_sched_bg, 'lobby_sched_bg_pos': lobby_sched_bg_pos, 'lobby_sched_bg_zoom': lobby_sched_bg_zoom, 'lobby_sched_bg_fit': lobby_sched_bg_fit})
+    lobby_carousel_header = ''
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_carousel_header',))
+        lobby_carousel_header = (row or {}).get('value') or ''
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Lobby carousel header query failed: {e}')
+        try: conn.close()
+        except Exception: pass
+
+    return jsonify({'events': upcoming_events, 'announcements': announcements, 'lobby_images': lobby_images, 'lobby_theme': lobby_theme, 'lobby_banner': lobby_banner, 'lobby_banner_pos': lobby_banner_pos, 'lobby_banner_zoom': lobby_banner_zoom, 'lobby_banner_fit': lobby_banner_fit, 'lobby_sched_bg': lobby_sched_bg, 'lobby_sched_bg_pos': lobby_sched_bg_pos, 'lobby_sched_bg_zoom': lobby_sched_bg_zoom, 'lobby_sched_bg_fit': lobby_sched_bg_fit, 'lobby_carousel_header': lobby_carousel_header})
 
 @app.route('/api/lobby/theme', methods=['GET'])
 def get_lobby_theme():
@@ -19324,6 +21198,31 @@ def save_lobby_banner():
         ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner_zoom', str(zoom)))
     execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
         ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_banner_fit', fit))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/lobby/carousel-header', methods=['GET'])
+def get_lobby_carousel_header():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key=%s", ('lobby_carousel_header',))
+    conn.close()
+    return jsonify({'text': (row or {}).get('value') or ''})
+
+@app.route('/api/lobby/carousel-header', methods=['PUT'])
+def save_lobby_carousel_header():
+    """A single optional label shown over the whole photo slideshow — e.g.
+    'Photos from our Renovations' — so a batch of related photos reads as
+    one deliberate group instead of just an unlabeled mix in rotation."""
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    text = (d.get('text') or '').strip()[:100]
+    conn = get_db()
+    execute(conn, """INSERT INTO settings (key, value) VALUES (%s, %s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", ('lobby_carousel_header', text))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
@@ -19557,6 +21456,1759 @@ def post_oncall_slack_report():
     app.logger.info('On-call Slack report sent')
 
 # ── APScheduler for automatic on-call reports ────────────────────────────────
+# ── Shared Inbox (info@) ──────────────────────────────────────────────────
+# Reads new mail from info@ via IMAP (checked periodically, see the
+# scheduler job below), threads it against existing conversations, and
+# lets staff reply from inside RoleCall as info@ via the same Resend
+# infrastructure everything else already sends through.
+
+def _inbox_configured():
+    return bool(os.environ.get('INFO_INBOX_EMAIL', '').strip() and os.environ.get('INFO_INBOX_APP_PASSWORD', '').strip())
+
+def _inbox_credentials():
+    """Google's app-password page displays the password in four-character
+    groups separated by non-breaking spaces (U+00A0), not regular ones —
+    those survive copy/paste into an env var and then choke imaplib, which
+    speaks plain ASCII. The actual credential is the 16 characters alone;
+    all whitespace around/inside it (regular or non-breaking) is purely
+    cosmetic, so it's safe to strip entirely rather than just .strip().
+    Also strips stray leading/trailing quote characters, in case the value
+    was pasted in as "quoted" out of habit (e.g. copied from a .env
+    example) — Railway's variable value is the literal string including
+    any quotes typed into it, unlike a shell or .env file which would
+    normally strip them."""
+    import re as _reinboxcred
+    def _clean(v):
+        v = v.strip().strip('"\'\u201c\u201d\u2018\u2019')
+        return _reinboxcred.sub(r'\s+', '', v)
+    email_addr = _clean(os.environ.get('INFO_INBOX_EMAIL', ''))
+    app_password = _clean(os.environ.get('INFO_INBOX_APP_PASSWORD', ''))
+    return email_addr, app_password
+
+def _decode_mime_words(s):
+    if not s:
+        return ''
+    from email.header import decode_header
+    parts = decode_header(s)
+    out = []
+    for text, enc in parts:
+        if isinstance(text, bytes):
+            try:
+                out.append(text.decode(enc or 'utf-8', errors='replace'))
+            except Exception:
+                out.append(text.decode('utf-8', errors='replace'))
+        else:
+            out.append(text)
+    return ''.join(out)
+
+def _extract_email_body(msg):
+    """Prefers HTML, falls back to plain text wrapped in <pre>-ish spacing."""
+    html_body, text_body = '', ''
+    if msg.is_multipart():
+        for part in msg.walk():
+            ctype = part.get_content_type()
+            disp = str(part.get('Content-Disposition') or '')
+            if 'attachment' in disp:
+                continue
+            try:
+                payload = part.get_payload(decode=True)
+                if payload is None:
+                    continue
+                charset = part.get_content_charset() or 'utf-8'
+                content = payload.decode(charset, errors='replace')
+            except Exception:
+                continue
+            if ctype == 'text/html' and not html_body:
+                html_body = content
+            elif ctype == 'text/plain' and not text_body:
+                text_body = content
+    else:
+        try:
+            payload = msg.get_payload(decode=True)
+            charset = msg.get_content_charset() or 'utf-8'
+            content = payload.decode(charset, errors='replace') if payload else ''
+        except Exception:
+            content = ''
+        if msg.get_content_type() == 'text/html':
+            html_body = content
+        else:
+            text_body = content
+    return html_body, text_body
+
+def _extract_email_attachments(msg):
+    """Returns a list of {filename, content_type, data} dicts for real
+    file attachments (skips inline images referenced by the HTML body
+    itself, which show up with a Content-ID and no meaningful filename)."""
+    attachments = []
+    if not msg.is_multipart():
+        return attachments
+    for part in msg.walk():
+        disp = str(part.get('Content-Disposition') or '')
+        filename = part.get_filename()
+        if 'attachment' not in disp and not filename:
+            continue
+        if part.get_content_maintype() == 'multipart':
+            continue
+        try:
+            data = part.get_payload(decode=True)
+        except Exception:
+            data = None
+        if not data:
+            continue
+        filename = _decode_mime_words(filename) if filename else 'attachment'
+        attachments.append({
+            'filename': filename,
+            'content_type': part.get_content_type() or 'application/octet-stream',
+            'data': data,
+        })
+    return attachments
+
+def _find_or_create_inbox_thread(conn, participant_email, participant_name, subject, in_reply_to, references):
+    """Returns (thread_id, is_new) — is_new lets the caller fire a 'new
+    conversation' notification only for genuinely new threads, not every
+    reply that lands in an existing one."""
+    import re as _reinbox
+    candidate_ids = [x.strip() for x in ([in_reply_to] + (references or '').split()) if x and x.strip()]
+    thread_id = None
+    if candidate_ids:
+        placeholders = ','.join(['%s'] * len(candidate_ids))
+        row = fetchone(conn, f"SELECT thread_id FROM inbox_messages WHERE message_id IN ({placeholders}) LIMIT 1", tuple(candidate_ids))
+        if row:
+            thread_id = row['thread_id']
+    norm_subject = subject or ''
+    while True:
+        stripped = _reinbox.sub(r'^\s*(re|fwd?)\s*:\s*', '', norm_subject, flags=_reinbox.I)
+        if stripped == norm_subject:
+            break
+        norm_subject = stripped
+    norm_subject = norm_subject.strip()
+    if not thread_id and participant_email:
+        row = fetchone(conn, """SELECT id FROM inbox_threads WHERE participant_email=%s AND subject=%s
+            AND last_message_at > NOW() - INTERVAL '60 days' ORDER BY last_message_at DESC LIMIT 1""",
+            (participant_email, norm_subject))
+        if row:
+            thread_id = row['id']
+    if thread_id:
+        execute(conn, """UPDATE inbox_threads SET last_message_at=NOW(), unread=TRUE,
+            status=CASE WHEN status IN ('closed','pending') THEN 'open' ELSE status END WHERE id=%s""", (thread_id,))
+        return thread_id, False
+    thread_id = str(uuid.uuid4())
+    execute(conn, """INSERT INTO inbox_threads (id, subject, participant_email, participant_name, status, unread, last_message_at)
+        VALUES (%s,%s,%s,%s,'open',TRUE,NOW())""", (thread_id, norm_subject, participant_email, participant_name))
+    return thread_id, True
+
+def run_inbox_thread_summary(conn, thread_id):
+    """Calls Claude to summarize a conversation for triage — same pattern
+    as run_compliance_check (Anthropic API via ANTHROPIC_API_KEY). Kept
+    short and on-demand (button-triggered, cached on the thread) rather
+    than run automatically on every open, since this is a high-volume
+    inbox and there's no reason to pay for a summary nobody looks at."""
+    import os as _os, requests as _rq, re as _re
+    api_key = _os.environ.get('ANTHROPIC_API_KEY', '').strip()
+    if not api_key:
+        return None, 'ANTHROPIC_API_KEY is not set in the environment. Add it in Railway → Variables, then redeploy.'
+    messages = fetchall(conn, """SELECT direction, from_name, from_email, sent_by, body_text, body_html, created_at
+        FROM inbox_messages WHERE thread_id=%s ORDER BY created_at""", (thread_id,)) or []
+    if not messages:
+        return None, 'No messages to summarize yet'
+    convo_lines = []
+    for m in messages:
+        who = f"HWTC ({m.get('sent_by') or 'staff'})" if m['direction'] == 'outbound' else (m.get('from_name') or m.get('from_email') or 'Sender')
+        text = (m.get('body_text') or '').strip()
+        if not text and m.get('body_html'):
+            text = _re.sub('<[^>]+>', ' ', m['body_html'])
+            text = _re.sub(r'\s+', ' ', text).strip()
+        convo_lines.append(f'{who}: {text[:1500]}')
+    convo_blob = '\n\n'.join(convo_lines)[:8000]
+    system_prompt = '''You summarize email conversations for Horizon West Theater Company's staff, who are triaging a busy shared inbox and need to understand a thread at a glance without reading the whole thing.
+Respond with ONLY valid JSON, no markdown fences, no preamble, in exactly this shape:
+{"summary": "1-2 sentence plain-English summary of what this conversation is about and where it currently stands", "suggested_action": "one short sentence on what staff should do next, or an empty string if nothing further is needed"}
+Critical formatting rule: this must be a single valid JSON object parseable by a strict JSON parser. Any newlines within a string value must be written as \\n, never as an actual line break.'''
+    try:
+        resp = _rq.post('https://api.anthropic.com/v1/messages',
+            headers={'x-api-key': api_key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json'},
+            json={'model': 'claude-sonnet-5', 'max_tokens': 400, 'thinking': {'type': 'disabled'},
+                  'system': system_prompt, 'messages': [{'role': 'user', 'content': convo_blob}]},
+            timeout=30)
+        if resp.status_code != 200:
+            app.logger.error(f'Inbox summary API error: {resp.status_code} {resp.text[:300]}')
+            return None, f'Claude API error ({resp.status_code}). Check your ANTHROPIC_API_KEY and billing in the Anthropic Console.'
+        data = resp.json()
+        raw = ''.join(b.get('text', '') for b in data.get('content', []) if b.get('type') == 'text').strip()
+        raw = _re.sub(r'^```(json)?|```$', '', raw.strip(), flags=_re.M).strip()
+        parsed = json.loads(raw)
+        return {'summary': (parsed.get('summary') or '').strip(), 'suggested_action': (parsed.get('suggested_action') or '').strip()}, None
+    except json.JSONDecodeError:
+        app.logger.error(f'Inbox summary: could not parse Claude response as JSON: {raw[:300]}')
+        return None, 'Could not parse the summary — try again'
+    except Exception as e:
+        app.logger.error(f'Inbox summary error: {e}')
+        return None, str(e)
+
+def _get_inbox_notify_recipients(conn):
+    """Every admin, plus anyone explicitly granted inbox access — de-duped
+    emails. Used for 'new conversation' notifications, which should reach
+    the whole triage team rather than one specific person."""
+    users = fetchall(conn, "SELECT email, role, role_permissions FROM users WHERE COALESCE(active,TRUE)=TRUE AND email IS NOT NULL AND email!=''") or []
+    emails = set()
+    for u in users:
+        if u.get('role') == 'admin':
+            emails.add(u['email'])
+            continue
+        try:
+            perms = json.loads(u.get('role_permissions') or '{}')
+        except Exception:
+            perms = {}
+        if resolve_perm_level(perms, 'inbox') in ('view', 'edit'):
+            emails.add(u['email'])
+    return list(emails)
+
+def _notify_inbox_new_thread(conn, thread_id):
+    try:
+        thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (thread_id,))
+        if not thread:
+            return
+        recipients = _get_inbox_notify_recipients(conn)
+        if not recipients:
+            return
+        first_msg = fetchone(conn, "SELECT body_text FROM inbox_messages WHERE thread_id=%s ORDER BY created_at LIMIT 1", (thread_id,))
+        preview = ((first_msg or {}).get('body_text') or '').strip().replace('\n', ' ')[:200]
+        send_email(recipients, f'New message: {thread.get("subject","(no subject)")}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<p><strong>{thread.get("participant_name") or thread.get("participant_email","")}</strong> sent a new message to info@hwtco.org:</p>'
+            f'<p style="color:#6b7280;font-size:13px;border-left:3px solid #145466;padding-left:10px">{preview}{"…" if len(preview)==200 else ""}</p>'
+            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+            source='inbox_notify')
+    except Exception as e:
+        app.logger.warning(f'Inbox new-thread notification failed: {e}')
+
+def _notify_inbox_assigned(conn, thread_id, assignee_name):
+    try:
+        if not assignee_name:
+            return
+        user = fetchone(conn, "SELECT email FROM users WHERE name=%s AND email IS NOT NULL AND email!=''", (assignee_name,))
+        if not user:
+            return
+        thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (thread_id,))
+        if not thread:
+            return
+        send_email(user['email'], f'Assigned to you: {thread.get("subject","(no subject)")}',
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<p>You\'ve been assigned a conversation in the RoleCall Inbox:</p>'
+            f'<p><strong>{thread.get("participant_name") or thread.get("participant_email","")}</strong> — {thread.get("subject","(no subject)")}</p>'
+            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+            source='inbox_notify')
+    except Exception as e:
+        app.logger.warning(f'Inbox assignment notification failed: {e}')
+
+def _extract_inbox_mentions(conn, comment_body, author_name):
+    """Matches '@Full Name' in a comment against active users' actual
+    display names (not a lightweight '@word' regex) so 'Jordan' doesn't
+    false-positive on a comment that's just talking about someone. Longest
+    names are checked first so 'Jordan Lee' matches whole rather than
+    leaving a dangling 'Lee' — matters since several people can share a
+    first name. Excludes the comment's own author, and is case-insensitive
+    since staff won't always match capitalization while typing."""
+    import re as _reinboxmention
+    names = [n['name'] for n in (fetchall(conn,
+        "SELECT name FROM users WHERE COALESCE(active,TRUE)=TRUE AND name IS NOT NULL AND name!=''") or [])
+        if n.get('name') and n['name'] != author_name]
+    if not names:
+        return []
+    names_sorted = sorted(set(names), key=len, reverse=True)
+    mentioned = []
+    remaining = comment_body
+    for name in names_sorted:
+        pattern = r'@' + _reinboxmention.escape(name) + r'\b'
+        if _reinboxmention.search(pattern, remaining, _reinboxmention.I):
+            mentioned.append(name)
+            remaining = _reinboxmention.sub(pattern, '', remaining, flags=_reinboxmention.I)
+    return mentioned
+
+def _notify_inbox_mentioned(conn, thread_id, mentioned_names, author_name, comment_body):
+    for name in mentioned_names:
+        try:
+            user = fetchone(conn, "SELECT email FROM users WHERE name=%s AND email IS NOT NULL AND email!=''", (name,))
+            if not user:
+                continue
+            thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (thread_id,))
+            if not thread:
+                continue
+            preview = (comment_body or '').strip().replace('\n', ' ')[:200]
+            send_email(user['email'], f'{author_name} mentioned you: {thread.get("subject","(no subject)")}',
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<p><strong>{author_name}</strong> mentioned you on a conversation with '
+                f'{thread.get("participant_name") or thread.get("participant_email","")} in the RoleCall Inbox:</p>'
+                f'<p style="color:#6b7280;font-size:13px;border-left:3px solid #145466;padding-left:10px">{preview}{"…" if len(preview)==200 else ""}</p>'
+                f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+                source='inbox_notify')
+        except Exception as e:
+            app.logger.warning(f'Inbox mention notification failed for {name}: {e}')
+
+def _process_inbound_email(conn, raw_bytes, gmail_msgid=''):
+    """Returns the thread_id this message landed in (or None if it was a
+    duplicate/skipped) — the historical importer uses this to immediately
+    check Gmail's real current label state for that thread, rather than
+    leaving it at the 'open' default every brand-new thread gets (correct
+    for genuinely new mail arriving via the live 3-minute sync, wrong for
+    something imported from 6 months back)."""
+    import email as _emaillib, base64 as _b64inbox
+    from email.utils import parseaddr, parsedate_to_datetime
+    msg = _emaillib.message_from_bytes(raw_bytes)
+    message_id = (msg.get('Message-ID') or '').strip()
+    if message_id:
+        existing = fetchone(conn, 'SELECT id FROM inbox_messages WHERE message_id=%s', (message_id,))
+        if existing:
+            return None  # already processed (belt-and-suspenders alongside the DB unique index)
+    from_name_raw, from_email = parseaddr(msg.get('From') or '')
+    from_name = _decode_mime_words(from_name_raw) or from_email
+    subject = _decode_mime_words(msg.get('Subject') or '(no subject)')
+    in_reply_to = (msg.get('In-Reply-To') or '').strip()
+    references = (msg.get('References') or '').strip()
+    html_body, text_body = _extract_email_body(msg)
+    thread_id, is_new_thread = _find_or_create_inbox_thread(conn, from_email.lower(), from_name, subject, in_reply_to, references)
+    mid = str(uuid.uuid4())
+    # RETURNING id, not just checking rowcount: if a concurrent worker
+    # already inserted this exact message_id between our early check above
+    # and this INSERT, ON CONFLICT DO NOTHING silently inserts nothing —
+    # without RETURNING we'd have no way to tell, and would go on to try
+    # attaching files to a message row that was never actually created.
+    result = fetchone(conn, """INSERT INTO inbox_messages
+        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, body_text, message_id, in_reply_to, gmail_msgid)
+        VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (message_id) WHERE message_id IS NOT NULL AND message_id!='' DO NOTHING
+        RETURNING id""",
+        (mid, thread_id, from_email.lower(), from_name, msg.get('To') or '', subject, html_body, text_body,
+         message_id or None, in_reply_to, gmail_msgid or ''))
+    if not result:
+        return None
+    for att in _extract_email_attachments(msg):
+        if len(att['data']) > 15 * 1024 * 1024:  # 15MB per file, generous but bounded
+            continue
+        execute(conn, """INSERT INTO inbox_attachments (id, message_id, filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s)""",
+            (str(uuid.uuid4()), mid, att['filename'], att['content_type'],
+             _b64inbox.b64encode(att['data']).decode(), len(att['data'])))
+    # Notifying the whole team on every single new conversation was way
+    # too noisy in practice — dropped in favor of notifying just the
+    # person a thread gets assigned to (_notify_inbox_assigned, fired
+    # from update_inbox_thread / assign_inbox_thread_to_me instead).
+    return thread_id
+
+def _process_outbound_historical_email(conn, raw_bytes, gmail_msgid=''):
+    """Imports a message found in Gmail's Sent folder — i.e. something
+    sent before RoleCall's shared inbox existed, including anything that
+    never got a reply. Threaded by the recipient (the 'To' address),
+    since that's who the conversation is actually with — unlike a normal
+    inbound message where the sender is the participant."""
+    import email as _emaillib2, base64 as _b64hist
+    from email.utils import parseaddr, getaddresses
+    msg = _emaillib2.message_from_bytes(raw_bytes)
+    message_id = (msg.get('Message-ID') or '').strip()
+    if message_id:
+        existing = fetchone(conn, 'SELECT id FROM inbox_messages WHERE message_id=%s', (message_id,))
+        if existing:
+            return None
+    to_addrs = getaddresses([msg.get('To') or ''])
+    if not to_addrs or not to_addrs[0][1]:
+        return None  # nothing usable to thread this against
+    to_name_raw, to_email = to_addrs[0]
+    to_name = _decode_mime_words(to_name_raw) or to_email
+    subject = _decode_mime_words(msg.get('Subject') or '(no subject)')
+    in_reply_to = (msg.get('In-Reply-To') or '').strip()
+    references = (msg.get('References') or '').strip()
+    html_body, text_body = _extract_email_body(msg)
+    from_email = _inbox_credentials()[0] or 'info@hwtco.org'
+    thread_id, _is_new = _find_or_create_inbox_thread(conn, to_email.lower(), to_name, subject, in_reply_to, references)
+    mid = str(uuid.uuid4())
+    result = fetchone(conn, """INSERT INTO inbox_messages
+        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, body_text, message_id, in_reply_to, sent_by, gmail_msgid)
+        VALUES (%s,%s,'outbound',%s,'Horizon West Theater Company',%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (message_id) WHERE message_id IS NOT NULL AND message_id!='' DO NOTHING
+        RETURNING id""",
+        (mid, thread_id, from_email, to_email.lower(), subject, html_body, text_body,
+         message_id or None, in_reply_to, 'Imported from Gmail', gmail_msgid or ''))
+    if not result:
+        return None
+    for att in _extract_email_attachments(msg):
+        if len(att['data']) > 15 * 1024 * 1024:
+            continue
+        execute(conn, """INSERT INTO inbox_attachments (id, message_id, filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s)""",
+            (str(uuid.uuid4()), mid, att['filename'], att['content_type'],
+             _b64hist.b64encode(att['data']).decode(), len(att['data'])))
+    return thread_id
+
+def _imap_since_date(months_back):
+    """IMAP SEARCH SINCE needs 'DD-Mon-YYYY' with an English 3-letter
+    month regardless of server locale — building it manually rather than
+    trusting strftime('%b') to always come out in English."""
+    import datetime as _dtimp
+    month_names = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    d = _dtimp.date.today()
+    # Roll back months_back months without relying on a calendar library.
+    month = d.month - months_back
+    year = d.year
+    while month <= 0:
+        month += 12
+        year -= 1
+    day = min(d.day, 28)  # sidesteps end-of-month overflow (e.g. Mar 31 -> Feb)
+    return f'{day:02d}-{month_names[month-1]}-{year}'
+
+def run_historical_inbox_import(months=6):
+    """One-time (but safe to re-run) backfill: pulls everything from the
+    last N months out of both the Inbox and Sent folders — including
+    conversations that only ever had one side (something sent that never
+    got a reply), which the normal forward-only sync never sees since it
+    only watches for new mail arriving after it started running.
+    Everything here dedupes the same way live sync does (unique
+    constraint on message_id), so it's safe to run more than once or with
+    overlapping date ranges.
+
+    Every thread touched in that date range — not just newly-inserted
+    ones — gets its status/tags rechecked against Gmail's real current
+    state at the end of each run. That's deliberate: re-running this is
+    also how an earlier import's wrong statuses get corrected, since the
+    messages themselves would just dedupe as already-existing and
+    otherwise never go through the state-check pass at all."""
+    if not _inbox_configured():
+        return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0
+    try:
+        import imaplib, re as _regmidimport, datetime as _dtimport
+        conn = get_db()
+        imap_email, imap_password = _inbox_credentials()
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        try:
+            m.login(imap_email, imap_password)
+        except Exception as login_err:
+            conn.close()
+            return False, str(login_err), 0
+        since = _imap_since_date(months)
+        imported_pairs = []  # (thread_id, gmail_msgid) for the state-check pass below
+
+        # Inbox: same per-message processing as live sync, just searching
+        # by date instead of by UID watermark — doesn't touch
+        # inbox_last_uid, so it can't interfere with the regular 3-minute
+        # forward-moving check.
+        try:
+            m.select('INBOX')
+            typ, data = m.uid('search', None, f'SINCE {since}')
+            uids = data[0].split() if typ == 'OK' and data and data[0] else []
+            for uid_bytes in uids:
+                try:
+                    typ, msg_data = m.uid('fetch', uid_bytes, '(RFC822 X-GM-MSGID)')
+                    if typ == 'OK' and msg_data and msg_data[0]:
+                        header_line = msg_data[0][0] or b''
+                        if isinstance(header_line, str):
+                            header_line = header_line.encode()
+                        mm = _regmidimport.search(rb'X-GM-MSGID\s+(\d+)', header_line)
+                        gmail_msgid = mm.group(1).decode() if mm else ''
+                        thread_id = _process_inbound_email(conn, msg_data[0][1], gmail_msgid)
+                        if thread_id:
+                            imported_pairs.append((thread_id, gmail_msgid))
+                except Exception as e:
+                    app.logger.warning(f'Historical inbox import error: {e}')
+        except Exception as e:
+            app.logger.warning(f'Historical inbox search failed: {e}')
+
+        # Sent: the half that never existed in RoleCall at all before this.
+        try:
+            sent_folder = _find_gmail_sent_folder(m) or '[Gmail]/Sent Mail'
+            quoted = '"' + sent_folder.replace('\\', '\\\\').replace('"', '\\"') + '"'
+            typ, _sel = m.select(quoted)
+            if typ == 'OK':
+                typ, data = m.uid('search', None, f'SINCE {since}')
+                uids = data[0].split() if typ == 'OK' and data and data[0] else []
+                for uid_bytes in uids:
+                    try:
+                        typ, msg_data = m.uid('fetch', uid_bytes, '(RFC822 X-GM-MSGID)')
+                        if typ == 'OK' and msg_data and msg_data[0]:
+                            header_line = msg_data[0][0] or b''
+                            if isinstance(header_line, str):
+                                header_line = header_line.encode()
+                            mm = _regmidimport.search(rb'X-GM-MSGID\s+(\d+)', header_line)
+                            gmail_msgid = mm.group(1).decode() if mm else ''
+                            thread_id = _process_outbound_historical_email(conn, msg_data[0][1], gmail_msgid)
+                            if thread_id:
+                                imported_pairs.append((thread_id, gmail_msgid))
+                    except Exception as e:
+                        app.logger.warning(f'Historical sent import error: {e}')
+        except Exception as e:
+            app.logger.warning(f'Historical sent search failed: {e}')
+
+        # Now that both folders are fully imported and we're done with
+        # UID-based iteration, it's safe to let _gmail_get_labels switch
+        # the selected mailbox around as it checks each thread's real
+        # current state. Checks every thread touched in this date range —
+        # not just imported_pairs (this run's new messages) — so
+        # re-running the import also fixes any thread an earlier run got
+        # wrong, since those messages would just dedupe here and
+        # otherwise never reach this pass at all.
+        cutoff_date = _dtimport.date.today() - _dtimport.timedelta(days=months * 30)
+        threads_to_check = fetchall(conn, """SELECT t.id AS thread_id,
+            (SELECT gmail_msgid FROM inbox_messages im WHERE im.thread_id=t.id
+             AND im.gmail_msgid IS NOT NULL AND im.gmail_msgid!='' ORDER BY im.created_at LIMIT 1) AS gmail_msgid
+            FROM inbox_threads t WHERE t.last_message_at::date >= %s""", (cutoff_date,)) or []
+        seen_threads = set()
+        for row in threads_to_check:
+            thread_id, gmail_msgid = row['thread_id'], row.get('gmail_msgid')
+            if not gmail_msgid or thread_id in seen_threads:
+                continue
+            seen_threads.add(thread_id)
+            try:
+                _set_initial_gmail_state_for_import(conn, m, thread_id, gmail_msgid)
+            except Exception as e:
+                app.logger.warning(f'Initial state pass error for thread {thread_id}: {e}')
+        imported = len(imported_pairs)
+
+        try:
+            m.logout()
+        except Exception:
+            pass
+        conn.close()
+        return True, None, imported
+    except Exception as e:
+        app.logger.warning(f'Historical inbox import failed: {e}')
+        return False, str(e), 0
+
+def _backfill_inbox_attachments():
+    """Finds inbound messages with a stored gmail_msgid but zero linked
+    attachments, refetches each one's raw content from Gmail via
+    _gmail_locate_message, and runs it through the normal attachment
+    extraction. This exists because ingestion dedupes by message_id — if
+    a message was imported before attachment capture was added to (or
+    working correctly in) _process_inbound_email, that row is permanently
+    stuck with no attachments; a normal re-run of Import History can't
+    fix it since the message already exists and gets skipped.
+    Safe to re-run: only ever adds rows, never touches existing ones, and
+    a message that genuinely has no attachment just costs one extra IMAP
+    lookup each time this runs.
+    Returns (ok, error_or_none, checked_count, attachments_found)."""
+    if not _inbox_configured():
+        return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0, 0
+    try:
+        import imaplib, base64 as _b64backfill, email as _emailbackfill
+        conn = get_db()
+        candidates = fetchall(conn, """
+            SELECT im.id, im.gmail_msgid FROM inbox_messages im
+            WHERE im.direction='inbound' AND im.gmail_msgid IS NOT NULL AND im.gmail_msgid != ''
+            AND NOT EXISTS (SELECT 1 FROM inbox_attachments a WHERE a.message_id=im.id)""") or []
+        if not candidates:
+            conn.close()
+            return True, None, 0, 0
+        imap_email, imap_password = _inbox_credentials()
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        m.login(imap_email, imap_password)
+        checked = 0
+        found = 0
+        for row in candidates:
+            mid, gmail_msgid = row['id'], row['gmail_msgid']
+            checked += 1
+            try:
+                located = _gmail_locate_message(m, gmail_msgid)
+                if not located:
+                    continue
+                folder, uid = located
+                typ, msg_data = m.uid('fetch', uid, '(RFC822)')
+                if typ != 'OK' or not msg_data or not msg_data[0]:
+                    continue
+                msg = _emailbackfill.message_from_bytes(msg_data[0][1])
+                for att in _extract_email_attachments(msg):
+                    if len(att['data']) > 15 * 1024 * 1024:
+                        continue
+                    execute(conn, """INSERT INTO inbox_attachments (id, message_id, filename, content_type, file_data_b64, size_bytes)
+                        VALUES (%s,%s,%s,%s,%s,%s)""",
+                        (str(uuid.uuid4()), mid, att['filename'], att['content_type'],
+                         _b64backfill.b64encode(att['data']).decode(), len(att['data'])))
+                    found += 1
+            except Exception as e:
+                app.logger.warning(f'Attachment backfill error for message {mid}: {e}')
+        try:
+            m.logout()
+        except Exception:
+            pass
+        conn.commit()
+        conn.close()
+        return True, None, checked, found
+    except Exception as e:
+        app.logger.warning(f'Attachment backfill failed: {e}')
+        return False, str(e), 0, 0
+
+@app.route('/api/inbox/backfill-attachments', methods=['POST'])
+def backfill_inbox_attachments_route():
+    err = require_permission('inbox')
+    if err: return err
+    ok, error, checked, found = _backfill_inbox_attachments()
+    if not ok:
+        return jsonify({'error': error}), 400
+    return jsonify({'ok': True, 'checked': checked, 'attachments_found': found})
+
+def check_inbox_for_new_mail():
+    """Checked periodically by the scheduler. Safe to run concurrently
+    across multiple worker processes — new inbound rows are deduped by the
+    unique index on message_id, so even simultaneous polls can't create
+    duplicate threads/messages.
+
+    Returns (ok, error_or_none, messages_processed) so the manual 'Check
+    for New Mail' button can actually show what went wrong — this used to
+    only log failures server-side and always report success to the UI,
+    which made a broken IMAP login indistinguishable from an empty inbox."""
+    if not _inbox_configured():
+        return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0
+    try:
+        import imaplib
+        conn = get_db()
+        last_uid_row = fetchone(conn, "SELECT value FROM settings WHERE key='inbox_last_uid'")
+        last_uid = int(last_uid_row['value']) if last_uid_row and (last_uid_row.get('value') or '').isdigit() else 0
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        imap_email, imap_password = _inbox_credentials()
+        try:
+            m.login(imap_email, imap_password)
+        except Exception as login_err:
+            masked = (imap_email[:3] + '…' + imap_email.split('@')[-1]) if '@' in imap_email else '(not set)'
+            conn.close()
+            return False, (f'{login_err} — attempted login as {masked} with a {len(imap_password)}-character password '
+                f'(a Gmail app password should be 16 characters once spaces are stripped)'), 0
+        m.select('INBOX')
+        status, data = m.uid('search', None, f'UID {last_uid + 1}:*')
+        uids = [u for u in (data[0].split() if data and data[0] else []) if int(u) > last_uid]
+        max_uid_seen = last_uid
+        processed = 0
+        import re as _regmid
+        for uid_bytes in uids:
+            uid = int(uid_bytes)
+            try:
+                # X-GM-MSGID alongside RFC822: Gmail's stable, cross-folder
+                # message identifier (unlike the IMAP UID, which is only
+                # meaningful within one folder) — this is what lets the
+                # label-sync job find this same message again later in
+                # [Gmail]/All Mail to check whether it's been archived,
+                # labeled, spammed, or trashed since we first saw it.
+                status, msg_data = m.uid('fetch', uid_bytes, '(RFC822 X-GM-MSGID)')
+                if status == 'OK' and msg_data and msg_data[0]:
+                    header_line = msg_data[0][0] or b''
+                    if isinstance(header_line, str):
+                        header_line = header_line.encode()
+                    mm = _regmid.search(rb'X-GM-MSGID\s+(\d+)', header_line)
+                    gmail_msgid = mm.group(1).decode() if mm else ''
+                    _process_inbound_email(conn, msg_data[0][1], gmail_msgid)
+                    processed += 1
+            except Exception as e:
+                app.logger.warning(f'Inbox message parse error (UID {uid}): {e}')
+            max_uid_seen = max(max_uid_seen, uid)
+        try:
+            m.logout()
+        except Exception:
+            pass
+        if max_uid_seen > last_uid:
+            execute(conn, "INSERT INTO settings (key,value) VALUES ('inbox_last_uid',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                (str(max_uid_seen),))
+        conn.commit()
+        conn.close()
+        return True, None, processed
+    except Exception as e:
+        app.logger.warning(f'Inbox IMAP check failed: {e}')
+        return False, str(e), 0
+
+def _gmail_parse_labels(header_line):
+    """Parses the raw X-GM-LABELS FETCH response line into a set of label
+    strings. Gmail returns them space-separated inside parens, each either
+    a bare atom (system labels like \\Inbox, \\Trash, \\Spam) or a quoted
+    string (custom labels, especially ones with spaces — 'Client Work')."""
+    if not header_line:
+        return set()
+    if isinstance(header_line, bytes):
+        header_line = header_line.decode('utf-8', errors='replace')
+    m = _re_module().search(r'X-GM-LABELS\s*\(([^)]*)\)', header_line)
+    if not m:
+        return set()
+    inner = m.group(1)
+    labels = set()
+    for qm in _re_module().finditer(r'"((?:[^"\\]|\\.)*)"|(\S+)', inner):
+        val = qm.group(1) if qm.group(1) is not None else qm.group(2)
+        if val:
+            labels.add(val.replace('\\"', '"'))
+    return labels
+
+def _re_module():
+    import re
+    return re
+
+def _gmail_locate_message(imap_conn, gmail_msgid):
+    """Gmail's IMAP treats each label as its own mailbox, and a message can
+    exist in several simultaneously — but [Gmail]/All Mail deliberately
+    excludes Trash and Spam, so a message living only in one of those
+    won't be found there. Checks All Mail first (covers the vast majority
+    of cases), then falls back to Trash and Spam specifically. Returns the
+    folder it was found in, or None if the message isn't anywhere
+    (permanently deleted, not just trashed)."""
+    if not gmail_msgid:
+        return None
+    for folder in ('[Gmail]/All Mail', '[Gmail]/Trash', '[Gmail]/Spam'):
+        try:
+            quoted = '"' + folder.replace('\\', '\\\\').replace('"', '\\"') + '"'
+            typ, _sel = imap_conn.select(quoted, readonly=False)
+            if typ != 'OK':
+                continue
+            typ, data = imap_conn.uid('search', None, f'X-GM-MSGID {gmail_msgid}')
+            if typ == 'OK' and data and data[0]:
+                uid = data[0].split()[0]
+                return folder, uid
+        except Exception:
+            continue
+    return None
+
+def _gmail_get_labels(imap_conn, gmail_msgid):
+    """Current full label set for a message (system + custom), or None if
+    the message can't be found at all."""
+    located = _gmail_locate_message(imap_conn, gmail_msgid)
+    if not located:
+        return None
+    folder, uid = located
+    try:
+        typ, msg_data = imap_conn.uid('fetch', uid, '(X-GM-LABELS)')
+        if typ != 'OK' or not msg_data or not msg_data[0]:
+            return set()
+        line = msg_data[0] if isinstance(msg_data[0], (bytes, str)) else msg_data[0][0]
+        return _gmail_parse_labels(line)
+    except Exception:
+        return set()
+
+def _gmail_modify_labels(imap_conn, gmail_msgid, add=None, remove=None):
+    """Applies/removes labels on a message by its stable X-GM-MSGID —
+    Gmail's IMAP extension for exactly this (STORE ... X-GM-LABELS), used
+    both to push RoleCall-side tag/status changes out to Gmail (e.g.
+    closing a thread removes \\Inbox, which is Gmail's own definition of
+    'archived') and, from the other side, by nothing here — this is the
+    push direction only. Returns True on success."""
+    located = _gmail_locate_message(imap_conn, gmail_msgid)
+    if not located:
+        return False
+    folder, uid = located
+    try:
+        def _fmt(labels):
+            return '(' + ' '.join('"' + l.replace('\\', '\\\\').replace('"', '\\"') + '"' if not l.startswith('\\') else l for l in labels) + ')'
+        if add:
+            imap_conn.uid('store', uid, '+X-GM-LABELS', _fmt(add))
+        if remove:
+            imap_conn.uid('store', uid, '-X-GM-LABELS', _fmt(remove))
+        return True
+    except Exception as e:
+        app.logger.warning(f'Gmail label modify failed for {gmail_msgid}: {e}')
+        return False
+
+def _get_thread_gmail_msgids(conn, thread_id):
+    rows = fetchall(conn, """SELECT DISTINCT gmail_msgid FROM inbox_messages
+        WHERE thread_id=%s AND gmail_msgid IS NOT NULL AND gmail_msgid!=''""", (thread_id,)) or []
+    return [r['gmail_msgid'] for r in rows]
+
+def _gmail_push_thread_change(conn, thread_id, add_labels=None, remove_labels=None):
+    """Pushes a status/tag change made in RoleCall out to Gmail right
+    away, rather than waiting for the periodic pull to (wrongly) treat it
+    as a Gmail-side change on the next cycle. Applies to every Gmail
+    message RoleCall has seen for this thread, since a conversation can
+    span more than one inbound message. Best-effort — never blocks or
+    fails the RoleCall-side action if Gmail is unreachable."""
+    if not _inbox_configured():
+        return
+    msgids = _get_thread_gmail_msgids(conn, thread_id)
+    if not msgids:
+        return
+    try:
+        import imaplib
+        imap_email, imap_password = _inbox_credentials()
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        m.login(imap_email, imap_password)
+        for gmail_msgid in msgids:
+            _gmail_modify_labels(m, gmail_msgid, add=add_labels, remove=remove_labels)
+        try:
+            m.logout()
+        except Exception:
+            pass
+    except Exception as e:
+        app.logger.warning(f'Gmail push failed for thread {thread_id} (non-fatal): {e}')
+
+def _gmail_labels_for_status(status):
+    """Maps a RoleCall status onto the Gmail system labels that represent
+    it — add/remove pairs applied via _gmail_push_thread_change."""
+    if status == 'closed':
+        return {'add': [], 'remove': ['\\Inbox']}
+    if status == 'spam':
+        return {'add': ['\\Spam'], 'remove': ['\\Inbox']}
+    if status in ('open', 'pending'):
+        return {'add': ['\\Inbox'], 'remove': ['\\Spam', '\\Trash']}
+    return {'add': [], 'remove': []}
+
+GMAIL_SYSTEM_LABELS = {'\\Inbox', '\\Trash', '\\Spam', '\\Important', '\\Sent', '\\Draft', '\\Starred', '\\All', '\\Junk'}
+
+def _set_initial_gmail_state_for_import(conn, imap_conn, thread_id, gmail_msgid):
+    """Called right after importing a historical message: determines that
+    thread's ACTUAL current status/tags from Gmail immediately, rather
+    than leaving it at the 'open' default every brand-new thread gets.
+    That default is only correct for genuinely new mail — a freshly
+    imported 6-month-old thread is very likely already archived or
+    labeled in Gmail, and without this it would incorrectly sit in
+    'Open' forever, since the periodic reconciliation job only rechecks
+    threads touched in the last 90 days."""
+    if not gmail_msgid:
+        return
+    try:
+        labels = _gmail_get_labels(imap_conn, gmail_msgid)
+        if labels is None:
+            return
+        if '\\Trash' in labels:
+            execute(conn, 'DELETE FROM inbox_threads WHERE id=%s', (thread_id,))
+            conn.commit()
+            return
+        custom_tags = sorted(labels - GMAIL_SYSTEM_LABELS)
+        if '\\Spam' in labels:
+            derived_status = 'spam'
+        elif '\\Inbox' not in labels:
+            derived_status = 'closed'
+        else:
+            derived_status = 'open'
+        row = fetchone(conn, 'SELECT tags FROM inbox_threads WHERE id=%s', (thread_id,))
+        try:
+            existing_tags = set(json.loads((row or {}).get('tags') or '[]'))
+        except Exception:
+            existing_tags = set()
+        merged_tags = sorted(existing_tags | set(custom_tags))
+        execute(conn, """UPDATE inbox_threads SET status=%s, tags=%s,
+            gmail_synced_status=%s, gmail_synced_tags=%s, gmail_last_synced_at=NOW()
+            WHERE id=%s""", (derived_status, json.dumps(merged_tags), derived_status, json.dumps(custom_tags), thread_id))
+        conn.commit()
+    except Exception as e:
+        app.logger.warning(f'Initial Gmail state set failed for thread {thread_id}: {e}')
+
+def _sync_one_thread_from_gmail(conn, imap_conn, thread_row):
+    """Reconciles one thread's RoleCall state to match what's actually in
+    Gmail right now, using the earliest inbound message's labels as the
+    conversation's anchor state. Only acts when Gmail's state differs from
+    what was recorded at the last sync (gmail_synced_status/tags) — that
+    field gets updated immediately whenever RoleCall pushes a change out
+    (see _gmail_push_thread_change callers), so a RoleCall-initiated
+    change shows up here as 'already synced' on the very next pull rather
+    than getting redetected as a Gmail-side change and fought over."""
+    tid = thread_row['id']
+    msgids = _get_thread_gmail_msgids(conn, tid)
+    if not msgids:
+        return
+    labels = _gmail_get_labels(imap_conn, msgids[0])
+    if labels is None:
+        return  # not found in Gmail at all (e.g. expunged from Trash) — leave RoleCall's copy alone, don't guess
+    if '\\Trash' in labels:
+        # Deleted in Gmail — delete in RoleCall, per the mapping you asked for.
+        execute(conn, 'DELETE FROM inbox_threads WHERE id=%s', (tid,))
+        conn.commit()
+        return
+    custom_tags = sorted(labels - GMAIL_SYSTEM_LABELS)
+    if '\\Spam' in labels:
+        derived_status = 'spam'
+    elif '\\Inbox' not in labels:
+        derived_status = 'closed'  # archived
+    else:
+        derived_status = None  # still in Gmail's Inbox — no signal to distinguish RoleCall's open vs pending
+    try:
+        old_synced_tags = sorted(json.loads(thread_row.get('gmail_synced_tags') or '[]'))
+    except Exception:
+        old_synced_tags = []
+    status_changed = derived_status is not None and derived_status != thread_row.get('gmail_synced_status')
+    tags_changed = custom_tags != old_synced_tags
+    if not status_changed and not tags_changed:
+        return
+    fields, params = [], []
+    if status_changed:
+        fields.append('status=%s'); params.append(derived_status)
+        fields.append('gmail_synced_status=%s'); params.append(derived_status)
+    if tags_changed:
+        try:
+            current_tags = set(json.loads(thread_row.get('tags') or '[]'))
+        except Exception:
+            current_tags = set()
+        # Union of (whatever RoleCall-only tags existed, i.e. weren't part
+        # of what we last knew Gmail to have) with Gmail's current custom
+        # labels — so a tag added on one side doesn't get clobbered by a
+        # change made independently on the other.
+        merged_tags = sorted((current_tags - set(old_synced_tags)) | set(custom_tags))
+        fields.append('tags=%s'); params.append(json.dumps(merged_tags))
+        fields.append('gmail_synced_tags=%s'); params.append(json.dumps(custom_tags))
+    fields.append('gmail_last_synced_at=NOW()')
+    params.append(tid)
+    execute(conn, f"UPDATE inbox_threads SET {', '.join(fields)} WHERE id=%s", tuple(params))
+    conn.commit()
+
+def sync_inbox_from_gmail():
+    """Periodic pull (see scheduler registration): refreshes the cached
+    full Gmail label list, then checks Gmail's current label state for
+    recently-active threads and reconciles RoleCall to match. Thread
+    reconciliation is bounded to the last 90 days / 300 threads per run
+    so this can't balloon into scanning your entire mail history every
+    cycle — each thread needs up to 3 folder selects plus a search and
+    fetch, so this is real IMAP load, not free.
+
+    Returns (ok, error_or_none, label_count) — same reasoning as
+    check_inbox_for_new_mail: this used to only log failures server-side
+    and report success regardless, which made a real connection failure
+    indistinguishable from 'nothing to sync' when labels didn't show up."""
+    if not _inbox_configured():
+        return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0
+    try:
+        conn = get_db()
+        import imaplib
+        imap_email, imap_password = _inbox_credentials()
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        try:
+            m.login(imap_email, imap_password)
+        except Exception as login_err:
+            conn.close()
+            return False, str(login_err), 0
+        all_labels = _gmail_list_all_labels(m)
+        execute(conn, "INSERT INTO settings (key,value) VALUES ('inbox_gmail_labels',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+            (json.dumps(all_labels),))
+        conn.commit()
+        threads = fetchall(conn, """SELECT id, status, tags, gmail_synced_status, gmail_synced_tags, gmail_last_synced_at
+            FROM inbox_threads WHERE last_message_at > NOW() - INTERVAL '90 days'
+            ORDER BY last_message_at DESC LIMIT 300""") or []
+        for t in threads:
+            try:
+                _sync_one_thread_from_gmail(conn, m, t)
+            except Exception as e:
+                app.logger.warning(f'Gmail pull sync error for thread {t["id"]}: {e}')
+        try:
+            m.logout()
+        except Exception:
+            pass
+        conn.close()
+        return True, None, len(all_labels)
+    except Exception as e:
+        app.logger.warning(f'Gmail pull sync failed: {e}')
+        return False, str(e), 0
+
+def _find_gmail_sent_folder(imap_conn):
+    """Finds the actual Sent Mail folder via IMAP's special-use attribute
+    (RFC 6154, which Gmail supports) rather than hardcoding a folder name
+    — '[Gmail]/Sent Mail' is only correct for English-locale accounts;
+    other languages/regions use a different label for the same folder."""
+    try:
+        typ, folders = imap_conn.list()
+        if typ != 'OK' or not folders:
+            return None
+        import re as _refolder
+        for f in folders:
+            decoded = f.decode('utf-8', errors='replace') if isinstance(f, bytes) else f
+            if '\\Sent' in decoded:
+                m = _refolder.search(r'"([^"]*)"\s*$', decoded)
+                if m:
+                    return m.group(1)
+    except Exception:
+        pass
+    return None
+
+def _gmail_list_all_labels(imap_conn):
+    """Every user-created Gmail label, excluding Gmail's own special-use
+    system folders (Inbox, Sent, Drafts, Trash, Spam, All Mail, Starred,
+    Important) — these get cached as 'available tags' in RoleCall so the
+    full label list shows up right away, not just labels that happen to
+    already be on a synced thread."""
+    try:
+        typ, folders = imap_conn.list()
+        if typ != 'OK' or not folders:
+            return []
+        import re as _refolder
+        skip_attrs = {'\\Noselect', '\\Sent', '\\Drafts', '\\Trash', '\\Junk', '\\Spam', '\\All', '\\Flagged', '\\Important'}
+        labels = []
+        for f in folders:
+            decoded = f.decode('utf-8', errors='replace') if isinstance(f, bytes) else f
+            m = _refolder.match(r'^\(([^)]*)\)\s+"[^"]*"\s+"?([^"]*)"?\s*$', decoded)
+            if not m:
+                continue
+            attrs = set(m.group(1).split())
+            name = m.group(2).strip()
+            if attrs & skip_attrs or not name or name.upper() == 'INBOX':
+                continue
+            labels.append(name)
+        return sorted(labels)
+    except Exception:
+        return []
+
+def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in_reply_to=None, cc_emails='', bcc_emails='', attachments=None):
+    """Inserts a copy of a message RoleCall just sent (via Resend) into
+    Gmail's own Sent Mail folder, using IMAP APPEND. Resend delivers the
+    email but never touches Gmail's servers, so without this step a
+    reply sent from RoleCall would show up in the recipient's inbox and
+    in RoleCall, but be completely invisible to anyone checking Gmail
+    directly — this keeps both views showing the same conversation.
+    Best-effort only: failure here never blocks the actual send, since
+    the message has already gone out by the time this runs.
+    attachments: optional list of {'filename','content_type','data'} with
+    raw bytes, mirrored into the Sent-folder copy so it looks identical
+    to what the recipient actually got."""
+    if not _inbox_configured():
+        return
+    try:
+        import imaplib, time as _timeimap
+        from email.message import EmailMessage
+        from email.utils import formatdate
+        imap_email, imap_password = _inbox_credentials()
+        msg = EmailMessage()
+        msg['From'] = f'Horizon West Theater Company <{imap_email}>'
+        msg['To'] = f'{to_name} <{to_email}>' if to_name else to_email
+        if cc_emails:
+            msg['Cc'] = cc_emails
+        msg['Subject'] = subject
+        msg['Date'] = formatdate(localtime=True)
+        msg['Message-ID'] = message_id
+        if in_reply_to:
+            msg['In-Reply-To'] = in_reply_to
+            msg['References'] = in_reply_to
+        msg.set_content('This message contains HTML content. Please view it in an HTML-capable mail client.')
+        msg.add_alternative(html_body, subtype='html')
+        for att in (attachments or []):
+            maintype, _, subtype = (att.get('content_type') or 'application/octet-stream').partition('/')
+            msg.add_attachment(att['data'], maintype=maintype or 'application', subtype=subtype or 'octet-stream', filename=att['filename'])
+
+        m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+        m.login(imap_email, imap_password)
+        sent_folder = _find_gmail_sent_folder(m) or '[Gmail]/Sent Mail'
+        # imaplib does NOT auto-quote mailbox names — a folder name with a
+        # space (like the default '[Gmail]/Sent Mail') sent unquoted
+        # produces a malformed IMAP command that the server rejects with a
+        # NO/BAD response rather than a Python exception, so this was
+        # failing on every single append with nothing in the logs to show
+        # it. Quoting it properly is the actual fix; checking the return
+        # status is what makes any *future* failure visible instead of
+        # silent.
+        quoted_folder = '"' + sent_folder.replace('\\', '\\\\').replace('"', '\\"') + '"'
+        typ, resp = m.append(quoted_folder, '\\Seen', imaplib.Time2Internaldate(_timeimap.time()), msg.as_bytes())
+        if typ != 'OK':
+            app.logger.warning(f'IMAP append to Sent folder ("{sent_folder}") returned {typ}: {resp} (message was still sent via Resend)')
+        try:
+            m.logout()
+        except Exception:
+            pass
+    except Exception as e:
+        app.logger.warning(f'IMAP append to Sent folder failed (non-fatal, message was still sent): {e}')
+
+def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name, in_reply_to_message_id=None, to_name='', cc_emails='', bcc_emails='', attachments=None):
+    """Sends a reply as info@ and records it on the thread. Threads
+    properly in the recipient's client via In-Reply-To/References when we
+    have a message-id to reference; always safe to call without one.
+
+    Also stamps our own Message-ID on every outbound send (not just
+    replies) and stores it locally — so if the recipient replies, that
+    reply's In-Reply-To will match a message we already have on file and
+    thread precisely, rather than relying solely on the subject+sender
+    fallback matching in _find_or_create_inbox_thread. Resend may or may
+    not honor a custom Message-ID header; either way this degrades
+    gracefully since the fallback matching still catches it.
+
+    After a successful send, also copies the message into Gmail's own
+    Sent Mail folder via IMAP APPEND — see _imap_append_sent_copy — so
+    Gmail and RoleCall never disagree about what's been replied to.
+
+    attachments (optional): list of {'filename','content_type','data'}
+    with raw bytes — sent via Resend, mirrored to the Sent folder, and
+    stored in inbox_attachments against the new message row.
+
+    Also flips the thread to 'pending' ('waiting on them') if it was
+    'open' — the ticketing-style signal for who owns the next move.
+    _find_or_create_inbox_thread flips it back to 'open' the moment a
+    new inbound message lands, so this never needs manual upkeep."""
+    our_message_id = f'<{uuid.uuid4()}@hwtco.org>'
+    headers = {'Message-ID': our_message_id}
+    if in_reply_to_message_id:
+        headers['In-Reply-To'] = in_reply_to_message_id
+        headers['References'] = in_reply_to_message_id
+    from_email = _inbox_credentials()[0] or 'info@hwtco.org'
+    resend_attachments = None
+    if attachments:
+        import base64 as _b64send
+        resend_attachments = [{'filename': a['filename'], 'content_b64': _b64send.b64encode(a['data']).decode()} for a in attachments]
+    ok, err, resend_id = send_email(to_email, subject, html_body, from_email=from_email,
+        from_name='Horizon West Theater Company', source='shared_inbox', extra_headers=headers,
+        cc=cc_emails or None, bcc=bcc_emails or None, attachments=resend_attachments)
+    if not ok:
+        # Don't record anything on a failed send — an inbox_messages row here
+        # would make a message that was never actually delivered look like a
+        # normal sent reply in the thread history, and marking the thread
+        # unread=FALSE below would make it look like it had been handled,
+        # potentially causing a real inquiry to get dropped.
+        return ok, err
+    mid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO inbox_messages
+        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, message_id, in_reply_to, sent_by, cc_emails, bcc_emails)
+        VALUES (%s,%s,'outbound',%s,'Horizon West Theater Company',%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (mid, thread_id, from_email, to_email, subject, html_body,
+         our_message_id, in_reply_to_message_id or '', sent_by_name, cc_emails or '', bcc_emails or ''))
+    for att in (attachments or []):
+        execute(conn, """INSERT INTO inbox_attachments (id, message_id, filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s)""",
+            (str(uuid.uuid4()), mid, att['filename'], att.get('content_type') or 'application/octet-stream',
+             __import__('base64').b64encode(att['data']).decode(), len(att['data'])))
+    execute(conn, """UPDATE inbox_threads SET last_message_at=NOW(), unread=FALSE,
+        status=CASE WHEN status='open' THEN 'pending' ELSE status END WHERE id=%s""", (thread_id,))
+    try:
+        _imap_append_sent_copy(to_email, to_name, subject, html_body, our_message_id, in_reply_to_message_id,
+            cc_emails, bcc_emails, attachments)
+    except Exception as e:
+        app.logger.warning(f'Sent-folder sync error (non-fatal): {e}')
+    return ok, err
+
+@app.route('/api/inbox/status', methods=['GET'])
+def inbox_status():
+    err = require_permission('inbox', 'view')
+    if err: return err
+    return jsonify({'configured': _inbox_configured()})
+
+@app.route('/api/inbox/team', methods=['GET'])
+def list_inbox_team():
+    """Active user names for the assignment dropdown — deliberately a
+    lighter route than /api/users (which is admin-only) so any board
+    member with inbox access can assign a thread to a teammate, not just
+    admins. Filtered to people who actually have inbox permission
+    (view or edit) — assigning a thread to someone who can't open the
+    Inbox page would just leave it stuck."""
+    err = require_permission('inbox', 'view')
+    if err: return err
+    conn = get_db()
+    users = fetchall(conn, "SELECT name, role, role_permissions FROM users WHERE COALESCE(active,TRUE)=TRUE ORDER BY name") or []
+    conn.close()
+    result = []
+    for u in users:
+        if not u.get('name'):
+            continue
+        if u.get('role') == 'admin':
+            result.append(u['name'])
+            continue
+        try:
+            perms = json.loads(u.get('role_permissions') or '{}')
+        except Exception:
+            perms = {}
+        if resolve_perm_level(perms, 'inbox') in ('view', 'edit'):
+            result.append(u['name'])
+    return jsonify(result)
+
+@app.route('/api/inbox/threads', methods=['GET'])
+def list_inbox_threads():
+    err = require_permission('inbox', 'view')
+    if err: return err
+    status = request.args.get('status', '')
+    assigned = request.args.get('assigned', '')
+    search = (request.args.get('q') or '').strip()
+    tag = (request.args.get('tag') or '').strip()
+    sort_order = 'ASC' if request.args.get('sort') == 'oldest' else 'DESC'
+    conn = get_db()
+    sql = """SELECT t.*, (SELECT COUNT(*) FROM inbox_messages m WHERE m.thread_id=t.id) AS message_count,
+        (SELECT body_text FROM inbox_messages m WHERE m.thread_id=t.id ORDER BY created_at DESC LIMIT 1) AS last_body_text
+        FROM inbox_threads t WHERE 1=1"""
+    params = []
+    if status == 'active':
+        # 'Open or Pending' — used by 'Assigned to Me' so a thread you're
+        # actively corresponding on doesn't vanish from your own queue the
+        # moment your reply flips it from open to pending.
+        sql += " AND t.status NOT IN ('closed','spam')"
+    elif status and status != 'all':
+        sql += ' AND t.status=%s'; params.append(status)
+    if assigned == 'unassigned':
+        sql += " AND (t.assigned_to IS NULL OR t.assigned_to='')"
+    elif assigned == 'mine':
+        user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+        sql += ' AND t.assigned_to=%s'; params.append((user or {}).get('name', ''))
+    elif assigned and assigned != 'all':
+        sql += ' AND t.assigned_to=%s'; params.append(assigned)
+    if tag:
+        sql += " AND t.tags::jsonb ? %s"; params.append(tag)
+    if search:
+        sql += """ AND (t.subject ILIKE %s OR t.participant_name ILIKE %s OR t.participant_email ILIKE %s
+            OR EXISTS (SELECT 1 FROM inbox_messages m WHERE m.thread_id=t.id AND (m.body_text ILIKE %s OR m.body_html ILIKE %s)))"""
+        like = f'%{search}%'
+        params += [like, like, like, like, like]
+    sql += f' ORDER BY t.last_message_at {sort_order} LIMIT 200'
+    threads = fetchall(conn, sql, tuple(params)) or []
+    conn.close()
+    return jsonify(threads)
+
+def _inbox_linked_record_summary(conn, record_type, record_id):
+    """Small summary blob for whatever RoleCall record a thread is linked
+    to — the actual differentiator vs. a generic inbox tool: an email
+    from a rental partner shows their booking history right there."""
+    if record_type == 'rental_partner':
+        p = fetchone(conn, 'SELECT * FROM rental_partners WHERE id=%s', (record_id,))
+        if not p:
+            return None
+        requests_ = fetchall(conn, """SELECT title, status, start_date FROM rental_requests
+            WHERE partner_id=%s ORDER BY created_at DESC LIMIT 5""", (record_id,)) or []
+        return {'type': 'rental_partner', 'id': record_id, 'name': p.get('name'),
+            'detail': f"{p.get('organization_type') or 'Partner'} · {p.get('status','')}",
+            'recent': [f"{r['title']} ({r['status']})" for r in requests_]}
+    if record_type == 'volunteer':
+        v = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (record_id,))
+        if not v:
+            return None
+        hours = fetchone(conn, "SELECT COALESCE(SUM(hours),0) AS total FROM hours WHERE volunteer_id=%s", (record_id,))
+        return {'type': 'volunteer', 'id': record_id, 'name': v.get('name'),
+            'detail': f"Status: {v.get('status','')} · {(hours or {}).get('total',0)} hours logged", 'recent': []}
+    if record_type == 'donor':
+        d = fetchone(conn, 'SELECT * FROM donors WHERE id=%s', (record_id,))
+        if not d:
+            return None
+        gifts = fetchall(conn, "SELECT amount, donation_date FROM donor_donations WHERE donor_id=%s ORDER BY donation_date DESC LIMIT 5", (record_id,)) or []
+        return {'type': 'donor', 'id': record_id, 'name': d.get('display_name'),
+            'detail': (d.get('type') or 'individual').title(),
+            'recent': [f"${float(g.get('amount') or 0):.2f} on {g.get('donation_date','')}" for g in gifts]}
+    return None
+
+def _inbox_suggest_links(conn, participant_email):
+    """Candidate matches by email — shown as a 'looks like this person,
+    link it?' prompt rather than auto-linking, since an email address can
+    be shared or wrong and staff should confirm."""
+    if not participant_email:
+        return []
+    suggestions = []
+    p = fetchone(conn, 'SELECT id, name FROM rental_partners WHERE LOWER(contact_email)=%s LIMIT 1', (participant_email,))
+    if p:
+        suggestions.append({'type': 'rental_partner', 'id': p['id'], 'name': p['name']})
+    v = fetchone(conn, 'SELECT id, name FROM volunteers WHERE LOWER(email)=%s LIMIT 1', (participant_email,))
+    if v:
+        suggestions.append({'type': 'volunteer', 'id': v['id'], 'name': v['name']})
+    d = fetchone(conn, 'SELECT id, display_name FROM donors WHERE LOWER(email)=%s LIMIT 1', (participant_email,))
+    if d:
+        suggestions.append({'type': 'donor', 'id': d['id'], 'name': d['display_name']})
+    return suggestions
+
+@app.route('/api/inbox/threads/<tid>', methods=['GET'])
+def get_inbox_thread(tid):
+    err = require_permission('inbox', 'view')
+    if err: return err
+    conn = get_db()
+    thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (tid,))
+    if not thread:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    messages = fetchall(conn, 'SELECT * FROM inbox_messages WHERE thread_id=%s ORDER BY created_at', (tid,)) or []
+    if messages:
+        placeholders = ','.join(['%s'] * len(messages))
+        atts = fetchall(conn, f"""SELECT id, message_id, filename, content_type, size_bytes
+            FROM inbox_attachments WHERE message_id IN ({placeholders})""",
+            tuple(m['id'] for m in messages)) or []
+        by_message = {}
+        for a in atts:
+            by_message.setdefault(a['message_id'], []).append(a)
+        for m in messages:
+            m['attachments'] = by_message.get(m['id'], [])
+    if thread.get('linked_record_type') and thread.get('linked_record_id'):
+        thread['linked_record'] = _inbox_linked_record_summary(conn, thread['linked_record_type'], thread['linked_record_id'])
+        thread['link_suggestions'] = []
+    else:
+        thread['linked_record'] = None
+        thread['link_suggestions'] = _inbox_suggest_links(conn, thread.get('participant_email'))
+    thread['comments'] = fetchall(conn, 'SELECT * FROM inbox_comments WHERE thread_id=%s ORDER BY created_at', (tid,)) or []
+    execute(conn, 'UPDATE inbox_threads SET unread=FALSE WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    thread['messages'] = messages
+    return jsonify(thread)
+
+@app.route('/api/inbox/threads/<tid>/comments', methods=['POST'])
+def add_inbox_comment(tid):
+    """Internal team discussion on a conversation — never sent to the
+    participant, just a running log staff leave for each other (who
+    looked into it, what they found, why it's still pending, etc.)."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    body = (d.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Comment is empty'}), 400
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    author = (user or {}).get('name', 'Staff')
+    cid = str(uuid.uuid4())
+    execute(conn, 'INSERT INTO inbox_comments (id, thread_id, author_name, body) VALUES (%s,%s,%s,%s)',
+        (cid, tid, author, body))
+    conn.commit()
+    mentioned = _extract_inbox_mentions(conn, body, author)
+    if mentioned:
+        try:
+            _notify_inbox_mentioned(conn, tid, mentioned, author, body)
+        except Exception as e:
+            app.logger.warning(f'Inbox mention notification error: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'id': cid, 'author_name': author, 'mentioned': mentioned})
+
+@app.route('/api/inbox/comments/<cid>', methods=['PUT'])
+def update_inbox_comment(cid):
+    """Edits a comment's text — restricted to the comment's own author so
+    one staff member can't silently rewrite another's note."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    body = (d.get('body') or '').strip()
+    if not body:
+        return jsonify({'error': 'Comment is empty'}), 400
+    conn = get_db()
+    comment = fetchone(conn, 'SELECT * FROM inbox_comments WHERE id=%s', (cid,))
+    if not comment:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    my_name = (user or {}).get('name', '')
+    if comment.get('author_name') != my_name and session.get('role') != 'admin':
+        conn.close()
+        return jsonify({'error': "You can only edit your own comments"}), 403
+    execute(conn, 'UPDATE inbox_comments SET body=%s, edited_at=NOW() WHERE id=%s', (body, cid))
+    conn.commit()
+    mentioned = _extract_inbox_mentions(conn, body, my_name)
+    if mentioned:
+        try:
+            _notify_inbox_mentioned(conn, comment['thread_id'], mentioned, my_name, body)
+        except Exception as e:
+            app.logger.warning(f'Inbox mention notification error: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/comments/<cid>', methods=['DELETE'])
+def delete_inbox_comment(cid):
+    """Restricted to the comment's own author (or an admin) — previously
+    anyone with inbox edit permission could delete anyone else's note."""
+    err = require_permission('inbox')
+    if err: return err
+    conn = get_db()
+    comment = fetchone(conn, 'SELECT author_name FROM inbox_comments WHERE id=%s', (cid,))
+    if not comment:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    my_name = (user or {}).get('name', '')
+    if comment.get('author_name') != my_name and session.get('role') != 'admin':
+        conn.close()
+        return jsonify({'error': "You can only delete your own comments"}), 403
+    execute(conn, 'DELETE FROM inbox_comments WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/threads/<tid>/summarize', methods=['POST'])
+def summarize_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    result, error = run_inbox_thread_summary(conn, tid)
+    if error:
+        conn.close()
+        return jsonify({'error': error}), 400
+    execute(conn, 'UPDATE inbox_threads SET ai_summary=%s, ai_summary_action=%s, ai_summary_at=NOW() WHERE id=%s',
+        (result['summary'], result['suggested_action'], tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'summary': result['summary'], 'suggested_action': result['suggested_action']})
+
+
+@app.route('/api/inbox/threads/<tid>/link', methods=['PUT'])
+def link_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    record_type = (d.get('type') or '').strip()
+    record_id = (d.get('id') or '').strip()
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if not record_type or not record_id:
+        execute(conn, "UPDATE inbox_threads SET linked_record_type='', linked_record_id='' WHERE id=%s", (tid,))
+    else:
+        if record_type not in ('rental_partner', 'volunteer', 'donor'):
+            conn.close()
+            return jsonify({'error': 'Invalid record type'}), 400
+        execute(conn, 'UPDATE inbox_threads SET linked_record_type=%s, linked_record_id=%s WHERE id=%s',
+            (record_type, record_id, tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/threads/<tid>/merge', methods=['POST'])
+def merge_inbox_threads(tid):
+    """Moves every message from another thread into this one and deletes
+    the now-empty source — for when auto-threading guessed wrong and
+    split one real conversation into two."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    source_id = (d.get('source_thread_id') or '').strip()
+    if not source_id or source_id == tid:
+        return jsonify({'error': 'Pick a different conversation to merge in'}), 400
+    conn = get_db()
+    target = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    source = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (source_id,))
+    if not target or not source:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, 'UPDATE inbox_messages SET thread_id=%s WHERE thread_id=%s', (tid, source_id))
+    execute(conn, 'DELETE FROM inbox_threads WHERE id=%s', (source_id,))
+    execute(conn, "UPDATE inbox_threads SET last_message_at=NOW(), status=CASE WHEN status='closed' THEN 'open' ELSE status END WHERE id=%s", (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/threads/<tid>/tags', methods=['PUT'])
+def set_inbox_thread_tags(tid):
+    """Adding a tag mirrors Gmail's 'Move to' action (not 'Label as') —
+    the label gets applied AND the conversation leaves the Inbox, in both
+    Gmail and RoleCall (status → closed). Removing a tag only removes the
+    label; it doesn't un-archive, matching how 'Move to Inbox' is its own
+    separate action in Gmail too."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    tags = d.get('tags')
+    if not isinstance(tags, list):
+        return jsonify({'error': 'tags must be a list'}), 400
+    clean_tags = sorted(set(t.strip() for t in tags if isinstance(t, str) and t.strip()))
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id, tags, status FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    try:
+        old_tags = set(json.loads(existing.get('tags') or '[]'))
+    except Exception:
+        old_tags = set()
+    new_tags = set(clean_tags)
+    added, removed = new_tags - old_tags, old_tags - new_tags
+    should_archive = bool(added) and existing.get('status') not in ('closed', 'spam')
+    fields = ['tags=%s', 'gmail_synced_tags=%s', 'gmail_last_synced_at=NOW()']
+    params = [json.dumps(clean_tags), json.dumps(clean_tags)]
+    if should_archive:
+        fields += ['status=%s', 'gmail_synced_status=%s']
+        params += ['closed', 'closed']
+    params.append(tid)
+    execute(conn, f"UPDATE inbox_threads SET {', '.join(fields)} WHERE id=%s", tuple(params))
+    conn.commit()
+    if added or removed:
+        try:
+            remove_labels = list(removed) + (['\\Inbox'] if should_archive else [])
+            _gmail_push_thread_change(conn, tid, add_labels=list(added), remove_labels=remove_labels)
+        except Exception as e:
+            app.logger.warning(f'Gmail tag push error: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'tags': clean_tags})
+
+@app.route('/api/inbox/tags', methods=['GET'])
+def list_all_inbox_tags():
+    """Tags currently in use in RoleCall, unioned with the full cached
+    Gmail label list — so a Gmail label shows up as pickable even before
+    anything's actually been tagged with it in RoleCall yet."""
+    err = require_permission('inbox', 'view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, "SELECT tags FROM inbox_threads WHERE tags IS NOT NULL AND tags!='[]'") or []
+    gmail_labels_row = fetchone(conn, "SELECT value FROM settings WHERE key='inbox_gmail_labels'")
+    conn.close()
+    all_tags = set()
+    for r in rows:
+        try:
+            all_tags.update(json.loads(r.get('tags') or '[]'))
+        except Exception:
+            pass
+    if gmail_labels_row and gmail_labels_row.get('value'):
+        try:
+            all_tags.update(json.loads(gmail_labels_row['value']))
+        except Exception:
+            pass
+    return jsonify(sorted(all_tags))
+
+@app.route('/api/inbox/attachments/<aid>', methods=['GET'])
+def download_inbox_attachment(aid):
+    err = require_permission('inbox', 'view')
+    if err: return err
+    import base64 as _b64dl
+    from urllib.parse import quote as _quotedl
+    from flask import Response as _InboxAttResp
+    conn = get_db()
+    att = fetchone(conn, 'SELECT * FROM inbox_attachments WHERE id=%s', (aid,))
+    conn.close()
+    if not att:
+        return jsonify({'error': 'Not found'}), 404
+    data = _b64dl.b64decode(att['file_data_b64'])
+    resp = _InboxAttResp(data, mimetype=att.get('content_type') or 'application/octet-stream')
+    safe_name = (att.get('filename') or 'file').replace('"', "'")
+    ascii_name = safe_name.encode('ascii', 'ignore').decode('ascii').strip() or 'file'
+    resp.headers['Content-Disposition'] = f'attachment; filename="{ascii_name}"; filename*=UTF-8\'\'{_quotedl(safe_name)}'
+    return resp
+
+@app.route('/api/inbox/threads/<tid>', methods=['PUT'])
+def update_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    fields, params = [], []
+    if 'status' in d:
+        if d['status'] not in ('open', 'pending', 'closed', 'spam'):
+            conn.close()
+            return jsonify({'error': 'Invalid status'}), 400
+        fields.append('status=%s'); params.append(d['status'])
+        # Marking spam also clears unread — it's been triaged, just not
+        # via a real reply, and shouldn't keep nagging the unread badge.
+        if d['status'] == 'spam' and 'unread' not in d:
+            fields.append('unread=%s'); params.append(False)
+    if 'assigned_to' in d:
+        fields.append('assigned_to=%s'); params.append((d.get('assigned_to') or '').strip())
+    if 'internal_notes' in d:
+        fields.append('internal_notes=%s'); params.append(d.get('internal_notes') or '')
+    if 'unread' in d:
+        fields.append('unread=%s'); params.append(bool(d.get('unread')))
+    if not fields:
+        conn.close()
+        return jsonify({'error': 'Nothing to update'}), 400
+    params.append(tid)
+    execute(conn, f"UPDATE inbox_threads SET {', '.join(fields)} WHERE id=%s", tuple(params))
+    if 'status' in d:
+        # Also record what we just set as the 'last known Gmail state' —
+        # since we're the ones causing this change, the upcoming Gmail
+        # push should make Gmail match, and the next pull-from-Gmail pass
+        # needs to see this as already-synced rather than a Gmail-side
+        # change to (wrongly) re-apply back onto RoleCall.
+        execute(conn, 'UPDATE inbox_threads SET gmail_synced_status=%s, gmail_last_synced_at=NOW() WHERE id=%s', (d['status'], tid))
+    conn.commit()
+    if 'assigned_to' in d and (d.get('assigned_to') or '').strip():
+        try:
+            _notify_inbox_assigned(conn, tid, (d.get('assigned_to') or '').strip())
+        except Exception as e:
+            app.logger.warning(f'Inbox assignment notification error: {e}')
+    if 'status' in d:
+        try:
+            mapping = _gmail_labels_for_status(d['status'])
+            _gmail_push_thread_change(conn, tid, add_labels=mapping['add'], remove_labels=mapping['remove'])
+        except Exception as e:
+            app.logger.warning(f'Gmail status push error: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/threads/<tid>/assign-me', methods=['POST'])
+def assign_inbox_thread_to_me(tid):
+    """Assigns a thread to whoever's currently logged in — resolved
+    server-side from the session, same as every other 'do this as me'
+    action in RoleCall, so the frontend never needs to track/guess the
+    current user's display name itself."""
+    err = require_permission('inbox')
+    if err: return err
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM inbox_threads WHERE id=%s', (tid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    my_name = (user or {}).get('name', 'Staff')
+    execute(conn, 'UPDATE inbox_threads SET assigned_to=%s WHERE id=%s', (my_name, tid))
+    conn.commit()
+    # No self-notification — you already know you just assigned it to yourself.
+    conn.close()
+    return jsonify({'ok': True, 'assigned_to': my_name})
+
+def _decode_inbox_attachment_payload(items):
+    """Client sends attachments as [{filename, content_type, content_b64}].
+    Decodes and bounds-checks them; raises ValueError with a user-facing
+    message on anything invalid so the route can return it directly."""
+    import base64 as _b64dec
+    out = []
+    total = 0
+    for item in (items or []):
+        filename = (item.get('filename') or 'attachment').strip()
+        b64 = item.get('content_b64') or ''
+        try:
+            data = _b64dec.b64decode(b64)
+        except Exception:
+            raise ValueError(f'"{filename}" could not be read — try re-attaching it')
+        if len(data) > 15 * 1024 * 1024:
+            raise ValueError(f'"{filename}" is larger than the 15MB limit')
+        total += len(data)
+        if total > 25 * 1024 * 1024:
+            raise ValueError('Attachments together are larger than the 25MB limit')
+        out.append({'filename': filename, 'content_type': item.get('content_type') or 'application/octet-stream', 'data': data})
+    return out
+
+@app.route('/api/inbox/threads/<tid>/reply', methods=['POST'])
+def reply_to_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    body_html = (d.get('body_html') or '').strip()
+    if not body_html:
+        return jsonify({'error': 'Message body is required'}), 400
+    try:
+        attachments = _decode_inbox_attachment_payload(d.get('attachments'))
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
+    conn = get_db()
+    thread = fetchone(conn, 'SELECT * FROM inbox_threads WHERE id=%s', (tid,))
+    if not thread:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if not thread.get('participant_email'):
+        conn.close()
+        return jsonify({'error': 'This thread has no reply-to email on file'}), 400
+    last_inbound = fetchone(conn, """SELECT message_id FROM inbox_messages WHERE thread_id=%s AND direction='inbound'
+        ORDER BY created_at DESC LIMIT 1""", (tid,))
+    subject = thread.get('subject') or '(no subject)'
+    if not subject.lower().startswith('re:'):
+        subject = f'Re: {subject}'
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    sent_by_name = (user or {}).get('name', 'Staff')
+    ok, send_err = send_inbox_reply(conn, tid, thread['participant_email'], subject, body_html, sent_by_name,
+        (last_inbound or {}).get('message_id'), thread.get('participant_name') or '',
+        (d.get('cc_emails') or '').strip(), (d.get('bcc_emails') or '').strip(), attachments)
+    conn.commit(); conn.close()
+    if not ok:
+        return jsonify({'error': send_err or 'Could not send reply'}), 400
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/compose', methods=['POST'])
+def compose_inbox_message():
+    """Starts a brand-new conversation as info@ — the thing a Google
+    Group couldn't do, which is the whole reason this exists. Creates the
+    thread first (so it shows up in the inbox immediately even if the
+    send fails) then sends the first message into it."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    to_email = (d.get('to_email') or '').strip().lower()
+    subject = (d.get('subject') or '').strip()
+    body_html = (d.get('body_html') or '').strip()
+    if not to_email or '@' not in to_email:
+        return jsonify({'error': 'A valid recipient email is required'}), 400
+    if not subject:
+        return jsonify({'error': 'A subject is required'}), 400
+    if not body_html:
+        return jsonify({'error': 'Message body is required'}), 400
+    try:
+        attachments = _decode_inbox_attachment_payload(d.get('attachments'))
+    except ValueError as ve:
+        return jsonify({'error': str(ve)}), 400
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    sent_by_name = (user or {}).get('name', 'Staff')
+    thread_id = str(uuid.uuid4())
+    to_name = (d.get('to_name') or '').strip()
+    execute(conn, """INSERT INTO inbox_threads (id, subject, participant_email, participant_name, status, unread, last_message_at)
+        VALUES (%s,%s,%s,%s,'open',FALSE,NOW())""",
+        (thread_id, subject, to_email, to_name or to_email))
+    ok, send_err = send_inbox_reply(conn, thread_id, to_email, subject, body_html, sent_by_name, to_name=to_name,
+        cc_emails=(d.get('cc_emails') or '').strip(), bcc_emails=(d.get('bcc_emails') or '').strip(), attachments=attachments)
+    conn.commit(); conn.close()
+    if not ok:
+        return jsonify({'error': send_err or 'Could not send message'}), 400
+    return jsonify({'ok': True, 'thread_id': thread_id})
+
+@app.route('/api/inbox/threads/<tid>', methods=['DELETE'])
+def delete_inbox_thread(tid):
+    err = require_permission('inbox')
+    if err: return err
+    conn = get_db()
+    try:
+        _gmail_push_thread_change(conn, tid, add_labels=['\\Trash'], remove_labels=['\\Inbox'])
+    except Exception as e:
+        app.logger.warning(f'Gmail trash push error: {e}')
+    execute(conn, 'DELETE FROM inbox_threads WHERE id=%s', (tid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/inbox/check-now', methods=['POST'])
+def trigger_inbox_check_now():
+    """Manual 'refresh' button — runs the same check the scheduler runs
+    every 3 minutes, on demand, and actually reports back whether it
+    worked (the scheduled version only logs failures server-side, which
+    made a broken IMAP login look identical to a quiet inbox). Also
+    triggers the Gmail label/status pull inline, so the first sync
+    doesn't need to wait up to 10 minutes for its own scheduled run."""
+    err = require_permission('inbox')
+    if err: return err
+    if not _inbox_configured():
+        return jsonify({'error': 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set on the server yet'}), 400
+    ok, check_err, count = check_inbox_for_new_mail()
+    if not ok:
+        return jsonify({'error': f'Could not connect to the inbox: {check_err}'}), 500
+    label_ok, label_err, label_count = sync_inbox_from_gmail()
+    if not label_ok:
+        # New mail check succeeded, so don't fail the whole request — but
+        # do surface this instead of swallowing it, since a broken label
+        # sync was previously invisible (it would just quietly never
+        # populate the tag list, with nothing in the UI explaining why).
+        return jsonify({'ok': True, 'checked': count, 'label_warning': f'Mail checked OK, but the Gmail label sync failed: {label_err}'})
+    return jsonify({'ok': True, 'checked': count, 'labels_synced': label_count})
+
+_inbox_import_status = {'running': False, 'months': 0, 'imported': 0, 'error': None, 'finished_at': None}
+
+def _run_historical_import_bg(months):
+    # Persisted to the DB, not just kept in this process's memory — Railway
+    # typically runs more than one worker process, and a request to check
+    # status could land on a different one than the request that started
+    # the import. A plain in-memory dict would show 'not running' on any
+    # worker other than the one actually doing the work.
+    _set_inbox_import_status({'running': True, 'months': months, 'imported': 0, 'error': None, 'finished_at': None})
+    ok, err, imported = run_historical_inbox_import(months)
+    _set_inbox_import_status({'running': False, 'months': months, 'imported': imported, 'error': None if ok else err,
+        'finished_at': datetime.now().isoformat()})
+
+def _set_inbox_import_status(status):
+    try:
+        conn = get_db()
+        execute(conn, "INSERT INTO settings (key,value) VALUES ('inbox_import_status',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+            (json.dumps(status),))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'Could not persist inbox import status: {e}')
+
+def _get_inbox_import_status():
+    try:
+        conn = get_db()
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='inbox_import_status'")
+        conn.close()
+        if row and row.get('value'):
+            return json.loads(row['value'])
+    except Exception:
+        pass
+    return dict(_inbox_import_status)
+
+@app.route('/api/inbox/import-history', methods=['POST'])
+def start_inbox_import_history():
+    """Pulls in mail from before RoleCall's shared inbox existed —
+    including sent messages that never got a reply, which the normal
+    forward-only sync has no way to ever discover on its own. Runs in a
+    background thread rather than the request itself: a busy mailbox's
+    worth of months could easily take longer than a normal request
+    timeout allows."""
+    err = require_permission('inbox')
+    if err: return err
+    if not _inbox_configured():
+        return jsonify({'error': 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set on the server yet'}), 400
+    if _get_inbox_import_status().get('running'):
+        return jsonify({'error': 'An import is already running — check back shortly'}), 400
+    d = request.json or {}
+    try:
+        months = int(d.get('months') or 6)
+    except (TypeError, ValueError):
+        months = 6
+    months = max(1, min(months, 24))
+    import threading
+    threading.Thread(target=_run_historical_import_bg, args=(months,), daemon=True).start()
+    return jsonify({'ok': True, 'message': f'Import started for the last {months} month(s) — this can take a while for a busy mailbox. Check the status below.'})
+
+@app.route('/api/inbox/import-history/status', methods=['GET'])
+def get_inbox_import_history_status():
+    err = require_permission('inbox', 'view')
+    if err: return err
+    return jsonify(_get_inbox_import_status())
+
 def _start_oncall_scheduler():
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -19606,6 +23258,17 @@ def _start_oncall_scheduler():
                           max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.add_job(_daily_auto_close, CronTrigger(hour=2, minute=0), id='daily_auto_close',
                           max_instances=1, coalesce=True)
+        try:
+            from apscheduler.triggers.interval import IntervalTrigger
+            scheduler.add_job(check_inbox_for_new_mail, IntervalTrigger(minutes=3), id='inbox_check',
+                              max_instances=1, coalesce=True, misfire_grace_time=60)
+            # Runs less often than the new-mail check — each thread here
+            # costs up to 3 IMAP folder selects plus a search and fetch,
+            # so this is meaningfully heavier per run.
+            scheduler.add_job(sync_inbox_from_gmail, IntervalTrigger(minutes=10), id='inbox_gmail_pull',
+                              max_instances=1, coalesce=True, misfire_grace_time=120)
+        except Exception as e:
+            app.logger.warning(f'Could not schedule inbox check (non-fatal): {e}')
         scheduler.start()
         app.logger.info('On-call report scheduler started')
     except ImportError:
@@ -20746,11 +24409,20 @@ def upload_lobby_image():
     gh_url, gh_err = upload_image_to_github(filename, file_bytes)
     if gh_url:
         url = gh_url
+        persisted = True
     else:
-        app.logger.warning(f'Lobby image GitHub upload failed: {gh_err}')
+        # Falls back to local disk — which Railway wipes on every
+        # redeploy. This used to fail completely silently: the upload
+        # would report success and work fine until the next deploy
+        # quietly erased it. Now flagged in the response so the admin UI
+        # can warn immediately, at upload time, not after the photo's
+        # already gone.
+        app.logger.warning(f'Lobby image GitHub upload failed, falling back to local disk (will not survive a redeploy): {gh_err}')
         with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp: fp.write(file_bytes)
         url = f'/static/images/{filename}'
-    return jsonify({'ok': True, 'url': url})
+        persisted = False
+    return jsonify({'ok': True, 'url': url, 'persisted': persisted,
+        'warning': None if persisted else f'Saved, but not to permanent storage (GitHub upload failed: {gh_err}) — this photo will be lost on the next deploy unless GITHUB_TOKEN is fixed.'})
 
 # ── End Lobby TV Display ───────────────────────────────────────────────────────
 
@@ -21176,7 +24848,8 @@ def get_rental_requests():
             rp.contact_email AS partner_email, rp.contact_name AS partner_contact,
             rs.name AS space_name,
             ra.id AS agreement_id, ra.status AS agreement_status,
-            ra.partner_signed_at, ra.signing_token,
+            ra.partner_signed_at, ra.partner_signed_name, ra.signing_token,
+            ra.hwtc_signed_name, ra.hwtc_signed_title,
             COALESCE(rr.approval_level, 0) AS approval_level,
             COALESCE(rr.approval_history, '[]') AS approval_history,
             COALESCE(rr.denial_reason, '') AS denial_reason,
@@ -21198,6 +24871,8 @@ def get_rental_requests():
             (SELECT COUNT(*) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND square_invoice_status='PAID') AS installment_paid_count,
             (SELECT COALESCE(SUM(amount_cents),0) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment') AS installment_total_cents,
             (SELECT COALESCE(SUM(amount_cents),0) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND square_invoice_status='PAID') AS installment_paid_cents,
+            (SELECT COUNT(*) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND sent_at IS NULL) AS installment_unsent_count,
+            (SELECT MIN(due_date) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND sent_at IS NULL) AS installment_next_unsent_due_date,
             (SELECT MIN(due_date) FROM rental_payments WHERE agreement_id=ra.id AND payment_type='installment' AND square_invoice_status!='PAID') AS installment_next_due_date
             FROM rental_requests rr
             LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
@@ -21244,7 +24919,7 @@ def create_rental_request():
          _jcrr.dumps(specific_dates),
          portal_token,
          d.get('estimated_attendance') or None,
-         d.get('rate_type') or 'hourly',
+         d.get('rate_type') or 'Hour',
          int(d.get('rate_amount') or 0),
          int(d.get('total_amount') or 0),
          (d.get('notes') or '').strip(),
@@ -21282,6 +24957,174 @@ def create_rental_request():
         app.logger.warning(f'Rental approval notification error: {e}')
     conn.close()
     return jsonify({'ok': True, 'id': rid})
+
+def _get_live_installments_plan(conn, agreement_id):
+    """Exhibit A (the itemized payment schedule in the contract document)
+    should always match what's actually been scheduled/invoiced in
+    rental_payments — not the frozen snapshot taken at the moment the
+    contract was first generated, which silently drifts out of sync the
+    first time an installment is added, removed, or corrected afterward
+    (exactly the bug that left an already-added installment missing from
+    a downloaded PDF). Returns None (rather than an empty list) when there
+    are no installment rows yet, so callers know to fall back to whatever
+    was submitted at generation time instead of rendering an empty table."""
+    rows = fetchall(conn, """SELECT amount_cents, due_date, installment_label FROM rental_payments
+        WHERE agreement_id=%s AND payment_type='installment' ORDER BY due_date""", (agreement_id,)) or []
+    if not rows:
+        return None
+    return [{'amount': (r.get('amount_cents') or 0) / 100.0, 'due_date': r.get('due_date') or '',
+             'label': r.get('installment_label') or ''} for r in rows]
+
+def _get_or_create_event_type(conn, name, color='violet'):
+    row = fetchone(conn, 'SELECT id FROM event_types WHERE LOWER(name)=LOWER(%s)', (name,))
+    if row:
+        return row['id']
+    tid = str(uuid.uuid4())
+    execute(conn, 'INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s)', (tid, name, color))
+    conn.commit()
+    return tid
+
+def _sync_rental_events_for_request(conn, request_id):
+    """Keep real `events` rows in sync with an Artistic Partnership
+    request's active occurrences, so rental bookings get the same opening
+    /closing checklist, kiosk open/close, and ELIC-assignment support as
+    every other event on the calendar — rental dates used to only exist as
+    a display-only overlay with nothing behind them to open or close.
+
+    Reconciles both directions: creates an event for any active occurrence
+    that doesn't have one yet, and removes the event for any occurrence
+    that's no longer active (date edited away, request denied/sent back).
+    Safe to call repeatedly — this is also how the one-time backfill for
+    already-approved requests works.
+    """
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_name AS partner_contact,
+        rs.name AS space_name FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (request_id,))
+    if not req:
+        return
+    occurrences = fetchall(conn, """SELECT * FROM rental_occurrences
+        WHERE request_id=%s AND status!='cancelled'""", (request_id,)) or []
+    active_occurrence_ids = {o['id'] for o in occurrences}
+    linked_events = fetchall(conn, """SELECT id, rental_occurrence_id FROM events
+        WHERE rental_request_id=%s AND rental_occurrence_id IS NOT NULL""", (request_id,)) or []
+    linked_by_occurrence = {e['rental_occurrence_id']: e['id'] for e in linked_events}
+
+    # Remove events for occurrences that are no longer active.
+    for occurrence_id, event_id in linked_by_occurrence.items():
+        if occurrence_id not in active_occurrence_ids:
+            try:
+                _delete_event_cascade(conn, event_id)
+            except Exception as e:
+                app.logger.warning(f'Rental event cleanup error for occurrence {occurrence_id}: {e}')
+
+    # Create events for active occurrences that don't have one yet.
+    to_create = [o for o in occurrences if o['id'] not in linked_by_occurrence]
+    if not to_create:
+        return
+    event_type_id = _get_or_create_event_type(conn, 'Artistic Partnership', 'violet')
+    partner_label = req.get('partner_name') or 'Partner'
+    for o in to_create:
+        eid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO events
+            (id, name, event_date, start_time, end_time, event_type_id, location, room, status,
+             description, auto_log_hours, kiosk_signin_mode, rental_occurrence_id, rental_request_id)
+            VALUES (%s,%s,%s,%s,%s,%s,'HWTC',%s,'draft',%s,TRUE,'auto',%s,%s)
+            ON CONFLICT (rental_occurrence_id) WHERE rental_occurrence_id IS NOT NULL DO NOTHING''', (
+            eid, f"{req.get('title','')} – {partner_label}", o.get('occurrence_date'),
+            o.get('start_time') or req.get('start_time'), o.get('end_time') or req.get('end_time'),
+            event_type_id, req.get('space_name') or '',
+            f"Artistic Partnership booking with {partner_label}."
+            + (f" On-site contact: {req['partner_contact']}." if req.get('partner_contact') else ''),
+            o['id'], request_id))
+    conn.commit()
+
+def _dedupe_rental_events():
+    """Fixes the fallout of a startup race: with multiple gunicorn workers,
+    two processes could each run the backfill at the same moment, both see
+    'no event for this occurrence yet' (since neither had committed), and
+    both insert one — leaving every affected rental with 2 duplicate
+    events. For each rental_occurrence_id with more than one event, keeps
+    the earliest (oldest created_at, then lowest id as a tiebreaker) and
+    cascade-deletes the rest. Safe to run every startup: a no-op once
+    there's nothing left to dedupe.
+
+    Also (re)creates the unique index on rental_occurrence_id here, in
+    Python, right after cleanup — rather than relying solely on the SQL
+    migration list, whose ordering can't guarantee dedup happens first.
+    The plain migration-list attempt is left in place too as a harmless
+    best-effort for the common case where there's nothing to clean up."""
+    try:
+        conn = get_db()
+        dupes = fetchall(conn, """SELECT rental_occurrence_id FROM events
+            WHERE rental_occurrence_id IS NOT NULL
+            GROUP BY rental_occurrence_id HAVING COUNT(*) > 1""") or []
+        for row in dupes:
+            occ_id = row['rental_occurrence_id']
+            rows = fetchall(conn, """SELECT id FROM events WHERE rental_occurrence_id=%s
+                ORDER BY created_at ASC, id ASC""", (occ_id,)) or []
+            for extra in rows[1:]:
+                try:
+                    _delete_event_cascade(conn, extra['id'])
+                except Exception as e:
+                    app.logger.warning(f'Rental event dedupe error for {extra["id"]}: {e}')
+        try:
+            execute(conn, """CREATE UNIQUE INDEX IF NOT EXISTS ux_events_rental_occurrence
+                ON events(rental_occurrence_id) WHERE rental_occurrence_id IS NOT NULL""")
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            app.logger.warning(f'Rental event unique index creation deferred: {e}')
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Rental event dedupe failed: {e}')
+
+def _fix_rental_event_locations():
+    """One-time (but safely repeatable) correction for rental-linked
+    events created before this fix: they had the studio name written into
+    `location` (e.g. 'Studio A'), which the checklist system reads as
+    'this is happening somewhere other than our own building' and filters
+    down to a generic reduced checklist. The studio name belongs in
+    `room` instead — `location` should read 'HWTC', exactly like a normal
+    in-house event, so the full studio checklist applies."""
+    try:
+        conn = get_db()
+        execute(conn, """UPDATE events SET room=location, location='HWTC'
+            WHERE rental_occurrence_id IS NOT NULL AND location IS NOT NULL AND location!='HWTC'
+            AND (room IS NULL OR room='')""")
+        # Edge case: a rental event that already has a room set for some
+        # other reason — still fix location, just don't clobber room.
+        execute(conn, """UPDATE events SET location='HWTC'
+            WHERE rental_occurrence_id IS NOT NULL AND location IS NOT NULL AND location!='HWTC'
+            AND room IS NOT NULL AND room!=''""")
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'Rental event location fix failed: {e}')
+
+def _backfill_rental_calendar_events():
+    """One-time (but safely repeatable) backfill: give every already
+    approved/signed/active/completed rental request real calendar events,
+    matching what now happens automatically going forward at approval
+    time. Runs once at startup; _sync_rental_events_for_request is a
+    no-op for requests that are already synced, so re-running this on
+    every deploy is cheap and self-healing."""
+    try:
+        conn = get_db()
+        request_ids = fetchall(conn, """SELECT DISTINCT request_id FROM rental_occurrences
+            WHERE status != 'cancelled'""") or []
+        for row in request_ids:
+            try:
+                _sync_rental_events_for_request(conn, row['request_id'])
+            except Exception as e:
+                app.logger.warning(f'Rental event backfill error for {row["request_id"]}: {e}')
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Rental event backfill failed: {e}')
+
+_dedupe_rental_events()
+_backfill_rental_calendar_events()
+_fix_rental_event_locations()
 
 def _generate_rental_occurrences(conn, request_id, d):
     """Create one rental_occurrences row per day this request covers, so it
@@ -21412,7 +25255,7 @@ def update_rental_request(rid):
          (d.get('recurrence_end_date') or '').strip(),
          (d.get('date_mode') or 'range').strip(), _jurr.dumps(specific_dates),
          d.get('estimated_attendance') or None,
-         d.get('rate_type') or 'hourly',
+         d.get('rate_type') or 'Hour',
          int(d.get('rate_amount') or 0), int(d.get('total_amount') or 0),
          (d.get('notes') or '').strip(),
          (d.get('partnership_category') or 'open_partnership').strip(),
@@ -21422,9 +25265,217 @@ def update_rental_request(rid):
     # is reflected rather than the original. A still-pending request has no
     # occurrences yet (those aren't created until approval), so there's
     # nothing to touch.
-    if existing.get('status') == 'approved':
+    # Only a request that's already on the calendar has occurrences to keep
+    # in sync — clear and regenerate them so an edited date/time is
+    # reflected rather than the original. A still-pending request has no
+    # occurrences yet (those aren't created until approval). Signed/active
+    # requests are included here too: this is purely the operational
+    # calendar (dates, checklist, kiosk) — it doesn't touch the contract
+    # document or the existing signature. For actually correcting the
+    # signed document's terms, see /correct-signed below.
+    if existing.get('status') in ('approved', 'signed', 'active'):
         execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
         _generate_rental_occurrences(conn, rid, d)
+        _sync_rental_events_for_request(conn, rid)
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/requests/<rid>/correct-signed', methods=['POST'])
+def correct_signed_rental_request(rid):
+    """Fix a mistake on an already-signed contract (wrong date, fee, space,
+    etc.) without restarting the approve → generate → send → sign
+    workflow. Updates the request's details and calendar the same as a
+    normal edit, then regenerates the contract document's terms in place —
+    same agreement row, same signing link, same recorded signature/date —
+    so nothing needs to be re-sent or re-signed. Requires a short note
+    explaining the correction, which gets appended to the agreement's
+    internal notes as an audit trail."""
+    err = require_permission('rentals')
+    if err: return err
+    import json as _jcsr
+    d = request.json or {}
+    reason = (d.get('correction_note') or '').strip()
+    if not reason:
+        return jsonify({'error': 'A short note explaining the correction is required, for the record'}), 400
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE request_id=%s ORDER BY created_at DESC LIMIT 1', (rid,))
+    if not agr or not agr.get('partner_signed_at'):
+        conn.close()
+        return jsonify({'error': 'This request has no signed agreement — use the regular Edit and Regenerate Contract instead'}), 400
+
+    specific_dates = d.get('specific_dates') or []
+    execute(conn, '''UPDATE rental_requests SET partner_id=%s, space_id=%s, title=%s,
+        purpose=%s, start_date=%s, end_date=%s, start_time=%s, end_time=%s,
+        recurring=%s, recurrence_pattern=%s, recurrence_end_date=%s,
+        date_mode=%s, specific_dates=%s,
+        estimated_attendance=%s, rate_type=%s, rate_amount=%s, total_amount=%s,
+        notes=%s, partnership_category=%s, revenue_split_notes=%s, updated_at=NOW() WHERE id=%s''',
+        (d.get('partner_id') or None, d.get('space_id') or None,
+         (d.get('title') or '').strip(), (d.get('purpose') or '').strip(),
+         (d.get('start_date') or '').strip(), (d.get('end_date') or '').strip(),
+         (d.get('start_time') or '').strip(), (d.get('end_time') or '').strip(),
+         bool(d.get('recurring')), (d.get('recurrence_pattern') or '').strip(),
+         (d.get('recurrence_end_date') or '').strip(),
+         (d.get('date_mode') or 'range').strip(), _jcsr.dumps(specific_dates),
+         d.get('estimated_attendance') or None,
+         d.get('rate_type') or 'Hour',
+         int(d.get('rate_amount') or 0), int(d.get('total_amount') or 0),
+         (d.get('notes') or '').strip(),
+         (d.get('partnership_category') or 'open_partnership').strip(),
+         (d.get('revenue_split_notes') or '').strip(), rid))
+
+    execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+    _generate_rental_occurrences(conn, rid, d)
+    _sync_rental_events_for_request(conn, rid)
+
+    # Rebuild the contract *terms* using the same inputs the original
+    # generation used (persisted on the agreement row) unless this request
+    # explicitly overrides one — the signature itself is never touched,
+    # since it's stored separately (partner_signed_name/at) and combined
+    # with contract_html only at view/download time.
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (rid,))
+    custom_terms = d.get('custom_terms') if d.get('custom_terms') is not None else (agr.get('custom_terms') or '')
+    poc_name = d.get('poc_name') if d.get('poc_name') is not None else (agr.get('poc_name') or '')
+    poc_email = d.get('poc_email') if d.get('poc_email') is not None else (agr.get('poc_email') or '')
+    poc_phone = d.get('poc_phone') if d.get('poc_phone') is not None else (agr.get('poc_phone') or '')
+    additional_terms = d.get('additional_terms') if d.get('additional_terms') is not None else (agr.get('additional_terms') or '')
+    deposit = (d.get('deposit') or '').strip()
+    revenue_split_notes = (d.get('revenue_split_notes') or req.get('revenue_split_notes') or '').strip()
+    billing_frequency = (req.get('billing_frequency') or 'deposit_final')
+    installments_plan = _get_live_installments_plan(conn, agr['id'])
+    if installments_plan is None:
+        try:
+            installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
+        except Exception:
+            installments_plan = []
+    try:
+        equipment_selections = json.loads(req.get('equipment_selections') or '[]')
+    except Exception:
+        equipment_selections = []
+    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
+    # Carry the org's own signature forward unchanged — it was stamped
+    # directly into contract_html at generation time (unlike the
+    # partner's, which is layered on at view/download time), so rebuilding
+    # the terms would otherwise silently blank it out.
+    hwtc_signer_name = agr.get('hwtc_signed_name') or ''
+    hwtc_signer_title = agr.get('hwtc_signed_title') or ''
+    _hwtc_signed_dt = parse_db_datetime(agr.get('hwtc_signed_at'))
+    hwtc_signed_at_str = _hwtc_signed_dt.strftime('%B %-d, %Y') if _hwtc_signed_dt else ''
+    contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone,
+        deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms, equipment_selections,
+        hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_str)
+
+    staff = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    staff_name = (staff or {}).get('name', 'Staff')
+    signed_note = f"{agr.get('partner_signed_name','')} on {str(agr.get('partner_signed_at',''))[:10]}"
+    audit_line = f"[{date.today().isoformat()}] Contract corrected by {staff_name}: {reason} (original signature by {signed_note} retained — no re-signature required)"
+    new_notes = ((agr.get('admin_notes') or '') + ('\n' if agr.get('admin_notes') else '') + audit_line)
+
+    execute(conn, '''UPDATE rental_agreements SET contract_html=%s, custom_terms=%s, poc_name=%s,
+        poc_email=%s, poc_phone=%s, additional_terms=%s, admin_notes=%s, updated_at=NOW() WHERE id=%s''',
+        (contract_html, custom_terms, poc_name, poc_email, poc_phone, additional_terms, new_notes, agr['id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+def _rebuild_rental_contract_html(conn, agr, req, hwtc_name=None, hwtc_title=None, hwtc_signed_at_dt=None):
+    """Shared rebuild logic used by every action that needs to regenerate
+    a contract's terms in place (correcting a signed contract, adding
+    HWTC's signature, adding an installment, or a plain resync) — keeps
+    all of them pulling installments from the same live source and
+    passing the same signature fields, so they can't drift apart from
+    each other the way the Exhibit A bug did."""
+    installments_plan = _get_live_installments_plan(conn, agr['id'])
+    if installments_plan is None:
+        try:
+            installments_plan = json.loads(req.get('billing_installments_plan') or '[]')
+        except Exception:
+            installments_plan = []
+    try:
+        equipment_selections = json.loads(req.get('equipment_selections') or '[]')
+    except Exception:
+        equipment_selections = []
+    occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (agr['request_id'],)) or []
+    if hwtc_name is None:
+        hwtc_name = agr.get('hwtc_signed_name') or ''
+        hwtc_title = agr.get('hwtc_signed_title') or ''
+        _hwtc_dt = parse_db_datetime(agr.get('hwtc_signed_at'))
+        hwtc_signed_at_str = _hwtc_dt.strftime('%B %-d, %Y') if _hwtc_dt else ''
+    else:
+        hwtc_signed_at_str = (hwtc_signed_at_dt or datetime.now()).strftime('%B %-d, %Y')
+    return _build_rental_contract_html(conn, req, agr.get('custom_terms') or '', agr.get('poc_name') or '',
+        agr.get('poc_email') or '', agr.get('poc_phone') or '', '', req.get('revenue_split_notes') or '',
+        req.get('billing_frequency') or 'deposit_final', occurrences, installments_plan, agr.get('additional_terms') or '',
+        equipment_selections, hwtc_name or '', hwtc_title or '', hwtc_signed_at_str)
+
+@app.route('/api/rental/agreements/<aid>/resync-document', methods=['POST'])
+def resync_rental_agreement_document(aid):
+    """Refreshes a contract's document from current live data — dates,
+    total, installment schedule, both signatures — without requiring a
+    correction reason, for whenever the document's just out of sync with
+    RoleCall's records rather than an actual mistake being fixed (e.g. an
+    installment added before Exhibit A auto-refreshed on that action)."""
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (agr['request_id'],))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Rental request not found'}), 404
+    contract_html = _rebuild_rental_contract_html(conn, agr, req)
+    execute(conn, 'UPDATE rental_agreements SET contract_html=%s, updated_at=NOW() WHERE id=%s', (contract_html, aid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/agreements/<aid>/sign-hwtc', methods=['POST'])
+def sign_hwtc_rental_agreement(aid):
+    """Adds (or replaces) HWTC's own signature on an agreement that
+    doesn't have one recorded yet — most commonly a contract generated
+    before the HWTC-signature feature existed, where the line was left
+    blank. Works regardless of whether the partner has already signed:
+    the two signatures are independent, so this never disturbs theirs."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    hwtc_signer_name = (d.get('hwtc_signatory_name') or '').strip()
+    if not hwtc_signer_name:
+        return jsonify({'error': 'A signer name is required'}), 400
+    hwtc_signer_title = (d.get('hwtc_signatory_title') or '').strip()
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (agr['request_id'],))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Rental request not found'}), 404
+    hwtc_signed_at_dt = datetime.now()
+    contract_html = _rebuild_rental_contract_html(conn, agr, req, hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_dt)
+    execute(conn, '''UPDATE rental_agreements SET contract_html=%s, hwtc_signed_name=%s,
+        hwtc_signed_title=%s, hwtc_signed_at=%s, updated_at=NOW() WHERE id=%s''',
+        (contract_html, hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_dt, aid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -21479,6 +25530,7 @@ def approve_rental_request(rid):
     # here changed them.
     if fully_approved:
         _generate_rental_occurrences(conn, rid, req)
+        _sync_rental_events_for_request(conn, rid)
     # Notify next level approvers if not fully approved
     if not fully_approved and levels and next_level < len(levels):
         next_level_config = levels[next_level]
@@ -21523,6 +25575,7 @@ def deny_rental_request(rid):
         (reason, _jrd.dumps(history), rid))
     # If this had already been approved (and put on the calendar), take it back off.
     execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+    _sync_rental_events_for_request(conn, rid)
     # Notify partner if we have their email
     partner = fetchone(conn, '''SELECT rp.contact_email, rp.contact_name, rp.name AS pname
         FROM rental_requests rr JOIN rental_partners rp ON rp.id=rr.partner_id
@@ -21566,6 +25619,43 @@ def sendback_rental_request(rid):
         (reason, _jrsb.dumps(history), rid))
     # No longer approved — take it back off the calendar until re-approved.
     execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+    _sync_rental_events_for_request(conn, rid)
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/requests/<rid>/complete', methods=['POST'])
+def complete_rental_request(rid):
+    """Mark a signed/active partnership as finished — moves it out of the
+    Ongoing view once the collaboration has run its course, without
+    affecting payment history or the contract itself."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    req = fetchone(conn, 'SELECT status FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if req['status'] not in ('signed', 'active'):
+        conn.close()
+        return jsonify({'error': 'Only signed or active partnerships can be marked completed'}), 400
+    execute(conn, "UPDATE rental_requests SET status='completed', updated_at=NOW() WHERE id=%s", (rid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/requests/<rid>/reopen', methods=['POST'])
+def reopen_rental_request(rid):
+    """Undo a 'Mark Completed' — puts the partnership back in Ongoing."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    req = fetchone(conn, 'SELECT status FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    if req['status'] != 'completed':
+        conn.close()
+        return jsonify({'error': 'Only completed partnerships can be reopened'}), 400
+    execute(conn, "UPDATE rental_requests SET status='active', updated_at=NOW() WHERE id=%s", (rid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -21575,6 +25665,12 @@ def delete_rental_request(rid):
     err = require_auth()
     if err: return err
     conn = get_db()
+    linked_events = fetchall(conn, 'SELECT id FROM events WHERE rental_request_id=%s', (rid,)) or []
+    for e in linked_events:
+        try:
+            _delete_event_cascade(conn, e['id'])
+        except Exception as ex:
+            app.logger.warning(f'delete_rental_request event cleanup {e["id"]}: {ex}')
     execute(conn, 'DELETE FROM rental_agreements WHERE request_id=%s', (rid,))
     execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
     execute(conn, 'DELETE FROM rental_requests WHERE id=%s', (rid,))
@@ -21608,106 +25704,514 @@ def generate_rental_contract(rid):
     revenue_split_notes = (d.get('revenue_split_notes') or req.get('revenue_split_notes') or '').strip()
     billing_frequency = (d.get('billing_frequency') or req.get('billing_frequency') or 'deposit_final').strip()
     billing_months = d.get('billing_months') or req.get('billing_months') or None
+    installments_plan_raw = d.get('installments_plan')
+    if installments_plan_raw is not None:
+        installments_plan_json = json.dumps(installments_plan_raw)
+    else:
+        installments_plan_json = req.get('billing_installments_plan') or ''
+    installments_plan = []
+    if installments_plan_json:
+        try:
+            installments_plan = json.loads(installments_plan_json)
+        except Exception:
+            installments_plan = []
     # Persist whatever billing plan was disclosed in this contract onto the
     # request itself, so the payment-plan step after signing can't drift
     # from what the partner actually agreed to.
-    execute(conn, 'UPDATE rental_requests SET billing_frequency=%s, billing_months=%s WHERE id=%s',
-        (billing_frequency, billing_months, rid))
+    equipment_selections_raw = d.get('equipment_selections')
+    if equipment_selections_raw is not None:
+        equipment_selections_json = json.dumps(equipment_selections_raw)
+    else:
+        equipment_selections_json = req.get('equipment_selections') or ''
+    equipment_selections = []
+    if equipment_selections_json:
+        try:
+            equipment_selections = json.loads(equipment_selections_json)
+        except Exception:
+            equipment_selections = []
+    execute(conn, 'UPDATE rental_requests SET billing_frequency=%s, billing_months=%s, billing_installments_plan=%s, equipment_selections=%s WHERE id=%s',
+        (billing_frequency, billing_months, installments_plan_json, equipment_selections_json, rid))
     # If no custom terms provided, load default template from email_settings
+    es_for_terms = None
     if not custom_terms:
-        es = get_email_settings()
-        custom_terms = (es.get('rental_agreement_template') or '').strip()
+        es_for_terms = get_email_settings()
+        custom_terms = (es_for_terms.get('rental_agreement_template') or '').strip()
+    additional_terms = (d.get('additional_terms') or '').strip()
+
+    # HWTC's own countersignature — defaults to whoever's configured as the
+    # org's contract signatory in Settings, but the person generating this
+    # particular contract can override it (e.g. sign as themselves instead).
+    hwtc_signer_name = (d.get('hwtc_signatory_name') or '').strip()
+    hwtc_signer_title = (d.get('hwtc_signatory_title') or '').strip()
+    if not hwtc_signer_name:
+        es_for_sig = es_for_terms if es_for_terms is not None else get_email_settings()
+        hwtc_signer_name = (es_for_sig.get('rental_signatory_name') or '').strip()
+        hwtc_signer_title = (es_for_sig.get('rental_signatory_title') or '').strip()
+    hwtc_signed_at_dt = datetime.now() if hwtc_signer_name else None
+    hwtc_signed_at_str = hwtc_signed_at_dt.strftime('%B %-d, %Y') if hwtc_signed_at_dt else ''
+
     occurrences = fetchall(conn, 'SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s ORDER BY occurrence_date', (rid,)) or []
-    contract_html = _build_rental_contract_html(req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences)
+    contract_html = _build_rental_contract_html(conn, req, custom_terms, poc_name, poc_email, poc_phone, deposit, revenue_split_notes, billing_frequency, occurrences, installments_plan, additional_terms, equipment_selections, hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_str)
     # Delete any existing draft agreement
     execute(conn, "DELETE FROM rental_agreements WHERE request_id=%s AND status='draft'", (rid,))
     aid = str(_urgc.uuid4())
     execute(conn, '''INSERT INTO rental_agreements
-        (id, request_id, contract_html, signing_token, status)
-        VALUES (%s,%s,%s,%s,'draft')''',
-        (aid, rid, contract_html, token))
+        (id, request_id, contract_html, signing_token, status, custom_terms, poc_name, poc_email, poc_phone, additional_terms,
+         hwtc_signed_name, hwtc_signed_title, hwtc_signed_at)
+        VALUES (%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (aid, rid, contract_html, token, custom_terms, poc_name, poc_email, poc_phone, additional_terms,
+         hwtc_signer_name, hwtc_signer_title, hwtc_signed_at_dt))
     conn.commit(); conn.close()
     signing_url = f'https://rolecall.hwtco.org/rent/sign/{token}'
     return jsonify({'ok': True, 'id': aid, 'token': token, 'signing_url': signing_url})
 
-def _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name):
-    """Returns the label + body text for clauses 2.1-2.4 (no wrapping <p><strong>
-    tags), which vary by partnership category and billing frequency. This is
-    the single source of truth used both to assemble the actual contract and
-    to preview the same text in the UI before it's generated."""
-    billing_frequency = billing_frequency or 'deposit_final'
+def _render_clause_template(template, context):
+    """Simple, safe placeholder substitution — replaces known {tokens} only,
+    so stray braces in admin-edited text can't cause errors."""
+    out = template or ''
+    for key, val in context.items():
+        out = out.replace('{' + key + '}', str(val))
+    return out
+
+def _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False):
+    """Computes the placeholder values ({total_str}, {deposit}, {event_label},
+    etc.) substituted into clause templates from the library — shared by the
+    live UI preview and the actual contract generator so they can never
+    diverge."""
     total_str = f'${total_cents/100:.2f}' if total_cents else 'the agreed amount'
-    if category == 'ticketed_enrollment':
-        split_display = revenue_split_notes or 'to be agreed in writing prior to the first session'
-        c21 = ('2.1 Revenue &amp; Settlement', f'HWTC is the official producer and host of this program and will handle all public listing, advertising, and enrollment/ticket collection. HWTC will collect all enrollment/ticket revenue directly. HWTC and Partner Organization agree to the following revenue split: <strong>{split_display}</strong>. Settlement of Partner Organization&rsquo;s share will occur within 14 days after the program concludes, less any documented HWTC administrative or promotional costs agreed in advance.')
-        c22 = ('2.2 Cancellation', 'Because HWTC collects enrollment/ticket revenue directly and no deposit is collected from Partner Organization under this model, Partner Organization cancelling within 7 days of the first scheduled session may be responsible for any documented HWTC advertising or administrative costs already incurred, to be deducted from the final settlement. HWTC reserves the right to cancel or reschedule the program at its sole discretion, including for low enrollment.')
-        c23 = ('2.3 Nature of the Collaboration', 'This agreement establishes Partner Organization as an instructor/contractor delivering programming on behalf of, and under the direction of, Horizon West Theater Company. HWTC is the official producer and host of record for this program; Partner Organization is not renting the space independently and may not advertise, post, or list this program except through HWTC&rsquo;s official channels.')
-        c24 = ('2.4 Marketing &amp; Billing', f'HWTC will handle all public-facing marketing, advertising, and listing for this program. Any materials referencing Partner Organization will identify them as the instructor/contractor, e.g. <em>&ldquo;Taught by {partner_name}, produced by Horizon West Theater Company.&rdquo;</em> Partner Organization may not independently advertise or list this program.')
-    else:
-        use_label = 'this use' if category == 'closed_rental' else 'the collaboration'
-        event_label = 'the scheduled use' if category == 'closed_rental' else 'the scheduled event'
-        if billing_frequency == 'monthly':
-            c21 = ('2.1 Partnership Fee &amp; Payment Schedule', f'Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in monthly installments, billed separately by HWTC via Square invoice, each due on its stated due date. Details of the installment schedule (number of payments and amounts) are set out in the Payment Plan issued alongside this Agreement.')
-            c22 = ('2.2 Cancellation', 'If Partner Organization cancels this Agreement, HWTC will stop issuing any further monthly installment invoices as of the cancellation date. Any installment already invoiced remains due and payable regardless of cancellation; amounts already paid are non-refundable except at HWTC&rsquo;s sole discretion.')
-        elif billing_frequency == 'full':
-            c21 = ('2.1 Partnership Fee', f'Upon signing this Agreement, Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in full to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}.')
-            c22 = ('2.2 Cancellation', f'Cancellations made more than 7 days in advance will receive a full refund. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the full fee. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.')
-        else:
-            c21 = ('2.1 Partnership Fee &amp; Deposit', f'Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit if deposit else "as agreed"}</strong> to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}. Full payment of any remaining balance is due within 24 hours of the final date. If Partner Organization cancels within 24 hours of {event_label}, the deposit is forfeited in full.')
-            c22 = ('2.2 Cancellation', f'Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.')
-        if category == 'closed_rental':
-            c23 = ('2.3 Nature of the Use', 'This agreement is a closed-use facility rental for Partner Organization&rsquo;s own private rehearsal, practice, class, or production activities. This is not a public event and may not be advertised or opened to outside attendees. Partner Organization may not charge admission or program fees to any attendee or participant under this Agreement; if a fee is or will be charged to attendees, this activity falls outside this Agreement and must instead be arranged under HWTC&rsquo;s Ticketed/Enrollment-Based Event model.')
-            c24 = ('2.4 Acknowledgment', 'Because this is a private, closed-use rental and not a publicly promoted event, no co-branding or promotional credit is required. If Partner Organization references this collaboration in any materials, an acknowledgment such as <em>&ldquo;with thanks to Horizon West Theater Company&rdquo;</em> or <em>&ldquo;rehearsal venue hosted at Horizon West Theater Company&rdquo;</em> is appreciated but not required. This activity may not be advertised or opened to the public.')
-        else:
-            c23 = ('2.3 Nature of the Collaboration', 'This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization for a free, publicly attended event. All activities taking place under this agreement are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. Partner Organization runs the event logistics; HWTC must be listed as a visible sponsor, producer, or partner and retains a say in scheduling and how the space is used that day.')
-            c24 = ('2.4 Billing &amp; Credit', 'All public-facing materials, programs, advertising, and communications related to this event must credit Horizon West Theater Company, e.g. <em>&ldquo;Hosted in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct this event independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.')
-    return {'c21': {'label': c21[0], 'body': c21[1]}, 'c22': {'label': c22[0], 'body': c22[1]},
-            'c23': {'label': c23[0], 'body': c23[1]}, 'c24': {'label': c24[0], 'body': c24[1]}}
+    return {
+        'total_str': total_str,
+        'deposit': deposit if deposit else 'as agreed',
+        'partner_name': partner_name,
+        'split_display': revenue_split_notes or 'to be agreed in writing prior to the first session',
+        'use_label': 'this use' if category == 'closed_rental' else 'the collaboration',
+        'event_label': 'the scheduled use' if category == 'closed_rental' else 'the scheduled event',
+        'schedule_ref': ('as set out in <strong>Exhibit A</strong> to this Agreement' if has_exhibit
+                          else 'in a Payment Plan summary HWTC will email to Partner Organization once this Agreement is signed'),
+    }
 
-_RENTAL_REMAINING_CLAUSES = '''<p><strong>2.5 Care of Facility.</strong> Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.</p>
-<p><strong>2.6 Conduct.</strong> Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.</p>
-<p><strong>2.7 Equipment.</strong> Use of HWTC equipment (lighting, sound, staging, etc.) is included as part of this agreement. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event.</p>
-<p><strong>2.8 Insurance.</strong> Partner Organization is required to carry general liability insurance for the duration of this collaboration. Prior to the first scheduled event date, Partner Organization must provide Horizon West Theater Company with a Certificate of Insurance (COI) naming both <strong>Horizon West Theater Company</strong> and <strong>WMGS Vineland Owner SB, LLC</strong> as additionally insured parties. HWTC reserves the right to cancel this agreement if a valid COI is not received in advance of the event. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.</p>
-<p><strong>2.9 Indemnification.</strong> Partner Organization agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner Organization&rsquo;s activities under this agreement.</p>
-<p><strong>2.10 Compliance.</strong> Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.</p>
-<p><strong>2.11 Recording &amp; Photography.</strong> Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.</p>'''
+# Seed data for the contract clause library — used only to populate the
+# rental_contract_clauses table the first time it's empty. From then on,
+# everything is edited via Settings > Contract Clauses, no deploy required.
+# category: '' = all categories, 'fee_based' = open_partnership + closed_rental.
+# billing_frequency: '' = applies regardless of billing plan.
+# A blank body_template marks a group heading (e.g. the "2.2" header above
+# its 2.2.x sub-clauses) rather than a numbered paragraph.
+_RENTAL_CLAUSE_SEED = [
+    # category, billing_frequency, clause_number, title, body_template, sort_order
+    ('ticketed_enrollment', '', '2.1', 'Revenue &amp; Settlement',
+     'HWTC is the official producer and host of this program and will handle all public listing, advertising, and enrollment/ticket collection. HWTC will collect all enrollment/ticket revenue directly. HWTC and Partner Organization agree to the following revenue split: <strong>{split_display}</strong>. Settlement of Partner Organization&rsquo;s share will occur within 14 days after the program concludes, less any documented HWTC administrative or promotional costs agreed in advance.', 10),
+    ('fee_based', 'monthly', '2.1', 'Partnership Fee &amp; Payment Schedule',
+     'Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in monthly installments, billed separately by HWTC via Square invoice, each due on its stated due date, {schedule_ref}.', 10),
+    ('fee_based', 'full', '2.1', 'Partnership Fee',
+     'Upon signing this Agreement, Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in full to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}.', 10),
+    ('fee_based', 'deposit_final', '2.1', 'Partnership Fee &amp; Deposit',
+     'Upon signing this Agreement, Partner Organization agrees to pay a deposit of <strong>{deposit}</strong> to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}. Full payment of any remaining balance is due within 24 hours of the final date. If Partner Organization cancels within 24 hours of {event_label}, the deposit is forfeited in full.', 10),
 
-def _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name):
-    """Assembles the full '2. TERMS AND CONDITIONS' block from the
-    category/billing-aware clauses plus the fixed remaining clauses."""
-    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
-    dynamic_html = '\n'.join(f'<p><strong>{c["label"]}.</strong> {c["body"]}</p>' for c in [clauses['c21'], clauses['c22'], clauses['c23'], clauses['c24']])
-    return f'<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>\n{dynamic_html}\n{_RENTAL_REMAINING_CLAUSES}'
+    ('', '', '2.2', 'Cancellation and Force Majeure', '', 20),
+
+    ('ticketed_enrollment', '', '2.2.1', 'Cancellation by Partner Organization',
+     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Because HWTC collects enrollment/ticket revenue directly and no deposit is collected from Partner Organization under this model, Partner Organization cancelling within 7 days of the first scheduled session may be responsible for any documented HWTC advertising or administrative costs already incurred, to be deducted from the final settlement.', 21),
+    ('fee_based', 'monthly', '2.2.1', 'Cancellation by Partner Organization',
+     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Upon cancellation, HWTC will cease issuing any future monthly installment invoices effective as of the cancellation date. However, any installment that has already been invoiced prior to the cancellation date shall remain due and payable in full, regardless of cancellation. All amounts previously paid are non-refundable except at HWTC&rsquo;s sole discretion.', 21),
+    ('fee_based', 'full', '2.2.1', 'Cancellation by Partner Organization',
+     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Cancellations made more than 7 days in advance will receive a full refund. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the full fee. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.', 21),
+    ('fee_based', 'deposit_final', '2.2.1', 'Cancellation by Partner Organization',
+     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Cancellations made more than 7 days in advance will receive a full refund of any payments made, including the deposit. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the deposit in full. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.', 21),
+
+    ('', '', '2.2.2', 'Force Majeure',
+     'Neither Party shall be liable for any cancellation, delay, or failure to perform its obligations under this Agreement when such cancellation, delay, or failure results from circumstances beyond its reasonable control, including but not limited to severe weather, hurricanes, tornadoes, floods, fire, natural disasters, acts of God, governmental actions or orders, public emergencies, utility failures, labor disruptions, or other force majeure events. In the event of a force majeure occurrence, the affected collaboration date(s) may be rescheduled by mutual agreement of the Parties if reasonably feasible. Neither Party shall be entitled to damages, penalties, refunds, or other compensation solely as a result of a force majeure event.', 22),
+
+    ('ticketed_enrollment', '', '2.2.3', 'Cancellation by HWTC',
+     'If HWTC must cancel a scheduled session due to circumstances within its reasonable control, and such cancellation is not the result of a force majeure event, HWTC will make reasonable efforts to reschedule the affected session. HWTC reserves the right to cancel or reschedule the program at its sole discretion, including for low enrollment, and will account for any costs already incurred when finalizing the revenue settlement.', 23),
+    ('fee_based', '', '2.2.3', 'Cancellation by HWTC',
+     'If HWTC must cancel {event_label} due to circumstances within its reasonable control, and such cancellation is not the result of a force majeure event, HWTC will make reasonable efforts to reschedule the affected date. If rescheduling is not reasonably possible, Partner Organization&rsquo;s payment obligation shall be reduced on a prorated basis, and if payment has already been received, HWTC shall issue an appropriate credit toward future services or provide a refund, at HWTC&rsquo;s discretion.', 23),
+
+    ('fee_based', 'monthly', '2.2.4', 'Nonpayment',
+     'If any installment payment remains unpaid for more than ten (10) calendar days following its due date, HWTC may suspend or cancel any remaining scheduled collaboration dates until the account is brought current. HWTC further reserves the right to terminate this Agreement for nonpayment. Any suspension or termination resulting from nonpayment shall not relieve Partner Organization of its obligation to pay any amounts that became due prior to the suspension or termination, including any previously invoiced installments.', 24),
+    ('fee_based', 'full', '2.2.4', 'Nonpayment',
+     'This Agreement is not effective until the Total Partnership Fee has been paid in full. If payment is not received within a reasonable time following signature, HWTC reserves the right to cancel this Agreement and release the reserved date(s).', 24),
+    ('fee_based', 'deposit_final', '2.2.4', 'Nonpayment',
+     'If the deposit or any remaining balance is not paid within ten (10) calendar days of its due date, HWTC may suspend or cancel this Agreement until the account is brought current. HWTC further reserves the right to terminate this Agreement for nonpayment. Any suspension or termination resulting from nonpayment shall not relieve Partner Organization of its obligation to pay any amounts already due.', 24),
+    # No 2.2.4 for ticketed_enrollment — HWTC pays Partner Organization a
+    # revenue share under that model, so there's no payment owed by Partner
+    # Organization to HWTC that could go unpaid.
+
+    ('ticketed_enrollment', '', '2.3', 'Nature of the Collaboration',
+     'This agreement establishes Partner Organization as an instructor/contractor delivering programming on behalf of, and under the direction of, Horizon West Theater Company. HWTC is the official producer and host of record for this program; Partner Organization is not renting the space independently and may not advertise, post, or list this program except through HWTC&rsquo;s official channels.', 30),
+    ('open_partnership', '', '2.3', 'Nature of the Collaboration',
+     'This agreement establishes a co-production and artistic partnership between HWTC and Partner Organization for a free, publicly attended event. All activities taking place under this agreement are conducted in connection with and under the co-sponsorship of Horizon West Theater Company as part of its nonprofit community theater operations. Partner Organization runs the event logistics; HWTC must be listed as a visible sponsor, producer, or partner and retains a say in scheduling and how the space is used that day.', 30),
+    ('closed_rental', '', '2.3', 'Nature of the Use',
+     'This agreement is a closed-use facility rental for Partner Organization&rsquo;s own private rehearsal, practice, class, or production activities. This is not a public event and may not be advertised or opened to outside attendees. Partner Organization may not charge admission or program fees to any attendee or participant under this Agreement; if a fee is or will be charged to attendees, this activity falls outside this Agreement and must instead be arranged under HWTC&rsquo;s Ticketed/Enrollment-Based Event model.', 30),
+
+    ('ticketed_enrollment', '', '2.4', 'Marketing &amp; Billing',
+     'HWTC will handle all public-facing marketing, advertising, and listing for this program. Any materials referencing Partner Organization will identify them as the instructor/contractor, e.g. <em>&ldquo;Taught by {partner_name}, produced by Horizon West Theater Company.&rdquo;</em> Partner Organization may not independently advertise or list this program.', 40),
+    ('open_partnership', '', '2.4', 'Billing &amp; Credit',
+     'All public-facing materials, programs, advertising, and communications related to this event must credit Horizon West Theater Company, e.g. <em>&ldquo;Hosted in Partnership with Horizon West Theater Company.&rdquo;</em> Partner Organization agrees not to present, advertise, or conduct this event independently or without the co-sponsorship designation. HWTC reserves the right to review and approve all promotional materials prior to public distribution.', 40),
+    ('closed_rental', '', '2.4', 'Acknowledgment',
+     'Because this is a private, closed-use rental and not a publicly promoted event, no co-branding or promotional credit is required. If Partner Organization references this collaboration in any materials, an acknowledgment such as <em>&ldquo;with thanks to Horizon West Theater Company&rdquo;</em> or <em>&ldquo;rehearsal venue hosted at Horizon West Theater Company&rdquo;</em> is appreciated but not required. This activity may not be advertised or opened to the public.', 40),
+
+    ('', '', '2.5', 'Care of Facility',
+     'Partner Organization agrees to leave the space in the same condition as found. Partner Organization is responsible for any damage to the facility, equipment, or property caused by Partner Organization or its participants. Partner Organization will be charged for any repairs or cleaning required beyond normal use.', 50),
+    ('', '', '2.6', 'Conduct',
+     'Alcohol is not permitted without prior written approval from HWTC. Partner Organization is responsible for ensuring all participants and guests behave in a respectful manner consistent with HWTC&rsquo;s community values. HWTC reserves the right to terminate this agreement immediately if this clause is violated, with no refund.', 60),
+    ('', '', '2.7', 'Equipment',
+     'Use of HWTC equipment is included as part of this agreement, as itemized in <strong>Exhibit B</strong>. Partner Organization is asked to inform HWTC in advance of any equipment they intend to use so that HWTC may ensure it is in proper working order prior to the event. Questions about equipment should be directed to the HWTC point of contact for this agreement.', 70),
+    ('', '', '2.7.1', 'On-Site Representative',
+     'An HWTC representative will be present on-site for the duration of this collaboration, unless otherwise agreed upon in writing for a long-term or recurring use where HWTC is comfortable with Partner Organization operating unsupervised.', 75),
+    ('', '', '2.8', 'Insurance',
+     'Partner Organization is required to carry general liability insurance for the duration of this collaboration. Prior to the first scheduled event date, Partner Organization must provide Horizon West Theater Company with a Certificate of Insurance (COI) naming both <strong>Horizon West Theater Company</strong> and <strong>WMGS Vineland Owner SB, LLC</strong> as additionally insured parties. HWTC reserves the right to cancel this agreement if a valid COI is not received in advance of the event. HWTC assumes no liability for injuries or property damage occurring during the collaboration period.', 80),
+    ('', '', '2.9', 'Indemnification',
+     'Partner Organization agrees to indemnify and hold harmless HWTC, its officers, directors, volunteers, and agents from any claims, damages, or expenses arising from Partner Organization&rsquo;s activities under this agreement.', 90),
+    ('', '', '2.10', 'Compliance',
+     'Partner Organization agrees to comply with all applicable laws, ordinances, and fire codes. All activities under this agreement must fall within the scope of nonprofit community theater operations consistent with HWTC&rsquo;s lease and operational guidelines.', 100),
+    ('', '', '2.11', 'Recording &amp; Photography',
+     'Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.', 110),
+]
+
+def _seed_rental_contract_clauses(conn):
+    """Populate rental_contract_clauses from the built-in defaults — but only
+    clauses that don't already exist (matched by category+billing_frequency+
+    clause_number). This means adding a brand-new clause to the seed list
+    later will still get inserted into an already-seeded database on the
+    next restart, while anything staff has since edited via Settings >
+    Contract Clauses is left untouched."""
+    for category, billing_frequency, clause_number, title, body_template, sort_order in _RENTAL_CLAUSE_SEED:
+        existing = fetchone(conn, '''SELECT id FROM rental_contract_clauses
+            WHERE category=%s AND billing_frequency=%s AND clause_number=%s''',
+            (category, billing_frequency, clause_number))
+        if existing:
+            continue
+        execute(conn, '''INSERT INTO rental_contract_clauses
+            (id, category, billing_frequency, clause_number, title, body_template, sort_order, active)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,TRUE)''',
+            (str(uuid.uuid4()), category, billing_frequency, clause_number, title, body_template, sort_order))
+    conn.commit()
+    # One-time correction: the Equipment clause (2.7) may already exist from
+    # before it referenced Exhibit B (either the original text, or the
+    # short-lived {equipment_list}-suffixed version) — the loop above only
+    # inserts brand-new clauses, so an existing 2.7 row would otherwise keep
+    # stale text forever. Force it to the current canonical wording if it
+    # doesn't look like that wording yet.
+    row_27 = fetchone(conn, "SELECT * FROM rental_contract_clauses WHERE category='' AND billing_frequency='' AND clause_number='2.7'")
+    if row_27:
+        body = row_27.get('body_template') or ''
+        if '{equipment_list}' in body or 'Exhibit B' not in body:
+            canonical_27 = next(b for (c, bf, cn, t, b, so) in _RENTAL_CLAUSE_SEED if cn == '2.7')
+            execute(conn, 'UPDATE rental_contract_clauses SET body_template=%s WHERE id=%s', (canonical_27, row_27['id']))
+            conn.commit()
+
+# Starter equipment catalog — editable/deletable via the "Manage Equipment
+# List" UI. Seeded only once per item name (idempotent, like the clause
+# library), so staff edits are never overwritten by a later deploy.
+_RENTAL_EQUIPMENT_SEED = [
+    ('Stage Lighting', True, 10),
+    ('Sound System / Mixer', True, 20),
+    ('Wireless Microphones', True, 30),
+    ('Projector & Screen', True, 40),
+    ('Piano', True, 50),
+    ('Fog / Haze Machine', False, 60),
+]
+
+def _seed_rental_equipment_items(conn):
+    for name, default_allowed, sort_order in _RENTAL_EQUIPMENT_SEED:
+        existing = fetchone(conn, 'SELECT id FROM rental_equipment_items WHERE name=%s', (name,))
+        if existing:
+            continue
+        execute(conn, '''INSERT INTO rental_equipment_items
+            (id, name, default_allowed, sort_order, active)
+            VALUES (%s,%s,%s,%s,TRUE)''',
+            (str(uuid.uuid4()), name, default_allowed, sort_order))
+    conn.commit()
+
+try:
+    _seed_bootstrap_conn = get_db()
+    _seed_rental_contract_clauses(_seed_bootstrap_conn)
+    _seed_rental_equipment_items(_seed_bootstrap_conn)
+    _seed_bootstrap_conn.close()
+except Exception as e:
+    print(f'rental_contract_clauses seed error: {e}')
+
+@app.route('/api/rental/contract-clauses', methods=['GET'])
+def get_rental_contract_clauses():
+    """List every clause in the editable library — used by the Settings >
+    Contract Clauses admin page. Includes inactive rows (shown greyed out
+    there) so staff can re-enable something they'd turned off."""
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM rental_contract_clauses ORDER BY category, billing_frequency, sort_order, clause_number') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/rental/contract-clauses', methods=['POST'])
+def create_rental_contract_clause():
+    """Add a new clause to the library — e.g. a brand-new numbered section —
+    with no deploy required."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    clause_number = (d.get('clause_number') or '').strip()
+    title = (d.get('title') or '').strip()
+    if not clause_number or not title:
+        return jsonify({'error': 'Clause number and title are required'}), 400
+    conn = get_db()
+    cid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_contract_clauses
+        (id, category, billing_frequency, clause_number, title, body_template, sort_order, active)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (cid, (d.get('category') or '').strip(), (d.get('billing_frequency') or '').strip(),
+         clause_number, title, d.get('body_template') or '', int(d.get('sort_order') or 0), bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_contract_clauses WHERE id=%s', (cid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/rental/contract-clauses/<cid>', methods=['PUT'])
+def update_rental_contract_clause(cid):
+    """Edit a clause's category/billing scope, number, title, or body text —
+    this is how wording changes ship without a code deploy."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT * FROM rental_contract_clauses WHERE id=%s', (cid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    category = d.get('category', existing.get('category', ''))
+    billing_frequency = d.get('billing_frequency', existing.get('billing_frequency', ''))
+    clause_number = d.get('clause_number', existing.get('clause_number', ''))
+    title = d.get('title', existing.get('title', ''))
+    body_template = d.get('body_template', existing.get('body_template', ''))
+    sort_order = d.get('sort_order', existing.get('sort_order', 0))
+    active = d.get('active', existing.get('active', True))
+    execute(conn, '''UPDATE rental_contract_clauses SET category=%s, billing_frequency=%s,
+        clause_number=%s, title=%s, body_template=%s, sort_order=%s, active=%s, updated_at=NOW()
+        WHERE id=%s''', (category, billing_frequency, clause_number, title, body_template, sort_order, active, cid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_contract_clauses WHERE id=%s', (cid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/rental/contract-clauses/<cid>', methods=['DELETE'])
+def delete_rental_contract_clause(cid):
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_contract_clauses WHERE id=%s', (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/equipment-items', methods=['GET'])
+def get_rental_equipment_items():
+    """The master equipment catalog — checked/unchecked per contract when
+    generating an agreement, then itemized in the Equipment clause."""
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, 'SELECT * FROM rental_equipment_items ORDER BY sort_order, name') or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/rental/equipment-items', methods=['POST'])
+def create_rental_equipment_item():
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Name is required'}), 400
+    conn = get_db()
+    iid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_equipment_items (id, name, default_allowed, default_quantity, default_notes, sort_order, active)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (iid, name, bool(d.get('default_allowed', True)), (d.get('default_quantity') or '').strip(),
+         (d.get('default_notes') or '').strip(), int(d.get('sort_order') or 0), bool(d.get('active', True))))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_equipment_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/rental/equipment-items/<iid>', methods=['PUT'])
+def update_rental_equipment_item(iid):
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT * FROM rental_equipment_items WHERE id=%s', (iid,))
+    if not existing:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    name = d.get('name', existing.get('name', ''))
+    default_allowed = d.get('default_allowed', existing.get('default_allowed', True))
+    default_quantity = d.get('default_quantity', existing.get('default_quantity', ''))
+    default_notes = d.get('default_notes', existing.get('default_notes', ''))
+    sort_order = d.get('sort_order', existing.get('sort_order', 0))
+    active = d.get('active', existing.get('active', True))
+    execute(conn, '''UPDATE rental_equipment_items SET name=%s, default_allowed=%s,
+        default_quantity=%s, default_notes=%s, sort_order=%s, active=%s, updated_at=NOW() WHERE id=%s''',
+        (name, default_allowed, default_quantity, default_notes, sort_order, active, iid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM rental_equipment_items WHERE id=%s', (iid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/rental/equipment-items/<iid>', methods=['DELETE'])
+def delete_rental_equipment_item(iid):
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM rental_equipment_items WHERE id=%s', (iid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+def _render_rental_contract_terms(conn, category, billing_frequency, context):
+    """Fetches every clause row matching this category/billing plan from the
+    editable library, substitutes placeholders, and assembles the '2. TERMS
+    AND CONDITIONS' block — including grouping 2.2.x sub-clauses under their
+    shared '2.2' heading. This is the single source of truth for contract
+    legal text, used both by contract generation and the live UI preview."""
+    billing_frequency = billing_frequency or 'deposit_final'
+    rows = fetchall(conn, '''SELECT * FROM rental_contract_clauses
+        WHERE active = TRUE
+          AND (category = '' OR category = %s OR (category = 'fee_based' AND %s != 'ticketed_enrollment'))
+          AND (billing_frequency = '' OR billing_frequency = %s)
+        ORDER BY sort_order, clause_number''', (category, category, billing_frequency)) or []
+    parts = []
+    for row in rows:
+        title = _render_clause_template(row.get('title') or '', context)
+        body = _render_clause_template(row.get('body_template') or '', context)
+        num = row.get('clause_number', '')
+        if not body.strip():
+            parts.append(f'<h4 style="color:#0d3d4d;margin:16px 0 8px;font-size:14px">{num} {title}</h4>')
+        else:
+            parts.append(f'<p><strong>{num} {title}.</strong> {body}</p>')
+    dynamic_html = '\n'.join(parts)
+    return f'<h3 style="color:#0d3d4d;margin-top:20px">2. TERMS AND CONDITIONS</h3>\n{dynamic_html}'
 
 @app.route('/api/rental/requests/<rid>/default-terms')
 def get_rental_default_terms(rid):
     """Live preview of the default contract terms for a request, given the
     current (or proposed) category/deposit/billing settings — lets the UI
     show exactly what will be signed before the contract is generated.
-    Returns the structured 2.1-2.4 clauses (for slotting into the editable
-    fields) plus the fully assembled HTML (for reference)."""
+    Pulls from the editable clause library (Settings > Contract Clauses),
+    so wording changes there show up here immediately with no deploy."""
     err = require_permission('rentals', 'view')
     if err: return err
     conn = get_db()
     req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
-    conn.close()
     if not req:
+        conn.close()
         return jsonify({'error': 'Request not found'}), 404
     category = request.args.get('category') or req.get('partnership_category') or 'open_partnership'
     deposit = request.args.get('deposit') or ''
     revenue_split_notes = request.args.get('revenue_split_notes') or req.get('revenue_split_notes') or ''
     billing_frequency = request.args.get('billing_frequency') or req.get('billing_frequency') or 'deposit_final'
+    # In the new flow a monthly plan's schedule is always built and attached
+    # as Exhibit A before the contract is generated, so the preview assumes
+    # that too — matches what the finished document will actually say.
+    has_exhibit = billing_frequency == 'monthly'
     total_cents = int(req.get('total_amount') or 0)
     partner_name = 'the Partner Organization'
-    clauses = _default_rental_clause_bodies(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
-    terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
-    return jsonify({'terms_html': terms_html, 'clauses': clauses})
+    context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
+    terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
+    conn.close()
+    return jsonify({'terms_html': terms_html})
 
-def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None):
+def _project_rental_dates(req, cap=104):
+    """Computes the dates a request covers straight from its raw scheduling
+    fields (specific_dates / recurrence_pattern+recurrence_end_date / plain
+    range) — used when rental_occurrences hasn't been materialized yet
+    (contracts can be generated before a request is approved). Capped so an
+    unusually long recurrence can't produce an unbounded list. Returns
+    (dates, open_ended, pattern_description) — for a recurring booking with
+    no end date, dates is empty and pattern_description explains the ongoing
+    schedule in words instead of pretending there's just one occurrence."""
+    import datetime as _dtp
+    import json as _jtp
+    mode = (req.get('date_mode') or '').strip()
+    stime, etime = req.get('start_time', ''), req.get('end_time', '')
+
+    if mode == 'specific':
+        raw_dates = req.get('specific_dates') or '[]'
+        try:
+            parsed = _jtp.loads(raw_dates) if isinstance(raw_dates, str) else (raw_dates or [])
+        except Exception:
+            parsed = []
+        dates = []
+        for item in parsed:
+            if isinstance(item, dict):
+                dates.append({'date': item.get('date',''), 'start_time': item.get('start_time') or stime, 'end_time': item.get('end_time') or etime})
+            else:
+                dates.append({'date': item, 'start_time': stime, 'end_time': etime})
+        return dates[:cap], False, ''
+
+    start_raw = (req.get('start_date') or '').strip()
+    if not start_raw:
+        return [], False, ''
+    try:
+        start = _dtp.date.fromisoformat(start_raw)
+    except Exception:
+        return [], False, ''
+
+    is_recurring = (mode == 'recurring') or (not mode and req.get('recurring'))
+    if is_recurring:
+        pattern = req.get('recurrence_pattern') or 'weekly'
+        pattern_labels = {'weekly': 'weekly', 'biweekly': 'every two weeks', 'monthly': 'monthly', 'daily': 'daily'}
+        recur_end_raw = (req.get('recurrence_end_date') or '').strip()
+        if not recur_end_raw:
+            # Open-ended recurring booking — describe it rather than
+            # implying the obligation ends after some arbitrary preview list.
+            desc = f'Recurring {pattern_labels.get(pattern, pattern)}, beginning {start.strftime("%B %d, %Y")}, continuing on an ongoing basis unless earlier terminated per this Agreement'
+            return [], True, desc
+        try:
+            recur_end = _dtp.date.fromisoformat(recur_end_raw)
+        except Exception:
+            return [], False, ''
+        dates = []
+        cur = start
+        while cur <= recur_end and len(dates) < cap:
+            dates.append({'date': cur.isoformat(), 'start_time': stime, 'end_time': etime})
+            if pattern == 'weekly':
+                cur += _dtp.timedelta(days=7)
+            elif pattern == 'biweekly':
+                cur += _dtp.timedelta(days=14)
+            elif pattern == 'daily':
+                cur += _dtp.timedelta(days=1)
+            elif pattern == 'monthly':
+                month = cur.month + 1 if cur.month < 12 else 1
+                year = cur.year + (1 if cur.month == 12 else 0)
+                try:
+                    cur = cur.replace(year=year, month=month)
+                except Exception:
+                    break
+            else:
+                break
+        return dates, False, ''
+
+    # 'range' mode: a single date, or a contiguous multi-day span
+    end_raw = (req.get('end_date') or '').strip()
+    try:
+        end = _dtp.date.fromisoformat(end_raw) if end_raw else start
+    except Exception:
+        end = start
+    if end < start:
+        end = start
+    dates = []
+    cur = start
+    while cur <= end and len(dates) < cap:
+        dates.append({'date': cur.isoformat(), 'start_time': stime, 'end_time': etime})
+        cur += _dtp.timedelta(days=1)
+    return dates, False, ''
+
+def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_email='', poc_phone='', deposit='', revenue_split_notes='', billing_frequency='deposit_final', occurrences=None, installments_plan=None, additional_terms='', equipment_selections=None, hwtc_signer_name='', hwtc_signer_title='', hwtc_signed_at=''):
     import datetime as _dtc
     import json as _dtj
     today = _dtc.date.today().strftime('%B %d, %Y')
-    rate_type = req.get('rate_type','hourly')
+    rate_type = req.get('rate_type','Hour')
     rate_cents = int(req.get('rate_amount') or 0)
     rate_str = f'${rate_cents/100:.2f} per {rate_type.replace("_"," ")}'
     total_cents = int(req.get('total_amount') or 0)
@@ -21722,25 +26226,21 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
             return date_str
 
     # Prefer the actual generated occurrence list (authoritative once a
-    # request is approved, and correct for every scheduling mode — specific
-    # dates, recurring, or a simple range). Fall back to the raw
-    # specific_dates JSON if this contract is being generated pre-approval.
+    # request is approved). Otherwise project the dates straight from the
+    # request's raw scheduling fields — contracts are often generated before
+    # approval, so occurrences may not exist in the calendar yet.
     date_list_source = []
+    open_ended_desc = ''
     if occurrences:
         date_list_source = [{'date': o.get('occurrence_date',''), 'start_time': o.get('start_time',''), 'end_time': o.get('end_time','')} for o in occurrences]
-    elif (req.get('date_mode') or '') == 'specific':
-        raw_dates = req.get('specific_dates') or '[]'
-        try:
-            parsed_dates = _dtj.loads(raw_dates) if isinstance(raw_dates, str) else (raw_dates or [])
-        except Exception:
-            parsed_dates = []
-        for item in parsed_dates:
-            if isinstance(item, dict):
-                date_list_source.append({'date': item.get('date',''), 'start_time': item.get('start_time') or req.get('start_time',''), 'end_time': item.get('end_time') or req.get('end_time','')})
-            else:
-                date_list_source.append({'date': item, 'start_time': req.get('start_time',''), 'end_time': req.get('end_time','')})
+    else:
+        date_list_source, is_open_ended, pattern_desc = _project_rental_dates(req)
+        if is_open_ended:
+            open_ended_desc = pattern_desc
 
-    if len(date_list_source) > 1:
+    if open_ended_desc:
+        date_range = open_ended_desc
+    elif len(date_list_source) > 1:
         # Multiple dates — list every one. Only append a per-date time when
         # it differs from the overall Time row, to avoid needless repetition.
         base_time = (req.get('start_time',''), req.get('end_time',''))
@@ -21769,7 +26269,7 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
     category_labels = {
         'ticketed_enrollment': 'Ticketed / Enrollment-Based Event \u2014 HWTC Owns It',
         'open_partnership': 'Open, Free-to-Attend Event \u2014 Partnership Model',
-        'closed_rental': 'Closed, Free-to-Attend Use \u2014 Rental / Acknowledgment',
+        'closed_rental': 'Closed, Free-to-Attend Use \u2014 Partnership / Acknowledgment',
     }
     doc_titles = {
         'ticketed_enrollment': 'HOSTED PROGRAM AGREEMENT',
@@ -21805,7 +26305,71 @@ def _build_rental_contract_html(req, custom_terms='', poc_name='', poc_email='',
     if custom_terms.strip():
         terms_html = custom_terms
     else:
-        terms_html = _default_rental_terms_html(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name)
+        context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan))
+        terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
+
+    if additional_terms.strip():
+        terms_html += f'<h3 style="color:#0d3d4d;margin-top:20px">3. ADDITIONAL TERMS</h3><p>{additional_terms.strip()}</p>'
+
+    exhibit_html = ''
+    if installments_plan:
+        plan_total_cents = sum(int(round(float(item.get('amount') or 0) * 100)) for item in installments_plan)
+        rows = ''.join(
+            f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("label","")}</td>'
+            f'<td style="padding:6px 10px;border:1px solid #e5e7eb">${float(item.get("amount") or 0):.2f}</td>'
+            f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{item.get("due_date","")}</td></tr>'
+            for item in installments_plan
+        )
+        exhibit_html = f'''<div style="page-break-before:always"></div>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">EXHIBIT A: PAYMENT PLAN</h2>
+<p>The following installment schedule applies to the Total Partnership Fee under this Agreement. Each installment will be invoiced separately by HWTC via Square, due on its stated date.</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:12px">
+<thead><tr><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Payment</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Amount</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Due Date</th></tr></thead>
+<tbody>{rows}</tbody>
+</table>
+<p><strong>Total: ${plan_total_cents/100:.2f}</strong></p>'''
+
+    exhibit_b_html = ''
+    if equipment_selections:
+        allowed_items = [e for e in equipment_selections if e.get('allowed')]
+        if allowed_items:
+            eq_row_parts = []
+            for item in allowed_items:
+                eq_name = item.get('name', '')
+                eq_qty = item.get('quantity', '') or '\u2014'
+                eq_notes = item.get('notes', '') or '\u2014'
+                eq_row_parts.append(
+                    f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">{eq_name}</td>'
+                    f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{eq_qty}</td>'
+                    f'<td style="padding:6px 10px;border:1px solid #e5e7eb">{eq_notes}</td></tr>')
+            eq_rows = ''.join(eq_row_parts)
+            exhibit_b_html = f'''<div style="page-break-before:always"></div>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">EXHIBIT B: EQUIPMENT LIST</h2>
+<p>The following equipment is included for this collaboration.</p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:12px">
+<thead><tr><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Equipment</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Quantity</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Notes</th></tr></thead>
+<tbody>{eq_rows}</tbody>
+</table>'''
+
+    # HWTC's own signature line — filled in immediately at generation time
+    # (unlike the partner's, which is stamped later once they actually
+    # sign via the emailed link). Left blank, exactly as before, when no
+    # signatory name was provided.
+    if hwtc_signer_name:
+        hwtc_signed_date_str = hwtc_signed_at or datetime.now().strftime('%B %-d, %Y')
+        hwtc_sig_line_html = (
+            f'<div style="margin-top:12px;border-bottom:1px solid #9ca3af;min-height:32px;'
+            f'padding-bottom:6px;display:flex;align-items:flex-end">'
+            f'<span style="font-family:\'Brush Script MT\',\'Segoe Script\',cursive;font-size:24px;color:#0d3d4d">{hwtc_signer_name}</span></div>'
+        )
+        hwtc_sig_caption_html = (
+            f'<div style="font-size:11px;color:#6b7280;margin-top:4px">Signed electronically on {hwtc_signed_date_str}'
+            + (f' — {hwtc_signer_title}' if hwtc_signer_title else '') + '</div>'
+        )
+    else:
+        hwtc_sig_line_html = '<div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>'
+        hwtc_sig_caption_html = '<div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>'
+
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>body{{font-family:Georgia,serif;font-size:14px;line-height:1.6;color:#1a2332;max-width:800px;margin:0 auto;padding:40px}}
 h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
@@ -21837,20 +26401,22 @@ h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style
 {terms_html}
 <h3 style="color:#0d3d4d;margin-top:20px">3. SIGNATURES</h3>
 <p>By signing below, both parties agree to the terms and conditions of this {doc_title.title()}, and affirm that all activities conducted hereunder are in connection with nonprofit community theater operations.</p>
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px">
-<div style="border-top:2px solid #0d3d4d;padding-top:8px">
+<table style="width:100%;border-collapse:collapse;margin-top:24px"><tr>
+<td style="width:50%;vertical-align:top;padding-right:14px;border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">Horizon West Theater Company</div>
 <div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
-<div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px"></div>
-<div style="font-size:12px;color:#6b7280;margin-top:4px">Signature &amp; Date</div>
-</div>
-<div style="border-top:2px solid #0d3d4d;padding-top:8px">
+{hwtc_sig_line_html}
+{hwtc_sig_caption_html}
+</td>
+<td style="width:50%;vertical-align:top;padding-left:14px;border-top:2px solid #0d3d4d;padding-top:8px">
 <div style="font-weight:700;font-size:14px">{partner_name}</div>
 <div style="font-size:13px;color:#6b7280;margin-top:4px">Authorized Representative</div>
 <div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff"></div>
 <div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>
-</div>
-</div>
+</td>
+</tr></table>
+{exhibit_html}
+{exhibit_b_html}
 </body></html>'''
 @app.route('/api/rental/agreements/<aid>', methods=['GET'])
 def get_rental_agreement(aid):
@@ -21860,6 +26426,40 @@ def get_rental_agreement(aid):
     agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
     conn.close()
     return jsonify(agr or {})
+
+@app.route('/rent/preview/<aid>')
+def rental_contract_internal_preview(aid):
+    """Read-only view of a drafted/sent contract — for sharing a link with
+    the team (or anyone, e.g. a board member without a RoleCall login)
+    before it goes out to the partner. Deliberately a different URL than
+    /rent/sign/<token>: no sign button, and no signing endpoint behind it,
+    so it can't be mistaken for — or misused as — the partner's signing
+    link. Protected only by the agreement id being an unguessable UUID,
+    same as the signing link itself."""
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.title, rp.name AS partner_name
+        FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE ra.id=%s''', (aid,))
+    conn.close()
+    if not agr:
+        return 'Agreement not found.', 404
+    contract = agr.get('contract_html','')
+    signed_note = f'<div style="background:#dcfce7;color:#166534;padding:10px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-weight:700">✓ Signed by {agr.get("partner_signed_name","")} on {str(agr.get("partner_signed_at") or "")[:10]}</div>' if agr.get('partner_signed_at') else ''
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Internal Preview – {agr.get("title","")}</title>
+<style>body{{font-family:Georgia,serif;font-size:14px;color:#1a2332;margin:0;padding:0;background:#f8fafc}}
+.contract-wrap{{max-width:860px;margin:0 auto;background:#fff;padding:40px;box-shadow:0 2px 20px rgba(0,0,0,0.08)}}
+.banner{{background:#fef3c7;color:#92400e;padding:10px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-weight:700;text-align:center}}</style></head>
+<body>
+<div class="contract-wrap">
+<div class="banner">🔒 Internal Preview Only — not the signing link, and not sent to the partner</div>
+{signed_note}
+{contract}
+</div>
+</body></html>'''
 
 
 @app.route('/api/rental/agreements/<aid>/send', methods=['POST'])
@@ -21958,29 +26558,174 @@ async function signAgreement(){{
 }}
 </script></body></html>'''
 
-def _generate_contract_pdf(contract_html, signed_name, signed_at_str):
-    """Render the contract HTML (plus a signature footer) to a PDF, returned
-    as base64-encoded bytes ready for an email attachment. Uses xhtml2pdf,
-    which is pure-Python — no system-level dependencies to install on
-    Railway, unlike wkhtmltopdf/WeasyPrint."""
+def _html_to_pdf_b64(full_html):
+    """Render arbitrary HTML to a PDF, returned as base64-encoded bytes.
+    Uses xhtml2pdf, which is pure-Python — no system-level dependencies to
+    install on Railway, unlike wkhtmltopdf/WeasyPrint."""
     import base64
     from io import BytesIO
     from xhtml2pdf import pisa
-    signature_block = (
-        '<div style="margin-top:24px;padding-top:16px;border-top:2px solid #145466">'
-        '<strong>Signed by:</strong> ' + signed_name + '<br>'
-        '<strong>Date:</strong> ' + signed_at_str + '</div>'
-    )
-    full_html = (
-        '<html><head><meta charset="utf-8"><style>'
-        'body{font-family:Helvetica,Arial,sans-serif;font-size:11pt;color:#1a2332}'
-        '</style></head><body>' + contract_html + signature_block + '</body></html>'
-    )
     buf = BytesIO()
-    result = pisa.CreatePDF(full_html, dest=buf)
+    result = pisa.CreatePDF(_pdf_safe_html(full_html), dest=buf)
     if result.err:
         return None
     return base64.b64encode(buf.getvalue()).decode()
+
+def _pdf_safe_html(html):
+    """xhtml2pdf has a well-known CSS bug: a `padding` declared on <body>
+    doesn't stay on <body> — it gets applied again to every descendant
+    block element (every <div>, <p>, table cell, etc.), stacking up into
+    dozens of extra 40px gaps and turning a one-page contract into nine.
+    Padding on <body> is only there to give the page margins in the first
+    place, so strip it and use the CSS `@page` margin instead — xhtml2pdf
+    applies that once, at the page level, with no cascading side effects."""
+    import re
+    html = re.sub(r'(body\s*\{[^}]*?)\s*padding\s*:\s*[^;}]+;?', r'\1', html, count=1)
+    if '@page' not in html and '<head>' in html:
+        html = html.replace('<head>', '<head><style>@page{margin:40px}</style>', 1)
+    return html
+
+def _wrap_contract_pdf_html(contract_html, signature_block=''):
+    """Deprecated append-at-the-end path — kept only as a fallback for
+    _stamp_signature_in_contract when the expected signature-line markup
+    isn't found (e.g. a contract generated before this template existed).
+    Splices right before </body> rather than wrapping in a second
+    <html>/<body> shell, since nesting two full documents is what made
+    xhtml2pdf render bloated, oddly-spaced, many-page PDFs."""
+    if not signature_block:
+        return contract_html
+    idx = contract_html.rfind('</body>')
+    if idx == -1:
+        return contract_html + signature_block
+    return contract_html[:idx] + signature_block + contract_html[idx:]
+
+def _stamp_signature_in_contract(contract_html, signed_name, signed_at_str):
+    """Fill the partner's actual signature line in the SIGNATURES section
+    (see _build_rental_contract_html) rather than appending a separate
+    'Signed by / Date' block after the exhibits — a signed contract should
+    show the signature where a signature goes, not as a footnote below
+    Exhibit B."""
+    if not signed_name:
+        return contract_html
+    placeholder = (
+        '<div style="margin-top:24px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff"></div>\n'
+        '<div style="font-size:12px;color:#6b7280;margin-top:4px">Digital signature will appear here upon signing</div>'
+    )
+    stamped = (
+        '<div style="margin-top:12px;border-bottom:1px solid #9ca3af;min-height:32px;background:#f0f9ff;'
+        'padding-bottom:6px;display:flex;align-items:flex-end">'
+        '<span style="font-family:\'Brush Script MT\',\'Segoe Script\',cursive;font-size:24px;color:#0d3d4d">'
+        + signed_name + '</span></div>\n'
+        '<div style="font-size:11px;color:#6b7280;margin-top:4px">Signed electronically on ' + (signed_at_str or '') + '</div>'
+    )
+    if placeholder in contract_html:
+        return contract_html.replace(placeholder, stamped)
+    # Fallback for any contract predating this exact markup (e.g. one that
+    # was signed before this fix shipped) — better a visible signature
+    # somewhere than a silently dropped one.
+    signature_block = (
+        '<div style="margin-top:24px;padding-top:16px;border-top:2px solid #145466">'
+        '<strong>Signed by:</strong> ' + signed_name + '<br>'
+        '<strong>Date:</strong> ' + (signed_at_str or '') + '</div>'
+    )
+    return _wrap_contract_pdf_html(contract_html, signature_block)
+
+def _generate_contract_pdf(contract_html, signed_name, signed_at_str):
+    """Render the contract HTML, with the partner's signature stamped onto
+    its actual signature line, to a PDF returned as base64-encoded bytes
+    ready for an email attachment or download."""
+    return _html_to_pdf_b64(_stamp_signature_in_contract(contract_html, signed_name, signed_at_str))
+
+def _rental_pdf_response(pdf_b64, filename):
+    import base64
+    from flask import Response
+    from urllib.parse import quote
+    if not pdf_b64:
+        return jsonify({'error': 'Could not generate PDF'}), 500
+    resp = Response(base64.b64decode(pdf_b64), mimetype='application/pdf')
+    # Content-Disposition headers must be ASCII/Latin-1 only — an em dash or
+    # other non-ASCII character here (e.g. from a show/event title) makes
+    # the whole HTTP response invalid and gets it rejected outright. Send a
+    # plain-ASCII fallback name plus an RFC 5987 filename* for browsers that
+    # want the full unicode title.
+    clean = filename.replace('"', "'")
+    ascii_name = clean.encode('ascii', 'ignore').decode('ascii').strip() or 'Agreement'
+    resp.headers['Content-Disposition'] = (
+        f'inline; filename="{ascii_name}.pdf"; filename*=UTF-8\'\'{quote(clean)}.pdf'
+    )
+    return resp
+
+@app.route('/api/rental/agreements/<aid>/pdf', methods=['GET'])
+def download_rental_agreement_pdf(aid):
+    """Blank (unsigned) PDF copy of a drafted/sent contract — for partners
+    who can't use the e-sign link and need to sign a printed or emailed
+    copy by hand."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.title FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id WHERE ra.id=%s''', (aid,))
+    conn.close()
+    if not agr:
+        return jsonify({'error': 'Agreement not found'}), 404
+    pdf_b64 = _html_to_pdf_b64(agr.get('contract_html', ''))
+    return _rental_pdf_response(pdf_b64, agr.get('title') or 'Artistic Partnership Agreement')
+
+@app.route('/api/rental/agreements/<aid>/signed-pdf', methods=['GET'])
+def download_signed_rental_agreement_pdf(aid):
+    """Regenerates the signed PDF copy (contract + signature block) on
+    demand, so staff can view/download it anytime from RoleCall without
+    relying on the copy that was emailed out at signing time."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.title FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id WHERE ra.id=%s''', (aid,))
+    conn.close()
+    if not agr:
+        return jsonify({'error': 'Agreement not found'}), 404
+    if not agr.get('partner_signed_at'):
+        return jsonify({'error': 'This agreement has not been signed yet'}), 400
+    signed_at_str = str(agr['partner_signed_at'])[:19].replace('T', ' at ')
+    pdf_b64 = _generate_contract_pdf(agr.get('contract_html', ''), agr.get('partner_signed_name') or '', signed_at_str)
+    return _rental_pdf_response(pdf_b64, (agr.get('title') or 'Artistic Partnership Agreement') + ' — Signed')
+
+@app.route('/api/rental/agreements/<aid>/mark-signed', methods=['POST'])
+def mark_rental_agreement_signed(aid):
+    """For partners who sign a printed or emailed copy instead of using the
+    e-sign link — staff record the signature here so the request moves on
+    to invoicing exactly as it would after an e-signature."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Signer name is required'}), 400
+    signed_date = (d.get('signed_date') or '').strip()
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    if agr.get('partner_signed_at'):
+        conn.close()
+        return jsonify({'error': 'This agreement is already marked as signed'}), 400
+    staff_name = session.get('user_name', 'Staff')
+    note = f"Marked signed manually by {staff_name} (signed outside the e-sign portal)"
+    new_notes = ((agr.get('admin_notes') or '') + ('\n' if agr.get('admin_notes') else '') + note)
+    if signed_date:
+        execute(conn, '''UPDATE rental_agreements SET partner_signed_name=%s, partner_signed_at=%s,
+            partner_signed_ip='manual entry', status='signed', admin_notes=%s, updated_at=NOW()
+            WHERE id=%s''', (name, signed_date, new_notes, aid))
+    else:
+        execute(conn, '''UPDATE rental_agreements SET partner_signed_name=%s, partner_signed_at=NOW(),
+            partner_signed_ip='manual entry', status='signed', admin_notes=%s, updated_at=NOW()
+            WHERE id=%s''', (name, new_notes, aid))
+    execute(conn, "UPDATE rental_requests SET status='signed', updated_at=NOW() WHERE id=%s",
+        (agr['request_id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/rent/sign/<token>', methods=['POST'])
 def submit_rental_signature(token):
@@ -22125,12 +26870,88 @@ def create_final_invoice(aid):
         return jsonify({'error': payment_err or 'Could not generate the final payment invoice'}), 400
     return jsonify({'ok': True, 'id': pid, 'warning': payment_err})
 
+RENTAL_INVOICE_LEAD_DAYS = 7  # auto-send each installment's Square invoice this many days before its due date
+
+def _send_scheduled_rental_invoice(conn, payment_id, created_by):
+    """Create the Square order + invoice for an installment that was saved
+    as 'scheduled' (no Square objects yet), then mark it sent. Used both
+    for a staff-initiated 'Send Now' and for the automatic pre-due-date
+    sweep in maybe_send_due_rental_invoices()."""
+    payment = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (payment_id,))
+    if not payment:
+        return False, 'Invoice not found'
+    if payment.get('sent_at'):
+        return False, 'This invoice has already been sent'
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (payment['agreement_id'],))
+    if not agr:
+        return False, 'Agreement not found'
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_name AS partner_contact,
+        rp.contact_email AS partner_email, rp.contact_phone AS partner_phone
+        FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE rr.id=%s''', (agr['request_id'],))
+    if not req:
+        return False, 'Rental request not found'
+    if not req.get('partner_email'):
+        return False, 'This partner has no contact email on file'
+    amount_cents = payment.get('amount_cents') or 0
+    if amount_cents <= 0:
+        return False, 'Invalid amount on this installment'
+
+    customer_id = square_find_or_create_customer(req['partner_email'], req.get('partner_contact') or req.get('partner_name') or '', req.get('partner_phone') or '')
+    if not customer_id:
+        return False, 'Could not create/find a Square customer for this partner'
+
+    label = payment.get('installment_label') or 'Payment'
+    item_name = f'{label} — {req.get("title","")}'
+    order_id = square_create_order(item_name, amount_cents, reference_id=payment['agreement_id'])
+    if not order_id:
+        return False, 'Could not create the Square order for this invoice'
+
+    invoice_id, public_url, status, err = square_create_and_publish_invoice(
+        order_id, customer_id, amount_cents, payment.get('due_date') or date.today().isoformat(), item_name,
+        f'{label} for the Artistic Partnership and Studio Use Agreement — {req.get("title","")}')
+    if err and not invoice_id:
+        return False, err
+
+    execute(conn, '''UPDATE rental_payments SET square_order_id=%s, square_invoice_id=%s,
+        square_invoice_status=%s, public_url=%s, sent_at=NOW(), created_by=%s WHERE id=%s''',
+        (order_id, invoice_id or '', status or 'DRAFT', public_url or '', created_by, payment_id))
+    conn.commit()
+    return True, err  # err may be a non-fatal warning even though the invoice was sent
+
+_last_rental_invoice_cron_check = [None]
+def maybe_send_due_rental_invoices():
+    """Cron-style sweep (same pattern as maybe_run_scheduled_reports —
+    checked opportunistically on each request, throttled to once an hour):
+    auto-sends any scheduled installment whose due date is within
+    RENTAL_INVOICE_LEAD_DAYS, so partners get their Square invoice with
+    advance notice without staff having to remember to send it."""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    last = _last_rental_invoice_cron_check[0]
+    if last and (now - last).total_seconds() < 3600: return
+    _last_rental_invoice_cron_check[0] = now
+    try:
+        conn = get_db()
+        cutoff = (_dt.date.today() + _dt.timedelta(days=RENTAL_INVOICE_LEAD_DAYS)).isoformat()
+        due = fetchall(conn, """SELECT id FROM rental_payments
+            WHERE payment_type='installment' AND sent_at IS NULL AND due_date<=%s""", (cutoff,)) or []
+        for row in due:
+            try:
+                _send_scheduled_rental_invoice(conn, row['id'], 'RoleCall (auto-send)')
+            except Exception as e:
+                app.logger.error(f'Auto-send installment invoice error {row["id"]}: {e}')
+        conn.close()
+    except Exception as e:
+        app.logger.error(f'Rental invoice cron check error: {e}')
+
 @app.route('/api/rental/agreements/<aid>/payment-plan', methods=['POST'])
 def create_rental_payment_plan(aid):
-    """Generate a full monthly installment schedule upfront — one Square
-    invoice per installment, each with its own amount/due date/label.
-    Every installment is created immediately (not chained), so an unpaid
-    one can simply be voided in Square if the partnership ends early."""
+    """Save a monthly installment schedule. Each installment is recorded as
+    'scheduled' right away — no Square invoice or email goes out yet.
+    Invoices are auto-sent about a week before their due date (see
+    maybe_send_due_rental_invoices), or staff can send any of them early
+    from the Invoices list."""
     err = require_permission('rentals')
     if err: return err
     d = request.json or {}
@@ -22156,17 +26977,229 @@ def create_rental_payment_plan(aid):
         if amount_cents <= 0 or not due_date:
             failures.append({'label': label, 'error': 'Missing amount or due date'})
             continue
-        pid, payment_err = _generate_rental_invoice(conn, aid, 'installment', amount_cents, due_date, created_by, label=label)
-        if pid:
-            created_ids.append(pid)
-            if payment_err:
-                failures.append({'label': label, 'error': payment_err, 'created': True})
-        else:
-            failures.append({'label': label, 'error': payment_err or 'Could not create this invoice'})
+        pid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO rental_payments
+            (id, agreement_id, payment_type, amount_cents, due_date, square_invoice_status, created_by, installment_label)
+            VALUES (%s,%s,'installment',%s,%s,'scheduled',%s,%s)''',
+            (pid, aid, amount_cents, due_date, created_by, label))
+        created_ids.append(pid)
+    conn.commit()
+    payment_plan_url = None
+    if created_ids:
+        # Email the partner a link to the full schedule — this is what the
+        # contract's monthly-billing clause promises: a concrete Payment
+        # Plan summary they can reference, sent once installments exist.
+        agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+        req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_email AS partner_email, rp.contact_name AS partner_contact
+            FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+            WHERE rr.id=%s''', (agr['request_id'],)) if agr else None
+        if agr and agr.get('signing_token'):
+            payment_plan_url = f'https://rolecall.hwtco.org/rent/payment-plan/{agr["signing_token"]}'
+            if req and req.get('partner_email'):
+                try:
+                    send_email(req['partner_email'], f'Payment Plan — {req.get("title","")}',
+                        f'Hi {req.get("partner_contact") or req.get("partner_name") or ""},<br><br>'
+                        f'Here is the payment schedule for <strong>{req.get("title","")}</strong>: {len(created_ids)} installment(s). '
+                        f'Each will be invoiced separately by Square, automatically emailed to you about a week before its due date.<br><br>'
+                        f'<a href="{payment_plan_url}">View the full Payment Plan</a><br><br>'
+                        f'Horizon West Theater Company')
+                except Exception as e:
+                    app.logger.warning(f'Payment plan email to partner failed: {e}')
     conn.close()
     if not created_ids:
-        return jsonify({'error': 'Could not create any installment invoices', 'failures': failures}), 400
-    return jsonify({'ok': True, 'created': created_ids, 'failures': failures})
+        return jsonify({'error': 'Could not save any installments', 'failures': failures}), 400
+    return jsonify({'ok': True, 'created': created_ids, 'failures': failures, 'payment_plan_url': payment_plan_url})
+
+@app.route('/api/rental/agreements/<aid>/payment-plan/add-installment', methods=['POST'])
+def add_rental_payment_plan_installment(aid):
+    """Adds one extra installment to an existing payment plan — e.g. an
+    added date pushed the total up after some installments were already
+    invoiced/paid. Doesn't touch any existing installment; the new one is
+    'scheduled' like any other and picked up by the same auto-send/manual
+    Send Now flow as the rest of the plan.
+
+    Also updates the frozen payment-plan snapshot on the request and
+    regenerates the contract document, so Exhibit A in the signed copy
+    actually shows the new installment — RoleCall's own invoice records
+    and the document a partner can download were drifting apart otherwise,
+    since Exhibit A is rendered from that snapshot, not from the live
+    rental_payments rows."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    try:
+        amount_cents = int(round(float(d.get('amount') or 0) * 100))
+    except (TypeError, ValueError):
+        amount_cents = 0
+    due_date = (d.get('due_date') or '').strip()
+    if amount_cents <= 0 or not due_date:
+        return jsonify({'error': 'Amount and due date are required'}), 400
+    conn = get_db()
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+    if not agr:
+        conn.close()
+        return jsonify({'error': 'Agreement not found'}), 404
+    existing_count = fetchone(conn, "SELECT COUNT(*) AS c FROM rental_payments WHERE agreement_id=%s AND payment_type='installment'", (aid,))
+    label = (d.get('label') or '').strip() or f"Additional Payment {(existing_count.get('c') or 0) + 1}"
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    created_by = (user or {}).get('name', 'RoleCall')
+    pid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_payments
+        (id, agreement_id, payment_type, amount_cents, due_date, square_invoice_status, created_by, installment_label)
+        VALUES (%s,%s,'installment',%s,%s,'scheduled',%s,%s)''',
+        (pid, aid, amount_cents, due_date, created_by, label))
+
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (agr['request_id'],))
+    # Keep the stored snapshot in sync too, purely as a backup/audit copy —
+    # _rebuild_rental_contract_html sources the actual document from the
+    # live rental_payments rows (now including the one just inserted),
+    # so this alone can't cause the same drift again.
+    execute(conn, 'UPDATE rental_requests SET billing_installments_plan=%s WHERE id=%s',
+        (json.dumps(_get_live_installments_plan(conn, aid) or []), agr['request_id']))
+    contract_html = _rebuild_rental_contract_html(conn, agr, req)
+    execute(conn, 'UPDATE rental_agreements SET contract_html=%s, updated_at=NOW() WHERE id=%s', (contract_html, aid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': pid})
+
+@app.route('/api/rental/payments/<pid>', methods=['PUT'])
+def edit_rental_payment_installment(pid):
+    """Edits a not-yet-sent installment's amount/due date/label — for
+    fixing a typo or shifting a due date without deleting and re-adding
+    it. Only allowed while still 'scheduled' (sent_at IS NULL): once a
+    Square invoice has actually gone out, this row is what the partner
+    was invoiced against, so it isn't safe to silently rewrite — void the
+    invoice in Square and re-add the installment instead in that case."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    payment = fetchone(conn, "SELECT * FROM rental_payments WHERE id=%s AND payment_type='installment'", (pid,))
+    if not payment:
+        conn.close()
+        return jsonify({'error': 'Installment not found'}), 404
+    if payment.get('sent_at'):
+        conn.close()
+        return jsonify({'error': "This installment has already been sent — its invoice already reflects the old amount/date. Void it in Square and add a new installment instead of editing this one."}), 400
+    fields, params = [], []
+    if 'amount' in d:
+        try:
+            amount_cents = int(round(float(d.get('amount') or 0) * 100))
+        except (TypeError, ValueError):
+            amount_cents = 0
+        if amount_cents <= 0:
+            conn.close()
+            return jsonify({'error': 'Amount must be greater than zero'}), 400
+        fields.append('amount_cents=%s'); params.append(amount_cents)
+    if 'due_date' in d:
+        due_date = (d.get('due_date') or '').strip()
+        if not due_date:
+            conn.close()
+            return jsonify({'error': 'Due date is required'}), 400
+        fields.append('due_date=%s'); params.append(due_date)
+    if 'label' in d:
+        fields.append('installment_label=%s'); params.append((d.get('label') or '').strip())
+    if not fields:
+        conn.close()
+        return jsonify({'error': 'Nothing to update'}), 400
+    params.append(pid)
+    execute(conn, f"UPDATE rental_payments SET {', '.join(fields)} WHERE id=%s", tuple(params))
+
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (payment['agreement_id'],))
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name,
+        rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+        WHERE rr.id=%s''', (agr['request_id'],)) if agr else None
+    if agr and req:
+        execute(conn, 'UPDATE rental_requests SET billing_installments_plan=%s WHERE id=%s',
+            (json.dumps(_get_live_installments_plan(conn, agr['id']) or []), agr['request_id']))
+        contract_html = _rebuild_rental_contract_html(conn, agr, req)
+        execute(conn, 'UPDATE rental_agreements SET contract_html=%s, updated_at=NOW() WHERE id=%s', (contract_html, agr['id']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/rental/payments/<pid>/send-invoice', methods=['POST'])
+def send_scheduled_rental_invoice_route(pid):
+    """Manually send a scheduled installment's Square invoice early — e.g.
+    the partner asked for it sooner, or staff just don't want to wait for
+    the automatic pre-due-date send."""
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+    ok, msg = _send_scheduled_rental_invoice(conn, pid, (user or {}).get('name', 'RoleCall'))
+    conn.close()
+    if not ok:
+        return jsonify({'error': msg or 'Could not send this invoice'}), 400
+    return jsonify({'ok': True, 'warning': msg})
+
+@app.route('/rent/payment-plan/<token>')
+def rental_payment_plan_page(token):
+    """Public, partner-facing summary of every payment on an agreement —
+    the concrete document referenced by the contract's monthly-billing
+    clause. Reuses the agreement's signing_token rather than a new one,
+    since it's meant for the same audience (the partner) and there's no
+    action to take here (no sign button — just a read-only schedule)."""
+    conn = get_db()
+    agr = fetchone(conn, '''SELECT ra.*, rr.title, rp.name AS partner_name
+        FROM rental_agreements ra
+        JOIN rental_requests rr ON rr.id=ra.request_id
+        LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE ra.signing_token=%s''', (token,))
+    if not agr:
+        conn.close()
+        return 'Payment plan not found.', 404
+    payments = fetchall(conn, 'SELECT * FROM rental_payments WHERE agreement_id=%s ORDER BY created_at', (agr['id'],)) or []
+    conn.close()
+    if not payments:
+        rows_html = '<p style="color:#6b7280">No invoices have been issued yet — check back after your first payment is due.</p>'
+    else:
+        total_cents = sum(int(p.get('amount_cents') or 0) for p in payments)
+        paid_cents = sum(int(p.get('amount_cents') or 0) for p in payments if p.get('square_invoice_status') == 'PAID')
+        rows = []
+        for p in payments:
+            paid = p.get('square_invoice_status') == 'PAID'
+            scheduled = not p.get('sent_at')
+            label = p.get('installment_label') or ('Deposit' if p.get('payment_type') == 'deposit' else 'Final Payment' if p.get('payment_type') == 'final' else p.get('payment_type'))
+            if paid:
+                status_html = '<span style="color:#166534;font-weight:700">✅ Paid</span>'
+            elif scheduled:
+                status_html = '<span style="color:#6b7280;font-weight:700">📅 Scheduled</span>'
+            else:
+                status_html = '<span style="color:#92400e;font-weight:700">⏳ Due</span>'
+            link_html = f'<a href="{p.get("public_url")}" style="color:#145466;font-weight:600">Pay / View Invoice ↗</a>' if p.get('public_url') and not paid else ''
+            rows.append(f'''<tr>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{label}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${(p.get("amount_cents") or 0)/100:.2f}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{p.get("due_date","")}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{status_html}</td>
+                <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{link_html}</td>
+            </tr>''')
+        rows_html = f'''<table style="width:100%;border-collapse:collapse;font-size:14px;margin-top:16px">
+<thead><tr style="background:#f8fafc"><th style="padding:8px 12px;text-align:left">Payment</th><th style="padding:8px 12px;text-align:left">Amount</th><th style="padding:8px 12px;text-align:left">Due Date</th><th style="padding:8px 12px;text-align:left">Status</th><th style="padding:8px 12px;text-align:left"></th></tr></thead>
+<tbody>{"".join(rows)}</tbody></table>
+<div style="margin-top:16px;font-size:14px"><strong>Total:</strong> ${total_cents/100:.2f} &nbsp;&middot;&nbsp; <strong>Paid so far:</strong> ${paid_cents/100:.2f}</div>'''
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Payment Plan – {agr.get("title","")}</title>
+<style>body{{font-family:Georgia,serif;font-size:14px;color:#1a2332;margin:0;padding:0;background:#f8fafc}}
+.wrap{{max-width:760px;margin:0 auto;background:#fff;padding:40px;box-shadow:0 2px 20px rgba(0,0,0,0.08)}}
+h2{{color:#0d3d4d}}</style></head>
+<body><div class="wrap">
+<h2>Payment Plan</h2>
+<p><strong>{agr.get("title","")}</strong> — {agr.get("partner_name","")}</p>
+{rows_html}
+</div></body></html>'''
+
+
 
 @app.route('/api/rental/agreements/<aid>/payments', methods=['GET'])
 def get_rental_payments(aid):
@@ -22219,7 +27252,7 @@ def _apply_rental_invoice_update(conn, payment, invoice):
                 FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
                 WHERE rr.id=%s''', (agr['request_id'],))
             label = payment.get('installment_label') or ('Deposit' if payment['payment_type'] == 'deposit' else 'Final Payment')
-            if req and payment['payment_type'] in ('deposit', 'installment') and req.get('status') in ('pending', 'approved'):
+            if req and payment['payment_type'] in ('deposit', 'installment') and req.get('status') in ('pending', 'approved', 'signed'):
                 execute(conn, "UPDATE rental_requests SET status='active', updated_at=NOW() WHERE id=%s", (req['id'],))
             # Figure out how much of this agreement is now paid off, across
             # every invoice (deposit/final/installments) tied to it, so the
@@ -22525,11 +27558,13 @@ def public_rental_message_submit(token):
         conn.close()
         return jsonify({'error': 'Not found'}), 404
     mid = str(uuid.uuid4())
+    import html as _htmlrental
+    safe_body_html = _htmlrental.escape(body).replace('\n', '<br>')
     execute(conn, '''INSERT INTO rental_messages
         (id, request_id, direction, from_email, from_name, subject, body_html, body_text)
         VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s)''',
         (mid, req['id'], req.get('partner_email', ''), req.get('partner_contact', ''),
-         f'Re: {req.get("title","")}', body.replace('\n', '<br>'), body))
+         f'Re: {req.get("title","")}', safe_body_html, body))
     execute(conn, 'UPDATE rental_requests SET awaiting_feedback=FALSE WHERE id=%s', (req['id'],))
     conn.commit()
     try:
@@ -24109,6 +29144,9 @@ def get_registration_status(slug, rid):
 def get_program_registrations(pid):
     err = require_auth()
     if err: return err
+    if session.get('role') == 'instructor':
+        err = require_own_program(pid)
+        if err: return err
     import json as _jreg
     conn = get_db()
     regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type
@@ -24142,6 +29180,9 @@ def get_program_registrations(pid):
 def update_registration(pid, rid):
     err = require_auth()
     if err: return err
+    if session.get('role') == 'instructor':
+        err = require_own_program(pid)
+        if err: return err
     import json as _jur
     d = request.json or {}
     conn = get_db()
@@ -24150,7 +29191,7 @@ def update_registration(pid, rid):
         guardian_email=%s, guardian_phone=%s,
         emergency_contact_name=%s, emergency_contact_phone=%s,
         session_ids=%s, child_dob=%s, child_first_name=%s, child_last_name=%s,
-        updated_at=NOW() WHERE id=%s AND program_id=%s''',
+        invoice_memo=%s, custom_field_values=%s, updated_at=NOW() WHERE id=%s AND program_id=%s''',
         (d.get('status'), d.get('notes',''), d.get('shirt_size',''),
          d.get('guardian_name',''), d.get('guardian_email',''),
          d.get('guardian_phone',''), d.get('emergency_contact_name',''),
@@ -24159,6 +29200,8 @@ def update_registration(pid, rid):
          d.get('child_dob') or None,
          (d.get('child_first_name') or '').strip(),
          (d.get('child_last_name') or '').strip(),
+         (d.get('invoice_memo') or '').strip(),
+         _jur.dumps(d.get('custom_field_values') or {}),
          rid, pid))
     conn.commit()
     conn.close()

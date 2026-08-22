@@ -880,7 +880,7 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS callout_relay_threads (
             id TEXT PRIMARY KEY,
             production_conflict_id TEXT REFERENCES production_conflicts(id) ON DELETE CASCADE,
-            guardian_phone TEXT NOT NULL,
+            guardian_phone TEXT,
             guardian_name TEXT,
             youth_name TEXT,
             production_name TEXT,
@@ -889,6 +889,7 @@ def init_db():
             last_message_at TIMESTAMP DEFAULT NOW(),
             created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
+        "ALTER TABLE callout_relay_threads ALTER COLUMN guardian_phone DROP NOT NULL",
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
@@ -13682,22 +13683,25 @@ def submit_portal_production_conflict():
                     f'SELECT phone FROM volunteers WHERE id IN ({ph})', tuple(vol_ids)) if r.get('phone')]
             ts = get_twilio_settings()
             if phones and ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'):
-                # Set up a reply relay so a crew member can just text back and
-                # have it reach the guardian who called out (and vice versa) —
-                # matches the existing on-call SMS relay pattern.
+                # Always create a reply-relay thread — even without a guardian
+                # phone on file — so a crew member's reply is recognized as
+                # "about this call-out" and handled gracefully, instead of
+                # falling through to the generic customer-inquiry auto-reply.
                 guardian = fetchone(conn, '''SELECT phone, name FROM youth_guardians
                     WHERE youth_id=%s AND phone IS NOT NULL AND phone!=''
                     ORDER BY is_primary DESC LIMIT 1''', (youth_id,))
-                reply_hint = ''
-                if guardian and guardian.get('phone'):
-                    execute(conn, '''INSERT INTO callout_relay_threads
-                        (id, production_conflict_id, guardian_phone, guardian_name, youth_name,
-                         production_name, crew_alert_phones, last_message_at)
-                        VALUES (%s,%s,%s,%s,%s,%s,%s,NOW())''',
-                        (str(uuid.uuid4()), cid, guardian['phone'], guardian.get('name'), who,
-                         prod['name'], json.dumps([_phone_last10(p) for p in phones if p])))
-                    conn.commit()
+                guardian_phone = guardian['phone'] if guardian else None
+                execute(conn, '''INSERT INTO callout_relay_threads
+                    (id, production_conflict_id, guardian_phone, guardian_name, youth_name,
+                     production_name, crew_alert_phones, last_message_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,NOW())''',
+                    (str(uuid.uuid4()), cid, guardian_phone, guardian.get('name') if guardian else None, who,
+                     prod['name'], json.dumps([_phone_last10(p) for p in phones if p])))
+                conn.commit()
+                if guardian_phone:
                     reply_hint = f" Reply to reach the parent (start with @{youth['first_name']} if you have another call-out going too)."
+                else:
+                    reply_hint = " No phone on file for the parent, so replies here won't reach them automatically."
                 sms_body = f"HWTC RoleCall: {who} marked {label}{where} on {date_str} — {prod['name']}.{reply_hint}"
                 try:
                     from twilio.rest import Client as _TwClient
@@ -24157,10 +24161,23 @@ def twilio_sms():
         twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
         return twiml, 200, {'Content-Type': 'text/xml'}
 
-    # Is this one of the crew members who was alerted? Route to the guardian.
+    # Is this one of the crew members who was alerted? Route to the guardian —
+    # or, if there's no guardian phone on file, tell them directly instead of
+    # letting it fall through to the generic "thanks for texting us" reply.
     thread, msg_body = resolve_callout_thread(
         "(crew_alert_phones::text LIKE %s OR RIGHT(REGEXP_REPLACE(active_crew_phone,'[^0-9]','','g'),10)=%s)",
         (f'%{from_last10}%', from_last10), body)
+    if thread and not thread.get('guardian_phone'):
+        execute(conn, 'UPDATE callout_relay_threads SET last_message_at=NOW(), active_crew_phone=%s WHERE id=%s',
+            (from_num, thread['id']))
+        conn.commit(); conn.close()
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f"⚠️ *Call-out reply couldn't be relayed* — no parent phone on file for {thread.get('youth_name')}\n*Message:* {msg_body}"}}
+        ], text=f"Call-out reply undeliverable (no parent phone) re: {thread.get('youth_name')}: {msg_body[:100]}")
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response><Message>There's no phone number on file for {thread.get('youth_name')}'s parent, so this can't be relayed automatically. Please reach out another way — this has been logged for staff.</Message></Response>'''
+        return twiml, 200, {'Content-Type': 'text/xml'}
     if thread:
         try:
             from twilio.rest import Client as _TwClient

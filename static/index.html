@@ -15208,11 +15208,13 @@ function populateProdVolSelect(){
 // ═══════════════════════════════════════════════════════════════
 const DAILY_STATUS_LABELS = {
  signed_in:'Signed In', signed_out:'Signed Out', not_yet:'Not Yet',
- absent:'Absent', sick:'Sick', late:'Running Late', leaving_early:'Leaving Early'
+ absent:'Called Out — Absent', sick:'Called Out — Sick', late:'Called Out — Late', leaving_early:'Called Out — Leaving Early',
+ no_show:' No Show'
 }
 const DAILY_STATUS_COLORS = {
  signed_in:['#EAF3DE','#3B6D11'], signed_out:['#EFEFEC','#5F5E5A'], not_yet:['#FFF8E1','#92650A'],
- absent:['#FCEBEB','#A32D2D'], sick:['#FCEBEB','#A32D2D'], late:['#FFF3E0','#B45309'], leaving_early:['#FFF3E0','#B45309']
+ absent:['#FFF3E0','#B45309'], sick:['#FFF3E0','#B45309'], late:['#FFF3E0','#B45309'], leaving_early:['#FFF3E0','#B45309'],
+ no_show:['#FCEBEB','#A32D2D']
 }
 
 function populateDailyOverviewProductionSelect(){
@@ -15253,7 +15255,8 @@ function renderDailyOverviewHTML(data){
  <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700">${summary.total}</div><div style="font-size:12px;color:var(--text-muted)">On the roster</div></div>
  <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700;color:#3B6D11">${summary.signed_in}</div><div style="font-size:12px;color:var(--text-muted)">Signed In</div></div>
  <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700;color:#92650A">${summary.not_yet}</div><div style="font-size:12px;color:var(--text-muted)">Not Yet Arrived</div></div>
- <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700;color:#A32D2D">${summary.called_out}</div><div style="font-size:12px;color:var(--text-muted)">Called Out</div></div>
+ <div class="card" style="padding:14px"><div style="font-size:22px;font-weight:700;color:#B45309">${summary.called_out}</div><div style="font-size:12px;color:var(--text-muted)">Called Out</div></div>
+ <div class="card" style="padding:14px;${summary.no_show?'border:1.5px solid #A32D2D':''}"><div style="font-size:22px;font-weight:700;color:#A32D2D">${summary.no_show}</div><div style="font-size:12px;color:var(--text-muted)"> No Show</div></div>
  </div>`
 
  const scheduleHTML = events.length
@@ -15277,11 +15280,19 @@ function renderDailyOverviewHTML(data){
  </tr></thead><tbody>
  ${rows.map(r=>{
  const [bg,col] = DAILY_STATUS_COLORS[r.status]||['#EFEFEC','#5F5E5A']
- const detail = r.conflict
- ? (r.conflict.notes || '—')
- : (r.signed_in_at ? 'In: '+fmtTime(new Date(r.signed_in_at).toTimeString().slice(0,5))+(r.signed_out_at?' · Out: '+fmtTime(new Date(r.signed_out_at).toTimeString().slice(0,5)):''): '—')
- return `<tr style="border-top:1px solid var(--border)">
- <td style="padding:8px">${nameFn(r)}</td>
+ const isNoShow = r.status==='no_show'
+ const isCalledOut = ['absent','sick','late','leaving_early'].includes(r.status)
+ let detail = '—'
+ if(r.conflict){
+ const src = r.conflict.source==='portal' ? 'Self-reported': 'Staff-marked'
+ detail = (r.conflict.notes ? r.conflict.notes+' · ': '') + src
+ } else if(r.signed_in_at){
+ detail = 'In: '+fmtTime(new Date(r.signed_in_at).toTimeString().slice(0,5))+(r.signed_out_at?' · Out: '+fmtTime(new Date(r.signed_out_at).toTimeString().slice(0,5)):'')
+ } else if(isNoShow){
+ detail = 'No call-out on record'
+ }
+ return `<tr style="border-top:1px solid var(--border);${isNoShow?'background:#FEF5F5':''}">
+ <td style="padding:8px;${isNoShow?'font-weight:600':''}">${nameFn(r)}</td>
  <td style="padding:8px;color:var(--text-muted)">${r.role||'—'}</td>
  <td style="padding:8px"><span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap">${DAILY_STATUS_LABELS[r.status]||r.status}</span></td>
  <td style="padding:8px;color:var(--text-muted);font-size:12px">${detail}</td>
@@ -22187,15 +22198,24 @@ async function loadProductionScheduleConflicts(pid){
  }
  const statusLabel = {absent:'Absent',sick:'Sick',late:'Late',leaving_early:'Leaving Early'}
 
- // Call-out text alert numbers — per production
+ // Call-out text alert recipients — per production, chosen from added crew
  const prod = allProductions.find(p=>p.id===pid)
+ const alertIds = prod?.callout_alert_volunteer_ids || []
+ const alertRecipients = (prod?.members||[]).filter(m=>alertIds.includes(m.volunteer_id))
+ const availableRecipients = (prod?.members||[]).filter(m=>!alertIds.includes(m.volunteer_id))
  const phonesForm = isAdmin ? '<div style="background:var(--bg);border-radius:var(--radius);padding:14px;margin-bottom:16px">'
  +'<div style="font-size:13px;font-weight:700;margin-bottom:4px"> Call-Out Text Alerts</div>'
- +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Phone numbers texted whenever someone calls out for this production (comma-separated)</div>'
- +'<div style="display:flex;gap:8px">'
- +'<input type="text" id="sc-callout-phones-'+pid+'" value="'+escHtml(prod?.callout_sms_phones||'')+'" placeholder="e.g. 4075551234, 4075555678" style="flex:1;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px">'
- +'<button class="btn btn-secondary btn-sm" onclick="saveProdCalloutPhones(\''+pid+'\')">Save</button>'
- +'</div></div>': ''
+ +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Crew members texted at their volunteer profile\'s phone number whenever someone calls out for this production</div>'
+ +(alertRecipients.length ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
+ + alertRecipients.map(m=>'<span style="font-size:12px;background:var(--teal-50);color:var(--teal-700,var(--teal-600));padding:4px 10px;border-radius:20px;display:inline-flex;align-items:center;gap:6px">'
+ + m.volunteer_name + (m.volunteer_phone?'':' <span style="color:var(--red-600);font-weight:600" title="No phone on file">⚠ no phone</span>')
+ + '<button onclick="removeProdCalloutRecipient(\''+pid+'\',\''+m.volunteer_id+'\')" style="background:none;border:none;cursor:pointer;color:inherit;font-size:13px;line-height:1">×</button></span>').join('')
+ + '</div>' : '<div style="font-size:12px;color:var(--text-hint);margin-bottom:8px">No one selected yet — no texts will be sent.</div>')
+ + (availableRecipients.length ? '<select onchange="addProdCalloutRecipient(\''+pid+'\',this)" style="font-size:12px;padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;cursor:pointer;width:100%">'
+ + '<option value="">+ Add crew member to alert</option>'
+ + availableRecipients.map(m=>'<option value="'+m.volunteer_id+'">'+m.volunteer_name+(m.volunteer_phone?'':' (no phone on file)')+'</option>').join('')
+ + '</select>' : '<div style="font-size:11px;color:var(--text-hint)">All crew members are already selected.</div>')
+ + '</div>': ''
 
  // Add Conflict modal helper
  const evOptions = events.map(e=>'<option value="'+e.id+'">'+e.name+(e.event_date?' ('+formatDate(e.event_date)+')':'')+'</option>').join('')
@@ -22310,13 +22330,29 @@ async function submitScConflict(pid){
  toast('Conflict added')
 }
 
-async function saveProdCalloutPhones(pid){
- const val = document.getElementById('sc-callout-phones-'+pid)?.value.trim()||''
- const res = await api('/api/productions/'+pid+'/callout-phones','PUT',{callout_sms_phones:val})
- if(res?.error){toast(res.error,'error');return}
+async function addProdCalloutRecipient(pid, sel){
+ const vid = sel.value
+ if(!vid) return
  const prod = allProductions.find(p=>p.id===pid)
- if(prod) prod.callout_sms_phones = val
- toast('Call-out text numbers saved','success')
+ const current = prod?.callout_alert_volunteer_ids || []
+ if(current.includes(vid)) return
+ const updated = [...current, vid]
+ const res = await api('/api/productions/'+pid+'/callout-recipients','PUT',{volunteer_ids:updated})
+ if(res?.error){toast(res.error,'error');return}
+ if(prod) prod.callout_alert_volunteer_ids = res.callout_alert_volunteer_ids
+ await loadProductionScheduleConflicts(pid)
+ toast('Alert recipient added','success')
+}
+
+async function removeProdCalloutRecipient(pid, vid){
+ const prod = allProductions.find(p=>p.id===pid)
+ const current = prod?.callout_alert_volunteer_ids || []
+ const updated = current.filter(id=>id!==vid)
+ const res = await api('/api/productions/'+pid+'/callout-recipients','PUT',{volunteer_ids:updated})
+ if(res?.error){toast(res.error,'error');return}
+ if(prod) prod.callout_alert_volunteer_ids = res.callout_alert_volunteer_ids
+ await loadProductionScheduleConflicts(pid)
+ toast('Removed')
 }
 
 function switchProdPortalTab(tab, btn){

@@ -3565,6 +3565,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <span><strong>Allow online signing</strong> — volunteers can sign this on the kiosk screen</span>
  </label>
  </div>
+ <div class="form-group">
+ <label>Age Restriction (optional)</label>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Only require this waiver for participants within an age range — e.g. a minors-only liability form for under 18. Leave either side blank for no limit.</div>
+ <div style="display:flex;gap:10px;align-items:center">
+ <input type="number" id="wt-min-age" min="0" max="120" placeholder="Min age" style="width:100px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+ <span style="color:var(--text-muted)">to</span>
+ <input type="number" id="wt-max-age" min="0" max="120" placeholder="Max age" style="width:100px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+ </div>
+ </div>
  </div>
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="closeModal('modal-waiver-type')">Cancel</button>
@@ -11041,24 +11050,30 @@ function renderWaiverTypesSettings(){
  const el=document.getElementById('waiver-types-list')
  if(!el) return
  if(!waiverTypes.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No waiver types yet</div>';return}
- el.innerHTML=waiverTypes.map(t=>`
+ el.innerHTML=waiverTypes.map(t=>{
+ let ageLabel = ''
+ if(t.min_age!=null && t.max_age!=null) ageLabel = `Ages ${t.min_age}–${t.max_age}`
+ else if(t.min_age!=null) ageLabel = `Age ${t.min_age}+`
+ else if(t.max_age!=null) ageLabel = `Under ${t.max_age+1}`
+ return `
  <div class="setting-item" style="flex-wrap:wrap;gap:8px">
  <div style="flex:1;min-width:150px">
  <div class="setting-item-label">${t.name}</div>
  ${t.description?`<div class="setting-item-sub">${t.description}</div>`:''}
- ${t.required_all?'<span style="font-size:10px;font-weight:700;background:var(--red-50);color:var(--red-600);padding:2px 6px;border-radius:8px;text-transform:uppercase;letter-spacing:0.5px">Required for All</span>':''}
+ ${t.required_all?'<span style="font-size:10px;font-weight:700;background:var(--red-50);color:var(--red-600);padding:2px 6px;border-radius:8px;text-transform:uppercase;letter-spacing:0.5px;margin-right:4px">Required for All</span>':''}
+ ${ageLabel?`<span style="font-size:10px;font-weight:700;background:var(--teal-50);color:var(--teal-600);padding:2px 6px;border-radius:8px;text-transform:uppercase;letter-spacing:0.5px">${ageLabel}</span>`:''}
  </div>
  <div style="display:flex;gap:6px;align-items:center">
  <button class="btn btn-sm ${t.required_all?'btn-danger':'btn-secondary'}" style="padding:4px 8px;font-size:11px" onclick="toggleWaiverRequired('${t.id}')">${t.required_all?' Required':' Set Required'}</button>
  <button class="btn btn-secondary btn-sm" style="padding:4px 8px;font-size:11px" onclick="openEditWaiverTypeModal('${t.id}')">Edit</button>
  <button class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px" onclick="deleteWaiverType('${t.id}')">Delete</button>
  </div>
- </div>`).join('')
+ </div>`}).join('')
 }
 function openNewWaiverTypeModal(){
  document.getElementById('waiver-type-modal-title').textContent='New Waiver Type'
  document.getElementById('wt-edit-id').value=''
- ;['wt-name','wt-desc','wt-body'].forEach(id=>document.getElementById(id).value='')
+ ;['wt-name','wt-desc','wt-body','wt-min-age','wt-max-age'].forEach(id=>document.getElementById(id).value='')
  document.getElementById('wt-can-sign-online').checked=false
  openModal('modal-waiver-type')
 }
@@ -11071,6 +11086,8 @@ function openEditWaiverTypeModal(tid){
  document.getElementById('wt-desc').value=t.description||''
  document.getElementById('wt-body').value=t.template_body||''
  document.getElementById('wt-can-sign-online').checked=!!t.can_sign_online
+ document.getElementById('wt-min-age').value=t.min_age??''
+ document.getElementById('wt-max-age').value=t.max_age??''
  openModal('modal-waiver-type')
 }
 async function saveWaiverType(){
@@ -11079,10 +11096,15 @@ async function saveWaiverType(){
  const description=document.getElementById('wt-desc').value.trim()
  const template_body=document.getElementById('wt-body').value.trim()
  const can_sign_online=document.getElementById('wt-can-sign-online').checked
+ const minAgeRaw=document.getElementById('wt-min-age').value
+ const maxAgeRaw=document.getElementById('wt-max-age').value
+ const min_age = minAgeRaw===''?null:parseInt(minAgeRaw)
+ const max_age = maxAgeRaw===''?null:parseInt(maxAgeRaw)
  if(!name){toast('Name is required','error');return}
+ if(min_age!=null && max_age!=null && min_age>max_age){toast('Min age cannot be greater than max age','error');return}
  let res
- if(editId) res=await api(`/api/waiver-types/${editId}`,'PUT',{name,description,template_body,can_sign_online})
- else res=await api('/api/waiver-types','POST',{name,description,template_body,can_sign_online})
+ if(editId) res=await api(`/api/waiver-types/${editId}`,'PUT',{name,description,template_body,can_sign_online,min_age,max_age})
+ else res=await api('/api/waiver-types','POST',{name,description,template_body,can_sign_online,min_age,max_age})
  if(res.error){toast(res.error,'error');return}
  if(editId) waiverTypes=waiverTypes.map(t=>t.id===editId?res:t)
  else waiverTypes.push(res)
@@ -15377,7 +15399,8 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  } else {
  rw.forEach(function(w){
  var xBtn = isAdmin ? '<button onclick="removeProdWaiverUI(\'' + p.id + '\',\'' + w.waiver_type_id + '\')" style="background:none;border:none;cursor:pointer;color:var(--red-600);font-size:13px">×</button>': ''
- s += '<div style="font-size:12px;background:var(--red-50);color:var(--red-600);padding:4px 10px;border-radius:8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between">' + w.waiver_name + xBtn + '</div>'
+ var ageTag = waiverAgeLabel(w) ? ' <span style="opacity:0.75">('+waiverAgeLabel(w)+')</span>': ''
+ s += '<div style="font-size:12px;background:var(--red-50);color:var(--red-600);padding:4px 10px;border-radius:8px;margin-bottom:4px;display:flex;align-items:center;justify-content:space-between">' + w.waiver_name + ageTag + xBtn + '</div>'
  })
  }
  if(isAdmin){
@@ -16564,7 +16587,7 @@ function renderProductionWaiverStatus(pid, data){
  const ok = all.filter(p=>!p.missing_waivers||!p.missing_waivers.length)
  const header = '<div style="display:flex;align-items:center;justify-content:between;margin-bottom:4px">'
  + '<div style="font-size:15px;font-weight:600">Waiver Status</div></div>'
- + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:18px">Who still needs to sign · Required: '+data.required_waivers.map(w=>escHtml(w.name)).join(', ')+'</div>'
+ + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:18px">Who still needs to sign · Required: '+data.required_waivers.map(w=>escHtml(w.name)+(waiverAgeLabel(w)?' ('+waiverAgeLabel(w)+')':'')).join(', ')+'</div>'
  if(!all.length){
  el.innerHTML = header + '<div style="font-size:13px;color:var(--text-muted)">No cast or crew added to this production yet.</div>'
  return
@@ -24617,10 +24640,17 @@ function renderProgramRequiredWaivers(pid, waivers){
  <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)">
  <div>
  <div style="font-size:13px;font-weight:600">${escHtml(w.waiver_name)}</div>
- <div style="font-size:11px;color:var(--text-muted)">${w.can_sign_online?' Can sign online':' Must be uploaded'}</div>
+ <div style="font-size:11px;color:var(--text-muted)">${w.can_sign_online?' Can sign online':' Must be uploaded'}${waiverAgeLabel(w)?' · '+waiverAgeLabel(w):''}</div>
  </div>
  ${isAdmin?`<button class="btn btn-danger btn-sm" onclick="removeProgramRequiredWaiver('${pid}','${w.waiver_type_id}')">Remove</button>`:''}
  </div>`).join('')
+}
+
+function waiverAgeLabel(w){
+ if(w.min_age!=null && w.max_age!=null) return `Ages ${w.min_age}–${w.max_age}`
+ if(w.min_age!=null) return `Age ${w.min_age}+`
+ if(w.max_age!=null) return `Under ${w.max_age+1}`
+ return ''
 }
 
 async function addProgramRequiredWaiver(pid){

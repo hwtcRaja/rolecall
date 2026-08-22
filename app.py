@@ -873,6 +873,21 @@ def init_db():
             approved BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT NOW(),
             created_by_portal BOOLEAN DEFAULT FALSE)""",
+        # Two-way SMS relay for call-out alerts: lets a crew member reply to
+        # the "so-and-so called out" text and have it reach the parent who
+        # submitted it (and vice versa), the same way the on-call line relays
+        # customer texts, since both share the one Twilio number.
+        """CREATE TABLE IF NOT EXISTS callout_relay_threads (
+            id TEXT PRIMARY KEY,
+            production_conflict_id TEXT REFERENCES production_conflicts(id) ON DELETE CASCADE,
+            guardian_phone TEXT NOT NULL,
+            guardian_name TEXT,
+            youth_name TEXT,
+            production_name TEXT,
+            crew_alert_phones TEXT DEFAULT '[]',
+            active_crew_phone TEXT,
+            last_message_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
@@ -2522,6 +2537,24 @@ def resolve_perm_level(perms, section):
     if legacy and perms.get(legacy):
         return perms[legacy]
     return 'none'
+
+
+def today_eastern():
+    """Today's date in America/New_York, not the server's (likely UTC) clock.
+    The Railway server runs on UTC, which rolls over to the next calendar day
+    hours before it's actually midnight in Florida — use this anywhere a
+    'today' default matters, matching the pattern already used in get_oncall_now()."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo('America/New_York')).date()
+
+
+def now_eastern():
+    """Current wall-clock time in America/New_York as a naive datetime, for
+    comparing against event date/start_time fields — those are entered by
+    staff in local time and stored without timezone info, so comparing them
+    against a naive UTC datetime.now() would be off by several hours."""
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo('America/New_York')).replace(tzinfo=None)
 
 
 def compute_age(dob_val):
@@ -10302,7 +10335,7 @@ def get_production_daily_overview(pid):
     Used by the Daily Overview dashboard (admins, directors, stage managers)."""
     err = require_permission('productions', 'view')
     if err: return err
-    target_date = request.args.get('date') or date.today().isoformat()
+    target_date = request.args.get('date') or today_eastern().isoformat()
     conn = get_db()
 
     prod = fetchone(conn, 'SELECT id, name, status FROM productions WHERE id=%s', (pid,))
@@ -10361,7 +10394,7 @@ def get_production_daily_overview(pid):
         return 'no_show' if any_event_started else 'not_yet'
 
     # Has at least one of today's events already started? Drives the not_yet vs no_show split above.
-    now_dt = datetime.now()
+    now_dt = now_eastern()
     any_event_started = False
     for e in events:
         ev_date = e.get('event_date')
@@ -13578,7 +13611,7 @@ def submit_portal_production_conflict():
                     ev_time = None
             event_start = datetime.combine(ev_date, ev_time or datetime.min.time())
             window_opens_at = event_start - timedelta(hours=CALLOUT_WINDOW_HOURS)
-            now = datetime.now()
+            now = now_eastern()
             if now >= event_start:
                 conn.close()
                 return jsonify({'error': 'This event has already started. Please contact the production team directly.'}), 400
@@ -13626,7 +13659,7 @@ def submit_portal_production_conflict():
                 except Exception:
                     date_str = str(ev_date)
             else:
-                date_str = date.today().strftime('%a, %b %-d')
+                date_str = today_eastern().strftime('%a, %b %-d')
 
             recipients = get_recipient_emails(s)
             if recipients:
@@ -13649,7 +13682,23 @@ def submit_portal_production_conflict():
                     f'SELECT phone FROM volunteers WHERE id IN ({ph})', tuple(vol_ids)) if r.get('phone')]
             ts = get_twilio_settings()
             if phones and ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'):
-                sms_body = f"HWTC RoleCall: {who} marked {label}{where} on {date_str} — {prod['name']}."
+                # Set up a reply relay so a crew member can just text back and
+                # have it reach the guardian who called out (and vice versa) —
+                # matches the existing on-call SMS relay pattern.
+                guardian = fetchone(conn, '''SELECT phone, name FROM youth_guardians
+                    WHERE youth_id=%s AND phone IS NOT NULL AND phone!=''
+                    ORDER BY is_primary DESC LIMIT 1''', (youth_id,))
+                reply_hint = ''
+                if guardian and guardian.get('phone'):
+                    execute(conn, '''INSERT INTO callout_relay_threads
+                        (id, production_conflict_id, guardian_phone, guardian_name, youth_name,
+                         production_name, crew_alert_phones, last_message_at)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,NOW())''',
+                        (str(uuid.uuid4()), cid, guardian['phone'], guardian.get('name'), who,
+                         prod['name'], json.dumps([_phone_last10(p) for p in phones if p])))
+                    conn.commit()
+                    reply_hint = f" Reply to reach the parent (start with @{youth['first_name']} if you have another call-out going too)."
+                sms_body = f"HWTC RoleCall: {who} marked {label}{where} on {date_str} — {prod['name']}.{reply_hint}"
                 try:
                     from twilio.rest import Client as _TwClient
                     client = _TwClient(ts['account_sid'], ts['auth_token'])
@@ -24050,6 +24099,87 @@ def twilio_sms():
 
         twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
         return twiml, 200, {'Content-Type': 'text/xml'}
+
+    # --- Call-out reply relay: a crew member replying to a "so-and-so called
+    # out" text, or the guardian replying back to them, on a thread created
+    # in submit_portal_production_conflict(). Checked before the generic
+    # customer fallback since these numbers wouldn't otherwise mean anything.
+    #
+    # Everything from the HWTC number lands in ONE phone thread on the
+    # recipient's end, so if more than one call-out is active at once, a
+    # bare reply is ambiguous. Same fix as the on-call system: default to
+    # the most recently active thread, but let "@Emma message" target a
+    # specific one by the kid's first name. ---
+    conn = get_db()
+    from_last10 = _phone_last10(from_num)
+    RELAY_LOOKBACK = "INTERVAL '7 days'"
+
+    def resolve_callout_thread(where_clause, params, raw_body):
+        """Parse an optional '@name message' prefix and find the matching
+        thread; falls back to the most recent one if there's no prefix or
+        no match. Returns (thread_or_None, message_text_with_prefix_stripped)."""
+        msg = raw_body
+        if raw_body.startswith('@') and ' ' in raw_body:
+            code, rest = raw_body[1:].split(' ', 1)
+            code = code.strip()
+            if code:
+                named = fetchone(conn, f'''SELECT * FROM callout_relay_threads
+                    WHERE {where_clause} AND youth_name ILIKE %s
+                    AND last_message_at > NOW() - {RELAY_LOOKBACK}
+                    ORDER BY last_message_at DESC LIMIT 1''', params + (f'%{code}%',))
+                if named:
+                    return named, rest.strip()
+        fallback = fetchone(conn, f'''SELECT * FROM callout_relay_threads
+            WHERE {where_clause}
+            AND last_message_at > NOW() - {RELAY_LOOKBACK}
+            ORDER BY last_message_at DESC LIMIT 1''', params)
+        return fallback, msg
+
+    # Is this the guardian replying? Route to whichever crew member most recently engaged.
+    thread, msg_body = resolve_callout_thread(
+        "RIGHT(REGEXP_REPLACE(guardian_phone,'[^0-9]','','g'),10)=%s", (from_last10,), body)
+    if thread and thread.get('active_crew_phone'):
+        target_phone = thread['active_crew_phone']
+        try:
+            from twilio.rest import Client as _TwClient
+            client = _TwClient(ts['account_sid'], ts['auth_token'])
+            client.messages.create(body=f"[{thread.get('youth_name') or 'Parent'}'s guardian] {msg_body}",
+                from_=ts['from_phone'], to=target_phone)
+            execute(conn, 'UPDATE callout_relay_threads SET last_message_at=NOW() WHERE id=%s', (thread['id'],))
+            conn.commit()
+        except Exception as e:
+            app.logger.warning(f'Call-out relay (guardian→crew) failed: {e}')
+        conn.close()
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f"💬 *Call-out reply* — {thread.get('guardian_name') or 'Guardian'} replied about {thread.get('youth_name')}\n*Message:* {msg_body}"}}
+        ], text=f"Call-out reply from {thread.get('guardian_name') or 'guardian'}: {msg_body[:100]}")
+        twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+        return twiml, 200, {'Content-Type': 'text/xml'}
+
+    # Is this one of the crew members who was alerted? Route to the guardian.
+    thread, msg_body = resolve_callout_thread(
+        "(crew_alert_phones::text LIKE %s OR RIGHT(REGEXP_REPLACE(active_crew_phone,'[^0-9]','','g'),10)=%s)",
+        (f'%{from_last10}%', from_last10), body)
+    if thread:
+        try:
+            from twilio.rest import Client as _TwClient
+            client = _TwClient(ts['account_sid'], ts['auth_token'])
+            client.messages.create(body=f"[Re: {thread.get('youth_name')} call-out] {msg_body}",
+                from_=ts['from_phone'], to=thread['guardian_phone'])
+            execute(conn, '''UPDATE callout_relay_threads SET last_message_at=NOW(), active_crew_phone=%s
+                WHERE id=%s''', (from_num, thread['id']))
+            conn.commit()
+        except Exception as e:
+            app.logger.warning(f'Call-out relay (crew→guardian) failed: {e}')
+        conn.close()
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f"↩️ *Call-out reply sent* — re: {thread.get('youth_name')} to {thread.get('guardian_name') or 'guardian'}\n*Message:* {msg_body}"}}
+        ], text=f"Call-out reply to {thread.get('guardian_name') or 'guardian'}: {msg_body[:100]}")
+        twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+        return twiml, 200, {'Content-Type': 'text/xml'}
+    conn.close()
 
     # --- New/continuing customer message ---
     contact_name = lookup_contact_name_by_phone(from_num)

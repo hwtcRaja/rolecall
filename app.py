@@ -801,6 +801,10 @@ def init_db():
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS required_for_volunteering BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS can_sign_online BOOLEAN DEFAULT FALSE",
         "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS expires_days INTEGER",
+        # Age restrictions — e.g. a "Minor Liability" waiver that only applies to
+        # participants under 18. Either bound can be left NULL for no limit.
+        "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS min_age INTEGER",
+        "ALTER TABLE waiver_types ADD COLUMN IF NOT EXISTS max_age INTEGER",
         "ALTER TABLE youth_program_enrollments ALTER COLUMN program_id DROP NOT NULL",
         "ALTER TABLE youth_program_enrollments ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_youth_production_enrollment ON youth_program_enrollments(youth_id, production_id) WHERE production_id IS NOT NULL",
@@ -2519,6 +2523,37 @@ def resolve_perm_level(perms, section):
     return 'none'
 
 
+def compute_age(dob_val):
+    """Age in whole years from a date-of-birth value (date object or
+    YYYY-MM-DD-ish string). Returns None if it can't be parsed."""
+    if not dob_val:
+        return None
+    try:
+        if hasattr(dob_val, 'year'):
+            d = dob_val
+        else:
+            d = datetime.strptime(str(dob_val)[:10], '%Y-%m-%d').date()
+        today = date.today()
+        return today.year - d.year - ((today.month, today.day) < (d.month, d.day))
+    except Exception:
+        return None
+
+
+def waiver_applies_to_age(waiver_row, age):
+    """Whether a waiver's age restriction (if any) covers this age.
+    Unknown age defaults to True (still require it) so missing birthdate
+    data never silently hides a required waiver."""
+    if age is None:
+        return True
+    min_age = waiver_row.get('min_age')
+    max_age = waiver_row.get('max_age')
+    if min_age is not None and age < min_age:
+        return False
+    if max_age is not None and age > max_age:
+        return False
+    return True
+
+
 def require_permission(section, level='edit'):
     """Allow admin OR a user with edit/view permission for the given section."""
     if 'user_id' not in session:
@@ -2905,8 +2940,11 @@ def get_waiver_summary(conn, vol_id):
         'SELECT vw.*, wt.name as type_name FROM volunteer_waivers vw JOIN waiver_types wt ON vw.waiver_type_id=wt.id WHERE vw.volunteer_id=%s ORDER BY vw.signed_date DESC',
         (vol_id,))
     today = _date.today()
-    # Check required waivers first
-    required = fetchall(conn, 'SELECT id FROM waiver_types WHERE required_for_volunteering=TRUE OR required_all=TRUE')
+    # Check required waivers first — respecting any age restriction on the waiver type
+    vol = fetchone(conn, 'SELECT birthday FROM volunteers WHERE id=%s', (vol_id,))
+    vol_age = compute_age(vol.get('birthday')) if vol else None
+    required = fetchall(conn, 'SELECT id, min_age, max_age FROM waiver_types WHERE required_for_volunteering=TRUE OR required_all=TRUE')
+    required = [r for r in required if waiver_applies_to_age(r, vol_age)]
     signed_type_ids = set(w['waiver_type_id'] for w in waivers)
     has_missing_required = any(r['id'] not in signed_type_ids for r in required)
 
@@ -4331,10 +4369,11 @@ def create_waiver_type():
     tid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, '''INSERT INTO waiver_types (id,name,description,template_body,can_sign_online)
-            VALUES (%s,%s,%s,%s,%s)''',
+        execute(conn, '''INSERT INTO waiver_types (id,name,description,template_body,can_sign_online,min_age,max_age)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
             (tid, (d.get('name') or '').strip(), d.get('description',''),
-             d.get('template_body',''), bool(d.get('can_sign_online',False))))
+             d.get('template_body',''), bool(d.get('can_sign_online',False)),
+             d.get('min_age') or None, d.get('max_age') or None))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -4350,9 +4389,9 @@ def update_waiver_type(tid):
     d = request.json or {}
     conn = get_db()
     execute(conn, '''UPDATE waiver_types SET name=%s, description=%s, template_body=%s,
-        can_sign_online=%s WHERE id=%s''',
+        can_sign_online=%s, min_age=%s, max_age=%s WHERE id=%s''',
         (d.get('name',''), d.get('description',''), d.get('template_body',''),
-         bool(d.get('can_sign_online',False)), tid))
+         bool(d.get('can_sign_online',False)), d.get('min_age') or None, d.get('max_age') or None, tid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM waiver_types WHERE id=%s', (tid,))
     conn.close()
@@ -7741,7 +7780,7 @@ def get_productions():
             JOIN volunteers v ON pm.volunteer_id=v.id
             WHERE pm.production_id=%s ORDER BY pm.role''', (p['id'],))
         p['required_waivers'] = fetchall(conn,
-            '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+            '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online, wt.min_age, wt.max_age
                FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
                WHERE prw.production_id=%s ORDER BY wt.name''', (p['id'],))
     conn.close()
@@ -9906,7 +9945,9 @@ def portal_youth_profile(yid):
         WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC''', (yid,))
     # Get signable waivers not yet signed  -  includes program-required ones
     signed_ids = [w['waiver_type_id'] for w in youth['waivers']]
+    age = compute_age(youth.get('dob'))
     all_signable = fetchall(conn, "SELECT * FROM waiver_types WHERE can_sign_online=TRUE ORDER BY name")
+    all_signable = [w for w in all_signable if waiver_applies_to_age(w, age)]
     # Also include program-required waivers even if not marked can_sign_online (show as required)
     prog_ids = [e['program_id'] for e in fetchall(conn,
         'SELECT program_id FROM youth_program_enrollments WHERE youth_id=%s', (yid,))]
@@ -9916,6 +9957,7 @@ def portal_youth_profile(yid):
         prog_required = fetchall(conn, f'''SELECT wt.* FROM program_required_waivers prw
             JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.program_id IN ({placeholders})''', tuple(prog_ids))
+        prog_required = [w for w in prog_required if waiver_applies_to_age(w, age)]
     # Merge: signable + program-required not yet signed, deduplicated
     all_needed = {w['id']: w for w in all_signable}
     for w in prog_required:
@@ -10493,7 +10535,7 @@ def get_program_required_waivers(pid):
     if err: return err
     conn = get_db()
     try:
-        rows = fetchall(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+        rows = fetchall(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online, wt.min_age, wt.max_age
             FROM program_required_waivers prw
             JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.program_id=%s ORDER BY wt.name''', (pid,))
@@ -10513,7 +10555,7 @@ def add_program_required_waiver(pid):
         execute(conn, 'INSERT INTO program_required_waivers (id,program_id,waiver_type_id) VALUES (%s,%s,%s)',
                 (rid, pid, d.get('waiver_type_id')))
         conn.commit()
-        row = fetchone(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+        row = fetchone(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online, wt.min_age, wt.max_age
             FROM program_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.id=%s''', (rid,))
         conn.close()
@@ -10541,7 +10583,7 @@ def add_prod_waiver(pid):
     execute(conn, 'INSERT INTO production_required_waivers (id,production_id,waiver_type_id) VALUES (%s,%s,%s)',
         (rid, pid, d.get('waiver_type_id')))
     conn.commit()
-    row = fetchone(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online
+    row = fetchone(conn, '''SELECT prw.*, wt.name as waiver_name, wt.can_sign_online, wt.min_age, wt.max_age
         FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
         WHERE prw.id=%s''', (rid,))
     conn.close()
@@ -13628,12 +13670,14 @@ def portal_production_conflicts(pid):
 def production_waiver_status(pid):
     """Who has/hasn't signed each required waiver for a production — covers
     both youth cast (Rising Stars) and adult cast/crew volunteers, mirroring
-    the equivalent view already built for programs/classes."""
+    the equivalent view already built for programs/classes. Waivers with an
+    age restriction (e.g. a minors-only liability form) only apply to people
+    within that range."""
     err = require_permission('productions', 'view')
     if err: return err
     conn = get_db()
     try:
-        required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name, wt.can_sign_online
+        required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name, wt.can_sign_online, wt.min_age, wt.max_age
             FROM production_required_waivers prw JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.production_id=%s ORDER BY wt.name''', (pid,))
     except Exception:
@@ -13643,24 +13687,33 @@ def production_waiver_status(pid):
         conn.close()
         return jsonify({'required_waivers': [], 'youth': [], 'crew': []})
 
-    youth_members = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name
+    youth_members = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name, y.dob
         FROM youth_production_members ypm JOIN youth_participants y ON ypm.youth_id=y.id
         WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
     youth_out = []
     for y in youth_members:
+        age = compute_age(y.get('dob'))
+        applicable = [r for r in required if waiver_applies_to_age(r, age)]
         signed = fetchall(conn, 'SELECT waiver_type_id FROM youth_waivers WHERE youth_id=%s', (y['id'],))
         signed_ids = {s['waiver_type_id'] for s in signed}
-        missing = [r for r in required if r['waiver_type_id'] not in signed_ids]
+        missing = [r for r in applicable if r['waiver_type_id'] not in signed_ids]
         youth_out.append({**y, 'missing_waivers': missing, 'all_signed': len(missing) == 0})
 
-    crew_members = fetchall(conn, '''SELECT v.id, v.name, pm.role
+    crew_members = fetchall(conn, '''SELECT v.id, v.name, v.birthday, pm.role
         FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
         WHERE pm.production_id=%s ORDER BY v.name''', (pid,))
     crew_out = []
     for v in crew_members:
+        # Volunteers are adults by construction — fall back to "adult" (30)
+        # rather than "unknown" when birthday isn't on file, so minors-only
+        # waivers don't get wrongly flagged as missing for crew.
+        age = compute_age(v.get('birthday'))
+        if age is None:
+            age = 30
+        applicable = [r for r in required if waiver_applies_to_age(r, age)]
         signed = fetchall(conn, 'SELECT waiver_type_id FROM volunteer_waivers WHERE volunteer_id=%s', (v['id'],))
         signed_ids = {s['waiver_type_id'] for s in signed}
-        missing = [r for r in required if r['waiver_type_id'] not in signed_ids]
+        missing = [r for r in applicable if r['waiver_type_id'] not in signed_ids]
         crew_out.append({**v, 'missing_waivers': missing, 'all_signed': len(missing) == 0})
 
     conn.close()
@@ -13672,7 +13725,7 @@ def portal_program_waiver_status(pid):
     if err: return err
     conn = get_db()
     try:
-        required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name FROM program_required_waivers prw
+        required = fetchall(conn, '''SELECT prw.waiver_type_id, wt.name, wt.min_age, wt.max_age FROM program_required_waivers prw
             JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.program_id=%s''', (pid,))
     except Exception:
@@ -13681,15 +13734,17 @@ def portal_program_waiver_status(pid):
     if not required:
         conn.close()
         return jsonify({'required_waivers': [], 'participants': []})
-    enrolled = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name
+    enrolled = fetchall(conn, '''SELECT y.id, y.first_name, y.last_name, y.dob
         FROM youth_participants y
         JOIN youth_program_enrollments ype ON ype.youth_id=y.id
         WHERE ype.program_id=%s AND y.status='active' ORDER BY y.last_name, y.first_name''', (pid,))
     participants = []
     for y in enrolled:
+        age = compute_age(y.get('dob'))
+        applicable = [r for r in required if waiver_applies_to_age(r, age)]
         signed = fetchall(conn, 'SELECT waiver_type_id FROM youth_waivers WHERE youth_id=%s', (y['id'],))
         signed_ids = {s['waiver_type_id'] for s in signed}
-        missing = [r for r in required if r['waiver_type_id'] not in signed_ids]
+        missing = [r for r in applicable if r['waiver_type_id'] not in signed_ids]
         participants.append({**y, 'missing_waivers': missing, 'all_signed': len(missing)==0})
     conn.close()
     return jsonify({'required_waivers': required, 'participants': participants})

@@ -29437,6 +29437,24 @@ async function runMarqueeBackfill(){
   if(resultEl) resultEl.textContent = msg
 }
 
+async function runMarqueeResplit(){
+  var resultEl = document.getElementById('marquee-resplit-result')
+  if(resultEl) resultEl.textContent = 'Re-splitting shared Square orders across the programs they actually paid for…'
+  var res = await api('/api/marquee/resplit-shared-orders','POST')
+  if(!res || res.error){
+    resultEl = document.getElementById('marquee-resplit-result')
+    if(resultEl) resultEl.innerHTML = '<span style="color:var(--red)">'+((res&&res.error)||'Re-split failed')+'</span>'
+    return
+  }
+  var msg = res.orders_fixed+' shared order'+(res.orders_fixed!==1?'s':'')+' re-split correctly'
+  if(res.orders_skipped_already_split>0) msg += ' ('+res.orders_skipped_already_split+' already correct, skipped)'
+  toast('Re-split complete','success')
+  var el = document.getElementById('marquee-tab-dashboard')
+  if(el) await renderMarqueeDashboard(el)
+  resultEl = document.getElementById('marquee-resplit-result')
+  if(resultEl) resultEl.textContent = msg
+}
+
 async function renderMarqueeDashboard(el){
   var data = await api('/api/marquee/overview')
   _mqDashData = data
@@ -29484,7 +29502,9 @@ function renderMarqueeDashboardBody(el, data){
     + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=registrations]\').click()" style="font-size:13px">View Registrations</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(window.location.origin+\'/donate\').then(function(){ toast(\'Donation link copied!\',\'success\') })" style="font-size:13px">Copy Donation Link</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="runMarqueeBackfill()" style="font-size:13px">🔄 Backfill Historical Payment Amounts</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="runMarqueeResplit()" style="font-size:13px" title="Fixes orders where one Square checkout covered two different programs — those used to misattribute the whole amount to just one of them">🔀 Fix Shared-Order Revenue Split</button>'
     + '</div>'
+  html += '<div id="marquee-resplit-result" style="font-size:12px;color:var(--text-muted);margin-bottom:4px"></div>'
   html += '<div id="marquee-backfill-result" style="font-size:12px;color:var(--text-muted);margin-bottom:16px"></div>'
 
   // ── Program breakdown ──

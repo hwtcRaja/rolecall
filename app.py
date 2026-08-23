@@ -17136,6 +17136,62 @@ def square_get_order_total_cents(order_id):
     return None
 
 
+def split_order_amount_across_registrations(conn, order_id, total_cents):
+    """Set amount_paid_cents on every registration sharing a Square order,
+    splitting the order's total proportionally by each registration's
+    nominal price instead of writing the full order total onto every row.
+
+    Writing the full total on every row (the old behavior) only gives a
+    correct answer when every registration sharing that order belongs to
+    the SAME program — e.g. two siblings both enrolling in one class,
+    where revenue queries then deduplicate by order to avoid double-
+    counting. It silently breaks the moment one Square checkout covers
+    TWO DIFFERENT programs (a parent buying two different classes in one
+    cart): the per-program revenue dedup can only credit ONE of the two
+    programs with the full amount and drops the other to $0, because it
+    has no way to know how the order should actually be divided between
+    them. Splitting proportionally here means downstream revenue queries
+    can just sum each registration's own share directly — no dedup
+    trickery needed, and it's correct for both the sibling case and the
+    multi-program case."""
+    if not order_id or total_cents is None:
+        return
+    regs = fetchall(conn, '''SELECT pr.id, pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
+        pr.is_comped, COALESCE(yp.price, prod.price, 0) AS price
+        FROM program_registrations pr
+        LEFT JOIN youth_programs yp ON yp.id=pr.program_id
+        LEFT JOIN productions prod ON prod.id=pr.production_id
+        WHERE (pr.square_order_id=%s OR pr.square_checkout_id=%s) AND pr.status != 'cancelled'
+        ORDER BY pr.id''', (order_id, order_id)) or []
+    if not regs:
+        return
+    if len(regs) == 1:
+        execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s', (total_cents, regs[0]['id']))
+        return
+    nominal = {}
+    for r in regs:
+        nominal[r['id']] = 0 if r.get('is_comped') else max(0,
+            (r.get('price') or 0) * (r.get('participant_count') or 1)
+            - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+    nominal_total = sum(nominal.values())
+    if nominal_total <= 0:
+        # No price data to split by (e.g. all comped, or free programs) —
+        # divide evenly rather than guessing, so nothing is silently zeroed.
+        share = total_cents // len(regs)
+        for i, r in enumerate(regs):
+            amt = share + (total_cents - share * len(regs) if i == len(regs) - 1 else 0)
+            execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s', (amt, r['id']))
+        return
+    allocated = 0
+    for i, r in enumerate(regs):
+        if i == len(regs) - 1:
+            amt = total_cents - allocated  # last one absorbs any rounding remainder
+        else:
+            amt = round(total_cents * nominal[r['id']] / nominal_total)
+            allocated += amt
+        execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s', (amt, r['id']))
+
+
 def square_save_card(customer_id, source_id, cardholder_name=''):
     """Save a tokenized card on file for a customer WITHOUT charging it.
     source_id is the token produced client-side by Square's Web Payments SDK.
@@ -19575,11 +19631,11 @@ def square_webhook():
                     (order_id, order_id)) or []
                 reg = regs[0] if regs else None
                 if regs and amount_cents:
-                    # Stored on every sibling row sharing this order — revenue
-                    # queries dedupe by order_id at read time so it isn't
-                    # double-counted per sibling.
-                    execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE square_order_id=%s OR square_checkout_id=%s',
-                        (amount_cents, order_id, order_id))
+                    # Split proportionally across every registration sharing
+                    # this order — see split_order_amount_across_registrations
+                    # for why writing the full amount to every row is wrong
+                    # once an order can span more than one program.
+                    split_order_amount_across_registrations(conn, order_id, amount_cents)
                     conn.commit()
                 if regs and any(r['status'] == 'pending_payment' for r in regs):
                     for r in regs:
@@ -28904,8 +28960,7 @@ def backfill_payment_amounts():
             continue
         total_cents = square_get_order_total_cents(oid)
         if total_cents is not None:
-            execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE square_order_id=%s OR square_checkout_id=%s',
-                (total_cents, oid, oid))
+            split_order_amount_across_registrations(conn, oid, total_cents)
             updated += 1
         else:
             failed += 1
@@ -28918,6 +28973,52 @@ def backfill_payment_amounts():
     conn.close()
     return jsonify({'ok': True, 'orders_updated': updated, 'orders_failed': failed,
         'orders_remaining': orders_remaining, 'step_up_updated': step_up_updated})
+
+
+@app.route('/api/marquee/resplit-shared-orders', methods=['POST'])
+def resplit_shared_orders():
+    """One-time repair for registrations written before the proportional
+    split existed: any order shared by more than one registration currently
+    has the FULL order total duplicated on every row (the old behavior).
+    That's only correct for same-program siblings, where per-program
+    revenue queries used to deduplicate by order to compensate — but it
+    silently misattributes revenue whenever one order spans two different
+    programs (see split_order_amount_across_registrations for the full
+    explanation). This re-derives each affected order's true total from
+    whatever's currently stored (they should all currently match, under
+    the old bug) and re-splits it proportionally, same as new payments now
+    get from the start. Safe to run more than once — it's idempotent."""
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    orders = fetchall(conn, '''SELECT COALESCE(square_order_id, square_checkout_id) AS oid,
+        COUNT(*) AS reg_count, MAX(amount_paid_cents) AS amt,
+        COUNT(DISTINCT amount_paid_cents) AS distinct_amts
+        FROM program_registrations
+        WHERE status != 'cancelled' AND amount_paid_cents IS NOT NULL
+        AND (square_order_id IS NOT NULL OR square_checkout_id IS NOT NULL)
+        GROUP BY COALESCE(square_order_id, square_checkout_id)
+        HAVING COUNT(*) > 1''') or []
+    fixed = 0
+    skipped = 0
+    for row in orders:
+        oid = row.get('oid')
+        amt = row.get('amt')
+        if not oid or amt is None:
+            skipped += 1
+            continue
+        # If every row sharing this order already has a DIFFERENT amount,
+        # it's already been split (either by this repair or the new write
+        # path) — leave it alone rather than re-splitting an already-split
+        # order using just one row's partial amount as if it were the total.
+        if row.get('distinct_amts', 1) > 1:
+            skipped += 1
+            continue
+        split_order_amount_across_registrations(conn, oid, amt)
+        fixed += 1
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'orders_fixed': fixed, 'orders_skipped_already_split': skipped})
 
 @app.route('/api/marquee/overview', methods=['GET'])
 def marquee_overview():
@@ -28947,11 +29048,13 @@ def marquee_overview():
     #    pending (uncharged) Step Up holds, and waitlisted registrations that
     #    could still convert. This is the optimistic "if everything comes
     #    through" number, not what's actually collected.
-    # Deduped by order for the Square side — sibling registrations sharing one
-    # order all carry that order's full amount, so counting each sibling
-    # separately would inflate the total.
+    # Each registration now carries its own correctly-split share of
+    # whatever order it belongs to (see split_order_amount_across_
+    # registrations) rather than the full order total duplicated across
+    # every row sharing it, so this sums each registration's own amount
+    # directly — no order-based dedup needed or wanted here anymore.
     revenue_row = fetchone(conn, '''WITH reg_revenue AS (
-        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
+        SELECT
             pr.status,
             CASE WHEN pr.is_comped THEN 0
                 WHEN su.hold_status = 'charged' THEN su.amount
@@ -28966,7 +29069,6 @@ def marquee_overview():
         LEFT JOIN productions prod ON prod.id=pr.production_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status IN (\'confirmed\', \'waitlisted\')
-        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_estimate AS (
         SELECT pr.id,
@@ -29047,7 +29149,7 @@ def marquee_overview():
     # (uncharged) Step Up hold isn't money in hand yet even though the
     # registration itself shows as confirmed.
     program_breakdown = fetchall(conn, '''WITH dedup_regs AS (
-        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
+        SELECT
             pr.id, pr.program_id, pr.status,
             CASE WHEN pr.is_comped THEN 0
                 WHEN su.hold_status = 'charged' THEN su.amount
@@ -29067,7 +29169,6 @@ def marquee_overview():
         JOIN youth_programs yp ON yp.id = pr.program_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status != \'cancelled\'
-        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_amt AS (
         SELECT pr.id, pr.program_id,
@@ -29114,7 +29215,7 @@ def marquee_overview():
     # dashboard can render both in one list. Only Rising Stars productions carry
     # paid registrations; regular mainstage productions use cast sign-up, not this.
     production_breakdown = fetchall(conn, '''WITH dedup_regs AS (
-        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
+        SELECT
             pr.id, pr.production_id, pr.status,
             CASE WHEN pr.is_comped THEN 0
                 WHEN su.hold_status = 'charged' THEN su.amount
@@ -29134,7 +29235,6 @@ def marquee_overview():
         JOIN productions prod ON prod.id = pr.production_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status != \'cancelled\'
-        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_amt AS (
         SELECT pr.id, pr.production_id,

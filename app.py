@@ -6675,13 +6675,18 @@ def get_square_catalog_items():
             cat_id = get_or_create_rolecall_category_id()
             items = []
             if cat_id:
-                r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search',
-                    json={'object_types': ['ITEM'], 'query': {'item_query': {'category_ids': [cat_id]}}},
+                # search-catalog-items is Square's dedicated endpoint for
+                # filtering items by category — the generic /catalog/search
+                # endpoint doesn't actually support an item/category_ids
+                # query shape, which is what caused this to error out.
+                r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search-catalog-items',
+                    json={'category_ids': [cat_id]},
                     headers=square_headers(), timeout=10)
                 data = r.json()
                 if r.status_code != 200:
-                    return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
-                items = parse_items(data.get('objects'))
+                    app.logger.warning(f'Square search-catalog-items failed: {data}')
+                else:
+                    items = parse_items(data.get('items'))
             # Keep an already-linked item visible even if it's not tagged
             # with our category (e.g. linked before this feature existed).
             if linked_id and not any(i['id']==linked_id or i['variation_id']==linked_id for i in items):

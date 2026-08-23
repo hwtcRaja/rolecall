@@ -20210,12 +20210,12 @@ def upload_production_cover(pid):
         url = f'/static/images/{filename}'
     import json as _juc
     conn2 = get_db()
-    prod_full = fetchone(conn2, 'SELECT program_images FROM productions WHERE id=%s', (pid,))
-    try:
-        images = _juc.loads(prod_full.get('program_images') or '[]')
-    except Exception:
-        images = []
-    images = [url] + [img for img in images if img != url]
+    # Replacing the cover should actually replace it — previously this
+    # prepended the new image while keeping every old one in the array,
+    # so old covers silently piled up and started showing in the public
+    # photo gallery section with no way to see or remove them from the
+    # admin UI (there's no gallery management, only this single upload).
+    images = [url]
     execute(conn2, 'UPDATE productions SET program_images=%s WHERE id=%s', (_juc.dumps(images), pid))
     conn2.commit(); conn2.close()
     return jsonify({'ok': True, 'url': url})
@@ -28463,12 +28463,9 @@ def upload_program_cover(pid):
         url = f'/static/images/{filename}'
     import json as _ji
     conn2 = get_db()
-    prog_full = fetchone(conn2, 'SELECT program_images FROM youth_programs WHERE id=%s', (pid,))
-    try:
-        images = _ji.loads(prog_full.get('program_images') or '[]')
-    except Exception:
-        images = []
-    images = [url] + [img for img in images if img != url]
+    # Same fix as upload_production_cover — actually replace instead of
+    # silently accumulating old covers into an unmanaged photo gallery.
+    images = [url]
     execute(conn2, 'UPDATE youth_programs SET program_images=%s WHERE id=%s', (_ji.dumps(images), pid))
     conn2.commit(); conn2.close()
     return jsonify({'ok': True, 'url': url})

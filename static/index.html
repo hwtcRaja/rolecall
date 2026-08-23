@@ -2859,6 +2859,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="font-size:11px;color:var(--text-muted);margin-top:4px;margin-left:28px">The assigned instructor's kiosk hours for this class are automatically logged as paid instruction, not volunteering — no need to ask them at the kiosk.</div>
  </div>
  <div id="program-instructor-pay-check" style="display:none;margin-bottom:14px"></div>
+ <div class="form-group" id="program-co-instructors-wrap" style="display:none;margin-bottom:14px">
+ <label>Co-Instructors <span style="font-weight:400;text-transform:none;color:var(--text-hint)">(also get "My Programs" dashboard access)</span></label>
+ <div id="program-co-instructors-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>
+ <select id="program-co-instructor-add" onchange="addProgramCoInstructor(this)" style="width:100%">
+ <option value="">+ Add co-instructor…</option>
+ </select>
+ </div>
  <div class="form-row" id="program-expected-pay-row" style="display:none">
  <div class="form-group"><label>Expected Pay for This Class <span style="font-weight:400;text-transform:none;color:var(--text-hint)">(what you actually expect to pay this instructor — not always price × sessions)</span></label>
  <input type="number" id="program-instructor-expected-pay" step="0.01" min="0" placeholder="0.00" oninput="updateProgramInstructorPayCheck()" style="width:100%"/>
@@ -20829,6 +20836,10 @@ function openNewProgramModal(){
  document.getElementById('program-is-paid-instruction').checked=false
  const esel=document.getElementById('program-default-elic')
  if(esel) esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
+ // Co-instructors need an existing program_id to attach to — hide until
+ // the program's been created once, then it's available from Edit.
+ const coWrap=document.getElementById('program-co-instructors-wrap')
+ if(coWrap) coWrap.style.display='none'
  openModal('modal-program')
  updateProgramInstructorPayCheck()
 }
@@ -20850,8 +20861,44 @@ function openEditProgramModal(pid){
  document.getElementById('program-is-paid-instruction').checked=!!p.is_paid_instruction
  const esel=document.getElementById('program-default-elic')
  if(esel){esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');esel.value=p.default_elic_id||''}
+ const coWrap=document.getElementById('program-co-instructors-wrap')
+ if(coWrap){ coWrap.style.display=''; loadProgramCoInstructors(pid) }
  openModal('modal-program')
  updateProgramInstructorPayCheck()
+}
+
+async function loadProgramCoInstructors(pid){
+ const listEl=document.getElementById('program-co-instructors-list')
+ const addSel=document.getElementById('program-co-instructor-add')
+ if(!listEl||!addSel) return
+ listEl.innerHTML='<div style="font-size:12px;color:var(--text-muted);font-style:italic">Loading…</div>'
+ const rows = await api('/api/youth-programs/'+pid+'/co-instructors')
+ const p = allPrograms.find(p=>p.id===pid)
+ const primaryId = p?.instructor_id
+ const current = Array.isArray(rows) ? rows : []
+ listEl.innerHTML = current.length ? current.map(r=>
+ `<span style="font-size:12px;background:var(--teal-50);color:var(--teal-dark);padding:4px 10px;border-radius:20px;display:inline-flex;align-items:center;gap:6px">${escHtml(r.volunteer_name)}<button onclick="removeProgramCoInstructor('${pid}','${r.volunteer_id}')" style="background:none;border:none;cursor:pointer;color:inherit;font-size:13px;line-height:1">×</button></span>`
+ ).join('') : '<div style="font-size:12px;color:var(--text-hint)">None yet</div>'
+ const currentIds = new Set(current.map(r=>r.volunteer_id))
+ const available = volunteers.filter(v=>v.status==='active' && v.id!==primaryId && !currentIds.has(v.id))
+ addSel.innerHTML = '<option value="">+ Add co-instructor…</option>' + available.map(v=>`<option value="${v.id}">${escHtml(v.name)}</option>`).join('')
+}
+
+async function addProgramCoInstructor(sel){
+ const pid=document.getElementById('program-edit-id').value
+ const vid=sel.value
+ if(!pid||!vid) return
+ sel.value=''
+ const res = await api('/api/youth-programs/'+pid+'/co-instructors','POST',{volunteer_id:vid})
+ if(res?.error){ toast(res.error,'error'); return }
+ toast('Co-instructor added','success')
+ loadProgramCoInstructors(pid)
+}
+
+async function removeProgramCoInstructor(pid, vid){
+ await api('/api/youth-programs/'+pid+'/co-instructors/'+vid,'DELETE')
+ toast('Removed')
+ loadProgramCoInstructors(pid)
 }
 
 function openProgramEmailModal(pid){

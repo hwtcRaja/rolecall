@@ -498,6 +498,19 @@ def init_db():
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(production_id, volunteer_id))''')
 
+    # Co-instructors — additional instructors beyond youth_programs.instructor_id
+    # (the "primary" instructor, kept as-is for pay tracking / bio display /
+    # everything that already assumes a single instructor). Anyone in this
+    # table gets the same "My Programs" dashboard visibility and instructor
+    # portal access as the primary instructor, without becoming the one
+    # tracked for pay or shown as the program's bio/photo.
+    c.execute('''CREATE TABLE IF NOT EXISTS program_co_instructors (
+        id TEXT PRIMARY KEY,
+        program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(program_id, volunteer_id))''')
+
     # add active column to users
     conn.commit()
 
@@ -2626,12 +2639,12 @@ def require_own_program(pid, fallback_section='youth'):
     """Access check for program-scoped routes that also need to work for
     the restricted 'instructor' role: admins and anyone with normal
     section permission pass through as before (via require_permission);
-    an 'instructor' role user is only let through for a program where
-    they're the assigned instructor — matched by their login email
-    against the volunteer record linked as youth_programs.instructor_id
-    (the same field already used elsewhere for instructor pay/contact).
-    This is intentionally narrow: it doesn't change access for any
-    existing role, it only adds a new restricted path for 'instructor'."""
+    an 'instructor' role user is let through for a program where they're
+    either the primary instructor (youth_programs.instructor_id) or listed
+    as a co-instructor (program_co_instructors) — matched by their login
+    email against the volunteer record either way. This is intentionally
+    narrow: it doesn't change access for any existing role, it only adds a
+    new restricted path for 'instructor'."""
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     if session.get('role') == 'admin':
@@ -2639,12 +2652,17 @@ def require_own_program(pid, fallback_section='youth'):
     if session.get('role') == 'instructor':
         conn = get_db()
         me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
-        prog = fetchone(conn, '''SELECT v.email AS instructor_email FROM youth_programs yp
-            LEFT JOIN volunteers v ON v.id=yp.instructor_id WHERE yp.id=%s''', (pid,))
-        conn.close()
         my_email = (me or {}).get('email', '').strip().lower()
-        prog_email = (prog or {}).get('instructor_email') or ''
-        if not prog or not prog_email or prog_email.strip().lower() != my_email:
+        match = fetchone(conn, '''SELECT 1 FROM youth_programs yp
+            LEFT JOIN volunteers v ON v.id=yp.instructor_id
+            WHERE yp.id=%s AND lower(v.email)=%s
+            UNION
+            SELECT 1 FROM program_co_instructors pci
+            JOIN volunteers v2 ON v2.id=pci.volunteer_id
+            WHERE pci.program_id=%s AND lower(v2.email)=%s''',
+            (pid, my_email, pid, my_email))
+        conn.close()
+        if not my_email or not match:
             return jsonify({'error': 'You can only manage your own programs'}), 403
         return None
     return require_permission(fallback_section)
@@ -10693,6 +10711,51 @@ def push_announcement(pid, aid):
         app.logger.error(f'push_announcement (production) email error: {e}')
         return jsonify({'ok': True, 'sent_to': 0, 'warning': str(e)})
 
+@app.route('/api/youth-programs/<pid>/co-instructors', methods=['GET'])
+def get_program_co_instructors(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT pci.volunteer_id, v.name AS volunteer_name, v.email AS volunteer_email
+        FROM program_co_instructors pci JOIN volunteers v ON v.id=pci.volunteer_id
+        WHERE pci.program_id=%s ORDER BY v.name''', (pid,))
+    conn.close()
+    return jsonify(rows or [])
+
+@app.route('/api/youth-programs/<pid>/co-instructors', methods=['POST'])
+def add_program_co_instructor(pid):
+    err = require_permission('youth')
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    vid = d.get('volunteer_id')
+    if not vid:
+        return jsonify({'error': 'volunteer_id required'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT instructor_id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    if prog.get('instructor_id') == vid:
+        conn.close()
+        return jsonify({'error': 'That volunteer is already the primary instructor'}), 400
+    try:
+        execute(conn, 'INSERT INTO program_co_instructors (id, program_id, volunteer_id) VALUES (%s,%s,%s)',
+            (str(uuid.uuid4()), pid, vid))
+        conn.commit()
+    except Exception:
+        conn.rollback()  # already added — fine, treat as success
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/youth-programs/<pid>/co-instructors/<vid>', methods=['DELETE'])
+def remove_program_co_instructor(pid, vid):
+    err = require_permission('youth')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM program_co_instructors WHERE program_id=%s AND volunteer_id=%s', (pid, vid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
 @app.route('/api/youth-programs/<pid>/required-waivers', methods=['GET'])
 def get_program_required_waivers(pid):
     err = require_auth()
@@ -17439,10 +17502,11 @@ def _backfill_custom_field_values():
 def instructor_dashboard():
     """Everything an instructor needs in one call: which programs they
     teach, their full session schedule across those programs, and recent
-    registrations so new sign-ups are easy to spot. Scoped entirely by
-    matching their login email against the volunteer record linked as
-    each program's instructor_id — an instructor only ever sees their
-    own programs here, never the full program list."""
+    registrations so new sign-ups are easy to spot. Scoped by matching
+    their login email against the volunteer record linked either as a
+    program's primary instructor_id, or as a co-instructor in
+    program_co_instructors — an instructor only ever sees their own
+    programs here, never the full program list."""
     err = require_auth()
     if err: return err
     conn = get_db()
@@ -17452,13 +17516,15 @@ def instructor_dashboard():
         conn.close()
         return jsonify({'programs': [], 'schedule': [], 'recent_registrations': []})
 
-    programs = fetchall(conn, '''SELECT yp.id, yp.name, yp.description, yp.status,
+    programs = fetchall(conn, '''SELECT DISTINCT yp.id, yp.name, yp.description, yp.status,
         yp.start_date, yp.end_date, yp.program_type, yp.sessions_enabled,
         COALESCE(yp.booking_mode, FALSE) AS booking_mode
         FROM youth_programs yp
-        JOIN volunteers v ON v.id=yp.instructor_id
-        WHERE lower(v.email)=%s
-        ORDER BY yp.start_date DESC NULLS LAST''', (my_email,)) or []
+        LEFT JOIN volunteers v ON v.id=yp.instructor_id
+        LEFT JOIN program_co_instructors pci ON pci.program_id=yp.id
+        LEFT JOIN volunteers v2 ON v2.id=pci.volunteer_id
+        WHERE lower(v.email)=%s OR lower(v2.email)=%s
+        ORDER BY yp.start_date DESC NULLS LAST''', (my_email, my_email)) or []
     prog_ids = [p['id'] for p in programs]
     if not prog_ids:
         conn.close()

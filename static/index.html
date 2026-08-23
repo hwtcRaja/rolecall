@@ -24008,11 +24008,12 @@ function getCustomFieldsFromModal(){
 }
 
 
-async function loadSquareCatalogItems(selectedId){
+async function loadSquareCatalogItems(selectedId, showAll){
   var sel = document.getElementById('rs-catalog-item')
   if(!sel) return
   sel.innerHTML = '<option value="">Loading...</option>'
-  const items = await api('/api/square/catalog-items')
+  var url = '/api/square/catalog-items' + (showAll ? '?all=1' : (selectedId ? '?linked_id='+encodeURIComponent(selectedId) : ''))
+  const items = await api(url)
   if(items && items.error){
     sel.innerHTML = '<option value="">Could not load catalog items</option>'
     return
@@ -24022,9 +24023,11 @@ async function loadSquareCatalogItems(selectedId){
         var price = item.price ? ' — $'+(item.price/100).toFixed(2) : ''
         return '<option value="'+(item.variation_id||item.id)+'"'+(selectedId===(item.variation_id||item.id)||selectedId===item.id?' selected':'')+'>'+escHtml(item.name)+price+'</option>'
       }).join('') : '')
-  if(selectedId){
-    var hint = document.getElementById('rs-catalog-hint')
-    if(hint) hint.textContent = 'Linked to Square catalog item'
+  var hint = document.getElementById('rs-catalog-hint')
+  if(hint){
+    hint.innerHTML = (selectedId ? 'Linked to Square catalog item. ': '')
+      + '<a href="#" onclick="loadSquareCatalogItems(document.getElementById(\'rs-catalog-item\').value,'+(showAll?'false':'true')+');return false" style="color:var(--teal-dark)">'
+      + (showAll ? 'Show only RoleCall items' : 'Show all Square items')+'</a>'
   }
 }
 
@@ -24097,9 +24100,23 @@ function openCreateCatalogItemModal(pid, apiBase, progOverride){
     // Auto-select the new item and link it
     overlay2.remove()
     toast('Catalog item created in Square!', 'success')
-    // Reload catalog list and select the new item
-    await api(apiBase+'/link-catalog-item','POST',{catalog_item_id: res.variation_id||res.id})
-    await loadSquareCatalogItems(res.variation_id||res.id)
+    var newId = res.variation_id||res.id
+    await api(apiBase+'/link-catalog-item','POST',{catalog_item_id: newId})
+    // Inject the new item directly into the dropdown instead of just
+    // re-fetching from Square — a freshly created item can take a few
+    // seconds to show up in Square's own list/search results, which
+    // otherwise made it look like the item never got created at all.
+    var sel = document.getElementById('rs-catalog-item')
+    if(sel){
+      var price = res.price ? ' — $'+(res.price/100).toFixed(2) : ''
+      var opt = document.createElement('option')
+      opt.value = newId
+      opt.textContent = res.name + price
+      opt.selected = true
+      sel.insertBefore(opt, sel.options[1]||null)
+      var hint = document.getElementById('rs-catalog-hint')
+      if(hint) hint.textContent = 'Linked to Square catalog item'
+    }
     // Also reload the local cache so the linked item persists in memory
     if(apiBase.indexOf('/productions/')!==-1){
       api('/api/productions').then(function(prods){ if(Array.isArray(prods)) allProductions = prods })

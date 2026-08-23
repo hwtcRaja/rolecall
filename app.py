@@ -6635,37 +6635,63 @@ def get_group_members(gid):
 
 @app.route('/api/square/catalog-items', methods=['GET'])
 def get_square_catalog_items():
-    """List Square catalog items for linking to programs."""
+    """List Square catalog items for linking to programs. By default this
+    only shows items in the 'RoleCall Programs' category, not the entire
+    Square catalog (which may include concessions, merch, etc. unrelated to
+    programs). Pass ?all=1 to see everything, and ?linked_id=<id> to make
+    sure an already-linked item stays visible even if it's outside that
+    category (e.g. it predates this feature)."""
     err = require_auth()
     if err: return err
     if not SQUARE_ACCESS_TOKEN:
         return jsonify({'error': 'Square not configured'}), 400
+    show_all = request.args.get('all') == '1'
+    linked_id = request.args.get('linked_id') or ''
     try:
-        r = requests.get(
-            f'{SQUARE_API_BASE}/v2/catalog/list?types=ITEM',
-            headers=square_headers(), timeout=10)
-        data = r.json()
-        if r.status_code != 200:
-            return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
-        items = []
-        for obj in (data.get('objects') or []):
-            item_data = obj.get('item_data', {})
-            # Get the first variation's price
-            variations = item_data.get('variations', [])
-            price = None
-            variation_id = None
-            if variations:
-                v = variations[0]
-                variation_id = v.get('id')
-                price_money = v.get('item_variation_data', {}).get('price_money', {})
-                price = price_money.get('amount')
-            items.append({
-                'id': obj.get('id'),
-                'variation_id': variation_id,
-                'name': item_data.get('name',''),
-                'description': item_data.get('description',''),
-                'price': price,
-            })
+        def parse_items(objects):
+            out = []
+            for obj in (objects or []):
+                item_data = obj.get('item_data', {})
+                variations = item_data.get('variations', [])
+                price = None
+                variation_id = None
+                if variations:
+                    v = variations[0]
+                    variation_id = v.get('id')
+                    price_money = v.get('item_variation_data', {}).get('price_money', {})
+                    price = price_money.get('amount')
+                out.append({'id': obj.get('id'), 'variation_id': variation_id,
+                    'name': item_data.get('name',''), 'description': item_data.get('description',''),
+                    'price': price})
+            return out
+
+        if show_all:
+            r = requests.get(f'{SQUARE_API_BASE}/v2/catalog/list?types=ITEM', headers=square_headers(), timeout=10)
+            data = r.json()
+            if r.status_code != 200:
+                return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
+            items = parse_items(data.get('objects'))
+        else:
+            cat_id = get_or_create_rolecall_category_id()
+            items = []
+            if cat_id:
+                r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search',
+                    json={'object_types': ['ITEM'], 'query': {'item_query': {'category_ids': [cat_id]}}},
+                    headers=square_headers(), timeout=10)
+                data = r.json()
+                if r.status_code != 200:
+                    return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
+                items = parse_items(data.get('objects'))
+            # Keep an already-linked item visible even if it's not tagged
+            # with our category (e.g. linked before this feature existed).
+            if linked_id and not any(i['id']==linked_id or i['variation_id']==linked_id for i in items):
+                try:
+                    r3 = requests.get(f'{SQUARE_API_BASE}/v2/catalog/object/{linked_id}', headers=square_headers(), timeout=10)
+                    if r3.status_code == 200:
+                        obj3 = r3.json().get('object')
+                        if obj3: items = parse_items([obj3]) + items
+                except Exception:
+                    pass
         items.sort(key=lambda x: x['name'])
         return jsonify(items)
     except Exception as e:
@@ -6687,25 +6713,26 @@ def create_square_catalog_item():
     import uuid as _uuid
     item_id = '#item_' + str(_uuid.uuid4()).replace('-','')[:16]
     var_id  = '#var_'  + str(_uuid.uuid4()).replace('-','')[:16]
+    cat_id = get_or_create_rolecall_category_id()
+    item_data_payload = {
+        'name': name,
+        'description': description or None,
+        'variations': [{
+            'type': 'ITEM_VARIATION',
+            'id': var_id,
+            'item_variation_data': {
+                'name': 'Regular',
+                'pricing_type': 'FIXED_PRICING' if price_cents else 'VARIABLE_PRICING',
+                'price_money': {'amount': price_cents, 'currency': 'USD'} if price_cents else None,
+            }
+        }]
+    }
+    if cat_id:
+        item_data_payload['categories'] = [{'id': cat_id}]
+        item_data_payload['category_id'] = cat_id  # deprecated field, set too for older API compatibility
     payload = {
         'idempotency_key': str(_uuid.uuid4()),
-        'object': {
-            'type': 'ITEM',
-            'id': item_id,
-            'item_data': {
-                'name': name,
-                'description': description or None,
-                'variations': [{
-                    'type': 'ITEM_VARIATION',
-                    'id': var_id,
-                    'item_variation_data': {
-                        'name': 'Regular',
-                        'pricing_type': 'FIXED_PRICING' if price_cents else 'VARIABLE_PRICING',
-                        'price_money': {'amount': price_cents, 'currency': 'USD'} if price_cents else None,
-                    }
-                }]
-            }
-        }
+        'object': {'type': 'ITEM', 'id': item_id, 'item_data': item_data_payload}
     }
     try:
         r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object',
@@ -16824,6 +16851,45 @@ APP_BASE_URL        = os.environ.get('APP_BASE_URL', 'https://rolecall.hwtco.org
 
 def square_headers():
     return {'Authorization': f'Bearer {SQUARE_ACCESS_TOKEN}', 'Content-Type': 'application/json', 'Square-Version': '2024-01-18'}
+
+
+def get_or_create_rolecall_category_id():
+    """Find (or create) a Square catalog category that RoleCall-created items
+    get tagged with, so the 'Linked Catalog Item' dropdown can filter down to
+    just those instead of listing every item in the whole Square account
+    (concessions, merch, everything else). Cached in the settings table."""
+    if not SQUARE_ACCESS_TOKEN:
+        return None
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='square_rolecall_category_id'")
+    if row and row.get('value'):
+        conn.close()
+        return row['value']
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search',
+            json={'object_types': ['CATEGORY'],
+                  'query': {'exact_query': {'attribute_name': 'name', 'attribute_value': 'RoleCall Programs'}}},
+            headers=square_headers(), timeout=10)
+        objs = (r.json().get('objects') or []) if r.status_code == 200 else []
+        if objs:
+            cat_id = objs[0]['id']
+        else:
+            import uuid as _uuid_cat
+            r2 = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object', headers=square_headers(), timeout=10, json={
+                'idempotency_key': str(_uuid_cat.uuid4()),
+                'object': {'type': 'CATEGORY', 'id': '#category_rolecall', 'category_data': {'name': 'RoleCall Programs'}}
+            })
+            cat_id = r2.json().get('catalog_object', {}).get('id') if r2.status_code == 200 else None
+        if cat_id:
+            execute(conn, """INSERT INTO settings (key,value) VALUES ('square_rolecall_category_id',%s)
+                ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (cat_id,))
+            conn.commit()
+        conn.close()
+        return cat_id
+    except Exception as e:
+        app.logger.warning(f'get_or_create_rolecall_category_id failed: {e}')
+        conn.close()
+        return None
 
 
 def square_find_or_create_customer(email, name='', phone=''):

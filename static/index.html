@@ -22541,7 +22541,11 @@ async function saveGeneralContent(pid){
 async function pushAnnouncement(pid, aid){
  const res = await api('/api/productions/'+pid+'/announcements/'+aid+'/push','POST')
  if(res.ok){
- toast('\uD83D\uDCE8 Sent to '+(res.sent_to||0)+' recipient'+(res.sent_to!==1?'s':'')+'!','success')
+ if(res.sent_to>0){
+ toast('\uD83D\uDCE8 Sent to '+res.sent_to+' recipient'+(res.sent_to!==1?'s':'')+'!','success')
+ } else {
+ toast(res.warning||'Sent to 0 recipients','error')
+ }
  loadProductionPortalContent(pid)
  } else toast(res.error||'Failed to send','error')
 }

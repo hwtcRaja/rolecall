@@ -10614,19 +10614,28 @@ def push_announcement(pid, aid):
     youth_cast = fetchall(conn, '''SELECT y.id FROM youth_participants y
         JOIN youth_production_members ypm ON ypm.youth_id=y.id
         WHERE ypm.production_id=%s AND y.status='active' ''', (pid,))
+    youth_without_email = 0
     for y in youth_cast:
         guardians = fetchall(conn, "SELECT email FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email!=''", (y['id'],))
+        if not guardians:
+            youth_without_email += 1
         for g in guardians:
             if g['email']: recipients.add(g['email'].strip().lower())
     crew = fetchall(conn, '''SELECT v.email FROM production_members pm
         JOIN volunteers v ON pm.volunteer_id=v.id
-        WHERE pm.production_id=%s AND v.email IS NOT NULL AND v.email!='' ''', (pid,))
+        WHERE pm.production_id=%s''', (pid,))
+    crew_without_email = 0
     for v in crew:
         if v['email']: recipients.add(v['email'].strip().lower())
+        else: crew_without_email += 1
     conn.close()
 
     if not recipients:
-        return jsonify({'ok': True, 'sent_to': 0, 'warning': 'No email addresses on file for cast/crew'})
+        return jsonify({'ok': True, 'sent_to': 0, 'warning':
+            f'No email addresses found. Cast on roster: {len(youth_cast)} '
+            f'({youth_without_email} with no guardian email on file). '
+            f'Crew on roster: {len(crew)} ({crew_without_email} with no email on file). '
+            f'Check the Cast & Crew tab to confirm people are actually added and have emails.'})
 
     prod_name = prod.get('name', 'Production')
     html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">

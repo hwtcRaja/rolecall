@@ -1212,6 +1212,7 @@ def init_db():
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS last_invited_at TIMESTAMP",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS carpools_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS production_id TEXT",
@@ -10598,9 +10599,58 @@ def push_announcement(pid, aid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    execute(conn, "UPDATE portal_announcements SET status='published' WHERE id=%s AND production_id=%s", (aid, pid))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    execute(conn, '''UPDATE portal_announcements
+        SET status='published', pushed_at=NOW(), push_count=COALESCE(push_count,0)+1
+        WHERE id=%s AND production_id=%s''', (aid, pid))
+    conn.commit()
+    ann = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not ann or not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+
+    # Gather recipient emails: guardians of youth cast (Rising Stars) + adult crew/volunteers
+    recipients = set()
+    youth_cast = fetchall(conn, '''SELECT y.id FROM youth_participants y
+        JOIN youth_production_members ypm ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s AND y.status='active' ''', (pid,))
+    for y in youth_cast:
+        guardians = fetchall(conn, "SELECT email FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email!=''", (y['id'],))
+        for g in guardians:
+            if g['email']: recipients.add(g['email'].strip().lower())
+    crew = fetchall(conn, '''SELECT v.email FROM production_members pm
+        JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s AND v.email IS NOT NULL AND v.email!='' ''', (pid,))
+    for v in crew:
+        if v['email']: recipients.add(v['email'].strip().lower())
+    conn.close()
+
+    if not recipients:
+        return jsonify({'ok': True, 'sent_to': 0, 'warning': 'No email addresses on file for cast/crew'})
+
+    prod_name = prod.get('name', 'Production')
+    html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#0d9488;padding:24px;border-radius:8px 8px 0 0">
+        <div style="color:rgba(255,255,255,0.8);font-size:13px;margin-bottom:4px">New Announcement</div>
+        <h2 style="color:white;margin:0;font-size:22px">{prod_name}</h2>
+      </div>
+      <div style="background:#f8fafc;padding:28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+        <h3 style="color:#1e293b;margin:0 0 12px 0;font-size:18px">{ann['title']}</h3>
+        <div style="white-space:pre-wrap;font-size:15px;line-height:1.8;color:#334155">{ann['body']}</div>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
+        <p style="font-size:12px;color:#94a3b8;margin:0">
+          Posted by Horizon West Theater Company for <strong>{prod_name}</strong>.
+          Log in to the family portal to view and respond to announcements.
+        </p>
+      </div>
+    </div>'''
+    try:
+        fi = (request.json or {}).get('from_identity') or {}
+        send_email(list(recipients), f'{prod_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
+        return jsonify({'ok': True, 'sent_to': len(recipients)})
+    except Exception as e:
+        app.logger.error(f'push_announcement (production) email error: {e}')
+        return jsonify({'ok': True, 'sent_to': 0, 'warning': str(e)})
 
 @app.route('/api/youth-programs/<pid>/required-waivers', methods=['GET'])
 def get_program_required_waivers(pid):

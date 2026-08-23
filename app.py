@@ -29349,6 +29349,27 @@ def marquee_overview():
     })
 
 
+def compute_registration_amount(reg):
+    """Single source of truth for 'how much did this registration bring
+    in' — mirrors the CASE logic already used in the dashboard's SQL
+    aggregates (comped > charged Step Up > pending Step Up > direct Square
+    payment > price-based estimate). Used anywhere a registration's amount
+    is shown, so it can't drift out of sync with the dashboard totals like
+    it previously did here."""
+    if reg.get('is_comped'):
+        return 0, 'comped'
+    if reg.get('step_up_hold_status') == 'charged':
+        return reg.get('step_up_amount') or 0, 'step_up'
+    if reg.get('step_up_hold_status') == 'pending':
+        return 0, 'step_up_pending'
+    if reg.get('amount_paid_cents') is not None:
+        return reg['amount_paid_cents'], 'square'
+    price = reg.get('program_price') or 0
+    count = reg.get('participant_count') or 1
+    discount = (reg.get('discount_amount') or 0) + (reg.get('sibling_discount_amount') or 0)
+    return max(0, price * count - discount), 'estimate'
+
+
 @app.route('/api/marquee/registrations', methods=['GET'])
 def marquee_all_registrations():
     err = require_permission('marquee', 'view')
@@ -29359,9 +29380,11 @@ def marquee_all_registrations():
     production_id = request.args.get('production_id')
     status = request.args.get('status')
     q1 = '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type,
-        yp.sessions_enabled, yp.price AS program_price, 'program' AS context_type
+        yp.sessions_enabled, yp.price AS program_price, 'program' AS context_type,
+        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
+        LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
         WHERE pr.program_id IS NOT NULL'''
     p1 = []
     if program_id:
@@ -29369,9 +29392,11 @@ def marquee_all_registrations():
     if status:
         q1 += ' AND pr.status=%s'; p1.append(status)
     q2 = '''SELECT pr.*, p.name AS program_name, p.registration_form_type,
-        FALSE AS sessions_enabled, 'production' AS context_type
+        FALSE AS sessions_enabled, p.price AS program_price, 'production' AS context_type,
+        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
         FROM program_registrations pr
         JOIN productions p ON p.id=pr.production_id
+        LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
         WHERE pr.production_id IS NOT NULL'''
     p2 = []
     if production_id:
@@ -29381,6 +29406,8 @@ def marquee_all_registrations():
     regs1 = fetchall(conn, q1 + ' ORDER BY pr.created_at DESC LIMIT 200', p1) or []
     regs2 = (fetchall(conn, q2 + ' ORDER BY pr.created_at DESC LIMIT 200', p2) or []) if not program_id else []
     regs = sorted(regs1 + regs2, key=lambda r: str(r.get('created_at') or ''), reverse=True)[:200]
+    for r in regs:
+        r['amount_cents'], r['amount_source'] = compute_registration_amount(r)
     # Resolve session names for all program registrations
     sessions_by_program = {}
     for r in regs:
@@ -29554,22 +29581,7 @@ def get_program_registrations(pid):
             r['session_names'] = [sessions_map.get(sid, sid) for sid in sids if sid in sessions_map]
         except Exception:
             r['session_names'] = []
-        if r.get('is_comped'):
-            r['amount_cents'] = 0
-            r['amount_source'] = 'comped'
-        elif r.get('step_up_hold_status') == 'charged':
-            r['amount_cents'] = r.get('step_up_amount') or 0
-            r['amount_source'] = 'step_up'
-        elif r.get('step_up_hold_status') == 'pending':
-            r['amount_cents'] = 0
-            r['amount_source'] = 'step_up_pending'
-        elif r.get('amount_paid_cents') is not None:
-            r['amount_cents'] = r['amount_paid_cents']
-            r['amount_source'] = 'square'
-        else:
-            r['amount_cents'] = max(0, (r.get('program_price') or 0) * (r.get('participant_count') or 1)
-                - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
-            r['amount_source'] = 'estimate'
+        r['amount_cents'], r['amount_source'] = compute_registration_amount(r)
     interest = fetchall(conn, '''SELECT * FROM interest_list_entries
         WHERE program_id=%s ORDER BY created_at DESC''', (pid,))
     counts = {

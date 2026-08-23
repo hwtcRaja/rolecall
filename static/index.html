@@ -29830,10 +29830,10 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
           if(!participantName) participantName = escHtml(r.guardian_name||'')
           if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+'</span>'
           var contactCell = escHtml(r.guardian_name||'')+'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.guardian_email||'')+'</div>'
-          var amountPaidCents = r.amount_paid_cents!=null ? r.amount_paid_cents
-            : (r.program_price!=null ? (r.program_price*(r.participant_count||1) - (r.discount_amount||0) - (r.sibling_discount_amount||0)) : null)
-          var amountStr = amountPaidCents > 0 ? '$'+(amountPaidCents/100).toFixed(2)
-            : amountPaidCents===0 ? 'Free' : '—'
+          var amtLabels = {comped:'Comp\'d', step_up:'via Step Up', step_up_pending:'Pending Step Up', square:'via Square', estimate:'estimated — no payment on file'}
+          var amtColors = {comped:'#9d174d', step_up:'#0369a1', step_up_pending:'#92400e', square:'#166534', estimate:'#92400e'}
+          var amountStr = '<div style="font-weight:700;color:'+(amtColors[r.amount_source]||'#374151')+'">$'+((r.amount_cents||0)/100).toFixed(2)+'</div>'
+            + '<div style="font-size:10px;color:var(--text-hint)">'+(amtLabels[r.amount_source]||'')+'</div>'
           var sessionCell = mqHasSessions ? '<td style="padding:8px;font-size:11px;color:var(--text-muted);max-width:160px">'
             + ((r.session_names||[]).length ? (r.session_names||[]).map(function(n){ return '<div>'+escHtml(n)+'</div>' }).join('') : '—')
             + '</td>' : ''

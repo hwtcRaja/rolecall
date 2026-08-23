@@ -4802,7 +4802,7 @@ def push_program_announcement(pid, aid):
       </div>
     </div>'''
     try:
-        fi = (request.json or {}).get('from_identity') or {}
+        fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
         send_email(list(recipients), f'{prog_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
@@ -9722,7 +9722,7 @@ def send_reset_link(uid):
             <p style="font-size:13px;color:#9b9b94;">If you did not request this, please contact your administrator.</p>
         </div>
     </div>'''
-    fi = (request.json or {}).get('from_identity') or {}
+    fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
     ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', html_body, fi.get('email') or None, fi.get('name') or None)
     conn.close()
     if ok: return jsonify({'ok': True})
@@ -10654,7 +10654,7 @@ def push_announcement(pid, aid):
       </div>
     </div>'''
     try:
-        fi = (request.json or {}).get('from_identity') or {}
+        fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
         send_email(list(recipients), f'{prod_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
@@ -13307,7 +13307,7 @@ def email_send_report(rid):
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theater Company</p>
     </div>'''
     subject = f'Event Report: {close_log.get("event_name","")}  -  {close_log.get("event_date","")}'
-    fi = (request.json or {}).get('from_identity') or {}
+    fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
     ok, msg = send_email(recipients, subject, body, fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True})
     return jsonify({'error': msg or 'Send failed'}), 500

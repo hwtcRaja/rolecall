@@ -29535,11 +29535,15 @@ def get_program_registrations(pid):
         if err: return err
     import json as _jreg
     conn = get_db()
-    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type
+    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type, yp.price AS program_price,
+        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
+        LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
         WHERE pr.program_id=%s ORDER BY pr.created_at DESC''', (pid,))
-    # Resolve session names
+    # Resolve session names, and work out — the same way the financial
+    # dashboard does — what a registration actually counts as revenue-wise
+    # and why, so it's visible right here instead of a mystery elsewhere.
     sessions_map = {}
     session_rows = fetchall(conn, 'SELECT id, name FROM program_sessions WHERE program_id=%s', (pid,)) or []
     for sr in session_rows:
@@ -29550,6 +29554,22 @@ def get_program_registrations(pid):
             r['session_names'] = [sessions_map.get(sid, sid) for sid in sids if sid in sessions_map]
         except Exception:
             r['session_names'] = []
+        if r.get('is_comped'):
+            r['amount_cents'] = 0
+            r['amount_source'] = 'comped'
+        elif r.get('step_up_hold_status') == 'charged':
+            r['amount_cents'] = r.get('step_up_amount') or 0
+            r['amount_source'] = 'step_up'
+        elif r.get('step_up_hold_status') == 'pending':
+            r['amount_cents'] = 0
+            r['amount_source'] = 'step_up_pending'
+        elif r.get('amount_paid_cents') is not None:
+            r['amount_cents'] = r['amount_paid_cents']
+            r['amount_source'] = 'square'
+        else:
+            r['amount_cents'] = max(0, (r.get('program_price') or 0) * (r.get('participant_count') or 1)
+                - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+            r['amount_source'] = 'estimate'
     interest = fetchall(conn, '''SELECT * FROM interest_list_entries
         WHERE program_id=%s ORDER BY created_at DESC''', (pid,))
     counts = {

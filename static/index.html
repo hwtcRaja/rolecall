@@ -23152,6 +23152,7 @@ async function loadProgramRegistrations(pid){
   const statusMap = {confirmed:'background:#dcfce7;color:#166534',pending_payment:'background:#fef3c7;color:#92400e',waitlisted:'background:#ede9fe;color:#6d28d9',cancelled:'background:#fee2e2;color:#991b1b'}
   const statusLbl = {draft:'Draft',interest_list:'Interest List',open:'Open',closed:'Closed',cancelled:'Cancelled'}
   const statusCol = {draft:'#6b7280',interest_list:'#92400e',open:'#166534',closed:'#991b1b',cancelled:'#991b1b'}
+  function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '—' }
 
   var html = '<div class="card" style="padding:16px 20px;margin-bottom:12px">'
     + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:14px">'
@@ -23237,7 +23238,7 @@ async function loadProgramRegistrations(pid){
       + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
       + '<thead><tr style="border-bottom:2px solid var(--border)"><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Participant</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Contact</th>'
       + (hasSessions ? '<th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Sessions</th>' : '')
-      + '<th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Registered</th><th></th></tr></thead>'
+      + '<th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Status</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Amount</th><th style="text-align:left;padding:6px 8px;color:var(--text-muted)">Registered</th><th></th></tr></thead>'
       + '<tbody>'
       + regs.map(function(r){
           var isAdult = r.registration_form_type === 'adult'
@@ -23267,11 +23268,18 @@ async function loadProgramRegistrations(pid){
             var snames = r.session_names || []
             sessionCell = '<td style="padding:8px;font-size:11px;color:var(--text-muted)">'+(snames.length ? snames.map(function(n){ return '<div>'+escHtml(n)+'</div>' }).join('') : '—')+'</td>'
           }
+          var amtLabels = {comped:'Comp\'d', step_up:'via Step Up', step_up_pending:'Pending Step Up', square:'via Square', estimate:'estimated — no payment on file'}
+          var amtColors = {comped:'#9d174d', step_up:'#0369a1', step_up_pending:'#92400e', square:'#166534', estimate:'#92400e'}
+          var amtCell = '<td style="padding:8px">'
+            + '<div style="font-weight:700;color:'+(amtColors[r.amount_source]||'#374151')+'">'+fmtMoney(r.amount_cents||0)+'</div>'
+            + '<div style="font-size:10px;color:var(--text-hint)">'+(amtLabels[r.amount_source]||'')+'</div>'
+            + '</td>'
           return '<tr style="border-bottom:1px solid var(--border)">'
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
             + sessionCell
             + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.is_comped?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fce7f3;color:#9d174d">🎁 Comp\'d</span>':'')+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
+            + amtCell
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'

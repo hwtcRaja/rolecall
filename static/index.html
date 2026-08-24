@@ -17855,7 +17855,7 @@ function eventListRow(e,isAdmin){
  const[sbg,scol,slabel]=STATUS_COLORS[e.status||'draft']||STATUS_COLORS.draft
  const timeStr=e.start_time?fmtTime(e.start_time)+(e.end_time?' – '+fmtTime(e.end_time):''):'All day'
  const isCancelled = e.status==='cancelled'
- return`<div style="background:${isCancelled?'#FEF2F2':'var(--surface)'};border:1px solid ${isCancelled?'#FECACA':'var(--border)'};border-radius:var(--radius);padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:box-shadow 0.15s;${isCancelled?'opacity:0.75':''}" onclick="openEventDetail('${e.id}')" onmouseenter="this.style.boxShadow='var(--shadow-lg)'" onmouseleave="this.style.boxShadow=''">
+ return`<div style="background:${isCancelled?'#FEF2F2':'var(--surface)'};border:1px solid ${isCancelled?'#FECACA':'var(--border)'};border-radius:var(--radius);padding:14px 18px;margin-bottom:8px;display:flex;align-items:center;gap:14px;cursor:pointer;transition:box-shadow 0.15s;${isCancelled?'opacity:0.75':''}" onclick="openEventChip('${e.id}')" onmouseenter="this.style.boxShadow='var(--shadow-lg)'" onmouseleave="this.style.boxShadow=''">
  <div style="width:4px;align-self:stretch;background:${isCancelled?'#DC2626':tcol};border-radius:2px;flex-shrink:0"></div>
  <div style="width:52px;text-align:center;flex-shrink:0">
  ${e.event_date?`<div style="font-size:20px;font-weight:800;color:${isCancelled?'#DC2626':'var(--teal-dark)'};line-height:1">${parseInt(e.event_date.split('-')[2])}</div><div style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase">${new Date(e.event_date+'T00:00:00').toLocaleDateString('en-US',{month:'short'})}</div>`:'<div style="font-size:11px;color:var(--text-hint)">TBD</div>'}

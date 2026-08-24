@@ -2871,6 +2871,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="number" id="program-instructor-expected-pay" step="0.01" min="0" placeholder="0.00" oninput="updateProgramInstructorPayCheck()" style="width:100%"/>
  </div>
  </div>
+ <div class="form-row" id="program-pay-rate-row" style="display:none">
+ <div class="form-group"><label>Pay Rate Type</label>
+ <select id="program-pay-rate-type">
+ <option value="hourly">Hourly</option>
+ <option value="per_class">Per Class (flat rate)</option>
+ </select>
+ </div>
+ <div class="form-group"><label>Pay Rate <span style="font-weight:400;text-transform:none;color:var(--text-hint)">($/hr or $/class — used by BloomBooks to figure per-session pay when recording a payment)</span></label>
+ <input type="number" id="program-pay-rate-amount" step="0.01" min="0" placeholder="0.00" style="width:100%"/>
+ </div>
+ </div>
  <div class="form-row">
  <div class="form-group"><label>Default ELIC</label>
  <select id="program-default-elic"><option value="">— Assign default ELIC —</option></select>
@@ -20798,12 +20809,15 @@ async function updateProgramInstructorPayCheck(){
   const isPaidInstruction = (document.getElementById('program-is-paid-instruction')||{}).checked
   const checkEl = document.getElementById('program-instructor-pay-check')
   const payRowEl = document.getElementById('program-expected-pay-row')
+  const rateRowEl = document.getElementById('program-pay-rate-row')
   if(!instructorId || !isPaidInstruction){
     if(checkEl) checkEl.style.display = 'none'
     if(payRowEl) payRowEl.style.display = 'none'
+    if(rateRowEl) rateRowEl.style.display = 'none'
     return
   }
   if(payRowEl) payRowEl.style.display = ''
+  if(rateRowEl) rateRowEl.style.display = ''
   const currentProgramId = (document.getElementById('program-edit-id')||{}).value || ''
   const expectedPay = parseFloat((document.getElementById('program-instructor-expected-pay')||{}).value) || 0
   const qs = currentProgramId ? ('?exclude_program_id='+encodeURIComponent(currentProgramId)) : ''
@@ -20842,6 +20856,8 @@ function openNewProgramModal(){
  if(isel) isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
  document.getElementById('program-instructor-expected-pay').value=''
  document.getElementById('program-is-paid-instruction').checked=false
+ document.getElementById('program-pay-rate-type').value='hourly'
+ document.getElementById('program-pay-rate-amount').value=''
  const esel=document.getElementById('program-default-elic')
  if(esel) esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
  // Co-instructors need an existing program_id to attach to — hide until
@@ -20867,6 +20883,8 @@ function openEditProgramModal(pid){
  if(isel){isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('');isel.value=p.instructor_id||''}
  document.getElementById('program-instructor-expected-pay').value=p.instructor_expected_pay||''
  document.getElementById('program-is-paid-instruction').checked=!!p.is_paid_instruction
+ document.getElementById('program-pay-rate-type').value=p.pay_rate_type||'hourly'
+ document.getElementById('program-pay-rate-amount').value=p.pay_rate_amount||''
  const esel=document.getElementById('program-default-elic')
  if(esel){esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');esel.value=p.default_elic_id||''}
  const coWrap=document.getElementById('program-co-instructors-wrap')
@@ -21219,6 +21237,8 @@ async function saveYouthProgram(){
  instructor_id:document.getElementById('program-instructor').value||null,
  instructor_expected_pay:parseFloat(document.getElementById('program-instructor-expected-pay').value)||0,
  is_paid_instruction:document.getElementById('program-is-paid-instruction').checked,
+ pay_rate_type:document.getElementById('program-pay-rate-type')?.value||'hourly',
+ pay_rate_amount:parseFloat(document.getElementById('program-pay-rate-amount')?.value)||0,
  default_elic_id:document.getElementById('program-default-elic')?.value||null
  }
  let res

@@ -3393,8 +3393,16 @@ def create_event():
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
         LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         WHERE e.id=%s''', (eid,))
-    row['required_waivers'] = []; row['elics'] = []
     conn.close()
+    if not row:
+        # The insert itself succeeded (we'd have raised already if not) —
+        # this means the id genuinely can't be read back, which points at
+        # a bad linked_session_id (references a session belonging to a
+        # different program, or one that no longer exists) tripping up the
+        # LEFT JOIN in a way that's worth surfacing clearly instead of a
+        # raw crash.
+        return jsonify({'error': 'Event was created but could not be reloaded — the selected session may be invalid.'}), 500
+    row['required_waivers'] = []; row['elics'] = []
     return jsonify(row)
 
 @app.route('/api/events/<eid>/status', methods=['POST'])
@@ -3486,6 +3494,9 @@ def update_event(eid):
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
         LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         WHERE e.id=%s''', (eid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': f'Event {eid} not found after update — the selected session may be invalid.'}), 500
     row['required_waivers'] = fetchall(conn,
         'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
     row['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,

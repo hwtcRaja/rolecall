@@ -847,6 +847,11 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS default_elic_id TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS default_elic_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS program_id TEXT",
+        # Links a real calendar event to the specific program_sessions row it
+        # represents, so a program's auto-generated session and a real,
+        # hours-loggable event don't end up as two separate calendar entries
+        # for the same class meeting.
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS linked_session_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS requires_background_check BOOLEAN DEFAULT FALSE",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_date TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_status TEXT DEFAULT 'none'",
@@ -3203,11 +3208,12 @@ def get_events():
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name
+        pg.name as program_name, ps.name as linked_session_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
+        LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         ORDER BY e.event_date DESC NULLS LAST, e.start_time ASC NULLS LAST''')
     for e in events:
         e['required_waivers'] = fetchall(conn,
@@ -3290,10 +3296,14 @@ def get_events():
     except Exception as e:
         app.logger.warning(f'Rental tour calendar merge error: {e}')
     # Add program/class sessions as synthetic calendar events — but only
-    # ones that actually have a registrant. Otherwise a bulk-imported
-    # schedule (which can easily be a few hundred open hourly slots) would
-    # bury the calendar in mostly-empty class times nobody's confirmed
-    # for yet.
+    # ones that actually have a registrant, and only ones that don't already
+    # have a real linked event (see linked_session_id): once someone's
+    # created a real event for hour-logging/ELICs/staffing purposes and
+    # linked it to a session, that real event IS the calendar entry — the
+    # synthetic one would just be a confusing duplicate. Otherwise a bulk-
+    # imported schedule (which can easily be a few hundred open hourly
+    # slots) would bury the calendar in mostly-empty class times nobody's
+    # confirmed for yet.
     try:
         conn4 = get_db()
         prog_sessions = fetchall(conn4, '''SELECT ps.id, ps.name, ps.start_date, ps.start_time, ps.end_time,
@@ -3305,6 +3315,7 @@ def get_events():
                 WHERE pr.program_id=ps.program_id
                 AND pr.session_ids LIKE \'%%"\' || ps.id || \'"%%\'
                 AND pr.status NOT IN (\'cancelled\',\'waitlisted\'))
+            AND NOT EXISTS (SELECT 1 FROM events e3 WHERE e3.linked_session_id=ps.id)
             ''') or []
         conn4.close()
         for s in prog_sessions:
@@ -3339,12 +3350,12 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode,show_on_lobby)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,linked_session_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode,show_on_lobby)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
-         d.get('production_id') or None, d.get('program_id') or None,
+         d.get('production_id') or None, d.get('program_id') or None, d.get('linked_session_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False),
@@ -3375,11 +3386,12 @@ def create_event():
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name
+        pg.name as program_name, ps.name as linked_session_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
+        LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         WHERE e.id=%s''', (eid,))
     row['required_waivers'] = []; row['elics'] = []
     conn.close()
@@ -3428,7 +3440,7 @@ def update_event(eid):
     prev_status = prev.get('status') if prev else None
     new_status = d.get('status','draft')
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,address=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
+        event_type_id=%s,location=%s,address=%s,room=%s,production_id=%s,program_id=%s,linked_session_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
         rsvp_enabled=%s,rsvp_message=%s,rsvp_kind=%s,invite_headline=%s,hide_block_names=%s,status=%s,carpools_enabled=%s,
         hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s,
@@ -3436,7 +3448,7 @@ def update_event(eid):
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
-         d.get('production_id') or None, d.get('program_id') or None,
+         d.get('production_id') or None, d.get('program_id') or None, d.get('linked_session_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
@@ -3467,11 +3479,12 @@ def update_event(eid):
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name
+        pg.name as program_name, ps.name as linked_session_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
+        LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         WHERE e.id=%s''', (eid,))
     row['required_waivers'] = fetchall(conn,
         'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
@@ -20883,7 +20896,8 @@ def get_program_sessions(pid):
     sessions = fetchall(conn, '''SELECT ps.*,
         (SELECT COUNT(*) FROM program_registrations
          WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
-         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
+         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count,
+        (SELECT e.id FROM events e WHERE e.linked_session_id=ps.id LIMIT 1) AS linked_event_id
         FROM program_sessions ps WHERE ps.program_id=%s
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid))
     conn.close()

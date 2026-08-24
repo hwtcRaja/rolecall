@@ -3405,6 +3405,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <select id="edit-event-program" onchange="onEventParentChange('program')"><option value="">— Standalone —</option></select>
  </div>
  </div>
+ <div class="form-group" id="edit-event-session-wrap" style="display:none;margin-bottom:0">
+ <label>Class Session <span style="font-weight:400;text-transform:none;color:var(--text-hint)">(optional — links this event to a specific session so it doesn't also show as a separate calendar entry)</span></label>
+ <select id="edit-event-session"><option value="">— Not linked to a specific session —</option></select>
+ </div>
  <div class="form-row">
  <div class="form-group">
  <label>Event Lead (ELIC)</label>
@@ -18769,11 +18773,12 @@ function openEventModal(eid=null){
  toggleHsBonusFields()
  document.getElementById('edit-event-kiosk-mode').value='auto'
  setEventElicUI(null, null) // reset ELIC
+ populateEventSessionSelect('')
  // If opened from a program or production context, pre-fill parent and default ELIC
  if(eid===null && window._openEventParent){
  const{productionId,programId}=window._openEventParent
  if(productionId) document.getElementById('edit-event-production').value=productionId
- if(programId) document.getElementById('edit-event-program').value=programId
+ if(programId){ document.getElementById('edit-event-program').value=programId; populateEventSessionSelect(programId) }
  // Fetch default ELIC async
  const param=productionId?`production_id=${productionId}`:`program_id=${programId}`
  if(productionId||programId){
@@ -18800,6 +18805,8 @@ function openEventModal(eid=null){
  document.getElementById('edit-event-production').value=e.production_id||''
  const pgSelEdit=document.getElementById('edit-event-program')
  if(pgSelEdit) pgSelEdit.value=e.program_id||''
+ if(e.program_id) populateEventSessionSelect(e.program_id, e.linked_session_id||'')
+ else populateEventSessionSelect('')
  // Pre-fill ELIC from event's assigned elics
  const assignedElic=(e.elics&&e.elics.length)?e.elics[0].elic_id:null
  setEventElicUI(assignedElic, e.program_id||e.production_id||null)
@@ -18866,6 +18873,7 @@ async function saveEditEvent(){
  address:document.getElementById('edit-event-address')?.value.trim()||'',
  production_id:document.getElementById('edit-event-production')?.value||null,
  program_id:document.getElementById('edit-event-program')?.value||null,
+ linked_session_id:document.getElementById('edit-event-session')?.value||null,
  expected_volunteers:parseInt(document.getElementById('edit-event-volunteers')?.value)||null,
  description:document.getElementById('edit-event-desc')?.value.trim()||'',
  notes:document.getElementById('edit-event-notes')?.value.trim()||'',
@@ -24546,6 +24554,9 @@ async function loadSessionsInModal(pid){
       + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">'+escHtml(timeStr||'No time set')+' &nbsp;·&nbsp; '+escHtml(price)+' &nbsp;·&nbsp; '+cap+'</div></div>'
       + '<div style="display:flex;gap:6px;align-items:center">'
       + '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:'+( statusColors[s.status]||statusColors.open)+'">'+(s.status||'open')+'</span>'
+      + (s.linked_event_id
+          ? '<button class="btn btn-secondary btn-sm sess-view-event-btn" data-eid="'+s.linked_event_id+'" style="font-size:11px;padding:2px 8px" title="This session has a real calendar event — hours can be logged there">📅 View Event</button>'
+          : '<button class="btn btn-secondary btn-sm sess-create-event-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px" title="Creates a real calendar event for this session so hours/ELICs/staff can be tracked">+ Create Event</button>')
       + '<button class="btn btn-secondary btn-sm sess-edit-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px">Edit</button>'
       + '<button class="btn btn-sm sess-del-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
       + '</div></div>'
@@ -24560,6 +24571,41 @@ async function loadSessionsInModal(pid){
       var res = await api('/api/programs/'+pid+'/sessions/'+btn.dataset.sid,'DELETE')
       if(res&&res.ok){ toast('Session deleted','success'); loadSessionsInModal(pid) }
       else toast('Error','error')
+    })
+  })
+  listEl.querySelectorAll('.sess-view-event-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var overlay = document.getElementById('reg-settings-overlay')
+      if(overlay) overlay.remove()
+      navTo('events')
+      setTimeout(function(){ openEventModal(btn.dataset.eid) }, 200)
+    })
+  })
+  listEl.querySelectorAll('.sess-create-event-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      var s = sessions.find(function(s){ return s.id===btn.dataset.sid })
+      if(!s) return
+      var res = await api('/api/events','POST',{
+        name: s.name || 'Class Session',
+        event_date: s.start_date || '',
+        start_time: s.start_time || '',
+        end_time: s.end_time || '',
+        location: s.location || '',
+        program_id: pid,
+        linked_session_id: s.id,
+      })
+      if(res && res.id){
+        toast('Event created and linked to this session','success')
+        // The create endpoint returns the fully joined event row, so this
+        // is immediately usable — without it, clicking "View Event" right
+        // after creating one would fail silently, since renderEventsPage
+        // and openEventModal both read from this cached array rather than
+        // fetching fresh.
+        if(Array.isArray(allEvents)) allEvents.unshift(res)
+        loadSessionsInModal(pid)
+      } else {
+        toast((res&&res.error)||'Could not create event','error')
+      }
     })
   })
 }
@@ -25115,6 +25161,7 @@ function onEventParentChange(changed){
  } else {
  setEventElicUI(null, null)
  }
+ populateEventSessionSelect('')
  } else {
  const p=document.getElementById('edit-event-program').value
  if(p) document.getElementById('edit-event-production').value=''
@@ -25125,8 +25172,30 @@ function onEventParentChange(changed){
  } else {
  setEventElicUI(null, null)
  }
+ populateEventSessionSelect(p)
  }
  updateEventBgcLock()
+}
+
+async function populateEventSessionSelect(programId, selectedSessionId){
+ const wrap = document.getElementById('edit-event-session-wrap')
+ const sel = document.getElementById('edit-event-session')
+ if(!wrap || !sel) return
+ if(!programId){
+ wrap.style.display = 'none'
+ sel.innerHTML = '<option value="">— Not linked to a specific session —</option>'
+ return
+ }
+ wrap.style.display = ''
+ sel.innerHTML = '<option value="">Loading sessions…</option>'
+ const sessions = await api('/api/programs/'+programId+'/sessions')
+ const list = Array.isArray(sessions) ? sessions : []
+ if(!list.length){
+ sel.innerHTML = '<option value="">This program has no sessions set up</option>'
+ return
+ }
+ sel.innerHTML = '<option value="">— Not linked to a specific session —</option>'
+ + list.map(s=>`<option value="${s.id}"${selectedSessionId===s.id?' selected':''}>${escHtml(s.name)}${s.start_date?' · '+s.start_date:''}</option>`).join('')
 }
 
 function updateEventBgcLock(){

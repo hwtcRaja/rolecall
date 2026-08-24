@@ -24577,8 +24577,14 @@ async function loadSessionsInModal(pid){
     btn.addEventListener('click', function(){
       var overlay = document.getElementById('reg-settings-overlay')
       if(overlay) overlay.remove()
-      navTo('events')
-      setTimeout(function(){ openEventModal(btn.dataset.eid) }, 200)
+      // Same pattern as clicking this event on the calendar: land on the
+      // program page (where hours/ELICs are already visible per-event in
+      // the Events tab), then pop the event modal open on top of it.
+      navTo('youth-programs-page')
+      setTimeout(function(){
+        openProgramDetail(pid)
+        setTimeout(function(){ openEventModal(btn.dataset.eid) }, 150)
+      }, 50)
     })
   })
   listEl.querySelectorAll('.sess-create-event-btn').forEach(function(btn){
@@ -26334,9 +26340,18 @@ async function setYouthPassphrase(yid, current){
 function openEventChip(eid){
  if(typeof event!== 'undefined' && event) event.stopPropagation()
  const e = allEvents.find(x=>x.id===eid)
- if(e && e.is_program_session && e.program_id){
+ // Any event tied to a program/class — whether it's still just the
+ // lightweight synthetic session entry, or a real event someone's
+ // created and linked — goes to that program's page, not the standalone
+ // event detail page. Hours, ELICs, and everything else are managed from
+ // the program's own Events tab (via Edit), so the navigation stays
+ // consistent whether or not a real event has been created yet.
+ if(e && e.program_id){
    navTo('youth-programs-page')
-   setTimeout(()=>openProgramDetail(e.program_id), 50)
+   setTimeout(()=>{
+     openProgramDetail(e.program_id)
+     if(!e.is_program_session) setTimeout(()=>openEventModal(eid), 150)
+   }, 50)
    return
  }
  openEventDetail(eid)

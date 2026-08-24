@@ -1660,6 +1660,14 @@ def init_db():
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS bb_contractor_id INTEGER",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS instructor_expected_pay REAL DEFAULT 0",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS is_paid_instruction BOOLEAN DEFAULT FALSE",
+        # Per-unit instructor pay rate — separate from instructor_expected_pay (a manually
+        # entered lump-sum estimate). This drives BloomBooks' per-session payment picker:
+        # 'per_class' pays pay_rate_amount flat per session; 'hourly' pays
+        # pay_rate_amount x the program's scheduled session length (meeting_start_time to
+        # meeting_end_time below) — there's no per-session time tracking, so hourly pay is
+        # always the program's own meeting length, not manually logged hours.
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS pay_rate_type TEXT DEFAULT 'hourly'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS pay_rate_amount REAL DEFAULT 0",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS final_payment_due_note TEXT DEFAULT ''",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
@@ -4712,7 +4720,7 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label,instructor_expected_pay,is_paid_instruction) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label,instructor_expected_pay,is_paid_instruction,pay_rate_type,pay_rate_amount) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4722,7 +4730,9 @@ def create_youth_program():
                  int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
                  d.get('bundle_label') or 'Book All Sessions',
                  float(d.get('instructor_expected_pay') or 0),
-                 bool(d.get('is_paid_instruction', False))))
+                 bool(d.get('is_paid_instruction', False)),
+                 d.get('pay_rate_type') or 'hourly',
+                 float(d.get('pay_rate_amount') or 0)))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -4738,7 +4748,7 @@ def update_youth_program(pid):
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s,instructor_expected_pay=%s,is_paid_instruction=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s,instructor_expected_pay=%s,is_paid_instruction=%s,pay_rate_type=%s,pay_rate_amount=%s WHERE id=%s',
             ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4750,6 +4760,8 @@ def update_youth_program(pid):
              d.get('bundle_label') or 'Book All Sessions',
              float(d.get('instructor_expected_pay') or 0),
              bool(d.get('is_paid_instruction', False)),
+             d.get('pay_rate_type') or 'hourly',
+             float(d.get('pay_rate_amount') or 0),
              pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))

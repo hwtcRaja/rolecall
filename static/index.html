@@ -21727,10 +21727,12 @@ async function openProgramDetail(programId){
  </div>
  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
  <span style="background:${sbg};color:${scol};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">${slabel}</span>
- ${isAdmin?`<div style="display:flex;gap:4px">
+ ${isAdmin?(e.is_program_session
+   ? `<button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="createEventFromProgramSessionRow('${e.id}','${programId}')">Create Event</button>`
+   : `<div style="display:flex;gap:4px">
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="openEventModal('${e.id}')">Edit</button>
  <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteEventFull('${e.id}').then(()=>openProgramDetail('${programId}'))">Delete</button>
- </div>`:''}
+ </div>`):''}
  </div>
  </div>`
  }).join('')
@@ -26375,6 +26377,32 @@ function openEventChip(eid){
    return
  }
  openEventDetail(eid)
+}
+
+async function createEventFromProgramSessionRow(sessionEventId, programId){
+ if(typeof event!== 'undefined' && event) event.stopPropagation()
+ const e = allEvents.find(x=>x.id===sessionEventId)
+ if(!e){ toast('Could not find that session — try refreshing the page','error'); return }
+ const realSessionId = sessionEventId.replace(/^session_/,'')
+ const res = await api('/api/events','POST',{
+   name: e.name || 'Class Session',
+   event_date: e.event_date || '',
+   start_time: e.start_time || '',
+   end_time: e.end_time || '',
+   location: e.location || '',
+   program_id: programId,
+   linked_session_id: realSessionId,
+ })
+ if(res && res.id){
+   toast('Event created and linked to this session','success')
+   if(Array.isArray(allEvents)){
+     const idx = allEvents.findIndex(x=>x.id===sessionEventId)
+     if(idx>-1) allEvents.splice(idx,1,res); else allEvents.unshift(res)
+   }
+   openProgramDetail(programId)
+ } else {
+   toast((res&&res.error)||'Could not create event','error')
+ }
 }
 
 function formatDateTime(ts){

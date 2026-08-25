@@ -498,19 +498,6 @@ def init_db():
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(production_id, volunteer_id))''')
 
-    # Co-instructors — additional instructors beyond youth_programs.instructor_id
-    # (the "primary" instructor, kept as-is for pay tracking / bio display /
-    # everything that already assumes a single instructor). Anyone in this
-    # table gets the same "My Programs" dashboard visibility and instructor
-    # portal access as the primary instructor, without becoming the one
-    # tracked for pay or shown as the program's bio/photo.
-    c.execute('''CREATE TABLE IF NOT EXISTS program_co_instructors (
-        id TEXT PRIMARY KEY,
-        program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
-        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
-        created_at TIMESTAMP DEFAULT NOW(),
-        UNIQUE(program_id, volunteer_id))''')
-
     # add active column to users
     conn.commit()
 
@@ -847,11 +834,6 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS default_elic_id TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS default_elic_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS program_id TEXT",
-        # Links a real calendar event to the specific program_sessions row it
-        # represents, so a program's auto-generated session and a real,
-        # hours-loggable event don't end up as two separate calendar entries
-        # for the same class meeting.
-        "ALTER TABLE events ADD COLUMN IF NOT EXISTS linked_session_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS requires_background_check BOOLEAN DEFAULT FALSE",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_date TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_status TEXT DEFAULT 'none'",
@@ -891,26 +873,7 @@ def init_db():
             approved BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT NOW(),
             created_by_portal BOOLEAN DEFAULT FALSE)""",
-        # Two-way SMS relay for call-out alerts: lets a crew member reply to
-        # the "so-and-so called out" text and have it reach the parent who
-        # submitted it (and vice versa), the same way the on-call line relays
-        # customer texts, since both share the one Twilio number.
-        """CREATE TABLE IF NOT EXISTS callout_relay_threads (
-            id TEXT PRIMARY KEY,
-            production_conflict_id TEXT REFERENCES production_conflicts(id) ON DELETE CASCADE,
-            guardian_phone TEXT,
-            guardian_name TEXT,
-            youth_name TEXT,
-            production_name TEXT,
-            crew_alert_phones TEXT DEFAULT '[]',
-            active_crew_phone TEXT,
-            last_message_at TIMESTAMP DEFAULT NOW(),
-            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
-        "ALTER TABLE callout_relay_threads ALTER COLUMN guardian_phone DROP NOT NULL",
-        # Lets staff hide the Auditions tab entirely for programs/productions
-        # that never use it, instead of it always showing "not currently open".
-        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS tab_visible BOOLEAN DEFAULT TRUE",
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
@@ -1230,7 +1193,6 @@ def init_db():
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS last_invited_at TIMESTAMP",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS carpools_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
-        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS production_id TEXT",
@@ -1660,14 +1622,6 @@ def init_db():
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS bb_contractor_id INTEGER",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS instructor_expected_pay REAL DEFAULT 0",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS is_paid_instruction BOOLEAN DEFAULT FALSE",
-        # Per-unit instructor pay rate — separate from instructor_expected_pay (a manually
-        # entered lump-sum estimate). This drives BloomBooks' per-session payment picker:
-        # 'per_class' pays pay_rate_amount flat per session; 'hourly' pays
-        # pay_rate_amount x the program's scheduled session length (meeting_start_time to
-        # meeting_end_time below) — there's no per-session time tracking, so hourly pay is
-        # always the program's own meeting length, not manually logged hours.
-        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS pay_rate_type TEXT DEFAULT 'hourly'",
-        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS pay_rate_amount REAL DEFAULT 0",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS final_payment_due_note TEXT DEFAULT ''",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
@@ -2652,12 +2606,12 @@ def require_own_program(pid, fallback_section='youth'):
     """Access check for program-scoped routes that also need to work for
     the restricted 'instructor' role: admins and anyone with normal
     section permission pass through as before (via require_permission);
-    an 'instructor' role user is let through for a program where they're
-    either the primary instructor (youth_programs.instructor_id) or listed
-    as a co-instructor (program_co_instructors) — matched by their login
-    email against the volunteer record either way. This is intentionally
-    narrow: it doesn't change access for any existing role, it only adds a
-    new restricted path for 'instructor'."""
+    an 'instructor' role user is only let through for a program where
+    they're the assigned instructor — matched by their login email
+    against the volunteer record linked as youth_programs.instructor_id
+    (the same field already used elsewhere for instructor pay/contact).
+    This is intentionally narrow: it doesn't change access for any
+    existing role, it only adds a new restricted path for 'instructor'."""
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     if session.get('role') == 'admin':
@@ -2665,17 +2619,12 @@ def require_own_program(pid, fallback_section='youth'):
     if session.get('role') == 'instructor':
         conn = get_db()
         me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
-        my_email = (me or {}).get('email', '').strip().lower()
-        match = fetchone(conn, '''SELECT 1 FROM youth_programs yp
-            LEFT JOIN volunteers v ON v.id=yp.instructor_id
-            WHERE yp.id=%s AND lower(v.email)=%s
-            UNION
-            SELECT 1 FROM program_co_instructors pci
-            JOIN volunteers v2 ON v2.id=pci.volunteer_id
-            WHERE pci.program_id=%s AND lower(v2.email)=%s''',
-            (pid, my_email, pid, my_email))
+        prog = fetchone(conn, '''SELECT v.email AS instructor_email FROM youth_programs yp
+            LEFT JOIN volunteers v ON v.id=yp.instructor_id WHERE yp.id=%s''', (pid,))
         conn.close()
-        if not my_email or not match:
+        my_email = (me or {}).get('email', '').strip().lower()
+        prog_email = (prog or {}).get('instructor_email') or ''
+        if not prog or not prog_email or prog_email.strip().lower() != my_email:
             return jsonify({'error': 'You can only manage your own programs'}), 403
         return None
     return require_permission(fallback_section)
@@ -3216,12 +3165,11 @@ def get_events():
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name, ps.name as linked_session_name
+        pg.name as program_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
-        LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         ORDER BY e.event_date DESC NULLS LAST, e.start_time ASC NULLS LAST''')
     for e in events:
         e['required_waivers'] = fetchall(conn,
@@ -3304,14 +3252,10 @@ def get_events():
     except Exception as e:
         app.logger.warning(f'Rental tour calendar merge error: {e}')
     # Add program/class sessions as synthetic calendar events — but only
-    # ones that actually have a registrant, and only ones that don't already
-    # have a real linked event (see linked_session_id): once someone's
-    # created a real event for hour-logging/ELICs/staffing purposes and
-    # linked it to a session, that real event IS the calendar entry — the
-    # synthetic one would just be a confusing duplicate. Otherwise a bulk-
-    # imported schedule (which can easily be a few hundred open hourly
-    # slots) would bury the calendar in mostly-empty class times nobody's
-    # confirmed for yet.
+    # ones that actually have a registrant. Otherwise a bulk-imported
+    # schedule (which can easily be a few hundred open hourly slots) would
+    # bury the calendar in mostly-empty class times nobody's confirmed
+    # for yet.
     try:
         conn4 = get_db()
         prog_sessions = fetchall(conn4, '''SELECT ps.id, ps.name, ps.start_date, ps.start_time, ps.end_time,
@@ -3323,7 +3267,6 @@ def get_events():
                 WHERE pr.program_id=ps.program_id
                 AND pr.session_ids LIKE \'%%"\' || ps.id || \'"%%\'
                 AND pr.status NOT IN (\'cancelled\',\'waitlisted\'))
-            AND NOT EXISTS (SELECT 1 FROM events e3 WHERE e3.linked_session_id=ps.id)
             ''') or []
         conn4.close()
         for s in prog_sessions:
@@ -3358,12 +3301,12 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,linked_session_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode,show_on_lobby)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode,show_on_lobby)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
-         d.get('production_id') or None, d.get('program_id') or None, d.get('linked_session_id') or None,
+         d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False),
@@ -3394,23 +3337,14 @@ def create_event():
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name, ps.name as linked_session_name
+        pg.name as program_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
-        LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         WHERE e.id=%s''', (eid,))
-    conn.close()
-    if not row:
-        # The insert itself succeeded (we'd have raised already if not) —
-        # this means the id genuinely can't be read back, which points at
-        # a bad linked_session_id (references a session belonging to a
-        # different program, or one that no longer exists) tripping up the
-        # LEFT JOIN in a way that's worth surfacing clearly instead of a
-        # raw crash.
-        return jsonify({'error': 'Event was created but could not be reloaded — the selected session may be invalid.'}), 500
     row['required_waivers'] = []; row['elics'] = []
+    conn.close()
     return jsonify(row)
 
 @app.route('/api/events/<eid>/status', methods=['POST'])
@@ -3456,7 +3390,7 @@ def update_event(eid):
     prev_status = prev.get('status') if prev else None
     new_status = d.get('status','draft')
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,address=%s,room=%s,production_id=%s,program_id=%s,linked_session_id=%s,expected_volunteers=%s,
+        event_type_id=%s,location=%s,address=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
         rsvp_enabled=%s,rsvp_message=%s,rsvp_kind=%s,invite_headline=%s,hide_block_names=%s,status=%s,carpools_enabled=%s,
         hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s,
@@ -3464,7 +3398,7 @@ def update_event(eid):
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
-         d.get('production_id') or None, d.get('program_id') or None, d.get('linked_session_id') or None,
+         d.get('production_id') or None, d.get('program_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
@@ -3495,16 +3429,12 @@ def update_event(eid):
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name, ps.name as linked_session_name
+        pg.name as program_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
-        LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         WHERE e.id=%s''', (eid,))
-    if not row:
-        conn.close()
-        return jsonify({'error': f'Event {eid} not found after update — the selected session may be invalid.'}), 500
     row['required_waivers'] = fetchall(conn,
         'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
     row['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
@@ -4720,7 +4650,7 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label,instructor_expected_pay,is_paid_instruction,pay_rate_type,pay_rate_amount) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label,instructor_expected_pay,is_paid_instruction) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4730,9 +4660,7 @@ def create_youth_program():
                  int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
                  d.get('bundle_label') or 'Book All Sessions',
                  float(d.get('instructor_expected_pay') or 0),
-                 bool(d.get('is_paid_instruction', False)),
-                 d.get('pay_rate_type') or 'hourly',
-                 float(d.get('pay_rate_amount') or 0)))
+                 bool(d.get('is_paid_instruction', False))))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -4748,7 +4676,7 @@ def update_youth_program(pid):
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s,instructor_expected_pay=%s,is_paid_instruction=%s,pay_rate_type=%s,pay_rate_amount=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s,instructor_expected_pay=%s,is_paid_instruction=%s WHERE id=%s',
             ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4760,8 +4688,6 @@ def update_youth_program(pid):
              d.get('bundle_label') or 'Book All Sessions',
              float(d.get('instructor_expected_pay') or 0),
              bool(d.get('is_paid_instruction', False)),
-             d.get('pay_rate_type') or 'hourly',
-             float(d.get('pay_rate_amount') or 0),
              pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
@@ -4856,7 +4782,7 @@ def push_program_announcement(pid, aid):
       </div>
     </div>'''
     try:
-        fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
+        fi = (request.json or {}).get('from_identity') or {}
         send_email(list(recipients), f'{prog_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
@@ -5439,8 +5365,7 @@ def portal_family_threads():
 @app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['GET'])
 def get_audition_settings(context_type, context_id):
     conn = get_db()
-    row = fetchone(conn, '''SELECT *, COALESCE(allow_slots, FALSE) AS allow_slots,
-        COALESCE(tab_visible, TRUE) AS tab_visible
+    row = fetchone(conn, '''SELECT *, COALESCE(allow_slots, FALSE) AS allow_slots
         FROM audition_settings WHERE context_id=%s AND context_type=%s''',
         (context_id, context_type))
     # Load slots
@@ -5451,13 +5376,10 @@ def get_audition_settings(context_type, context_id):
         ORDER BY as2.slot_date, as2.start_time''', (context_id, context_type)) or []
     conn.close()
     if not row:
-        # No settings ever configured for this program/production — default
-        # to visible so nothing that already relied on this tab breaks;
-        # staff can explicitly hide it once they've set anything up.
         resp = jsonify({'context_type': context_type, 'context_id': context_id,
             'is_open': False, 'roles': [], 'allow_video_link': True,
             'allow_resume_link': True, 'allow_headshot_link': True,
-            'allow_slots': False, 'tab_visible': True, 'slots': slots})
+            'allow_slots': False, 'slots': slots})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     try: row['roles'] = json.loads(row.get('roles') or '[]')
@@ -5489,22 +5411,21 @@ def save_audition_settings(context_type, context_id):
     allow_resume = bool(d.get('allow_resume_link', True))
     allow_head   = bool(d.get('allow_headshot_link', True))
     allow_slots  = bool(d.get('allow_slots', False))
-    tab_visible  = bool(d.get('tab_visible', True))
     if existing:
         execute(conn, """UPDATE audition_settings SET is_open=%s,title=%s,description=%s,
             audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
             email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
-            allow_slots=%s, tab_visible=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            allow_slots=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
-             email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,context_id,context_type))
+             email_sub,allow_video,allow_resume,allow_head,allow_slots,context_id,context_type))
     else:
         sid = str(uuid.uuid4())
         execute(conn, """INSERT INTO audition_settings
             (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
-             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
-             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible))
+             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6689,68 +6610,37 @@ def get_group_members(gid):
 
 @app.route('/api/square/catalog-items', methods=['GET'])
 def get_square_catalog_items():
-    """List Square catalog items for linking to programs. By default this
-    only shows items in the 'RoleCall Programs' category, not the entire
-    Square catalog (which may include concessions, merch, etc. unrelated to
-    programs). Pass ?all=1 to see everything, and ?linked_id=<id> to make
-    sure an already-linked item stays visible even if it's outside that
-    category (e.g. it predates this feature)."""
+    """List Square catalog items for linking to programs."""
     err = require_auth()
     if err: return err
     if not SQUARE_ACCESS_TOKEN:
         return jsonify({'error': 'Square not configured'}), 400
-    show_all = request.args.get('all') == '1'
-    linked_id = request.args.get('linked_id') or ''
     try:
-        def parse_items(objects):
-            out = []
-            for obj in (objects or []):
-                item_data = obj.get('item_data', {})
-                variations = item_data.get('variations', [])
-                price = None
-                variation_id = None
-                if variations:
-                    v = variations[0]
-                    variation_id = v.get('id')
-                    price_money = v.get('item_variation_data', {}).get('price_money', {})
-                    price = price_money.get('amount')
-                out.append({'id': obj.get('id'), 'variation_id': variation_id,
-                    'name': item_data.get('name',''), 'description': item_data.get('description',''),
-                    'price': price})
-            return out
-
-        if show_all:
-            r = requests.get(f'{SQUARE_API_BASE}/v2/catalog/list?types=ITEM', headers=square_headers(), timeout=10)
-            data = r.json()
-            if r.status_code != 200:
-                return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
-            items = parse_items(data.get('objects'))
-        else:
-            cat_id = get_or_create_rolecall_category_id()
-            items = []
-            if cat_id:
-                # search-catalog-items is Square's dedicated endpoint for
-                # filtering items by category — the generic /catalog/search
-                # endpoint doesn't actually support an item/category_ids
-                # query shape, which is what caused this to error out.
-                r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search-catalog-items',
-                    json={'category_ids': [cat_id]},
-                    headers=square_headers(), timeout=10)
-                data = r.json()
-                if r.status_code != 200:
-                    app.logger.warning(f'Square search-catalog-items failed: {data}')
-                else:
-                    items = parse_items(data.get('items'))
-            # Keep an already-linked item visible even if it's not tagged
-            # with our category (e.g. linked before this feature existed).
-            if linked_id and not any(i['id']==linked_id or i['variation_id']==linked_id for i in items):
-                try:
-                    r3 = requests.get(f'{SQUARE_API_BASE}/v2/catalog/object/{linked_id}', headers=square_headers(), timeout=10)
-                    if r3.status_code == 200:
-                        obj3 = r3.json().get('object')
-                        if obj3: items = parse_items([obj3]) + items
-                except Exception:
-                    pass
+        r = requests.get(
+            f'{SQUARE_API_BASE}/v2/catalog/list?types=ITEM',
+            headers=square_headers(), timeout=10)
+        data = r.json()
+        if r.status_code != 200:
+            return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
+        items = []
+        for obj in (data.get('objects') or []):
+            item_data = obj.get('item_data', {})
+            # Get the first variation's price
+            variations = item_data.get('variations', [])
+            price = None
+            variation_id = None
+            if variations:
+                v = variations[0]
+                variation_id = v.get('id')
+                price_money = v.get('item_variation_data', {}).get('price_money', {})
+                price = price_money.get('amount')
+            items.append({
+                'id': obj.get('id'),
+                'variation_id': variation_id,
+                'name': item_data.get('name',''),
+                'description': item_data.get('description',''),
+                'price': price,
+            })
         items.sort(key=lambda x: x['name'])
         return jsonify(items)
     except Exception as e:
@@ -6772,26 +6662,25 @@ def create_square_catalog_item():
     import uuid as _uuid
     item_id = '#item_' + str(_uuid.uuid4()).replace('-','')[:16]
     var_id  = '#var_'  + str(_uuid.uuid4()).replace('-','')[:16]
-    cat_id = get_or_create_rolecall_category_id()
-    item_data_payload = {
-        'name': name,
-        'description': description or None,
-        'variations': [{
-            'type': 'ITEM_VARIATION',
-            'id': var_id,
-            'item_variation_data': {
-                'name': 'Regular',
-                'pricing_type': 'FIXED_PRICING' if price_cents else 'VARIABLE_PRICING',
-                'price_money': {'amount': price_cents, 'currency': 'USD'} if price_cents else None,
-            }
-        }]
-    }
-    if cat_id:
-        item_data_payload['categories'] = [{'id': cat_id}]
-        item_data_payload['category_id'] = cat_id  # deprecated field, set too for older API compatibility
     payload = {
         'idempotency_key': str(_uuid.uuid4()),
-        'object': {'type': 'ITEM', 'id': item_id, 'item_data': item_data_payload}
+        'object': {
+            'type': 'ITEM',
+            'id': item_id,
+            'item_data': {
+                'name': name,
+                'description': description or None,
+                'variations': [{
+                    'type': 'ITEM_VARIATION',
+                    'id': var_id,
+                    'item_variation_data': {
+                        'name': 'Regular',
+                        'pricing_type': 'FIXED_PRICING' if price_cents else 'VARIABLE_PRICING',
+                        'price_money': {'amount': price_cents, 'currency': 'USD'} if price_cents else None,
+                    }
+                }]
+            }
+        }
     }
     try:
         r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object',
@@ -9808,7 +9697,7 @@ def send_reset_link(uid):
             <p style="font-size:13px;color:#9b9b94;">If you did not request this, please contact your administrator.</p>
         </div>
     </div>'''
-    fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
+    fi = (request.json or {}).get('from_identity') or {}
     ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', html_body, fi.get('email') or None, fi.get('name') or None)
     conn.close()
     if ok: return jsonify({'ok': True})
@@ -10685,110 +10574,7 @@ def push_announcement(pid, aid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    execute(conn, '''UPDATE portal_announcements
-        SET status='published', pushed_at=NOW(), push_count=COALESCE(push_count,0)+1
-        WHERE id=%s AND production_id=%s''', (aid, pid))
-    conn.commit()
-    ann = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
-    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
-    if not ann or not prod:
-        conn.close()
-        return jsonify({'error': 'Not found'}), 404
-
-    # Gather recipient emails: guardians of youth cast (Rising Stars) + adult crew/volunteers
-    recipients = set()
-    youth_cast = fetchall(conn, '''SELECT y.id FROM youth_participants y
-        JOIN youth_production_members ypm ON ypm.youth_id=y.id
-        WHERE ypm.production_id=%s AND y.status='active' ''', (pid,))
-    youth_without_email = 0
-    for y in youth_cast:
-        guardians = fetchall(conn, "SELECT email FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email!=''", (y['id'],))
-        if not guardians:
-            youth_without_email += 1
-        for g in guardians:
-            if g['email']: recipients.add(g['email'].strip().lower())
-    crew = fetchall(conn, '''SELECT v.email FROM production_members pm
-        JOIN volunteers v ON pm.volunteer_id=v.id
-        WHERE pm.production_id=%s''', (pid,))
-    crew_without_email = 0
-    for v in crew:
-        if v['email']: recipients.add(v['email'].strip().lower())
-        else: crew_without_email += 1
-    conn.close()
-
-    if not recipients:
-        return jsonify({'ok': True, 'sent_to': 0, 'warning':
-            f'No email addresses found. Cast on roster: {len(youth_cast)} '
-            f'({youth_without_email} with no guardian email on file). '
-            f'Crew on roster: {len(crew)} ({crew_without_email} with no email on file). '
-            f'Check the Cast & Crew tab to confirm people are actually added and have emails.'})
-
-    prod_name = prod.get('name', 'Production')
-    html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-      <div style="background:#0d9488;padding:24px;border-radius:8px 8px 0 0">
-        <div style="color:rgba(255,255,255,0.8);font-size:13px;margin-bottom:4px">New Announcement</div>
-        <h2 style="color:white;margin:0;font-size:22px">{prod_name}</h2>
-      </div>
-      <div style="background:#f8fafc;padding:28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
-        <h3 style="color:#1e293b;margin:0 0 12px 0;font-size:18px">{ann['title']}</h3>
-        <div style="white-space:pre-wrap;font-size:15px;line-height:1.8;color:#334155">{ann['body']}</div>
-        <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
-        <p style="font-size:12px;color:#94a3b8;margin:0">
-          Posted by Horizon West Theater Company for <strong>{prod_name}</strong>.
-          Log in to the family portal to view and respond to announcements.
-        </p>
-      </div>
-    </div>'''
-    try:
-        fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
-        send_email(list(recipients), f'{prod_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
-        return jsonify({'ok': True, 'sent_to': len(recipients)})
-    except Exception as e:
-        app.logger.error(f'push_announcement (production) email error: {e}')
-        return jsonify({'ok': True, 'sent_to': 0, 'warning': str(e)})
-
-@app.route('/api/youth-programs/<pid>/co-instructors', methods=['GET'])
-def get_program_co_instructors(pid):
-    err = require_auth()
-    if err: return err
-    conn = get_db()
-    rows = fetchall(conn, '''SELECT pci.volunteer_id, v.name AS volunteer_name, v.email AS volunteer_email
-        FROM program_co_instructors pci JOIN volunteers v ON v.id=pci.volunteer_id
-        WHERE pci.program_id=%s ORDER BY v.name''', (pid,))
-    conn.close()
-    return jsonify(rows or [])
-
-@app.route('/api/youth-programs/<pid>/co-instructors', methods=['POST'])
-def add_program_co_instructor(pid):
-    err = require_permission('youth')
-    if err: return err
-    d = request.get_json(silent=True) or {}
-    vid = d.get('volunteer_id')
-    if not vid:
-        return jsonify({'error': 'volunteer_id required'}), 400
-    conn = get_db()
-    prog = fetchone(conn, 'SELECT instructor_id FROM youth_programs WHERE id=%s', (pid,))
-    if not prog:
-        conn.close()
-        return jsonify({'error': 'Program not found'}), 404
-    if prog.get('instructor_id') == vid:
-        conn.close()
-        return jsonify({'error': 'That volunteer is already the primary instructor'}), 400
-    try:
-        execute(conn, 'INSERT INTO program_co_instructors (id, program_id, volunteer_id) VALUES (%s,%s,%s)',
-            (str(uuid.uuid4()), pid, vid))
-        conn.commit()
-    except Exception:
-        conn.rollback()  # already added — fine, treat as success
-    conn.close()
-    return jsonify({'ok': True})
-
-@app.route('/api/youth-programs/<pid>/co-instructors/<vid>', methods=['DELETE'])
-def remove_program_co_instructor(pid, vid):
-    err = require_permission('youth')
-    if err: return err
-    conn = get_db()
-    execute(conn, 'DELETE FROM program_co_instructors WHERE program_id=%s AND volunteer_id=%s', (pid, vid))
+    execute(conn, "UPDATE portal_announcements SET status='published' WHERE id=%s AND production_id=%s", (aid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -13438,7 +13224,7 @@ def email_send_report(rid):
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theater Company</p>
     </div>'''
     subject = f'Event Report: {close_log.get("event_name","")}  -  {close_log.get("event_date","")}'
-    fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
+    fi = (request.json or {}).get('from_identity') or {}
     ok, msg = send_email(recipients, subject, body, fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True})
     return jsonify({'error': msg or 'Send failed'}), 500
@@ -13881,26 +13667,7 @@ def submit_portal_production_conflict():
                     f'SELECT phone FROM volunteers WHERE id IN ({ph})', tuple(vol_ids)) if r.get('phone')]
             ts = get_twilio_settings()
             if phones and ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'):
-                # Always create a reply-relay thread — even without a guardian
-                # phone on file — so a crew member's reply is recognized as
-                # "about this call-out" and handled gracefully, instead of
-                # falling through to the generic customer-inquiry auto-reply.
-                guardian = fetchone(conn, '''SELECT phone, name FROM youth_guardians
-                    WHERE youth_id=%s AND phone IS NOT NULL AND phone!=''
-                    ORDER BY is_primary DESC LIMIT 1''', (youth_id,))
-                guardian_phone = guardian['phone'] if guardian else None
-                execute(conn, '''INSERT INTO callout_relay_threads
-                    (id, production_conflict_id, guardian_phone, guardian_name, youth_name,
-                     production_name, crew_alert_phones, last_message_at)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,NOW())''',
-                    (str(uuid.uuid4()), cid, guardian_phone, guardian.get('name') if guardian else None, who,
-                     prod['name'], json.dumps([_phone_last10(p) for p in phones if p])))
-                conn.commit()
-                if guardian_phone:
-                    reply_hint = f" Reply to reach the parent (start with @{youth['first_name']} if you have another call-out going too)."
-                else:
-                    reply_hint = " No phone on file for the parent, so replies here won't reach them automatically."
-                sms_body = f"HWTC RoleCall: {who} marked {label}{where} on {date_str} — {prod['name']}.{reply_hint}"
+                sms_body = f"HWTC RoleCall: {who} marked {label}{where} on {date_str} — {prod['name']}."
                 try:
                     from twilio.rest import Client as _TwClient
                     client = _TwClient(ts['account_sid'], ts['auth_token'])
@@ -16957,45 +16724,6 @@ def square_headers():
     return {'Authorization': f'Bearer {SQUARE_ACCESS_TOKEN}', 'Content-Type': 'application/json', 'Square-Version': '2024-01-18'}
 
 
-def get_or_create_rolecall_category_id():
-    """Find (or create) a Square catalog category that RoleCall-created items
-    get tagged with, so the 'Linked Catalog Item' dropdown can filter down to
-    just those instead of listing every item in the whole Square account
-    (concessions, merch, everything else). Cached in the settings table."""
-    if not SQUARE_ACCESS_TOKEN:
-        return None
-    conn = get_db()
-    row = fetchone(conn, "SELECT value FROM settings WHERE key='square_rolecall_category_id'")
-    if row and row.get('value'):
-        conn.close()
-        return row['value']
-    try:
-        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search',
-            json={'object_types': ['CATEGORY'],
-                  'query': {'exact_query': {'attribute_name': 'name', 'attribute_value': 'RoleCall Programs'}}},
-            headers=square_headers(), timeout=10)
-        objs = (r.json().get('objects') or []) if r.status_code == 200 else []
-        if objs:
-            cat_id = objs[0]['id']
-        else:
-            import uuid as _uuid_cat
-            r2 = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object', headers=square_headers(), timeout=10, json={
-                'idempotency_key': str(_uuid_cat.uuid4()),
-                'object': {'type': 'CATEGORY', 'id': '#category_rolecall', 'category_data': {'name': 'RoleCall Programs'}}
-            })
-            cat_id = r2.json().get('catalog_object', {}).get('id') if r2.status_code == 200 else None
-        if cat_id:
-            execute(conn, """INSERT INTO settings (key,value) VALUES ('square_rolecall_category_id',%s)
-                ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (cat_id,))
-            conn.commit()
-        conn.close()
-        return cat_id
-    except Exception as e:
-        app.logger.warning(f'get_or_create_rolecall_category_id failed: {e}')
-        conn.close()
-        return None
-
-
 def square_find_or_create_customer(email, name='', phone=''):
     """Find a Square customer by email, or create one. Used for card-on-file holds.
     Returns customer_id or None."""
@@ -17170,62 +16898,6 @@ def square_get_order_total_cents(order_id):
     except Exception as e:
         app.logger.warning(f'Square get order exception: {e}')
     return None
-
-
-def split_order_amount_across_registrations(conn, order_id, total_cents):
-    """Set amount_paid_cents on every registration sharing a Square order,
-    splitting the order's total proportionally by each registration's
-    nominal price instead of writing the full order total onto every row.
-
-    Writing the full total on every row (the old behavior) only gives a
-    correct answer when every registration sharing that order belongs to
-    the SAME program — e.g. two siblings both enrolling in one class,
-    where revenue queries then deduplicate by order to avoid double-
-    counting. It silently breaks the moment one Square checkout covers
-    TWO DIFFERENT programs (a parent buying two different classes in one
-    cart): the per-program revenue dedup can only credit ONE of the two
-    programs with the full amount and drops the other to $0, because it
-    has no way to know how the order should actually be divided between
-    them. Splitting proportionally here means downstream revenue queries
-    can just sum each registration's own share directly — no dedup
-    trickery needed, and it's correct for both the sibling case and the
-    multi-program case."""
-    if not order_id or total_cents is None:
-        return
-    regs = fetchall(conn, '''SELECT pr.id, pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
-        pr.is_comped, COALESCE(yp.price, prod.price, 0) AS price
-        FROM program_registrations pr
-        LEFT JOIN youth_programs yp ON yp.id=pr.program_id
-        LEFT JOIN productions prod ON prod.id=pr.production_id
-        WHERE (pr.square_order_id=%s OR pr.square_checkout_id=%s) AND pr.status != 'cancelled'
-        ORDER BY pr.id''', (order_id, order_id)) or []
-    if not regs:
-        return
-    if len(regs) == 1:
-        execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s', (total_cents, regs[0]['id']))
-        return
-    nominal = {}
-    for r in regs:
-        nominal[r['id']] = 0 if r.get('is_comped') else max(0,
-            (r.get('price') or 0) * (r.get('participant_count') or 1)
-            - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
-    nominal_total = sum(nominal.values())
-    if nominal_total <= 0:
-        # No price data to split by (e.g. all comped, or free programs) —
-        # divide evenly rather than guessing, so nothing is silently zeroed.
-        share = total_cents // len(regs)
-        for i, r in enumerate(regs):
-            amt = share + (total_cents - share * len(regs) if i == len(regs) - 1 else 0)
-            execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s', (amt, r['id']))
-        return
-    allocated = 0
-    for i, r in enumerate(regs):
-        if i == len(regs) - 1:
-            amt = total_cents - allocated  # last one absorbs any rounding remainder
-        else:
-            amt = round(total_cents * nominal[r['id']] / nominal_total)
-            allocated += amt
-        execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s', (amt, r['id']))
 
 
 def square_save_card(customer_id, source_id, cardholder_name=''):
@@ -17594,11 +17266,10 @@ def _backfill_custom_field_values():
 def instructor_dashboard():
     """Everything an instructor needs in one call: which programs they
     teach, their full session schedule across those programs, and recent
-    registrations so new sign-ups are easy to spot. Scoped by matching
-    their login email against the volunteer record linked either as a
-    program's primary instructor_id, or as a co-instructor in
-    program_co_instructors — an instructor only ever sees their own
-    programs here, never the full program list."""
+    registrations so new sign-ups are easy to spot. Scoped entirely by
+    matching their login email against the volunteer record linked as
+    each program's instructor_id — an instructor only ever sees their
+    own programs here, never the full program list."""
     err = require_auth()
     if err: return err
     conn = get_db()
@@ -17608,15 +17279,13 @@ def instructor_dashboard():
         conn.close()
         return jsonify({'programs': [], 'schedule': [], 'recent_registrations': []})
 
-    programs = fetchall(conn, '''SELECT DISTINCT yp.id, yp.name, yp.description, yp.status,
+    programs = fetchall(conn, '''SELECT yp.id, yp.name, yp.description, yp.status,
         yp.start_date, yp.end_date, yp.program_type, yp.sessions_enabled,
         COALESCE(yp.booking_mode, FALSE) AS booking_mode
         FROM youth_programs yp
-        LEFT JOIN volunteers v ON v.id=yp.instructor_id
-        LEFT JOIN program_co_instructors pci ON pci.program_id=yp.id
-        LEFT JOIN volunteers v2 ON v2.id=pci.volunteer_id
-        WHERE lower(v.email)=%s OR lower(v2.email)=%s
-        ORDER BY yp.start_date DESC NULLS LAST''', (my_email, my_email)) or []
+        JOIN volunteers v ON v.id=yp.instructor_id
+        WHERE lower(v.email)=%s
+        ORDER BY yp.start_date DESC NULLS LAST''', (my_email,)) or []
     prog_ids = [p['id'] for p in programs]
     if not prog_ids:
         conn.close()
@@ -19667,11 +19336,11 @@ def square_webhook():
                     (order_id, order_id)) or []
                 reg = regs[0] if regs else None
                 if regs and amount_cents:
-                    # Split proportionally across every registration sharing
-                    # this order — see split_order_amount_across_registrations
-                    # for why writing the full amount to every row is wrong
-                    # once an order can span more than one program.
-                    split_order_amount_across_registrations(conn, order_id, amount_cents)
+                    # Stored on every sibling row sharing this order — revenue
+                    # queries dedupe by order_id at read time so it isn't
+                    # double-counted per sibling.
+                    execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE square_order_id=%s OR square_checkout_id=%s',
+                        (amount_cents, order_id, order_id))
                     conn.commit()
                 if regs and any(r['status'] == 'pending_payment' for r in regs):
                     for r in regs:
@@ -20439,12 +20108,12 @@ def upload_production_cover(pid):
         url = f'/static/images/{filename}'
     import json as _juc
     conn2 = get_db()
-    # Replacing the cover should actually replace it — previously this
-    # prepended the new image while keeping every old one in the array,
-    # so old covers silently piled up and started showing in the public
-    # photo gallery section with no way to see or remove them from the
-    # admin UI (there's no gallery management, only this single upload).
-    images = [url]
+    prod_full = fetchone(conn2, 'SELECT program_images FROM productions WHERE id=%s', (pid,))
+    try:
+        images = _juc.loads(prod_full.get('program_images') or '[]')
+    except Exception:
+        images = []
+    images = [url] + [img for img in images if img != url]
     execute(conn2, 'UPDATE productions SET program_images=%s WHERE id=%s', (_juc.dumps(images), pid))
     conn2.commit(); conn2.close()
     return jsonify({'ok': True, 'url': url})
@@ -20919,8 +20588,7 @@ def get_program_sessions(pid):
     sessions = fetchall(conn, '''SELECT ps.*,
         (SELECT COUNT(*) FROM program_registrations
          WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
-         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count,
-        (SELECT e.id FROM events e WHERE e.linked_session_id=ps.id LIMIT 1) AS linked_event_id
+         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
         FROM program_sessions ps WHERE ps.program_id=%s
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid))
     conn.close()
@@ -24329,37 +23997,20 @@ def lookup_contact_name_by_phone(phone):
         conn.close()
     return None
 
-def normalize_to_e164(raw):
-    """Best-effort normalize a US phone number to E.164 (+1XXXXXXXXXX) —
-    used when an on-call person kicks off a brand-new text from their own
-    phone by number rather than replying to an existing conversation."""
-    digits = ''.join(ch for ch in (raw or '') if ch.isdigit())
-    if len(digits) == 10:
-        return '+1' + digits
-    if len(digits) == 11 and digits.startswith('1'):
-        return '+' + digits
-    return raw
-
 @app.route('/twilio/sms', methods=['POST'])
 def twilio_sms():
     """Inbound SMS webhook.
 
-    Three things can land here:
+    Two very different things land here:
     1. A customer texting the HWTC number for the first time (or continuing
        a conversation) — forward it to whoever's on call.
-    2. The on-call person REPLYING on their own phone to an existing
-       conversation. Their reply is sent to the HWTC Twilio number (since
-       that's who the forwarded message appeared to come from), so without
-       tracking, it looks identical to a new customer message and gets
-       re-broadcast instead of delivered back to the actual customer. We
-       tell the two apart by checking whether the From number matches
-       whoever is currently on call, and route their replies to the most
-       recently active customer thread — or a specific one via "@1234
-       message" (last 4 digits of that customer's number).
-    3. The on-call person STARTING a brand-new text from their own phone to
-       someone who's never messaged in — "@8272908493 message", using the
-       full number instead of just the last 4. This creates the conversation
-       on the spot, so the reply-relay works from then on like any other.
+    2. The on-call person REPLYING on their own phone. Their reply is sent
+       to the HWTC Twilio number (since that's who the forwarded message
+       appeared to come from), so without tracking, it looks identical to a
+       new customer message and gets re-broadcast instead of delivered back
+       to the actual customer. We tell the two apart by checking whether the
+       From number matches whoever is currently on call, and route the
+       on-call person's replies to the most recently active customer thread.
     """
     oncall = get_oncall_now()
     ts = get_twilio_settings()
@@ -24378,56 +24029,17 @@ def twilio_sms():
     if is_oncall_replying:
         conn = get_db()
         target_row = None
-        # Optional "@1234 message" prefix picks a specific conversation by
-        # the customer's last 4 digits, in case more than one person has
-        # texted in recently. "@8272908493 message" (a full number, however
-        # it's punctuated — dashes/parens/+1 are all fine) instead starts a
-        # brand-new conversation with that number from scratch.
+        # Optional "@1234 message" prefix lets the on-call person pick a
+        # specific conversation by the customer's last 4 digits, in case
+        # more than one person has texted in recently.
         msg_body = body
-        used_explicit_code = False
         if body.startswith('@') and ' ' in body:
             code, rest = body[1:].split(' ', 1)
-            code_digits = ''.join(ch for ch in code if ch.isdigit())
-            if len(code_digits) == 4:
-                used_explicit_code = True
+            if code.isdigit() and len(code) == 4:
                 target_row = fetchone(conn, '''SELECT * FROM sms_conversations
-                    WHERE RIGHT(customer_phone, 4)=%s ORDER BY last_message_at DESC LIMIT 1''', (code_digits,))
+                    WHERE RIGHT(customer_phone, 4)=%s ORDER BY last_message_at DESC LIMIT 1''', (code,))
                 msg_body = rest.strip()
-            elif len(code_digits) >= 10:
-                used_explicit_code = True
-                target_phone = normalize_to_e164(code_digits)
-                target_row = fetchone(conn, '''SELECT * FROM sms_conversations
-                    WHERE RIGHT(customer_phone,10)=RIGHT(%s,10)
-                    ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
-                if not target_row:
-                    execute(conn, '''INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at)
-                        VALUES (%s,%s,NOW())''', (target_phone, forward_to))
-                    conn.commit()
-                    target_row = fetchone(conn, '''SELECT * FROM sms_conversations
-                        WHERE customer_phone=%s ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
-                msg_body = rest.strip()
-            # Anything else after "@" (not 4 digits, not 10+) isn't a
-            # recognizable code — treat the whole thing as a plain reply
-            # below rather than guessing, so a typo never silently misfires
-            # to the wrong person.
-
-        if used_explicit_code and not target_row:
-            # A code was given but nothing matched it — do NOT fall back to
-            # "most recent conversation," since that's how a mistyped number
-            # ends up texting the wrong person. Tell the on-call person instead.
-            conn.close()
-            try:
-                from twilio.rest import Client as _TwClient
-                client = _TwClient(ts['account_sid'], ts['auth_token'])
-                client.messages.create(
-                    body="RoleCall: No matching conversation found for that number/code. Double-check it and try again, or just reply with no @code to use your most recent conversation.",
-                    from_=ts['from_phone'], to=from_num)
-            except Exception as e:
-                app.logger.warning(f'Failed to send "no match" notice to on-call: {e}')
-            twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
-            return twiml, 200, {'Content-Type': 'text/xml'}
-
-        if not used_explicit_code:
+        if not target_row:
             target_row = fetchone(conn, '''SELECT * FROM sms_conversations
                 WHERE last_message_at > NOW() - INTERVAL '4 hours'
                 ORDER BY last_message_at DESC LIMIT 1''')
@@ -24456,100 +24068,6 @@ def twilio_sms():
 
         twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
         return twiml, 200, {'Content-Type': 'text/xml'}
-
-    # --- Call-out reply relay: a crew member replying to a "so-and-so called
-    # out" text, or the guardian replying back to them, on a thread created
-    # in submit_portal_production_conflict(). Checked before the generic
-    # customer fallback since these numbers wouldn't otherwise mean anything.
-    #
-    # Everything from the HWTC number lands in ONE phone thread on the
-    # recipient's end, so if more than one call-out is active at once, a
-    # bare reply is ambiguous. Same fix as the on-call system: default to
-    # the most recently active thread, but let "@Emma message" target a
-    # specific one by the kid's first name. ---
-    conn = get_db()
-    from_last10 = _phone_last10(from_num)
-    RELAY_LOOKBACK = "INTERVAL '7 days'"
-
-    def resolve_callout_thread(where_clause, params, raw_body):
-        """Parse an optional '@name message' prefix and find the matching
-        thread; falls back to the most recent one if there's no prefix or
-        no match. Returns (thread_or_None, message_text_with_prefix_stripped)."""
-        msg = raw_body
-        if raw_body.startswith('@') and ' ' in raw_body:
-            code, rest = raw_body[1:].split(' ', 1)
-            code = code.strip()
-            if code:
-                named = fetchone(conn, f'''SELECT * FROM callout_relay_threads
-                    WHERE {where_clause} AND youth_name ILIKE %s
-                    AND last_message_at > NOW() - {RELAY_LOOKBACK}
-                    ORDER BY last_message_at DESC LIMIT 1''', params + (f'%{code}%',))
-                if named:
-                    return named, rest.strip()
-        fallback = fetchone(conn, f'''SELECT * FROM callout_relay_threads
-            WHERE {where_clause}
-            AND last_message_at > NOW() - {RELAY_LOOKBACK}
-            ORDER BY last_message_at DESC LIMIT 1''', params)
-        return fallback, msg
-
-    # Is this the guardian replying? Route to whichever crew member most recently engaged.
-    thread, msg_body = resolve_callout_thread(
-        "RIGHT(REGEXP_REPLACE(guardian_phone,'[^0-9]','','g'),10)=%s", (from_last10,), body)
-    if thread and thread.get('active_crew_phone'):
-        target_phone = thread['active_crew_phone']
-        try:
-            from twilio.rest import Client as _TwClient
-            client = _TwClient(ts['account_sid'], ts['auth_token'])
-            client.messages.create(body=f"[{thread.get('youth_name') or 'Parent'}'s guardian] {msg_body}",
-                from_=ts['from_phone'], to=target_phone)
-            execute(conn, 'UPDATE callout_relay_threads SET last_message_at=NOW() WHERE id=%s', (thread['id'],))
-            conn.commit()
-        except Exception as e:
-            app.logger.warning(f'Call-out relay (guardian→crew) failed: {e}')
-        conn.close()
-        post_to_slack_calls([
-            {'type':'section','text':{'type':'mrkdwn','text':
-                f"💬 *Call-out reply* — {thread.get('guardian_name') or 'Guardian'} replied about {thread.get('youth_name')}\n*Message:* {msg_body}"}}
-        ], text=f"Call-out reply from {thread.get('guardian_name') or 'guardian'}: {msg_body[:100]}")
-        twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
-        return twiml, 200, {'Content-Type': 'text/xml'}
-
-    # Is this one of the crew members who was alerted? Route to the guardian —
-    # or, if there's no guardian phone on file, tell them directly instead of
-    # letting it fall through to the generic "thanks for texting us" reply.
-    thread, msg_body = resolve_callout_thread(
-        "(crew_alert_phones::text LIKE %s OR RIGHT(REGEXP_REPLACE(active_crew_phone,'[^0-9]','','g'),10)=%s)",
-        (f'%{from_last10}%', from_last10), body)
-    if thread and not thread.get('guardian_phone'):
-        execute(conn, 'UPDATE callout_relay_threads SET last_message_at=NOW(), active_crew_phone=%s WHERE id=%s',
-            (from_num, thread['id']))
-        conn.commit(); conn.close()
-        post_to_slack_calls([
-            {'type':'section','text':{'type':'mrkdwn','text':
-                f"⚠️ *Call-out reply couldn't be relayed* — no parent phone on file for {thread.get('youth_name')}\n*Message:* {msg_body}"}}
-        ], text=f"Call-out reply undeliverable (no parent phone) re: {thread.get('youth_name')}: {msg_body[:100]}")
-        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
-<Response><Message>There's no phone number on file for {thread.get('youth_name')}'s parent, so this can't be relayed automatically. Please reach out another way — this has been logged for staff.</Message></Response>'''
-        return twiml, 200, {'Content-Type': 'text/xml'}
-    if thread:
-        try:
-            from twilio.rest import Client as _TwClient
-            client = _TwClient(ts['account_sid'], ts['auth_token'])
-            client.messages.create(body=f"[Re: {thread.get('youth_name')} call-out] {msg_body}",
-                from_=ts['from_phone'], to=thread['guardian_phone'])
-            execute(conn, '''UPDATE callout_relay_threads SET last_message_at=NOW(), active_crew_phone=%s
-                WHERE id=%s''', (from_num, thread['id']))
-            conn.commit()
-        except Exception as e:
-            app.logger.warning(f'Call-out relay (crew→guardian) failed: {e}')
-        conn.close()
-        post_to_slack_calls([
-            {'type':'section','text':{'type':'mrkdwn','text':
-                f"↩️ *Call-out reply sent* — re: {thread.get('youth_name')} to {thread.get('guardian_name') or 'guardian'}\n*Message:* {msg_body}"}}
-        ], text=f"Call-out reply to {thread.get('guardian_name') or 'guardian'}: {msg_body[:100]}")
-        twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
-        return twiml, 200, {'Content-Type': 'text/xml'}
-    conn.close()
 
     # --- New/continuing customer message ---
     contact_name = lookup_contact_name_by_phone(from_num)
@@ -28693,9 +28211,12 @@ def upload_program_cover(pid):
         url = f'/static/images/{filename}'
     import json as _ji
     conn2 = get_db()
-    # Same fix as upload_production_cover — actually replace instead of
-    # silently accumulating old covers into an unmanaged photo gallery.
-    images = [url]
+    prog_full = fetchone(conn2, 'SELECT program_images FROM youth_programs WHERE id=%s', (pid,))
+    try:
+        images = _ji.loads(prog_full.get('program_images') or '[]')
+    except Exception:
+        images = []
+    images = [url] + [img for img in images if img != url]
     execute(conn2, 'UPDATE youth_programs SET program_images=%s WHERE id=%s', (_ji.dumps(images), pid))
     conn2.commit(); conn2.close()
     return jsonify({'ok': True, 'url': url})
@@ -28997,7 +28518,8 @@ def backfill_payment_amounts():
             continue
         total_cents = square_get_order_total_cents(oid)
         if total_cents is not None:
-            split_order_amount_across_registrations(conn, oid, total_cents)
+            execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE square_order_id=%s OR square_checkout_id=%s',
+                (total_cents, oid, oid))
             updated += 1
         else:
             failed += 1
@@ -29010,52 +28532,6 @@ def backfill_payment_amounts():
     conn.close()
     return jsonify({'ok': True, 'orders_updated': updated, 'orders_failed': failed,
         'orders_remaining': orders_remaining, 'step_up_updated': step_up_updated})
-
-
-@app.route('/api/marquee/resplit-shared-orders', methods=['POST'])
-def resplit_shared_orders():
-    """One-time repair for registrations written before the proportional
-    split existed: any order shared by more than one registration currently
-    has the FULL order total duplicated on every row (the old behavior).
-    That's only correct for same-program siblings, where per-program
-    revenue queries used to deduplicate by order to compensate — but it
-    silently misattributes revenue whenever one order spans two different
-    programs (see split_order_amount_across_registrations for the full
-    explanation). This re-derives each affected order's true total from
-    whatever's currently stored (they should all currently match, under
-    the old bug) and re-splits it proportionally, same as new payments now
-    get from the start. Safe to run more than once — it's idempotent."""
-    err = require_permission('marquee')
-    if err: return err
-    conn = get_db()
-    orders = fetchall(conn, '''SELECT COALESCE(square_order_id, square_checkout_id) AS oid,
-        COUNT(*) AS reg_count, MAX(amount_paid_cents) AS amt,
-        COUNT(DISTINCT amount_paid_cents) AS distinct_amts
-        FROM program_registrations
-        WHERE status != 'cancelled' AND amount_paid_cents IS NOT NULL
-        AND (square_order_id IS NOT NULL OR square_checkout_id IS NOT NULL)
-        GROUP BY COALESCE(square_order_id, square_checkout_id)
-        HAVING COUNT(*) > 1''') or []
-    fixed = 0
-    skipped = 0
-    for row in orders:
-        oid = row.get('oid')
-        amt = row.get('amt')
-        if not oid or amt is None:
-            skipped += 1
-            continue
-        # If every row sharing this order already has a DIFFERENT amount,
-        # it's already been split (either by this repair or the new write
-        # path) — leave it alone rather than re-splitting an already-split
-        # order using just one row's partial amount as if it were the total.
-        if row.get('distinct_amts', 1) > 1:
-            skipped += 1
-            continue
-        split_order_amount_across_registrations(conn, oid, amt)
-        fixed += 1
-    conn.commit()
-    conn.close()
-    return jsonify({'ok': True, 'orders_fixed': fixed, 'orders_skipped_already_split': skipped})
 
 @app.route('/api/marquee/overview', methods=['GET'])
 def marquee_overview():
@@ -29085,13 +28561,11 @@ def marquee_overview():
     #    pending (uncharged) Step Up holds, and waitlisted registrations that
     #    could still convert. This is the optimistic "if everything comes
     #    through" number, not what's actually collected.
-    # Each registration now carries its own correctly-split share of
-    # whatever order it belongs to (see split_order_amount_across_
-    # registrations) rather than the full order total duplicated across
-    # every row sharing it, so this sums each registration's own amount
-    # directly — no order-based dedup needed or wanted here anymore.
+    # Deduped by order for the Square side — sibling registrations sharing one
+    # order all carry that order's full amount, so counting each sibling
+    # separately would inflate the total.
     revenue_row = fetchone(conn, '''WITH reg_revenue AS (
-        SELECT
+        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
             pr.status,
             CASE WHEN pr.is_comped THEN 0
                 WHEN su.hold_status = 'charged' THEN su.amount
@@ -29106,6 +28580,7 @@ def marquee_overview():
         LEFT JOIN productions prod ON prod.id=pr.production_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status IN (\'confirmed\', \'waitlisted\')
+        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_estimate AS (
         SELECT pr.id,
@@ -29186,7 +28661,7 @@ def marquee_overview():
     # (uncharged) Step Up hold isn't money in hand yet even though the
     # registration itself shows as confirmed.
     program_breakdown = fetchall(conn, '''WITH dedup_regs AS (
-        SELECT
+        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
             pr.id, pr.program_id, pr.status,
             CASE WHEN pr.is_comped THEN 0
                 WHEN su.hold_status = 'charged' THEN su.amount
@@ -29206,6 +28681,7 @@ def marquee_overview():
         JOIN youth_programs yp ON yp.id = pr.program_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status != \'cancelled\'
+        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_amt AS (
         SELECT pr.id, pr.program_id,
@@ -29252,7 +28728,7 @@ def marquee_overview():
     # dashboard can render both in one list. Only Rising Stars productions carry
     # paid registrations; regular mainstage productions use cast sign-up, not this.
     production_breakdown = fetchall(conn, '''WITH dedup_regs AS (
-        SELECT
+        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
             pr.id, pr.production_id, pr.status,
             CASE WHEN pr.is_comped THEN 0
                 WHEN su.hold_status = 'charged' THEN su.amount
@@ -29272,6 +28748,7 @@ def marquee_overview():
         JOIN productions prod ON prod.id = pr.production_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status != \'cancelled\'
+        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_amt AS (
         SELECT pr.id, pr.production_id,
@@ -29486,27 +28963,6 @@ def marquee_overview():
     })
 
 
-def compute_registration_amount(reg):
-    """Single source of truth for 'how much did this registration bring
-    in' — mirrors the CASE logic already used in the dashboard's SQL
-    aggregates (comped > charged Step Up > pending Step Up > direct Square
-    payment > price-based estimate). Used anywhere a registration's amount
-    is shown, so it can't drift out of sync with the dashboard totals like
-    it previously did here."""
-    if reg.get('is_comped'):
-        return 0, 'comped'
-    if reg.get('step_up_hold_status') == 'charged':
-        return reg.get('step_up_amount') or 0, 'step_up'
-    if reg.get('step_up_hold_status') == 'pending':
-        return 0, 'step_up_pending'
-    if reg.get('amount_paid_cents') is not None:
-        return reg['amount_paid_cents'], 'square'
-    price = reg.get('program_price') or 0
-    count = reg.get('participant_count') or 1
-    discount = (reg.get('discount_amount') or 0) + (reg.get('sibling_discount_amount') or 0)
-    return max(0, price * count - discount), 'estimate'
-
-
 @app.route('/api/marquee/registrations', methods=['GET'])
 def marquee_all_registrations():
     err = require_permission('marquee', 'view')
@@ -29517,11 +28973,9 @@ def marquee_all_registrations():
     production_id = request.args.get('production_id')
     status = request.args.get('status')
     q1 = '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type,
-        yp.sessions_enabled, yp.price AS program_price, 'program' AS context_type,
-        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
+        yp.sessions_enabled, yp.price AS program_price, 'program' AS context_type
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
-        LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
         WHERE pr.program_id IS NOT NULL'''
     p1 = []
     if program_id:
@@ -29529,11 +28983,9 @@ def marquee_all_registrations():
     if status:
         q1 += ' AND pr.status=%s'; p1.append(status)
     q2 = '''SELECT pr.*, p.name AS program_name, p.registration_form_type,
-        FALSE AS sessions_enabled, p.price AS program_price, 'production' AS context_type,
-        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
+        FALSE AS sessions_enabled, 'production' AS context_type
         FROM program_registrations pr
         JOIN productions p ON p.id=pr.production_id
-        LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
         WHERE pr.production_id IS NOT NULL'''
     p2 = []
     if production_id:
@@ -29543,8 +28995,6 @@ def marquee_all_registrations():
     regs1 = fetchall(conn, q1 + ' ORDER BY pr.created_at DESC LIMIT 200', p1) or []
     regs2 = (fetchall(conn, q2 + ' ORDER BY pr.created_at DESC LIMIT 200', p2) or []) if not program_id else []
     regs = sorted(regs1 + regs2, key=lambda r: str(r.get('created_at') or ''), reverse=True)[:200]
-    for r in regs:
-        r['amount_cents'], r['amount_source'] = compute_registration_amount(r)
     # Resolve session names for all program registrations
     sessions_by_program = {}
     for r in regs:
@@ -29699,15 +29149,11 @@ def get_program_registrations(pid):
         if err: return err
     import json as _jreg
     conn = get_db()
-    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type, yp.price AS program_price,
-        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
+    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
-        LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
         WHERE pr.program_id=%s ORDER BY pr.created_at DESC''', (pid,))
-    # Resolve session names, and work out — the same way the financial
-    # dashboard does — what a registration actually counts as revenue-wise
-    # and why, so it's visible right here instead of a mystery elsewhere.
+    # Resolve session names
     sessions_map = {}
     session_rows = fetchall(conn, 'SELECT id, name FROM program_sessions WHERE program_id=%s', (pid,)) or []
     for sr in session_rows:
@@ -29718,7 +29164,6 @@ def get_program_registrations(pid):
             r['session_names'] = [sessions_map.get(sid, sid) for sid in sids if sid in sessions_map]
         except Exception:
             r['session_names'] = []
-        r['amount_cents'], r['amount_source'] = compute_registration_amount(r)
     interest = fetchall(conn, '''SELECT * FROM interest_list_entries
         WHERE program_id=%s ORDER BY created_at DESC''', (pid,))
     counts = {

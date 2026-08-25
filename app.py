@@ -7401,6 +7401,45 @@ def determine_kiosk_pay_type(conn, volunteer_id, event_id):
         return 'paid_instruction'
     return 'volunteer'
 
+def _elic_for_event(conn, volunteer_id, event_id):
+    """Returns this volunteer's active ELIC record if they're an ELIC assigned
+    to this specific event (directly, via event_elics, or as a master ELIC
+    assigned to everything) — otherwise None."""
+    elic = fetchone(conn, "SELECT * FROM elics WHERE volunteer_id=%s AND active=TRUE", (volunteer_id,))
+    if not elic:
+        return None
+    if elic.get('is_master'):
+        return elic
+    try:
+        assigned = json.loads(elic.get('assigned_events') or '[]')
+    except Exception:
+        assigned = []
+    if event_id in assigned:
+        return elic
+    row = fetchone(conn, 'SELECT 1 FROM event_elics WHERE elic_id=%s AND event_id=%s', (elic['id'], event_id))
+    return elic if row else None
+
+def _self_open_event_for_instructor(conn, volunteer_id, event_id):
+    """A paid instructor who is ALSO the ELIC assigned to their own class can
+    open it themselves at the kiosk, instead of needing a separate ELIC or
+    admin to do it first — this is the one case that skips that requirement.
+    Returns True if the event is (now) open, False if this volunteer isn't
+    eligible to self-open it."""
+    evt = fetchone(conn, 'SELECT status FROM events WHERE id=%s', (event_id,))
+    if not evt:
+        return False
+    if evt.get('status') == 'open':
+        return True
+    elic = _elic_for_event(conn, volunteer_id, event_id)
+    if not elic:
+        return False
+    log_id = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+        VALUES (%s,%s,%s,'open','Self-opened by instructor (also the assigned ELIC)','')''',
+        (log_id, event_id, elic['id']))
+    execute(conn, "UPDATE events SET status='open' WHERE id=%s", (event_id,))
+    return True
+
 def get_contractor_pay_cap(conn):
     """The yearly cap on how much a contractor can be paid — editable in
     Settings, defaults to $1,999 (the historical 1099 threshold this org
@@ -11050,6 +11089,11 @@ def kiosk_events():
     for e in events:
         if e.get('current_status') == 'open':
             e['status'] = 'open'
+    if paid_instruction and volunteer_id:
+        conn2 = get_db()
+        for e in events:
+            e['can_self_open'] = (e.get('status') != 'open') and bool(_elic_for_event(conn2, volunteer_id, e['id']))
+        conn2.close()
     return jsonify(events)
 
 @app.route('/api/kiosk/submit', methods=['POST'])
@@ -11185,12 +11229,16 @@ def kiosk_begin_session():
     if not event_id and not override_reason:
         conn.close()
         return jsonify({'error': 'Please select an event or provide an override reason.'}), 400
-    # Check event is open if one is specified
+    # Check event is open if one is specified — a paid instructor who's also
+    # their class's ELIC can open it themselves right here instead of being
+    # blocked on a separate ELIC/admin.
     if event_id:
         evt = fetchone(conn, 'SELECT status, name FROM events WHERE id=%s', (event_id,))
         if evt and evt.get('status') != 'open':
-            conn.close()
-            return jsonify({'error': 'This event is not open yet. Please wait for staff to open it.'}), 400
+            opened = d.get('paid_instruction') and _self_open_event_for_instructor(conn, vol_id, event_id)
+            if not opened:
+                conn.close()
+                return jsonify({'error': 'This event is not open yet. Please wait for staff to open it.'}), 400
     existing = fetchone(conn, "SELECT id FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
     if existing: conn.close(); return jsonify({'error': 'Already volunteering  -  please stop your current session first.'}), 400
     event_name = d.get('event_name','')

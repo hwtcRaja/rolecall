@@ -22474,7 +22474,7 @@ function switchProdPortalTab(tab, btn){
  if(tab==='announcements'||tab==='files') loadProductionPortalContent(pid)
  if(tab==='messages'){
    const inner = document.getElementById('pptab-messages-inner-'+pid)
-   if(inner) loadPortalMessages(pid, null, 'pptab-messages-inner-'+pid)
+   if(inner) loadPortalMessages(null, pid, 'pptab-messages-inner-'+pid)
  }
  if(tab==='team'){
  const teamEl = document.getElementById('pptab-team-'+pid)

@@ -1751,22 +1751,6 @@ def init_db():
             status TEXT DEFAULT 'open',
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
-        # Same shape as program_sessions above, but for a Production's rehearsal
-        # schedule instead of a youth program's class times — no registration
-        # concept here (no capacity/price), just the day/time blocks BloomBooks
-        # reads to compute the at-cost studio charge.
-        """CREATE TABLE IF NOT EXISTS production_sessions (
-            id TEXT PRIMARY KEY,
-            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
-            name TEXT NOT NULL,
-            day_of_week TEXT DEFAULT '',
-            start_time TEXT DEFAULT '',
-            end_time TEXT DEFAULT '',
-            start_date TEXT DEFAULT '',
-            end_date TEXT DEFAULT '',
-            location TEXT DEFAULT '',
-            sort_order INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT NOW())""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'""",
         """CREATE TABLE IF NOT EXISTS pending_donations (
@@ -19269,7 +19253,7 @@ def approve_licensing_request_to_produce(lid):
     signed contract to already be on file. Approving automatically creates
     the real RoleCall production (if one isn't already linked) — its
     rehearsal schedule gets built out afterward on the production itself
-    (Production detail → Sessions), which is what BloomBooks pulls from."""
+    (Production detail → Schedule & Conflicts), which is what BloomBooks pulls from."""
     err = require_permission('licensing')
     if err: return err
     d = request.json or {}
@@ -21329,73 +21313,6 @@ def delete_program_session(pid, sid):
     conn.commit()
     sync_hours_store_for_program(conn, pid)
     conn.close()
-    return jsonify({'ok': True})
-
-
-# ─── Production rehearsal schedule (production_sessions) ─────────────────────
-# Same shape/UX as program_sessions above, scoped to a Production instead of a
-# youth program — this is what BloomBooks reads for the studio charge calc.
-@app.route('/api/productions/<pid>/sessions', methods=['GET'])
-def get_production_sessions(pid):
-    err = require_permission('productions')
-    if err: return err
-    conn = get_db()
-    sessions = fetchall(conn, '''SELECT * FROM production_sessions WHERE production_id=%s
-        ORDER BY sort_order, day_of_week, start_time''', (pid,))
-    conn.close()
-    return jsonify(sessions or [])
-
-@app.route('/api/productions/<pid>/sessions', methods=['POST'])
-def create_production_session(pid):
-    err = require_permission('productions')
-    if err: return err
-    d = request.json or {}
-    conn = get_db()
-    prod = fetchone(conn, 'SELECT id FROM productions WHERE id=%s', (pid,))
-    if not prod:
-        conn.close()
-        return jsonify({'error': 'Production not found'}), 404
-    name = (d.get('name') or '').strip()
-    if not name:
-        conn.close()
-        return jsonify({'error': 'Session name is required'}), 400
-    sid = str(uuid.uuid4())
-    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) as m FROM production_sessions WHERE production_id=%s', (pid,))
-    sort_order = (max_sort.get('m') or 0) + 1
-    execute(conn, '''INSERT INTO production_sessions
-        (id, production_id, name, day_of_week, start_time, end_time, start_date, end_date, location, sort_order)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-        (sid, pid, name,
-         d.get('day_of_week') or None, d.get('start_time') or None, d.get('end_time') or None,
-         d.get('start_date') or None, d.get('end_date') or None, d.get('location') or None, sort_order))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True, 'id': sid})
-
-@app.route('/api/productions/<pid>/sessions/<sid>', methods=['PUT'])
-def update_production_session(pid, sid):
-    err = require_permission('productions')
-    if err: return err
-    d = request.json or {}
-    name = (d.get('name') or '').strip()
-    if not name:
-        return jsonify({'error': 'Session name is required'}), 400
-    conn = get_db()
-    execute(conn, '''UPDATE production_sessions SET name=%s, day_of_week=%s, start_time=%s,
-        end_time=%s, start_date=%s, end_date=%s, location=%s, sort_order=%s
-        WHERE id=%s AND production_id=%s''',
-        (name, d.get('day_of_week') or None, d.get('start_time') or None, d.get('end_time') or None,
-         d.get('start_date') or None, d.get('end_date') or None, d.get('location') or None,
-         int(d.get('sort_order') or 0), sid, pid))
-    conn.commit(); conn.close()
-    return jsonify({'ok': True})
-
-@app.route('/api/productions/<pid>/sessions/<sid>', methods=['DELETE'])
-def delete_production_session(pid, sid):
-    err = require_permission('productions')
-    if err: return err
-    conn = get_db()
-    execute(conn, 'DELETE FROM production_sessions WHERE id=%s AND production_id=%s', (sid, pid))
-    conn.commit(); conn.close()
     return jsonify({'ok': True})
 
 

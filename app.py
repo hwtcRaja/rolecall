@@ -11009,8 +11009,22 @@ def kiosk_volunteers():
 
 @app.route('/api/kiosk/events')
 def kiosk_events():
+    # When checking in as a paid instructor, only events under programs
+    # flagged is_paid_instruction AND assigned to that specific instructor
+    # should be selectable — never the general volunteer event list.
+    paid_instruction = request.args.get('paid_instruction') == '1'
+    volunteer_id = request.args.get('volunteer_id')
     conn = get_db()
-    events = fetchall(conn, """
+    extra_join = ''
+    extra_where = ''
+    params = []
+    if paid_instruction:
+        extra_join = "LEFT JOIN youth_programs pg ON e.program_id=pg.id"
+        extra_where = "AND pg.is_paid_instruction=TRUE"
+        if volunteer_id:
+            extra_where += " AND pg.instructor_id=%s"
+            params.append(volunteer_id)
+    events = fetchall(conn, f"""
         SELECT e.*,
                p.name as production_name,
                COALESCE(p.stage,'mainstage') as stage,
@@ -11018,17 +11032,19 @@ def kiosk_events():
                el.action as current_status
         FROM events e
         LEFT JOIN productions p ON e.production_id=p.id
+        {extra_join}
         LEFT JOIN (SELECT event_id, action FROM event_logs
             WHERE (event_id, timestamp) IN (
                 SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id
             )) el ON el.event_id=e.id
-        WHERE e.status='open'
+        WHERE (e.status='open'
            OR el.action='open'
            OR (e.status IN ('draft','published','in_progress')
                AND e.event_date::date >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date - INTERVAL '1 day'
-               AND e.event_date::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date + INTERVAL '1 day')
+               AND e.event_date::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date + INTERVAL '1 day'))
+        {extra_where}
         ORDER BY CASE WHEN e.status='open' OR el.action='open' THEN 0 ELSE 1 END, e.event_date ASC NULLS LAST
-    """)
+    """, tuple(params))
     conn.close()
     # Mark events as open if event_logs says so
     for e in events:

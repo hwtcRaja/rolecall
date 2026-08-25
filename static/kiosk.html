@@ -205,7 +205,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   <img src="/static/images/logo.jpg" alt="HWTC" class="idle-logo"/>
   <div class="idle-title">RoleCall</div>
   <div class="idle-org">Horizon West Theater Company</div>
-  <button class="idle-btn">Volunteer Check-In</button>
+  <button class="idle-btn">Check-In</button>
   <div class="idle-sub">Tap anywhere to get started</div>
   <div class="idle-services">
     <div class="idle-svc">⏱ Log Hours</div>
@@ -294,16 +294,16 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   </div>
   <!-- Active session banner -->
   <div id="active-session-banner" style="display:none;background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border-radius:var(--radius);padding:20px 24px;margin-bottom:14px">
-    <div style="font-size:14px;font-weight:700;margin-bottom:4px">🟢 Currently Volunteering</div>
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px" id="active-session-title">🟢 Currently Volunteering</div>
     <div style="font-size:13px;opacity:0.85" id="active-session-info">Session active</div>
     <div style="font-size:52px;font-weight:900;margin:10px 0 6px;font-variant-numeric:tabular-nums;letter-spacing:-1px;text-align:center" id="active-session-timer">0:00:00</div>
-    <button onclick="goStopVolunteering()" style="background:#fff;color:#166534;border:none;border-radius:12px;padding:18px 24px;font-family:inherit;font-size:20px;font-weight:800;cursor:pointer;width:100%;letter-spacing:-0.3px">🔴 Stop Volunteering</button>
+    <button onclick="goStopVolunteering()" id="stop-session-btn" style="background:#fff;color:#166534;border:none;border-radius:12px;padding:18px 24px;font-family:inherit;font-size:20px;font-weight:800;cursor:pointer;width:100%;letter-spacing:-0.3px">🔴 Stop Volunteering</button>
   </div>
   <div class="menu-grid" id="vol-menu-grid">
     <button class="menu-btn" style="background:linear-gradient(135deg,#166534,#16a34a);color:#fff;grid-column:1/-1;padding:28px 20px" onclick="kioskAction(goBeginVolunteering)" id="begin-vol-btn">
-      <div class="menu-icon" style="font-size:40px">🟢</div>
-      <div class="menu-label" style="color:#fff;font-size:22px">Begin Volunteering</div>
-      <div class="menu-desc" style="color:rgba(255,255,255,0.85);font-size:15px">Tap here to start your session timer</div>
+      <div class="menu-icon" style="font-size:40px" id="begin-vol-icon">🟢</div>
+      <div class="menu-label" style="color:#fff;font-size:22px" id="begin-vol-label">Begin Volunteering</div>
+      <div class="menu-desc" style="color:rgba(255,255,255,0.85);font-size:15px" id="begin-vol-desc">Tap here to start your session timer</div>
     </button>
     <button class="menu-btn t" onclick="kioskAction(goEventSelect)">
       <div class="menu-icon">⏱</div>
@@ -333,14 +333,14 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   <button class="back-btn" onclick="showScreen('screen-vol-menu')">← Back</button>
   <div class="step-pill">Log Hours</div>
   <div class="screen-heading">
-    <div class="screen-title">Which event?</div>
-    <div class="screen-sub">Only open events are shown</div>
+    <div class="screen-title" id="ev-select-title">Which event?</div>
+    <div class="screen-sub" id="ev-select-sub">Only open events are shown</div>
   </div>
   <div class="event-grid" id="event-grid"></div>
   <div id="no-events" class="hidden" style="text-align:center;padding:40px;color:var(--muted);max-width:440px">
     <div style="font-size:40px;margin-bottom:12px">🔒</div>
-    <div style="font-weight:600;margin-bottom:6px">No open events</div>
-    <div>Events must be opened by an Event Lead before volunteers can log hours. Please see a staff member.</div>
+    <div style="font-weight:600;margin-bottom:6px" id="no-events-title">No open events</div>
+    <div id="no-events-desc">Events must be opened by an Event Lead before volunteers can log hours. Please see a staff member.</div>
   </div>
 </div>
 
@@ -369,15 +369,16 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 <!-- BEGIN VOLUNTEERING — event select + role -->
 <div class="screen hidden" id="screen-begin-vol">
   <button class="back-btn" onclick="showScreen('screen-vol-menu')">← Back</button>
-  <div class="step-pill">Begin Volunteering</div>
+  <div class="step-pill" id="bv-step-pill">Begin Volunteering</div>
   <div class="screen-heading">
-    <div class="screen-title">Ready to volunteer?</div>
-    <div class="screen-sub">Select an event and your role, then tap Begin</div>
+    <div class="screen-title" id="bv-screen-title">Ready to volunteer?</div>
+    <div class="screen-sub" id="bv-screen-sub">Select an event and your role, then tap Begin</div>
   </div>
   <div style="max-width:560px;width:100%;padding:0 16px">
     <div style="margin-bottom:16px">
-      <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px">EVENT (optional)</div>
+      <div style="font-size:13px;font-weight:600;color:var(--muted);margin-bottom:8px" id="bv-event-label">EVENT (optional)</div>
       <div id="bv-event-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px"></div>
+      <div id="bv-override-section">
       <button id="bv-no-event" onclick="toggleNoEventOverride()"
         style="width:100%;padding:10px;border:2px dashed var(--border);border-radius:var(--radius);background:transparent;font-family:inherit;font-size:13px;color:var(--muted);cursor:pointer;margin-top:4px">
         ⚙️ No event listed — request override
@@ -388,6 +389,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
           style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"
           oninput="bvUpdateOverride()"/>
         <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Hours logged without an event will require admin review before approval.</div>
+      </div>
       </div>
     </div>
     <div style="margin-bottom:20px">
@@ -600,17 +602,24 @@ let _bvSessionStart  = null
 async function goBeginVolunteering(){
   _bvSelectedEvent = null
   document.getElementById('bv-role').value = ''
+  applySessionModeTheme()
   // Highlight "no specific event" as default
   document.getElementById('bv-no-event').style.background = 'var(--teal-light)'
   document.getElementById('bv-no-event').style.borderColor = 'var(--teal)'
-  // Load open events
+  // Load open events — restricted to this instructor's own paid-instruction
+  // classes when in paid instruction mode, never the general event list.
   const grid = document.getElementById('bv-event-grid')
   grid.innerHTML = '<div style="color:var(--muted);font-size:13px">Loading events…</div>'
+  const url = paidInstructionMode
+    ? '/api/kiosk/events?paid_instruction=1&volunteer_id='+encodeURIComponent(selVol.id)
+    : '/api/kiosk/events'
   try {
-    const r = await fetch('/api/kiosk/events')
+    const r = await fetch(url)
     const events = await r.json()
     if(!events.length){
-      grid.innerHTML = '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">No events scheduled for today</div>'
+      grid.innerHTML = paidInstructionMode
+        ? '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">No paid instruction classes are open for you right now</div>'
+        : '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">No events scheduled for today</div>'
     } else {
       grid.innerHTML = events.map(e=>{
         const isOpen = e.status === 'open'
@@ -712,13 +721,15 @@ function bvSelectEvent(evt){
 
 async function submitBeginVolunteering(){
   const btn = document.getElementById('bv-begin-btn')
+  const resetBtnText = () => { btn.textContent = SESSION_COLORS[sessionMode()].icon+' Begin '+sessionVerb() }
   btn.disabled = true; btn.textContent = 'Starting…'
   const role = document.getElementById('bv-role').value.trim()
 
-  // Block if neither event nor override reason
-  if(!_bvSelectedEvent && !_bvOverrideReason){
-    alert('Please select an event or provide an override reason.')
-    btn.disabled=false; btn.textContent='🟢 Begin Volunteering'
+  // Block if neither event nor override reason (paid instruction has no
+  // override path at all — must be a real selected class)
+  if(!_bvSelectedEvent && !(_bvOverrideReason && !paidInstructionMode)){
+    alert(paidInstructionMode ? 'Please select a class.' : 'Please select an event or provide an override reason.')
+    btn.disabled=false; resetBtnText()
     return
   }
 
@@ -730,13 +741,13 @@ async function submitBeginVolunteering(){
         body: JSON.stringify({volunteer_id: selVol.id, event_id: _bvSelectedEvent.id, role, paid_instruction: paidInstructionMode})
       })
       const d = await r.json()
-      btn.disabled=false; btn.textContent='🟢 Begin Volunteering'
+      btn.disabled=false; resetBtnText()
       if(d.error){ alert(d.error); return }
       showConfirm('⚡','Hours Logged!',
         d.hours+'h submitted for "'+d.event+'".',
-        'You\'ve been credited for the full event. Thanks for volunteering!',
+        paidInstructionMode ? 'You\'ve been credited for the full class.' : 'You\'ve been credited for the full event. Thanks for volunteering!',
         ()=>showScreen('screen-vol-menu'))
-    } catch(err){ alert('Error: '+err.message); btn.disabled=false; btn.textContent='🟢 Begin Volunteering' }
+    } catch(err){ alert('Error: '+err.message); btn.disabled=false; resetBtnText() }
     return
   }
 
@@ -749,29 +760,30 @@ async function submitBeginVolunteering(){
         event_id:   _bvSelectedEvent ? _bvSelectedEvent.id : null,
         event_name: _bvSelectedEvent ? _bvSelectedEvent.name : (_bvOverrideReason || 'General Volunteering'),
         role,
-        override_reason: _bvOverrideReason || null,
+        override_reason: paidInstructionMode ? null : (_bvOverrideReason || null),
         paid_instruction: paidInstructionMode
       })
     })
     const d = await r.json()
-    if(d.error){ alert(d.error); btn.disabled=false; btn.textContent='🟢 Begin Volunteering'; return }
+    if(d.error){ alert(d.error); btn.disabled=false; resetBtnText(); return }
     _bvSessionStart = new Date(d.started_at)
     showScreen('screen-vol-menu')
     showActiveSessionBanner(role)
-    if(_bvOverrideReason){
+    if(_bvOverrideReason && !paidInstructionMode){
       // Remind volunteer their hours need review
       setTimeout(()=>showConfirm('⚠️','Override Active',
         'Hours logged without an event require admin review.',
         'Your hours will appear as pending until approved.',
         ()=>{}), 500)
     }
-    btn.disabled=false; btn.textContent='🟢 Begin Volunteering'
-  } catch(err){ alert('Error starting session. Please try again.'); btn.disabled=false; btn.textContent='🟢 Begin Volunteering' }
+    btn.disabled=false; resetBtnText()
+  } catch(err){ alert('Error starting session. Please try again.'); btn.disabled=false; resetBtnText() }
 }
 
 async function goStopVolunteering(){
   const role = document.getElementById('bv-role')?.value.trim() || ''
-  if(!confirm('Stop volunteering and submit your hours?')) return
+  const verb = sessionVerb()
+  if(!confirm('Stop '+verb.toLowerCase()+' and submit your hours?')) return
   try {
     const r = await fetch('/api/kiosk/session/stop', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -782,7 +794,7 @@ async function goStopVolunteering(){
     hideActiveSessionBanner()
     showConfirm('✅','Thank You!',
       d.hours+'h submitted for approval.',
-      'Your time has been recorded. Thanks for volunteering!',
+      paidInstructionMode ? 'Your instruction time has been recorded.' : 'Your time has been recorded. Thanks for volunteering!',
       ()=>showScreen('screen-vol-menu'))
   } catch(err){ alert('Network error stopping session: ' + err.message) }
 }
@@ -792,7 +804,8 @@ function showActiveSessionBanner(role){
   const info   = document.getElementById('active-session-info')
   const beginBtn = document.getElementById('begin-vol-btn')
   if(!banner) return
-  const evtName = _bvSelectedEvent ? _bvSelectedEvent.name : 'General volunteering'
+  applySessionModeTheme()
+  const evtName = _bvSelectedEvent ? _bvSelectedEvent.name : (paidInstructionMode ? 'Paid instruction' : 'General volunteering')
   info.textContent = evtName + (role ? ' · ' + role : '')
   banner.style.display = 'block'
   if(beginBtn){ beginBtn.style.display='none' }
@@ -822,6 +835,11 @@ async function checkActiveSession(){
     const r = await fetch('/api/kiosk/session/active/'+selVol.id)
     const d = await r.json()
     if(d.active){
+      // Trust the session's own stored pay_type over client state, in case
+      // the kiosk idled out and back in between starting and stopping.
+      paidInstructionMode = d.session && d.session.pay_type === 'paid_instruction'
+      document.getElementById('paid-instruction-banner').style.display = paidInstructionMode ? '' : 'none'
+      applySessionModeTheme()
       _bvSessionStart = new Date(d.started_at)
       showActiveSessionBanner('')
     }
@@ -973,15 +991,65 @@ function goVolMenu(){
   document.getElementById('vm-av').textContent=ini(selVol.name)
   document.getElementById('vm-name').textContent=selVol.name
   document.getElementById('paid-instruction-banner').style.display=paidInstructionMode?'':'none'
+  applySessionModeTheme()
   updateWaiverMenuBtn(waiverIssues.length)
   hideActiveSessionBanner()
   showScreen('screen-vol-menu')
   checkActiveSession()
 }
 
+// Purple = paid instruction, green = regular volunteering — kept visually
+// and textually distinct everywhere a session can be started/stopped.
+const SESSION_COLORS = {
+  volunteer:  {grad:'linear-gradient(135deg,#166534,#16a34a)', solid:'#166534', icon:'🟢'},
+  instruction:{grad:'linear-gradient(135deg,#5b21b6,#7c3aed)', solid:'#5b21b6', icon:'🎓'}
+}
+function sessionMode(){ return paidInstructionMode ? 'instruction' : 'volunteer' }
+function sessionVerb(){ return paidInstructionMode ? 'Instruction' : 'Volunteering' }
+
+function applySessionModeTheme(){
+  const mode = sessionMode()
+  const c = SESSION_COLORS[mode]
+  const verb = sessionVerb()
+  const beginBtn = document.getElementById('begin-vol-btn')
+  if(beginBtn) beginBtn.style.background = c.grad
+  const beginIcon = document.getElementById('begin-vol-icon'); if(beginIcon) beginIcon.textContent = c.icon
+  const beginLabel = document.getElementById('begin-vol-label'); if(beginLabel) beginLabel.textContent = 'Begin '+verb
+  const beginDesc = document.getElementById('begin-vol-desc')
+  if(beginDesc) beginDesc.textContent = paidInstructionMode ? 'Tap here to start your paid instruction timer' : 'Tap here to start your session timer'
+  const banner = document.getElementById('active-session-banner')
+  if(banner) banner.style.background = c.grad
+  const title = document.getElementById('active-session-title'); if(title) title.textContent = c.icon+' Currently '+(paidInstructionMode?'Instructing':'Volunteering')
+  const stopBtn = document.getElementById('stop-session-btn')
+  if(stopBtn){ stopBtn.textContent = '🔴 Stop '+verb; stopBtn.style.color = c.solid }
+  const pill = document.getElementById('bv-step-pill'); if(pill) pill.textContent = 'Begin '+verb
+  const bvTitle = document.getElementById('bv-screen-title'); if(bvTitle) bvTitle.textContent = paidInstructionMode ? 'Ready to begin instruction?' : 'Ready to volunteer?'
+  const bvSub = document.getElementById('bv-screen-sub')
+  if(bvSub) bvSub.textContent = paidInstructionMode ? 'Select which paid instruction class, then tap Begin' : 'Select an event and your role, then tap Begin'
+  const bvEventLabel = document.getElementById('bv-event-label'); if(bvEventLabel) bvEventLabel.textContent = paidInstructionMode ? 'CLASS' : 'EVENT (optional)'
+  // Paid instruction can only ever be logged against an actual paid-instruction
+  // class — no "no event listed" override, unlike general volunteering.
+  const overrideSection = document.getElementById('bv-override-section')
+  if(overrideSection) overrideSection.style.display = paidInstructionMode ? 'none' : ''
+  const beginActionBtn = document.getElementById('bv-begin-btn')
+  if(beginActionBtn){ beginActionBtn.style.background = c.grad; beginActionBtn.textContent = c.icon+' Begin '+verb }
+  const evTitle = document.getElementById('ev-select-title'); if(evTitle) evTitle.textContent = paidInstructionMode ? 'Which class?' : 'Which event?'
+  const evSub = document.getElementById('ev-select-sub')
+  if(evSub) evSub.textContent = paidInstructionMode ? 'Only your paid instruction classes are shown' : 'Only open events are shown'
+  const noEvTitle = document.getElementById('no-events-title'); if(noEvTitle) noEvTitle.textContent = paidInstructionMode ? 'No paid instruction classes open' : 'No open events'
+  const noEvDesc = document.getElementById('no-events-desc')
+  if(noEvDesc) noEvDesc.textContent = paidInstructionMode
+    ? 'No classes assigned to you as a paid instructor are open right now. Please see a staff member.'
+    : 'Events must be opened by an Event Lead before volunteers can log hours. Please see a staff member.'
+}
+
 async function goEventSelect(){
+  applySessionModeTheme()
   showScreen('screen-event')
-  const r=await fetch('/api/kiosk/events')
+  const url = paidInstructionMode
+    ? '/api/kiosk/events?paid_instruction=1&volunteer_id='+encodeURIComponent(selVol.id)
+    : '/api/kiosk/events'
+  const r=await fetch(url)
   const events=await r.json()
   const grid=document.getElementById('event-grid')
   const noEvt=document.getElementById('no-events')

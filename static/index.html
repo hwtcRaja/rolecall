@@ -15572,9 +15572,9 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div class="card" style="padding:20px;margin-bottom:16px">'
  s += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
  s += '<div style="font-size:14px;font-weight:700"> Rehearsal Schedule</div>'
- s += (isAdmin?'<button class="btn btn-secondary btn-sm" onclick="openAddProductionSessionModal(\''+p.id+'\')">+ Add Time Block</button>':'')
+ s += (isAdmin?'<button class="btn btn-secondary btn-sm" onclick="addProductionRehearsalEvent(\''+p.id+'\')">+ Add Event</button>':'')
  s += '</div>'
- s += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Add a block for each distinct day/time combination (e.g. Saturdays 11–2 and Thursdays 5–6:30). BloomBooks reads this to charge the show for studio use at cost.</div>'
+ s += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">This production\'s schedule is its calendar events — add a rehearsal event for each date/time. BloomBooks reads these to charge the show for studio use at cost.</div>'
  s += '<div id="prod-sessions-'+p.id+'"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
  s += '</div>'
  s += '<div id="prod-conflicts-'+p.id+'" style="padding:20px"><div style="color:var(--text-muted)">Loading…</div></div>'
@@ -22338,7 +22338,7 @@ function switchProductionTab(tab){
  }
  if(tab==='registrations' && pid) loadProductionRegistrations(pid)
  if(tab==='tickets' && pid) loadTicketsTab(pid)
- if(tab==='schedule' && pid){ loadProductionScheduleConflicts(pid); loadProductionSessions(pid) }
+ if(tab==='schedule' && pid){ loadProductionScheduleConflicts(pid); renderProductionRehearsalEvents(pid) }
 }
 
 async function saveProductionInfo(pid){
@@ -24791,95 +24791,33 @@ function openAddSessionModal(pid, existing){
   })
 }
 
-async function loadProductionSessions(pid){
+function renderProductionRehearsalEvents(pid){
   var listEl = document.getElementById('prod-sessions-'+pid)
   if(!listEl) return
-  var sessions = await api('/api/productions/'+pid+'/sessions')
-  if(!Array.isArray(sessions) || !sessions.length){
-    listEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No time blocks yet. Click + Add Time Block to build out the rehearsal schedule.</div>'
+  var events = (allEvents||[]).filter(function(e){ return e.production_id===pid })
+  if(!events.length){
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No events yet. Click + Add Event to build out the rehearsal schedule.</div>'
     return
   }
   function fmtTime(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
-  var sorted = sessions.slice().sort(function(a,b){
-    var aKey=(a.day_of_week||''), bKey=(b.day_of_week||'')
+  var sorted = events.slice().sort(function(a,b){
+    var aKey=(a.event_date||''), bKey=(b.event_date||'')
     return aKey<bKey?-1:aKey>bKey?1:0
   })
-  listEl.innerHTML = sorted.map(function(s){
-    var timeStr = (s.day_of_week?s.day_of_week+' ':'') + (s.start_time?fmtTime(s.start_time)+(s.end_time?' – '+fmtTime(s.end_time):''):'')
-    var dateStr = (s.start_date||s.end_date) ? (s.start_date||'')+' – '+(s.end_date||'') : ''
+  listEl.innerHTML = sorted.map(function(e){
+    var timeStr = (e.start_time?fmtTime(e.start_time)+(e.end_time?' – '+fmtTime(e.end_time):''):'')
+    var isOpen = e.status==='open'
     return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">'
-      + '<div><div style="font-size:13px;font-weight:700">'+escHtml(s.name)+'</div>'
-      + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">'+escHtml(timeStr||'No time set')+(s.location?' &nbsp;·&nbsp; '+escHtml(s.location):'')+(dateStr?' &nbsp;·&nbsp; '+escHtml(dateStr):'')+'</div></div>'
-      + '<div style="display:flex;gap:6px">'
-      + '<button class="btn btn-secondary btn-sm psess-edit-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px">Edit</button>'
-      + '<button class="btn btn-sm psess-del-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
-      + '</div></div>'
+      + '<div><div style="font-size:13px;font-weight:700">'+escHtml(e.name)+(isOpen?' <span style="font-size:10px;font-weight:700;background:#166534;color:#fff;padding:1px 7px;border-radius:20px">open</span>':'')+'</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">'+escHtml(e.event_date||'No date set')+(timeStr?' &nbsp;·&nbsp; '+escHtml(timeStr):'')+(e.location?' &nbsp;·&nbsp; '+escHtml(e.location):'')+'</div></div>'
+      + '<button class="btn btn-secondary btn-sm" onclick="openEventModal(\''+e.id+'\')" style="font-size:11px;padding:2px 8px">Edit</button>'
+      + '</div>'
   }).join('')
-  listEl.querySelectorAll('.psess-edit-btn').forEach(function(btn){
-    btn.addEventListener('click', function(){ openAddProductionSessionModal(pid, sessions.find(function(s){ return s.id===btn.dataset.sid })) })
-  })
-  listEl.querySelectorAll('.psess-del-btn').forEach(function(btn){
-    btn.addEventListener('click', async function(){
-      if(!confirm('Delete this time block?')) return
-      var res = await api('/api/productions/'+pid+'/sessions/'+btn.dataset.sid,'DELETE')
-      if(res&&res.ok){ toast('Time block deleted','success'); loadProductionSessions(pid) }
-      else toast((res&&res.error)||'Error','error')
-    })
-  })
 }
 
-function openAddProductionSessionModal(pid, existing){
-  var overlay = document.createElement('div')
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;padding:20px'
-  var modal = document.createElement('div')
-  modal.style.cssText = 'background:var(--surface);border-radius:14px;width:100%;max-width:480px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto'
-  var s = existing || {}
-  function fld(id,label,type,value,placeholder){
-    return '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">'+label+'</label>'
-      + '<input type="'+type+'" id="psess-'+id+'" value="'+escHtml(value||'')+'" placeholder="'+(placeholder||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
-  }
-  var days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
-  modal.innerHTML = '<div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">'+(existing?'Edit Time Block':'Add Time Block')+'</div>'
-    + fld('name','Block Name','text',s.name,'e.g. Saturday Rehearsal')
-    + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Day of Week</label>'
-    + '<select id="psess-day" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
-    + '<option value="">No specific day</option>'
-    + days.map(function(d){ return '<option value="'+d+'"'+(s.day_of_week===d?' selected':'')+'>'+d+'</option>' }).join('')
-    + '</select></div>'
-    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    + fld('start-time','Start Time','time',s.start_time,'')
-    + fld('end-time','End Time','time',s.end_time,'')
-    + '</div>'
-    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    + fld('start-date','Start Date','date',s.start_date,'')
-    + fld('end-date','End Date','date',s.end_date,'')
-    + '</div>'
-    + fld('location','Location (optional)','text',s.location,'e.g. Studio A')
-    + '<div style="display:flex;gap:10px;margin-top:4px"><button id="psess-cancel-btn" class="btn btn-secondary" style="flex:1">Cancel</button>'
-    + '<button id="psess-save-btn" class="btn btn-primary" style="flex:1">'+(existing?'Save Changes':'Add Time Block')+'</button></div>'
-  overlay.appendChild(modal)
-  document.body.appendChild(overlay)
-  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
-  modal.querySelector('#psess-cancel-btn').addEventListener('click', function(){ overlay.remove() })
-  modal.querySelector('#psess-save-btn').addEventListener('click', async function(){
-    var btn = this; btn.disabled=true; btn.textContent='Saving...'
-    var payload = {
-      name: (document.getElementById('psess-name')||{}).value||'',
-      day_of_week: (document.getElementById('psess-day')||{}).value||'',
-      start_time: (document.getElementById('psess-start-time')||{}).value||'',
-      end_time: (document.getElementById('psess-end-time')||{}).value||'',
-      start_date: (document.getElementById('psess-start-date')||{}).value||'',
-      end_date: (document.getElementById('psess-end-date')||{}).value||'',
-      location: (document.getElementById('psess-location')||{}).value||'',
-    }
-    if(!payload.name){ toast('Block name is required','error'); btn.disabled=false; btn.textContent=existing?'Save Changes':'Add Time Block'; return }
-    var url = existing ? '/api/productions/'+pid+'/sessions/'+existing.id : '/api/productions/'+pid+'/sessions'
-    var method = existing ? 'PUT' : 'POST'
-    var res = await api(url, method, payload)
-    overlay.remove()
-    if(res&&res.ok){ toast(existing?'Time block updated':'Time block added','success'); loadProductionSessions(pid) }
-    else toast((res&&res.error)||'Error','error')
-  })
+function addProductionRehearsalEvent(pid){
+  window._openEventParent = {productionId: pid}
+  openEventModal()
 }
 
 function toggleScheduleFields(){

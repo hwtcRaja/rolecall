@@ -15568,7 +15568,17 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  }
 
  // Schedule & Conflicts tab
- s += '<div id="prodtab-schedule" style="display:none"><div id="prod-conflicts-'+p.id+'" style="padding:20px"><div style="color:var(--text-muted)">Loading…</div></div></div>'
+ s += '<div id="prodtab-schedule" style="display:none">'
+ s += '<div class="card" style="padding:20px;margin-bottom:16px">'
+ s += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
+ s += '<div style="font-size:14px;font-weight:700"> Rehearsal Schedule</div>'
+ s += (isAdmin?'<button class="btn btn-secondary btn-sm" onclick="openAddProductionSessionModal(\''+p.id+'\')">+ Add Time Block</button>':'')
+ s += '</div>'
+ s += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Add a block for each distinct day/time combination (e.g. Saturdays 11–2 and Thursdays 5–6:30). BloomBooks reads this to charge the show for studio use at cost.</div>'
+ s += '<div id="prod-sessions-'+p.id+'"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
+ s += '</div>'
+ s += '<div id="prod-conflicts-'+p.id+'" style="padding:20px"><div style="color:var(--text-muted)">Loading…</div></div>'
+ s += '</div>'
 
  // Info tab
  s += '<div id="prodtab-info" class="card" style="padding:20px;display:none">'
@@ -22328,7 +22338,7 @@ function switchProductionTab(tab){
  }
  if(tab==='registrations' && pid) loadProductionRegistrations(pid)
  if(tab==='tickets' && pid) loadTicketsTab(pid)
- if(tab==='schedule' && pid) loadProductionScheduleConflicts(pid)
+ if(tab==='schedule' && pid){ loadProductionScheduleConflicts(pid); loadProductionSessions(pid) }
 }
 
 async function saveProductionInfo(pid){
@@ -24777,6 +24787,97 @@ function openAddSessionModal(pid, existing){
     var res = await api(url, method, payload)
     overlay.remove()
     if(res&&res.ok){ toast(existing?'Session updated':'Session added','success'); loadSessionsInModal(pid) }
+    else toast((res&&res.error)||'Error','error')
+  })
+}
+
+async function loadProductionSessions(pid){
+  var listEl = document.getElementById('prod-sessions-'+pid)
+  if(!listEl) return
+  var sessions = await api('/api/productions/'+pid+'/sessions')
+  if(!Array.isArray(sessions) || !sessions.length){
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No time blocks yet. Click + Add Time Block to build out the rehearsal schedule.</div>'
+    return
+  }
+  function fmtTime(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
+  var sorted = sessions.slice().sort(function(a,b){
+    var aKey=(a.day_of_week||''), bKey=(b.day_of_week||'')
+    return aKey<bKey?-1:aKey>bKey?1:0
+  })
+  listEl.innerHTML = sorted.map(function(s){
+    var timeStr = (s.day_of_week?s.day_of_week+' ':'') + (s.start_time?fmtTime(s.start_time)+(s.end_time?' – '+fmtTime(s.end_time):''):'')
+    var dateStr = (s.start_date||s.end_date) ? (s.start_date||'')+' – '+(s.end_date||'') : ''
+    return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">'
+      + '<div><div style="font-size:13px;font-weight:700">'+escHtml(s.name)+'</div>'
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">'+escHtml(timeStr||'No time set')+(s.location?' &nbsp;·&nbsp; '+escHtml(s.location):'')+(dateStr?' &nbsp;·&nbsp; '+escHtml(dateStr):'')+'</div></div>'
+      + '<div style="display:flex;gap:6px">'
+      + '<button class="btn btn-secondary btn-sm psess-edit-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px">Edit</button>'
+      + '<button class="btn btn-sm psess-del-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
+      + '</div></div>'
+  }).join('')
+  listEl.querySelectorAll('.psess-edit-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){ openAddProductionSessionModal(pid, sessions.find(function(s){ return s.id===btn.dataset.sid })) })
+  })
+  listEl.querySelectorAll('.psess-del-btn').forEach(function(btn){
+    btn.addEventListener('click', async function(){
+      if(!confirm('Delete this time block?')) return
+      var res = await api('/api/productions/'+pid+'/sessions/'+btn.dataset.sid,'DELETE')
+      if(res&&res.ok){ toast('Time block deleted','success'); loadProductionSessions(pid) }
+      else toast((res&&res.error)||'Error','error')
+    })
+  })
+}
+
+function openAddProductionSessionModal(pid, existing){
+  var overlay = document.createElement('div')
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;padding:20px'
+  var modal = document.createElement('div')
+  modal.style.cssText = 'background:var(--surface);border-radius:14px;width:100%;max-width:480px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-height:90vh;overflow-y:auto'
+  var s = existing || {}
+  function fld(id,label,type,value,placeholder){
+    return '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">'+label+'</label>'
+      + '<input type="'+type+'" id="psess-'+id+'" value="'+escHtml(value||'')+'" placeholder="'+(placeholder||'')+'" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
+  }
+  var days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+  modal.innerHTML = '<div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">'+(existing?'Edit Time Block':'Add Time Block')+'</div>'
+    + fld('name','Block Name','text',s.name,'e.g. Saturday Rehearsal')
+    + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Day of Week</label>'
+    + '<select id="psess-day" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    + '<option value="">No specific day</option>'
+    + days.map(function(d){ return '<option value="'+d+'"'+(s.day_of_week===d?' selected':'')+'>'+d+'</option>' }).join('')
+    + '</select></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + fld('start-time','Start Time','time',s.start_time,'')
+    + fld('end-time','End Time','time',s.end_time,'')
+    + '</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + fld('start-date','Start Date','date',s.start_date,'')
+    + fld('end-date','End Date','date',s.end_date,'')
+    + '</div>'
+    + fld('location','Location (optional)','text',s.location,'e.g. Studio A')
+    + '<div style="display:flex;gap:10px;margin-top:4px"><button id="psess-cancel-btn" class="btn btn-secondary" style="flex:1">Cancel</button>'
+    + '<button id="psess-save-btn" class="btn btn-primary" style="flex:1">'+(existing?'Save Changes':'Add Time Block')+'</button></div>'
+  overlay.appendChild(modal)
+  document.body.appendChild(overlay)
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+  modal.querySelector('#psess-cancel-btn').addEventListener('click', function(){ overlay.remove() })
+  modal.querySelector('#psess-save-btn').addEventListener('click', async function(){
+    var btn = this; btn.disabled=true; btn.textContent='Saving...'
+    var payload = {
+      name: (document.getElementById('psess-name')||{}).value||'',
+      day_of_week: (document.getElementById('psess-day')||{}).value||'',
+      start_time: (document.getElementById('psess-start-time')||{}).value||'',
+      end_time: (document.getElementById('psess-end-time')||{}).value||'',
+      start_date: (document.getElementById('psess-start-date')||{}).value||'',
+      end_date: (document.getElementById('psess-end-date')||{}).value||'',
+      location: (document.getElementById('psess-location')||{}).value||'',
+    }
+    if(!payload.name){ toast('Block name is required','error'); btn.disabled=false; btn.textContent=existing?'Save Changes':'Add Time Block'; return }
+    var url = existing ? '/api/productions/'+pid+'/sessions/'+existing.id : '/api/productions/'+pid+'/sessions'
+    var method = existing ? 'PUT' : 'POST'
+    var res = await api(url, method, payload)
+    overlay.remove()
+    if(res&&res.ok){ toast(existing?'Time block updated':'Time block added','success'); loadProductionSessions(pid) }
     else toast((res&&res.error)||'Error','error')
   })
 }
@@ -29251,15 +29352,15 @@ function openLicensingDetail(id){
   <div style="border-top:1px solid var(--border);padding-top:16px;margin-bottom:14px">
    <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:10px">Approved to Produce</div>
    ${lr.contract_received ? `
-   <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">Board sign-off to move forward and build this show out in BloomBooks (production + budget). Once approved, it becomes eligible to import there.</p>
+   <p style="font-size:12px;color:var(--text-muted);margin:0 0 10px">Board sign-off to move forward. Approving automatically creates the production — build out its rehearsal schedule there, which is what BloomBooks pulls from.</p>
    ${lr.approved_to_produce
      ? `<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
          <span style="background:#F3E8FF;color:#7E22CE;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px">✓ Approved${lr.approved_to_produce_by?' by '+escHtml(lr.approved_to_produce_by):''}${lr.approved_to_produce_date?' on '+lr.approved_to_produce_date:''}</span>
          ${lr.built_in_bloombooks?`<span style="font-size:11px;color:var(--text-muted)">Already built in BloomBooks</span>`:''}
          <button class="btn btn-secondary btn-sm" onclick="setApprovedToProduce('${lr.id}', false)" ${lr.built_in_bloombooks?'disabled title="Already built in BloomBooks"':''}>Un-approve</button>
         </div>
-        ${licRehearsalSummary(lr)}`
-     : `<button class="btn btn-primary btn-sm" onclick="openRehearsalScheduleModal('${lr.id}')">Mark Approved to Produce</button>`}
+        ${lr.production_id?`<button class="btn btn-outline btn-sm" onclick="document.getElementById('licensing-detail-modal').remove();openProductionDetail('${lr.production_id}')">Go to production →</button>`:''}`
+     : `<button class="btn btn-primary btn-sm" onclick="setApprovedToProduce('${lr.id}', true)">Mark Approved to Produce</button>`}
    ` : `<p style="font-size:12px;color:var(--text-muted);margin:0">Signed contract must be received before this can be approved to produce.</p>`}
   </div>
 
@@ -29272,112 +29373,6 @@ function openLicensingDetail(id){
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
  const fileInput = document.getElementById('lic-d-file')
  if(fileInput) fileInput.onchange = function(){ uploadLicensingContractFile(id, this.files[0]) }
-}
-
-function licRehearsalSummary(lr){
- let blocks=[]; try{ blocks = JSON.parse(lr.rehearsal_blocks||'[]') }catch(e){}
- if(!Array.isArray(blocks) || !blocks.length) return ''
- const blockLines = blocks.map(b=>`${(b.days||[]).map(escHtml).join('/')} ${b.start_time}–${b.end_time}`).join(', ')
- const period = lr.rehearsal_period_start ? `${lr.rehearsal_period_start} – ${lr.rehearsal_period_end}` : ''
- return `<div style="font-size:12px;color:var(--text-muted)">Rehearsals: ${blockLines}${period?' · '+period:''}</div>`
-}
-
-const REHEARSAL_DAY_OPTIONS = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
-let _rehearsalBlocks = []
-
-function openRehearsalScheduleModal(id){
- const lr = licensingData.find(x=>x.id===id)
- if(!lr) return
- try{ _rehearsalBlocks = JSON.parse(lr.rehearsal_blocks||'[]') }catch(e){ _rehearsalBlocks = [] }
- if(!Array.isArray(_rehearsalBlocks) || !_rehearsalBlocks.length) _rehearsalBlocks = [{days:[], start_time:'', end_time:''}]
- const existing = document.getElementById('rehearsal-schedule-modal')
- if(existing) existing.remove()
- const overlay = document.createElement('div')
- overlay.id = 'rehearsal-schedule-modal'
- overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
- overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);padding:24px">
-  <div style="font-size:17px;font-weight:800;margin-bottom:4px">Rehearsal schedule</div>
-  <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px">Needed before approving to produce — BloomBooks uses this to charge the show for studio use at cost. Add a block for each distinct day/time combination, e.g. Saturdays 11–2 and Thursdays 5–6:30.</p>
-  <div id="rehearsal-blocks-wrap"></div>
-  <button class="btn btn-secondary btn-sm" onclick="addRehearsalBlock()" style="margin-bottom:18px">+ Add time block</button>
-  <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:18px">
-   <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:6px">Rehearsal period</div>
-   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Starts</label>
-     <input type="date" id="rehearsal-period-start" value="${lr.rehearsal_period_start||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
-    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Ends</label>
-     <input type="date" id="rehearsal-period-end" value="${lr.rehearsal_period_end||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
-   </div>
-  </div>
-  <div style="display:flex;gap:8px;justify-content:flex-end">
-   <button class="btn btn-secondary btn-sm" onclick="document.getElementById('rehearsal-schedule-modal').remove()">Cancel</button>
-   <button class="btn btn-primary btn-sm" onclick="confirmApproveWithSchedule('${id}')">Approve to Produce</button>
-  </div>
- </div>`
- document.body.appendChild(overlay)
- overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
- renderRehearsalBlocks()
-}
-
-function renderRehearsalBlocks(){
- const wrap = document.getElementById('rehearsal-blocks-wrap')
- if(!wrap) return
- wrap.innerHTML = _rehearsalBlocks.map((b,idx)=>`
-  <div style="border:1.5px solid var(--border-md);border-radius:var(--radius);padding:12px;margin-bottom:10px">
-   <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
-    ${REHEARSAL_DAY_OPTIONS.map(d=>`<label style="border:1.5px solid var(--border-md);border-radius:var(--radius);padding:5px 9px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:5px">
-      <input type="checkbox" onchange="toggleRehearsalBlockDay(${idx},'${d}',this.checked)" ${(b.days||[]).includes(d)?'checked':''}/> ${d}
-    </label>`).join('')}
-   </div>
-   <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:8px;align-items:end">
-    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">Start time</label>
-     <input type="time" value="${b.start_time||''}" oninput="updateRehearsalBlock(${idx},'start_time',this.value)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
-    <div><label style="font-size:11px;color:var(--text-muted);display:block;margin-bottom:3px">End time</label>
-     <input type="time" value="${b.end_time||''}" oninput="updateRehearsalBlock(${idx},'end_time',this.value)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>
-    ${_rehearsalBlocks.length>1?`<button class="btn btn-danger btn-sm" onclick="removeRehearsalBlock(${idx})">×</button>`:'<div></div>'}
-   </div>
-  </div>`).join('')
-}
-
-function addRehearsalBlock(){
- _rehearsalBlocks.push({days:[], start_time:'', end_time:''})
- renderRehearsalBlocks()
-}
-
-function removeRehearsalBlock(idx){
- _rehearsalBlocks.splice(idx,1)
- renderRehearsalBlocks()
-}
-
-function toggleRehearsalBlockDay(idx, day, checked){
- const b = _rehearsalBlocks[idx]
- const set = new Set(b.days||[])
- if(checked) set.add(day); else set.delete(day)
- b.days = REHEARSAL_DAY_OPTIONS.filter(d=>set.has(d))
-}
-
-function updateRehearsalBlock(idx, field, val){
- _rehearsalBlocks[idx][field] = val
-}
-
-async function confirmApproveWithSchedule(id){
- const rehearsal_period_start = document.getElementById('rehearsal-period-start')?.value||''
- const rehearsal_period_end = document.getElementById('rehearsal-period-end')?.value||''
- const blocks = _rehearsalBlocks.filter(b=>(b.days||[]).length && b.start_time && b.end_time)
- if(!blocks.length){ toast('Add at least one complete rehearsal block (days + start/end time)','error'); return }
- if(!rehearsal_period_start || !rehearsal_period_end){ toast('Rehearsal period start and end dates are required','error'); return }
- if(rehearsal_period_end < rehearsal_period_start){ toast('Rehearsal period end date must be on or after the start date','error'); return }
- const res = await api('/api/licensing-requests/'+id+'/approve-to-produce', 'POST', {
-  approved: true, rehearsal_blocks: blocks, rehearsal_period_start, rehearsal_period_end
- })
- if(res.error){ toast(res.error,'error'); return }
- const idx = licensingData.findIndex(x=>x.id===id)
- if(idx>-1) licensingData[idx] = res
- document.getElementById('rehearsal-schedule-modal')?.remove()
- renderLicensingSummaryCards()
- renderLicensingList()
- openLicensingDetail(id)
- toast('Marked approved to produce!')
 }
 
 async function saveLicensingDetail(id){
@@ -29408,8 +29403,14 @@ async function setApprovedToProduce(id, approved){
  if(idx>-1) licensingData[idx] = res
  renderLicensingSummaryCards()
  renderLicensingList()
- openLicensingDetail(id)
- toast(approved?'Marked approved to produce!':'Un-approved')
+ if(res.created_production_id){
+  document.getElementById('licensing-detail-modal')?.remove()
+  toast('Approved! Production created — build out its rehearsal schedule now.')
+  openProductionDetail(res.created_production_id)
+ } else {
+  openLicensingDetail(id)
+  toast(approved?'Marked approved to produce!':'Un-approved')
+ }
 }
 
 async function uploadLicensingContractFile(id, file){

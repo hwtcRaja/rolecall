@@ -226,13 +226,18 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   <div class="role-grid">
     <button class="role-btn vol" onclick="goVolSearch()">
       <div class="role-icon">👋</div>
-      <div class="role-label">Volunteer</div>
+      <div class="role-label">Check-In</div>
       <div class="role-desc">Log hours, sign waivers, update info</div>
     </button>
     <button class="role-btn elic" onclick="goElicPin()">
       <div class="role-icon">🎬</div>
       <div class="role-label">Event Lead</div>
       <div class="role-desc">Open or close an event (ELIC)</div>
+    </button>
+    <button class="role-btn elic" onclick="goPaidInstructionPin()">
+      <div class="role-icon">🎓</div>
+      <div class="role-label">Paid Instruction</div>
+      <div class="role-desc">Enter your instructor code</div>
     </button>
   </div>
 </div>
@@ -283,6 +288,9 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   <div class="sel-vol-bar">
     <div id="vm-av" style="width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:justify-content:center;font-size:15px;font-weight:700;flex-shrink:0"></div>
     <div><div style="font-weight:700;font-size:16px;color:var(--teal-dark)" id="vm-name"></div><div style="font-size:12px;color:var(--muted)">What would you like to do?</div></div>
+  </div>
+  <div id="paid-instruction-banner" style="display:none;background:#fef3c7;border:2px solid #f59e0b;color:#92400e;border-radius:var(--radius);padding:12px 16px;margin-bottom:14px;font-size:13px;font-weight:700;text-align:center">
+    🎓 Paid Instruction mode — time logged now will be marked as paid instruction
   </div>
   <!-- Active session banner -->
   <div id="active-session-banner" style="display:none;background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border-radius:var(--radius);padding:20px 24px;margin-bottom:14px">
@@ -421,15 +429,15 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   </div>
 </div>
 
-<!-- ELIC PIN -->
+<!-- PIN ENTRY (ELIC login or Paid Instruction code) -->
 <div class="screen hidden" id="screen-pin">
   <button class="back-btn" onclick="showScreen('screen-role')">← Back</button>
   <div class="screen-heading">
-    <div class="screen-title">ELIC Login</div>
-    <div class="screen-sub">Enter your 4-digit PIN</div>
+    <div class="screen-title" id="pin-screen-title">ELIC Login</div>
+    <div class="screen-sub" id="pin-screen-sub">Enter your 4-digit PIN</div>
   </div>
   <div class="pin-card">
-    <div style="font-size:14px;color:var(--muted);margin-bottom:8px">Your PIN</div>
+    <div style="font-size:14px;color:var(--muted);margin-bottom:8px" id="pin-card-label">Your PIN</div>
     <div class="pin-display" id="pin-display">____</div>
     <div class="pin-error" id="pin-error"></div>
     <div class="pin-grid">
@@ -582,7 +590,7 @@ function tapStart(){
   selVol=null;selEvent=null;curHours=0;pinVal='';elicData=null
   showScreen('screen-role')
 }
-function goIdle(){clearTimeout(resetTmt);showScreen('screen-idle');clearTimeout(idleTmt)}
+function goIdle(){clearTimeout(resetTmt);showScreen('screen-idle');clearTimeout(idleTmt);paidInstructionMode=false}
 
 // ── BEGIN / STOP VOLUNTEERING ──
 let _bvSelectedEvent = null
@@ -719,7 +727,7 @@ async function submitBeginVolunteering(){
     try {
       const r = await fetch('/api/kiosk/log-full-event', {
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({volunteer_id: selVol.id, event_id: _bvSelectedEvent.id, role})
+        body: JSON.stringify({volunteer_id: selVol.id, event_id: _bvSelectedEvent.id, role, paid_instruction: paidInstructionMode})
       })
       const d = await r.json()
       btn.disabled=false; btn.textContent='🟢 Begin Volunteering'
@@ -741,7 +749,8 @@ async function submitBeginVolunteering(){
         event_id:   _bvSelectedEvent ? _bvSelectedEvent.id : null,
         event_name: _bvSelectedEvent ? _bvSelectedEvent.name : (_bvOverrideReason || 'General Volunteering'),
         role,
-        override_reason: _bvOverrideReason || null
+        override_reason: _bvOverrideReason || null,
+        paid_instruction: paidInstructionMode
       })
     })
     const d = await r.json()
@@ -963,6 +972,7 @@ function goVolMenu(){
   document.getElementById('vm-av').style.color=col
   document.getElementById('vm-av').textContent=ini(selVol.name)
   document.getElementById('vm-name').textContent=selVol.name
+  document.getElementById('paid-instruction-banner').style.display=paidInstructionMode?'':'none'
   updateWaiverMenuBtn(waiverIssues.length)
   hideActiveSessionBanner()
   showScreen('screen-vol-menu')
@@ -1001,7 +1011,7 @@ function updH(){
 async function submitHours(){
   const btn=document.getElementById('h-sub')
   btn.disabled=true;btn.textContent='Submitting…'
-  const r=await fetch('/api/kiosk/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volunteer_id:selVol.id,event:selEvent.name,event_id:selEvent.id,hours:curHours,role:document.getElementById('h-role').value.trim()})})
+  const r=await fetch('/api/kiosk/submit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volunteer_id:selVol.id,event:selEvent.name,event_id:selEvent.id,hours:curHours,role:document.getElementById('h-role').value.trim(),paid_instruction:paidInstructionMode})})
   const d=await r.json()
   btn.textContent='Submit Hours'
   if(d.error){btn.disabled=false;alert(d.error);return}
@@ -1039,7 +1049,25 @@ async function submitUpdate(){
 
 // ── ELIC FLOW ──
 function goElicPin(){
+  pinMode='elic'
   pinVal=''
+  document.getElementById('pin-screen-title').textContent='ELIC Login'
+  document.getElementById('pin-screen-sub').textContent='Enter your 4-digit PIN'
+  document.getElementById('pin-card-label').textContent='Your PIN'
+  document.getElementById('pin-display').textContent='____'
+  document.getElementById('pin-error').textContent=''
+  showScreen('screen-pin')
+}
+
+let pinMode='elic'
+let paidInstructionMode=false
+
+function goPaidInstructionPin(){
+  pinMode='paid_instruction'
+  pinVal=''
+  document.getElementById('pin-screen-title').textContent='Paid Instruction'
+  document.getElementById('pin-screen-sub').textContent='Enter your 4-digit instructor code'
+  document.getElementById('pin-card-label').textContent='Your Code'
   document.getElementById('pin-display').textContent='____'
   document.getElementById('pin-error').textContent=''
   showScreen('screen-pin')
@@ -1059,6 +1087,7 @@ function updatePinDisplay(){
 }
 
 async function submitPin(){
+  if(pinMode==='paid_instruction') return submitPaidInstructionCode()
   document.getElementById('pin-error').textContent=''
   const r=await fetch('/api/kiosk/elic-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:pinVal})})
   const d=await r.json()
@@ -1086,6 +1115,22 @@ async function submitPin(){
   })
   renderElicMenu()
   showScreen('screen-elic-menu')
+}
+
+async function submitPaidInstructionCode(){
+  document.getElementById('pin-error').textContent=''
+  const r=await fetch('/api/kiosk/paid-instruction-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:pinVal})})
+  const d=await r.json()
+  if(d.error){
+    document.getElementById('pin-error').textContent=d.error
+    pinVal=''
+    document.getElementById('pin-display').textContent='____'
+    return
+  }
+  selVol=d.volunteer
+  waiverIssues=[]
+  paidInstructionMode=true
+  goVolMenu()
 }
 
 

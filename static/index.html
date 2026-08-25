@@ -1736,6 +1736,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Kiosk &amp; events</div>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('elics',this)">ELIC management</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('kiosk',this)">Kiosk settings</button>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('checklists',this)">Checklists</button>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('event-types',this)">Event types</button>
    </div>
@@ -2007,6 +2008,20 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-elic-master" style="accent-color:var(--teal-400)"/> Master ELIC</label>
  <button class="btn btn-primary btn-sm" onclick="addElic()">Add ELIC</button>
  </div>
+ </div>
+ </div>
+   </div>
+
+   <div id="settings-panel-kiosk" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Paid Instructors</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Instructors enter their own 4-digit code at the kiosk (under "Paid Instruction") to identify themselves and mark the time they're about to log as paid instruction — same idea as an ELIC PIN, but for instructors instead of event leads.</div>
+    <div class="settings-section">
+ <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Paid Instructors</div>
+ <div id="paid-instructors-list" style="margin-bottom:16px"></div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+ <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Volunteer *</div><select id="new-pi-vol" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"><option value="">— Select volunteer —</option></select></div>
+ <div style="min-width:100px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">4-Digit Code *</div><input type="text" id="new-pi-pin" maxlength="4" placeholder="e.g. 1234" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
+ <button class="btn btn-primary btn-sm" onclick="addPaidInstructor()">Add</button>
  </div>
  </div>
    </div>
@@ -3853,6 +3868,7 @@ let allPrograms = []
 let allProductions = []
 let currentProdId = null
 let allElics = []
+let allPaidInstructors = []
 let allChecklistItems = []
 let allOpeningChecklistItems = []
 let allEventTypes = []
@@ -9656,12 +9672,13 @@ async function attachFile(e,volId){
 // SETTINGS
 // ═══════════════════════════════════════════════════════════════
 async function loadSettings(){
- const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems,oclItems,evTypes]=await Promise.all([
+ const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems,oclItems,evTypes,piData]=await Promise.all([
  api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),
- api('/api/youth-programs'),api('/api/users'),api('/api/elics'),api('/api/checklist-items'),api('/api/opening-checklist-items'),api('/api/event-types')
+ api('/api/youth-programs'),api('/api/users'),api('/api/elics'),api('/api/checklist-items'),api('/api/opening-checklist-items'),api('/api/event-types'),api('/api/paid-instructors')
  ])
  interestTypes=itypes; waiverTypes=wtypes; allEvents=events; emailTemplates=etemplates; allPrograms=programs
  allElics=elicsData; allChecklistItems=clItems; allOpeningChecklistItems=oclItems; allEventTypes=evTypes
+ allPaidInstructors=Array.isArray(piData)?piData:[]
  renderInterestTypesSettings()
  renderWaiverTypesSettings()
  renderEventsSettings()
@@ -9669,10 +9686,12 @@ async function loadSettings(){
  renderEmailTemplatesSettings()
  renderUsersManagement(users)
  renderElicsSettings()
+ renderPaidInstructorsSettings()
  renderChecklistSettings()
  renderOpeningChecklistSettings()
  renderEventTypesSettings()
  populateElicVolSelect()
+ populatePaidInstructorVolSelect()
  populateWaiverTypeSelects()
  populateInterestFilter()
  buildInterestCheckboxes()
@@ -16764,6 +16783,63 @@ async function deleteElic(eid){
  populateElicVolSelect()
  renderEventsSettings()
  toast('ELIC removed')
+}
+
+function populatePaidInstructorVolSelect(){
+ const sel=document.getElementById('new-pi-vol')
+ if(!sel) return
+ const existing=new Set(allPaidInstructors.map(p=>p.volunteer_id))
+ sel.innerHTML='<option value="">— Select volunteer —</option>'+
+ volunteers.filter(v=>v.status==='active'&&!existing.has(v.id)).map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
+}
+
+function renderPaidInstructorsSettings(){
+ const el=document.getElementById('paid-instructors-list')
+ if(!el) return
+ if(!allPaidInstructors.length){el.innerHTML='<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">No paid instructors yet</div>';return}
+ el.innerHTML=allPaidInstructors.map(p=>`
+ <div class="setting-item">
+ <div>
+ <div class="setting-item-label">${escHtml(p.volunteer_name)}</div>
+ <div class="setting-item-sub">Code: ${p.pin} · ${p.active?'Active':'Inactive'}</div>
+ </div>
+ <div style="display:flex;gap:6px">
+ <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="togglePaidInstructorActive('${p.id}',${p.active})">${p.active?'Deactivate':'Activate'}</button>
+ <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deletePaidInstructor('${p.id}')">Delete</button>
+ </div>
+ </div>`).join('')
+}
+
+async function addPaidInstructor(){
+ const volId=document.getElementById('new-pi-vol').value
+ const pin=document.getElementById('new-pi-pin').value.trim()
+ if(!volId||!pin){toast('Volunteer and code are required','error');return}
+ const res=await api('/api/paid-instructors','POST',{volunteer_id:volId,pin})
+ if(res.error){toast(res.error,'error');return}
+ allPaidInstructors.push(res)
+ document.getElementById('new-pi-pin').value=''
+ renderPaidInstructorsSettings()
+ populatePaidInstructorVolSelect()
+ toast('Paid instructor added!','success')
+}
+
+async function togglePaidInstructorActive(pid,currently){
+ const p=allPaidInstructors.find(p=>p.id===pid)
+ if(!p) return
+ const res=await api(`/api/paid-instructors/${pid}`,'PUT',{...p,active:!currently})
+ if(res.error){toast(res.error,'error');return}
+ allPaidInstructors=allPaidInstructors.map(p=>p.id===pid?res:p)
+ renderPaidInstructorsSettings()
+ toast(res.active?'Instructor activated':'Instructor deactivated')
+}
+
+async function deletePaidInstructor(pid){
+ if(!confirm('Remove this paid instructor code?')) return
+ await api(`/api/paid-instructors/${pid}`,'DELETE')
+ allPaidInstructors=allPaidInstructors.filter(p=>p.id!==pid)
+ renderPaidInstructorsSettings()
+ populatePaidInstructorVolSelect()
+ toast('Paid instructor removed')
 }
 
 async function addEventElicUI(evid, sel){

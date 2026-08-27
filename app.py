@@ -2241,6 +2241,10 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS sms_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS sms_phones TEXT DEFAULT ''",
+        # HH:MM, America/New_York — checked to the exact minute by a
+        # dedicated per-minute scheduler job (see _start_oncall_scheduler),
+        # same mechanism the on-call alert already uses for precise timing.
+        "ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS send_time TEXT DEFAULT '09:00'",
         # One row per time a report actually fires — the token in the resulting
         # link (email button / SMS) always lives here so a text message link
         # keeps working without a login. The linked page re-queries LIVE data
@@ -12342,13 +12346,14 @@ def create_scheduled_report():
     import datetime as _dt
     next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
     execute(conn, '''INSERT INTO scheduled_reports
-        (id,name,report_type,cadence,send_day,recipient_user_ids,recipient_emails,params,is_active,next_send_at,sms_enabled,sms_phones)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (id,name,report_type,cadence,send_day,recipient_user_ids,recipient_emails,params,is_active,next_send_at,sms_enabled,sms_phones,send_time)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (rid, d.get('name',''), d['report_type'], d.get('cadence','monthly'),
          d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
          d.get('recipient_emails',''), json.dumps(d.get('params',{})),
          d.get('is_active',True), next_send,
-         bool(d.get('sms_enabled', False)), d.get('sms_phones','')))
+         bool(d.get('sms_enabled', False)), d.get('sms_phones',''),
+         (d.get('send_time') or '09:00').strip()))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM scheduled_reports WHERE id=%s', (rid,))
     conn.close()
@@ -12368,12 +12373,13 @@ def update_scheduled_report(rid):
     next_send = _compute_next_send(new_cadence, d.get('send_day',1), anchor)
     execute(conn, '''UPDATE scheduled_reports SET name=%s,report_type=%s,cadence=%s,
         send_day=%s,recipient_user_ids=%s,recipient_emails=%s,params=%s,is_active=%s,next_send_at=%s,
-        sms_enabled=%s,sms_phones=%s WHERE id=%s''',
+        sms_enabled=%s,sms_phones=%s,send_time=%s WHERE id=%s''',
         (d.get('name',''), d['report_type'], new_cadence,
          d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
          d.get('recipient_emails',''), json.dumps(d.get('params',{})),
          d.get('is_active',True), next_send,
-         bool(d.get('sms_enabled', False)), d.get('sms_phones',''), rid))
+         bool(d.get('sms_enabled', False)), d.get('sms_phones',''),
+         (d.get('send_time') or '09:00').strip(), rid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -12444,6 +12450,37 @@ def maybe_run_scheduled_reports():
                 app.logger.error(f'Scheduled report error {r["id"]}: {e}')
     except Exception as e:
         app.logger.error(f'Cron check error: {e}')
+
+def _check_scheduled_reports_precise():
+    """The reliable path — runs every minute via APScheduler (same mechanism
+    as the on-call alert), independent of site traffic. Fires a report only
+    on the exact minute matching its configured send_time, so 'every other
+    Thursday at 9am' actually means 9am, not 'sometime that day when someone
+    happens to visit the site'."""
+    try:
+        import datetime as _dtsr
+        from zoneinfo import ZoneInfo as _ZIsr
+        now = _dtsr.datetime.now(_ZIsr('America/New_York'))
+        conn = get_db()
+        due = fetchall(conn, """SELECT * FROM scheduled_reports
+            WHERE is_active=TRUE AND next_send_at IS NOT NULL
+            AND next_send_at::date <= CURRENT_DATE""") or []
+        conn.close()
+        for r in due:
+            send_time = (r.get('send_time') or '09:00').strip()
+            try:
+                t_parts = send_time.split(':')
+                target_hour, target_minute = int(t_parts[0]), int(t_parts[1])
+            except Exception:
+                target_hour, target_minute = 9, 0
+            if now.hour != target_hour or now.minute != target_minute:
+                continue
+            try:
+                _fire_scheduled_report(r)
+            except Exception as e:
+                app.logger.error(f'Scheduled report error {r["id"]}: {e}')
+    except Exception as e:
+        app.logger.error(f'Precise scheduled-report check error: {e}')
 
 def _fire_scheduled_report(r):
     import datetime as _dt
@@ -24007,6 +24044,8 @@ def _start_oncall_scheduler():
             except Exception as e:
                 app.logger.warning(f'Daily auto-close error: {e}')
         scheduler.add_job(_check_and_send, CronTrigger(minute='*'), id='oncall_check',
+                          max_instances=1, coalesce=True, misfire_grace_time=30)
+        scheduler.add_job(_check_scheduled_reports_precise, CronTrigger(minute='*'), id='scheduled_reports_check',
                           max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.add_job(_daily_auto_close, CronTrigger(hour=2, minute=0), id='daily_auto_close',
                           max_instances=1, coalesce=True)

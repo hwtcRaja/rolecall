@@ -8,6 +8,7 @@ import hmac
 import os
 import uuid
 import json
+import secrets
 from datetime import datetime, date, timedelta
 from werkzeug.utils import secure_filename
 import requests
@@ -258,6 +259,23 @@ def seed_system_email_templates(conn=None):
                     (str(uuid.uuid4()), key.replace('_',' ').title(), subject, body, key, description))
             except Exception as e:
                 app.logger.warning(f'Failed to seed template {key}: {e}')
+
+def _giving_programs_for(employer_program_text):
+    """A volunteer's employer_program is free text that can now name more than
+    one program (e.g. "Disney Cast Member, Universal Team Member") for anyone
+    who qualifies for both. Returns a list of program dicts — empty, one, or
+    both — instead of picking a single either/or branch like this used to."""
+    prog = (employer_program_text or '').lower()
+    programs = []
+    if 'disney' in prog:
+        programs.append({'key': 'disney', 'label': 'Disney Cast Member',
+                          'submit_name': 'Disney VoluntEARS', 'submit_link': 'https://disneyvoluntears.com',
+                          'icon': '🐭', 'tmpl_key': 'disney_reminder'})
+    if 'universal' in prog:
+        programs.append({'key': 'universal', 'label': 'Universal Team Member',
+                          'submit_name': 'Universal Giving', 'submit_link': 'https://universalgiving.org',
+                          'icon': '🎬', 'tmpl_key': 'universal_reminder'})
+    return programs
 
 def get_system_template(conn, key):
     """Get a system email template by key, returns None if not found."""
@@ -2221,6 +2239,20 @@ def init_db():
             last_sent_at TIMESTAMP,
             next_send_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS sms_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS sms_phones TEXT DEFAULT ''",
+        # One row per time a report actually fires — the token in the resulting
+        # link (email button / SMS) always lives here so a text message link
+        # keeps working without a login. The linked page re-queries LIVE data
+        # when visited rather than freezing what was true at send time, since
+        # for a payroll report "what's still unpaid" is the whole point and
+        # that only stays accurate if it's current.
+        """CREATE TABLE IF NOT EXISTS scheduled_report_runs (
+            id TEXT PRIMARY KEY,
+            scheduled_report_id TEXT REFERENCES scheduled_reports(id) ON DELETE CASCADE,
+            report_type TEXT NOT NULL,
+            token TEXT UNIQUE NOT NULL,
+            fired_at TIMESTAMP DEFAULT NOW())""",
 
         # Missing tables that get referenced
         """CREATE TABLE IF NOT EXISTS schedule_conflicts (
@@ -11913,6 +11945,163 @@ def build_enrollment_report(start_date, end_date):
     }
 
 
+def _esc(s):
+    """Lightweight HTML-escape for names/labels going into report emails —
+    avoids `import html` since that name is already used as a local variable
+    throughout this file."""
+    if s is None:
+        return ''
+    return (str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            .replace('"', '&quot;').replace("'", '&#39;'))
+
+def _hours_between(start_time, end_time):
+    """Duration in hours between two 'HH:MM' strings. Mirrors the same
+    calculation BloomBooks uses for its Pricing Calculator / studio charges,
+    so a session's paid hours are computed identically everywhere."""
+    if not start_time or not end_time:
+        return 0.0
+    try:
+        import datetime as _dt
+        sh, sm = [int(x) for x in start_time.split(':')[:2]]
+        eh, em = [int(x) for x in end_time.split(':')[:2]]
+        start = sh * 60 + sm
+        end = eh * 60 + em
+        diff = end - start
+        if diff < 0:
+            diff += 24 * 60
+        return round(diff / 60.0, 2)
+    except Exception:
+        return 0.0
+
+def build_payroll_unpaid_hours_report():
+    """Every paid-instruction hour logged in RoleCall that hasn't yet been
+    linked to a payment in BloomBooks — exactly the same 'payable' definition
+    BloomBooks itself uses when someone records a contractor payment. Reads
+    BloomBooks' bb_contractor_payments/bb_contractor_payment_events tables
+    directly since both apps share the same Postgres database."""
+    conn = get_db()
+    programs = fetchall(conn, """SELECT id, name, instructor_id, pay_rate_type, pay_rate_amount,
+        meeting_start_time, meeting_end_time FROM youth_programs
+        WHERE is_paid_instruction=TRUE AND instructor_id IS NOT NULL""") or []
+    people = {}
+    for p in programs:
+        p = dict(p)
+        vol = fetchone(conn, 'SELECT id, name, email, bb_contractor_id FROM volunteers WHERE id=%s', (p['instructor_id'],))
+        if not vol:
+            continue
+        vol = dict(vol)
+        rate_type = p.get('pay_rate_type') or 'hourly'
+        rate_amount = float(p.get('pay_rate_amount') or 0)
+        session_hours = _hours_between(p.get('meeting_start_time') or '', p.get('meeting_end_time') or '')
+        events = fetchall(conn, 'SELECT id, name, event_date FROM events WHERE program_id=%s', (p['id'],)) or []
+        for e in events:
+            e = dict(e)
+            logged = fetchone(conn, """SELECT COALESCE(SUM(hours),0) as t FROM hours
+                WHERE event_id=%s AND volunteer_id=%s AND pay_type='paid_instruction'""", (e['id'], vol['id']))
+            logged_hours = float(logged['t']) if logged else 0.0
+            if logged_hours <= 0:
+                continue
+            already_paid = fetchone(conn, """SELECT 1 FROM bb_contractor_payment_events cpe
+                JOIN bb_contractor_payments cp ON cp.id = cpe.payment_id
+                WHERE cpe.rolecall_event_id=%s AND cp.status != 'void' LIMIT 1""", (e['id'],))
+            if already_paid:
+                continue
+            amount = rate_amount if rate_type == 'per_class' else round(rate_amount * session_hours, 2)
+            key = vol['id']
+            if key not in people:
+                people[key] = {
+                    'volunteer_id': vol['id'], 'name': vol.get('name') or 'Unknown',
+                    'email': vol.get('email'), 'linked_to_bloombooks': bool(vol.get('bb_contractor_id')),
+                    'total_owed': 0.0, 'lines': []
+                }
+            people[key]['lines'].append({
+                'program_name': p['name'], 'event_name': e['name'], 'event_date': e.get('event_date'),
+                'rate_type': rate_type, 'rate_amount': rate_amount,
+                'hours': session_hours if rate_type == 'hourly' else None, 'amount': amount
+            })
+            people[key]['total_owed'] += amount
+    conn.close()
+    people_list = sorted(people.values(), key=lambda x: -x['total_owed'])
+    for pp in people_list:
+        pp['total_owed'] = round(pp['total_owed'], 2)
+        pp['lines'].sort(key=lambda l: l.get('event_date') or '')
+    grand_total = round(sum(pp['total_owed'] for pp in people_list), 2)
+    return {'people': people_list, 'grand_total': grand_total, 'generated_at': datetime.now().isoformat()}
+
+def build_payroll_report_html(data, standalone_page=False, link=None):
+    """Renders the unpaid-payroll report. Used both inside the scheduled
+    email and on the token-linked standalone page (same content either way —
+    the standalone page just re-runs the query live so it's never stale).
+    Pass link to include a "View Live Report" button (used in the email —
+    the standalone page itself doesn't need to link to itself)."""
+    people = data['people']
+    if not people:
+        body = '<p style="color:#6b7280">Nothing outstanding right now — every logged paid-instruction hour has already been paid.</p>'
+    else:
+        rows = ''
+        for pp in people:
+            lines_html = ''.join(
+                f'''<tr style="font-size:12px;color:#6b7280">
+                    <td style="padding:4px 12px 4px 28px">{_esc(l['program_name'])} — {_esc(l['event_name'])}{f" ({l['event_date']})" if l.get('event_date') else ''}</td>
+                    <td style="padding:4px 12px;text-align:right">{f"{l['hours']}h × ${l['rate_amount']:,.2f}" if l['rate_type']=='hourly' else f"flat ${l['rate_amount']:,.2f}"}</td>
+                    <td style="padding:4px 12px;text-align:right">${l['amount']:,.2f}</td>
+                </tr>''' for l in pp['lines'])
+            flag = '' if pp['linked_to_bloombooks'] else '<div style="font-size:11px;color:#b45309;margin-top:2px">⚠ Not yet linked to a contractor record in BloomBooks</div>'
+            rows += f'''
+            <tr style="background:#f9fafb"><td colspan="3" style="padding:10px 12px;font-weight:700;font-size:14px">{_esc(pp['name'])}
+                <span style="float:right">${pp['total_owed']:,.2f}</span>{flag}</td></tr>
+            {lines_html}'''
+        body = f'''<table style="width:100%;border-collapse:collapse;margin:16px 0">{rows}</table>
+        <div style="text-align:right;font-size:16px;font-weight:800;padding:12px;border-top:2px solid #145466">Total owed: ${data['grand_total']:,.2f}</div>'''
+    link_button = f'<div style="text-align:center;margin-top:20px"><a href="{link}" style="background:#145466;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">View Live Report</a></div>' if link else ''
+    generated = parse_db_datetime(data['generated_at']) or datetime.now()
+    header = f'''<div style="font-family:-apple-system,sans-serif;max-width:680px;margin:0 auto">
+      <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px 28px;border-radius:12px 12px 0 0">
+        <h2 style="color:#fff;margin:0;font-size:20px">Unpaid Payroll — Paid Instruction Hours</h2>
+        <p style="color:rgba(255,255,255,0.8);margin:6px 0 0;font-size:13px">Generated {generated.strftime('%B %d, %Y at %-I:%M %p')}</p>
+      </div>
+      <div style="background:#fff;padding:24px 28px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+        {body}
+        {link_button}
+      </div>
+    </div>'''
+    if standalone_page:
+        return f'<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Unpaid Payroll Report</title></head><body style="background:#f3f4f6;padding:20px 0">{header}</body></html>'
+    return header
+
+def _current_treasurer_contacts():
+    """Looks up the currently-serving Treasurer from the board roster, not a
+    fixed user — so this stays correct automatically if the role changes
+    hands, without anyone having to remember to update a recipient list."""
+    conn = get_db()
+    rows = fetchall(conn, "SELECT bm.email, bm.volunteer_id FROM board_members bm WHERE bm.role ILIKE '%%treasurer%%' AND bm.status='active'") or []
+    conn.close()
+    emails, phones = [], []
+    for r in rows:
+        if r.get('email'):
+            emails.append(r['email'])
+        if r.get('volunteer_id'):
+            conn2 = get_db()
+            vol = fetchone(conn2, 'SELECT phone FROM volunteers WHERE id=%s', (r['volunteer_id'],))
+            conn2.close()
+            if vol and vol.get('phone'):
+                phones.append(vol['phone'])
+    return emails, phones
+
+def _send_sms(to_phone, body):
+    ts = get_twilio_settings()
+    if not ts.get('account_sid') or not ts.get('auth_token') or not ts.get('from_phone'):
+        app.logger.warning('Twilio not configured — could not send SMS')
+        return False
+    try:
+        from twilio.rest import Client as _TwClient
+        client = _TwClient(ts['account_sid'], ts['auth_token'])
+        client.messages.create(body=body, from_=ts['from_phone'], to=to_phone)
+        return True
+    except Exception as e:
+        app.logger.warning(f'SMS send failed to {to_phone}: {e}')
+        return False
+
 def build_report_email_html(report_type, data, params=None):
     """Generate HTML email for a report."""
     from datetime import date
@@ -12153,12 +12342,13 @@ def create_scheduled_report():
     import datetime as _dt
     next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
     execute(conn, '''INSERT INTO scheduled_reports
-        (id,name,report_type,cadence,send_day,recipient_user_ids,recipient_emails,params,is_active,next_send_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (id,name,report_type,cadence,send_day,recipient_user_ids,recipient_emails,params,is_active,next_send_at,sms_enabled,sms_phones)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (rid, d.get('name',''), d['report_type'], d.get('cadence','monthly'),
          d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
          d.get('recipient_emails',''), json.dumps(d.get('params',{})),
-         d.get('is_active',True), next_send))
+         d.get('is_active',True), next_send,
+         bool(d.get('sms_enabled', False)), d.get('sms_phones','')))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM scheduled_reports WHERE id=%s', (rid,))
     conn.close()
@@ -12170,13 +12360,20 @@ def update_scheduled_report(rid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
+    existing = fetchone(conn, 'SELECT next_send_at, cadence FROM scheduled_reports WHERE id=%s', (rid,))
+    new_cadence = d.get('cadence','monthly')
+    # Only carry forward the existing next_send_at as the biweekly anchor if
+    # the cadence isn't changing — switching cadence should recompute fresh.
+    anchor = existing['next_send_at'] if (existing and existing.get('cadence') == new_cadence) else None
+    next_send = _compute_next_send(new_cadence, d.get('send_day',1), anchor)
     execute(conn, '''UPDATE scheduled_reports SET name=%s,report_type=%s,cadence=%s,
-        send_day=%s,recipient_user_ids=%s,recipient_emails=%s,params=%s,is_active=%s,next_send_at=%s WHERE id=%s''',
-        (d.get('name',''), d['report_type'], d.get('cadence','monthly'),
+        send_day=%s,recipient_user_ids=%s,recipient_emails=%s,params=%s,is_active=%s,next_send_at=%s,
+        sms_enabled=%s,sms_phones=%s WHERE id=%s''',
+        (d.get('name',''), d['report_type'], new_cadence,
          d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
          d.get('recipient_emails',''), json.dumps(d.get('params',{})),
-         d.get('is_active',True), next_send, rid))
+         d.get('is_active',True), next_send,
+         bool(d.get('sms_enabled', False)), d.get('sms_phones',''), rid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -12189,7 +12386,7 @@ def delete_scheduled_report(rid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
-def _compute_next_send(cadence, send_day):
+def _compute_next_send(cadence, send_day, current_next_send=None):
     import datetime as _dt
     today = _dt.date.today()
     day = max(1, min(28, int(send_day or 1)))
@@ -12205,6 +12402,21 @@ def _compute_next_send(cadence, send_day):
         except Exception: return None
     elif cadence == 'weekly':
         # Next occurrence of send_day (0=Mon)
+        days_ahead = (int(send_day) - today.weekday()) % 7
+        if days_ahead == 0: days_ahead = 7
+        return (today + _dt.timedelta(days=days_ahead)).isoformat()
+    elif cadence == 'biweekly':
+        # Self-perpetuating: always exactly 14 days after the last scheduled
+        # date, not "14 days from today" — keeps the every-other-week
+        # cadence exact even if the cron check happens to run a bit late.
+        # First time (no prior next_send to anchor from), fall back to the
+        # next occurrence of send_day, same as weekly.
+        if current_next_send:
+            try:
+                base = current_next_send if isinstance(current_next_send, _dt.date) else _dt.datetime.strptime(str(current_next_send)[:10], '%Y-%m-%d').date()
+                return (base + _dt.timedelta(days=14)).isoformat()
+            except Exception:
+                pass
         days_ahead = (int(send_day) - today.weekday()) % 7
         if days_ahead == 0: days_ahead = 7
         return (today + _dt.timedelta(days=days_ahead)).isoformat()
@@ -12240,7 +12452,10 @@ def _fire_scheduled_report(r):
     today  = _dt.date.today()
     lm     = (today.replace(day=1) - _dt.timedelta(days=1))
 
-    if rtype == 'monthly_recap':
+    if rtype == 'payroll_unpaid_hours':
+        _fire_payroll_report(r)
+        return
+    elif rtype == 'monthly_recap':
         data = build_volunteer_monthly_report(lm.year, lm.month)
     elif rtype == 'top_volunteers':
         start = params.get('start_date', lm.replace(day=1).isoformat())
@@ -12277,11 +12492,77 @@ def _fire_scheduled_report(r):
     ok, _ = send_email(emails, subject, html)
     if ok:
         # Update last sent and compute next send
-        next_send = _compute_next_send(r['cadence'], r['send_day'])
+        next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'))
         conn = get_db()
         execute(conn, 'UPDATE scheduled_reports SET last_sent_at=NOW(), next_send_at=%s WHERE id=%s',
                 (next_send, r['id']))
         conn.commit(); conn.close()
+
+def _fire_payroll_report(r):
+    """Fires the Unpaid Payroll report — always includes the current
+    Treasurer (looked up live from the board roster, not a fixed recipient)
+    plus whatever's manually configured, emails a copy, and — if enabled —
+    texts a link to a live-refreshing view of the same report."""
+    data = build_payroll_unpaid_hours_report()
+    subject = f"💰 Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
+
+    conn = get_db()
+    emails = []
+    try:
+        uids = json.loads(r.get('recipient_user_ids') or '[]')
+        if uids:
+            placeholders = ','.join(['%s']*len(uids))
+            users = fetchall(conn, f'SELECT email FROM users WHERE id IN ({placeholders})', tuple(uids))
+            emails = [u['email'] for u in users if u.get('email')]
+    except Exception: pass
+    conn.close()
+    raw = r.get('recipient_emails','')
+    if raw:
+        emails += [e.strip() for e in raw.split(',') if e.strip()]
+    treasurer_emails, treasurer_phones = _current_treasurer_contacts()
+    emails = list(set(emails + treasurer_emails))
+    if not emails:
+        return
+
+    # A fresh token per firing, so each text/email links to its own send —
+    # the page behind it always shows current live data when opened, though.
+    token = secrets.token_urlsafe(24)
+    conn = get_db()
+    execute(conn, '''INSERT INTO scheduled_report_runs (id, scheduled_report_id, report_type, token)
+        VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), r['id'], 'payroll_unpaid_hours', token))
+    conn.commit(); conn.close()
+    link = f'{APP_URL}/payroll-report/{token}'
+    html_with_link = build_payroll_report_html(data, link=link)
+
+    ok, _ = send_email(emails, subject, html_with_link)
+
+    if r.get('sms_enabled'):
+        phones = [p.strip() for p in (r.get('sms_phones') or '').split(',') if p.strip()] + treasurer_phones
+        phones = list(set(phones))
+        sms_body = f"💰 Unpaid Payroll Report: {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed. View: {link}"
+        for phone in phones:
+            _send_sms(phone, sms_body)
+
+    if ok:
+        next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'))
+        conn = get_db()
+        execute(conn, 'UPDATE scheduled_reports SET last_sent_at=NOW(), next_send_at=%s WHERE id=%s',
+                (next_send, r['id']))
+        conn.commit(); conn.close()
+
+@app.route('/payroll-report/<token>')
+def view_payroll_report(token):
+    """The link a payroll report's email/text points to — no login required
+    (the token itself is the access control, same idea as other share links
+    in the app), and always shows the current live unpaid-hours state rather
+    than whatever was true when the report first fired."""
+    conn = get_db()
+    run = fetchone(conn, 'SELECT * FROM scheduled_report_runs WHERE token=%s', (token,))
+    conn.close()
+    if not run:
+        return 'Report link not found or expired.', 404
+    data = build_payroll_unpaid_hours_report()
+    return build_payroll_report_html(data, standalone_page=True)
 
 # Hook cron into every request
 @app.after_request
@@ -16879,49 +17160,53 @@ def send_single_giving_reminder(vol_id):
     conn = get_db()
     v = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     if not v: conn.close(); return jsonify({'error': 'Volunteer not found'}), 404
-    prog = (v.get('employer_program') or '').strip()
-    if not prog: conn.close(); return jsonify({'error': 'No employer program set for this volunteer'}), 400
-    is_disney = 'disney' in prog.lower()
-    prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
-    submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
-    submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
-    icon = '🐭' if is_disney else '🎬'
-    conn2 = get_db()
-    tmpl = get_system_template(conn2, 'disney_reminder' if is_disney else 'universal_reminder')
-    hours_section, total = build_hours_section(conn2, vol_id, submit_name, submit_link)
-    conn2.close()
+    prog_text = (v.get('employer_program') or '').strip()
+    programs = _giving_programs_for(prog_text)
     conn.close()
-    if not hours_section:
-        return jsonify({'error': 'No hours logged in the last year  -  nothing to remind about'}), 400
+    data = request.json or {}
+    program_filter = data.get('program')
+    if program_filter:
+        programs = [p for p in programs if p['key'] == program_filter]
+    if not programs: return jsonify({'error': 'No employer program set for this volunteer'}), 400
     name = (v.get('name') or 'Volunteer').strip()
-    if tmpl:
-        base_body = tmpl['body'].replace('{{name}}', name)
-        subj = tmpl['subject']
-    else:
-        base_body = f'<p>Hi {name}, please submit your hours to {submit_name}.</p>'
-        subj = f'{icon} Reminder: Submit Your Volunteer Hours  -  {prog_label} Giving Program'
-    # Inject hours table before the last closing div
-    if '</div>' in base_body:
-        idx = base_body.rfind('</div>')
-        body = base_body[:idx] + hours_section + base_body[idx:]
-    else:
-        body = base_body + hours_section
-    conn3 = get_db()
-    d = request.json or {}
-    fi = d.get('from_identity') or {}
-    ok, msg = send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
-    if ok:
-        log_volunteer_comm(conn3, vol_id, subj,
-            'disney_reminder' if is_disney else 'universal_reminder',
-            session.get('user_name', 'admin'), v['email'])
-        execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)
-            VALUES (%s,%s,%s,%s)''',
-            (str(uuid.uuid4()), vol_id, 'disney' if is_disney else 'universal',
-             session.get('user_name', 'admin')))
-        conn3.commit()
-    conn3.close()
-    if not ok: return jsonify({'error': msg or 'Failed to send'}), 500
-    return jsonify({'ok': True, 'sent_to': v['email'], 'total_hours': total})
+    fi = data.get('from_identity') or {}
+    sent_to = []
+    errors = []
+    total_hours = 0
+    for prog in programs:
+        conn2 = get_db()
+        tmpl = get_system_template(conn2, prog['tmpl_key'])
+        hours_section, total = build_hours_section(conn2, vol_id, prog['submit_name'], prog['submit_link'])
+        conn2.close()
+        if not hours_section:
+            errors.append(f"{prog['label']}: no hours logged in the last year — nothing to remind about")
+            continue
+        total_hours = max(total_hours, total)
+        if tmpl:
+            base_body = tmpl['body'].replace('{{name}}', name)
+            subj = tmpl['subject']
+        else:
+            base_body = f"<p>Hi {name}, please submit your hours to {prog['submit_name']}.</p>"
+            subj = f"{prog['icon']} Reminder: Submit Your Volunteer Hours  -  {prog['label']} Giving Program"
+        if '</div>' in base_body:
+            idx = base_body.rfind('</div>')
+            body = base_body[:idx] + hours_section + base_body[idx:]
+        else:
+            body = base_body + hours_section
+        ok, msg = send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
+        if ok:
+            conn3 = get_db()
+            log_volunteer_comm(conn3, vol_id, subj, prog['tmpl_key'], session.get('user_name', 'admin'), v['email'])
+            execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)
+                VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), vol_id, prog['key'], session.get('user_name', 'admin')))
+            conn3.commit(); conn3.close()
+            sent_to.append(prog['label'])
+        else:
+            errors.append(f"{prog['label']}: {msg or 'failed to send'}")
+    if not sent_to:
+        return jsonify({'error': '; '.join(errors) or 'Failed to send'}), 400
+    return jsonify({'ok': True, 'sent_to': v['email'], 'programs_sent': sent_to, 'total_hours': total_hours,
+                     'errors': errors or None})
 
 def build_hours_section(conn, vol_id, submit_name, submit_link):
     """Build a personalized hours table HTML section for a volunteer."""
@@ -17002,18 +17287,16 @@ def get_employer_reminder_log():
 
 @app.route('/api/volunteers/employer-program-reminder', methods=['POST'])
 def send_employer_program_reminder():
+    """Bulk-sends giving-program reminders. A volunteer who qualifies for both
+    Disney and Universal gets both reminders, tracked and rate-limited
+    independently per program — sending one doesn't suppress the other."""
     err = require_admin()
     if err: return err
     d = request.json or {}
-    program_filter = d.get('program')
+    program_filter = d.get('program')  # 'disney' | 'universal' | None (both)
     min_days = int(d.get('min_days_since_last', 30))  # don't resend within X days
     conn = get_db()
-    if program_filter == 'disney':
-        condition = "LOWER(v.employer_program) LIKE '%%disney%%'"
-    elif program_filter == 'universal':
-        condition = "LOWER(v.employer_program) LIKE '%%universal%%'"
-    else:
-        condition = "(LOWER(v.employer_program) LIKE '%%disney%%' OR LOWER(v.employer_program) LIKE '%%universal%%')"
+    condition = "(LOWER(v.employer_program) LIKE '%%disney%%' OR LOWER(v.employer_program) LIKE '%%universal%%')"
     volunteers = fetchall(conn, f"""
         SELECT DISTINCT v.id, v.name, v.email, v.employer_program
         FROM volunteers v
@@ -17023,49 +17306,47 @@ def send_employer_program_reminder():
           AND h.date::date >= (CURRENT_DATE - INTERVAL '90 days')
           AND v.email IS NOT NULL AND v.email != ''
     """)
-    # Convert to plain dicts so we can add last_sent field
     volunteers = [dict(v) for v in volunteers]
-    # Look up last send time for each volunteer separately (avoids DISTINCT + subquery issues)
+
+    # Build the (volunteer, program) work list — a volunteer with both
+    # programs appears once per applicable program, each tracked separately.
+    jobs = []
     for v in volunteers:
-        last = fetchone(conn, 'SELECT MAX(sent_at) as last_sent FROM employer_reminder_log WHERE volunteer_id=%s', (v['id'],))
-        v['last_sent'] = last['last_sent'] if last else None
+        for prog in _giving_programs_for(v.get('employer_program')):
+            if program_filter and prog['key'] != program_filter:
+                continue
+            last = fetchone(conn, '''SELECT MAX(sent_at) as last_sent FROM employer_reminder_log
+                WHERE volunteer_id=%s AND program_type=%s''', (v['id'], prog['key']))
+            jobs.append({'volunteer': v, 'program': prog, 'last_sent': last['last_sent'] if last else None})
     conn.close()
-    if not volunteers:
+    if not jobs:
         return jsonify({'ok': True, 'sent': 0, 'skipped': 0, 'message': 'No qualifying volunteers found with recent hours'})
+
     sent = 0
     skipped = 0
     skipped_names = []
     errors = []
-    for v in volunteers:
-        # Skip if sent recently
-        if v.get('last_sent'):
-            from datetime import datetime, timezone
-            last = v['last_sent']
-            last_dt = parse_db_datetime(last)
+    for job in jobs:
+        v, prog = job['volunteer'], job['program']
+        name = (v.get('name') or 'Volunteer').strip()
+        if job['last_sent']:
+            last_dt = parse_db_datetime(job['last_sent'])
             if last_dt is not None:
                 diff = (datetime.utcnow() - last_dt).days
                 if diff < min_days:
                     skipped += 1
-                    skipped_names.append((v.get('name') or 'Unknown') + f' (sent {diff}d ago)')
+                    skipped_names.append(f"{name} — {prog['label']} (sent {diff}d ago)")
                     continue
-        prog = (v.get('employer_program') or '').strip()
-        is_disney = 'disney' in prog.lower()
-        submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
-        submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
-        tmpl_key = 'disney_reminder' if is_disney else 'universal_reminder'
         conn2 = get_db()
-        tmpl = get_system_template(conn2, tmpl_key)
-        hours_section, _ = build_hours_section(conn2, v['id'], submit_name, submit_link)
+        tmpl = get_system_template(conn2, prog['tmpl_key'])
+        hours_section, _ = build_hours_section(conn2, v['id'], prog['submit_name'], prog['submit_link'])
         conn2.close()
-        name = (v.get('name') or 'Volunteer').strip()
         if tmpl:
             base_body = tmpl['body'].replace('{{name}}', name)
             subj = tmpl['subject']
         else:
-            prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
-            subj = f'Reminder: Submit Your Volunteer Hours  -  {prog_label} Giving Program'
-            base_body = f'<p>Hi {name}, please consider submitting your volunteer hours to the {prog_label} giving program.</p>'
-        # Inject hours table before closing div
+            subj = f"Reminder: Submit Your Volunteer Hours  -  {prog['label']} Giving Program"
+            base_body = f"<p>Hi {name}, please consider submitting your volunteer hours to the {prog['label']} giving program.</p>"
         if hours_section:
             if '</div>' in base_body:
                 idx = base_body.rfind('</div>')
@@ -17080,18 +17361,14 @@ def send_employer_program_reminder():
             sent += 1
             conn3 = get_db()
             execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)
-                VALUES (%s,%s,%s,%s)''',
-                (str(uuid.uuid4()), v['id'], 'disney' if is_disney else 'universal',
-                 session.get('user_name','admin')))
-            log_volunteer_comm(conn3, v['id'], subj,
-                'disney_reminder' if is_disney else 'universal_reminder',
-                session.get('user_name','admin'), v.get('email',''))
+                VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), v['id'], prog['key'], session.get('user_name','admin')))
+            log_volunteer_comm(conn3, v['id'], subj, prog['tmpl_key'], session.get('user_name','admin'), v.get('email',''))
             conn3.commit(); conn3.close()
         except Exception as e:
-            errors.append(f'{name}: {str(e)}')
+            errors.append(f"{name} — {prog['label']}: {str(e)}")
     return jsonify({'ok': True, 'sent': sent, 'skipped': skipped,
                     'skipped_names': skipped_names, 'errors': errors,
-                    'total': len(volunteers)})
+                    'total': len(jobs)})
 
 if __name__ == '__main__':
     print('\n🎭 RoleCall is running!')

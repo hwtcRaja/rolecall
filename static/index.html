@@ -17565,6 +17565,7 @@ function renderScheduledReportsList(){
  </div>
  </div>
  <div style="display:flex;gap:6px;flex-shrink:0">
+ ${r.sms_enabled?`<button class="btn btn-outline btn-sm" onclick="testScheduledReportSms('${r.id}','${escHtml(r.name)}')">Test Text</button>`:''}
  <button class="btn btn-secondary btn-sm" onclick="openScheduledReportForm('${r.id}')">Edit Schedule</button>
  <button class="btn btn-danger btn-sm" onclick="deleteScheduledReport('${r.id}')">Delete</button>
  </div>
@@ -17664,6 +17665,33 @@ async function deleteScheduledReport(rid){
  if(res.error){ toast(res.error,'error'); return }
  toast('Deleted')
  await loadScheduledReports()
+}
+
+async function testScheduledReportSms(rid, name){
+ const btn = event?.target
+ if(btn){ btn.disabled = true; btn.textContent = 'Sending…' }
+ const res = await api('/api/scheduled-reports/'+rid+'/test-sms','POST',{})
+ if(btn){ btn.disabled = false; btn.textContent = 'Test Text' }
+ if(res.error){ toast(res.error,'error'); return }
+ var lines = []
+ if(!res.twilio_configured) lines.push('⚠ Twilio is not configured in Settings — add an Account SID, Auth Token, and From Phone number there first.')
+ if(res.note) lines.push(res.note)
+ if(res.phones_checked && res.phones_checked.length){
+ res.phones_checked.forEach(function(p){
+ lines.push((p.ok?'✅ ':'❌ ')+p.phone+(p.ok?' — sent':' — '+(p.error||'failed')))
+ })
+ }
+ var overlay = document.createElement('div')
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;padding:20px'
+ var modal = document.createElement('div')
+ modal.style.cssText = 'background:var(--surface);border-radius:14px;width:100%;max-width:460px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3)'
+ modal.innerHTML = '<div style="font-size:16px;font-weight:800;margin-bottom:4px">Test Text — '+escHtml(name)+'</div>'
+ + '<div style="font-size:13px;line-height:1.7;margin-top:12px;white-space:pre-wrap">'+lines.map(escHtml).join('\n')+'</div>'
+ + '<button class="btn btn-primary" id="test-sms-close-btn" style="margin-top:18px;width:100%">Close</button>'
+ overlay.appendChild(modal)
+ document.body.appendChild(overlay)
+ modal.querySelector('#test-sms-close-btn').addEventListener('click', function(){ overlay.remove() })
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
 }
 
 async function loadEventLogs(){

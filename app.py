@@ -12220,6 +12220,9 @@ def run_report():
         end   = params.get('end_date', today.isoformat())
         data  = build_enrollment_report(start, end)
 
+    elif rtype == 'payroll_unpaid_hours':
+        data = build_payroll_unpaid_hours_report()
+
     else:
         return jsonify({'error': 'Unknown report type'}), 400
 
@@ -12310,6 +12313,24 @@ def send_report_now():
         data = build_hours_by_event_report(
             params.get('start_date', today.replace(day=1).isoformat()),
             params.get('end_date', today.isoformat()))
+    elif rtype == 'payroll_unpaid_hours':
+        data = build_payroll_unpaid_hours_report()
+        if not emails:
+            settings = get_email_settings()
+            emails = get_recipient_emails(settings)
+        if not emails:
+            return jsonify({'error': 'No recipients configured'}), 400
+        token = secrets.token_urlsafe(24)
+        conn = get_db()
+        execute(conn, '''INSERT INTO scheduled_report_runs (id, scheduled_report_id, report_type, token)
+            VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), None, 'payroll_unpaid_hours', token))
+        conn.commit(); conn.close()
+        html = build_payroll_report_html(data, link=f'{APP_URL}/payroll-report/{token}')
+        subject = f"💰 Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
+        fi = d.get('from_identity') or {}
+        ok, msg = send_email(emails, subject, html, fi.get('email') or None, fi.get('name') or None)
+        if ok: return jsonify({'ok': True, 'sent_to': emails})
+        return jsonify({'error': msg or 'Failed to send'}), 500
     else:
         return jsonify({'error': 'Unknown report type'}), 400
 

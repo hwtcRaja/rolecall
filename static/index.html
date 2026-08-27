@@ -17525,6 +17525,17 @@ function formatSendTime(t){
  return h12+':'+m+' '+ampm
  }catch(e){ return t }
 }
+function formatNextSend(nextSendAt, sendTime){
+ // next_send_at only ever carries a date (always midnight) — the actual
+ // send moment is that date combined with the report's own send_time field.
+ if(!nextSendAt) return ''
+ try{
+ var datePart = String(nextSendAt).slice(0,10)
+ var timePart = sendTime || '09:00'
+ var d = new Date(datePart+'T'+timePart+':00')
+ return d.toLocaleString('en-US',{month:'short',day:'numeric',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true})+' EST'
+ }catch(e){ return formatDateTime(nextSendAt) }
+}
 function renderScheduledReportsList(){
  const el = document.getElementById('scheduled-reports-list')
  if(!el) return
@@ -17549,7 +17560,7 @@ function renderScheduledReportsList(){
  <div style="font-size:13px;color:var(--text-muted);display:flex;gap:14px;flex-wrap:wrap">
  <span>${rtype?.icon||''} ${rtype?.label||r.report_type}</span>
  <span> ${cadenceLabel}${r.send_time?` at ${formatSendTime(r.send_time)}`:''}</span>
- ${r.next_send_at?`<span>Next: ${formatDateTime(r.next_send_at)}</span>`:''}
+ ${r.next_send_at?`<span>Next: ${formatNextSend(r.next_send_at, r.send_time)}</span>`:''}
  ${r.last_sent_at?`<span style="color:var(--text-hint)">Last sent: ${formatDateTime(r.last_sent_at)}</span>`:''}
  </div>
  </div>

@@ -12093,18 +12093,22 @@ def _current_treasurer_contacts():
     return emails, phones
 
 def _send_sms(to_phone, body):
+    """Returns (success, error_message) — error_message is None on success,
+    so failures can actually be shown to whoever's diagnosing them instead of
+    only ever landing in a server log nobody can see."""
     ts = get_twilio_settings()
     if not ts.get('account_sid') or not ts.get('auth_token') or not ts.get('from_phone'):
+        msg = 'Twilio is not configured — add an Account SID, Auth Token, and From Phone number in Settings.'
         app.logger.warning('Twilio not configured — could not send SMS')
-        return False
+        return False, msg
     try:
         from twilio.rest import Client as _TwClient
         client = _TwClient(ts['account_sid'], ts['auth_token'])
         client.messages.create(body=body, from_=ts['from_phone'], to=to_phone)
-        return True
+        return True, None
     except Exception as e:
         app.logger.warning(f'SMS send failed to {to_phone}: {e}')
-        return False
+        return False, str(e)
 
 def build_report_email_html(report_type, data, params=None):
     """Generate HTML email for a report."""
@@ -12420,6 +12424,39 @@ def delete_scheduled_report(rid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/scheduled-reports/<rid>/test-sms', methods=['POST'])
+def test_scheduled_report_sms(rid):
+    """Sends a real test text to every phone number this report would text,
+    and reports back exactly what happened for each one — configured wrong,
+    no phone numbers at all, Twilio rejected it, whatever — instead of that
+    failing silently in a server log nobody can see."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    r = fetchone(conn, 'SELECT * FROM scheduled_reports WHERE id=%s', (rid,))
+    conn.close()
+    if not r:
+        return jsonify({'error': 'Not found'}), 404
+    ts = get_twilio_settings()
+    twilio_configured = bool(ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'))
+
+    treasurer_emails, treasurer_phones = _current_treasurer_contacts()
+    phones = [p.strip() for p in (r.get('sms_phones') or '').split(',') if p.strip()] + treasurer_phones
+    phones = list(set(phones))
+
+    if not r.get('sms_enabled'):
+        return jsonify({'twilio_configured': twilio_configured, 'phones_checked': [],
+                        'note': '"Also send a text alert" isn\'t checked on this report — nothing would be texted even when it fires.'})
+    if not phones:
+        return jsonify({'twilio_configured': twilio_configured, 'phones_checked': [],
+                        'note': 'No phone numbers to send to — the Treasurer has no phone on their volunteer record, and no numbers are entered in "Text Alert Phone Numbers" on this report.'})
+
+    results = []
+    for phone in phones:
+        ok, error = _send_sms(phone, f'RoleCall test text for "{r.get("name","")}" — if you got this, texts for this report are working.')
+        results.append({'phone': phone, 'ok': ok, 'error': error})
+    return jsonify({'twilio_configured': twilio_configured, 'phones_checked': results})
+
 def _compute_next_send(cadence, send_day, current_next_send=None, send_time=None):
     import datetime as _dt
     from zoneinfo import ZoneInfo as _ZIcns
@@ -12638,7 +12675,8 @@ def _fire_payroll_report(r):
     if phones:
         sms_body = f"💰 Unpaid Payroll Report: {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed. View: {link}"
         for phone in phones:
-            if _send_sms(phone, sms_body):
+            ok_sms, _err = _send_sms(phone, sms_body)
+            if ok_sms:
                 sent_something = True
 
     if sent_something:

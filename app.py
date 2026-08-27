@@ -2245,18 +2245,29 @@ def init_db():
         # dedicated per-minute scheduler job (see _start_oncall_scheduler),
         # same mechanism the on-call alert already uses for precise timing.
         "ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS send_time TEXT DEFAULT '09:00'",
-        # One row per time a report actually fires — the token in the resulting
-        # link (email button / SMS) always lives here so a text message link
-        # keeps working without a login. The linked page re-queries LIVE data
-        # when visited rather than freezing what was true at send time, since
-        # for a payroll report "what's still unpaid" is the whole point and
-        # that only stays accurate if it's current.
+        # One row per time a report actually fires — a real, queryable log so
+        # "did it send, and did anything go wrong" never again has to be
+        # answered by guessing or digging through server logs. The token (for
+        # report types that have a live-link, like payroll) also lives here.
         """CREATE TABLE IF NOT EXISTS scheduled_report_runs (
             id TEXT PRIMARY KEY,
             scheduled_report_id TEXT REFERENCES scheduled_reports(id) ON DELETE CASCADE,
             report_type TEXT NOT NULL,
-            token TEXT UNIQUE NOT NULL,
-            fired_at TIMESTAMP DEFAULT NOW())""",
+            token TEXT,
+            fired_at TIMESTAMP DEFAULT NOW(),
+            success BOOLEAN DEFAULT FALSE,
+            email_sent_to TEXT DEFAULT '',
+            email_error TEXT,
+            sms_sent_to TEXT DEFAULT '',
+            sms_errors TEXT,
+            note TEXT)""",
+        "ALTER TABLE scheduled_report_runs DROP CONSTRAINT IF EXISTS scheduled_report_runs_token_key",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS success BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS email_sent_to TEXT DEFAULT ''",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS email_error TEXT",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS sms_sent_to TEXT DEFAULT ''",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS sms_errors TEXT",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS note TEXT",
 
         # Missing tables that get referenced
         """CREATE TABLE IF NOT EXISTS schedule_conflicts (
@@ -12424,6 +12435,24 @@ def delete_scheduled_report(rid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/scheduled-reports/<rid>/send-log', methods=['GET'])
+def get_scheduled_report_send_log(rid):
+    """Real history of every time this report has actually fired — success
+    or failure, per channel, with the exact error if something went wrong.
+    Answers 'did it send, and did anything go wrong' without needing server
+    log access."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    runs = fetchall(conn, '''SELECT * FROM scheduled_report_runs
+        WHERE scheduled_report_id=%s ORDER BY fired_at DESC LIMIT 20''', (rid,)) or []
+    conn.close()
+    for run in runs:
+        if run.get('sms_errors'):
+            try: run['sms_errors'] = json.loads(run['sms_errors'])
+            except Exception: pass
+    return jsonify(runs)
+
 @app.route('/api/scheduled-reports/scheduler-status', methods=['GET'])
 def get_scheduler_status():
     """Proof the background scheduler that actually fires reports on time is
@@ -12566,10 +12595,13 @@ def maybe_run_scheduled_reports():
 
 def _check_scheduled_reports_precise():
     """The reliable path — runs every minute via APScheduler (same mechanism
-    as the on-call alert), independent of site traffic. Fires a report only
-    on the exact minute matching its configured send_time, so 'every other
-    Thursday at 9am' actually means 9am, not 'sometime that day when someone
-    happens to visit the site'."""
+    as the on-call alert), independent of site traffic. Fires a report once
+    the current time has reached (or passed) its configured send_time for
+    the day — not only on an exact-minute match, so a brief scheduler outage
+    (a deploy restarting the app right at the scheduled moment, for example)
+    doesn't cause that day's send to be skipped entirely until the next
+    cycle. last_sent_at's date is what prevents firing more than once per
+    day, instead of relying on hitting one precise minute."""
     try:
         conn0 = get_db()
         execute(conn0, """INSERT INTO settings (key, value) VALUES ('scheduler_heartbeat', NOW()::text)
@@ -12593,8 +12625,11 @@ def _check_scheduled_reports_precise():
                 target_hour, target_minute = int(t_parts[0]), int(t_parts[1])
             except Exception:
                 target_hour, target_minute = 9, 0
-            if now.hour != target_hour or now.minute != target_minute:
+            if (now.hour, now.minute) < (target_hour, target_minute):
                 continue
+            last_sent = parse_db_datetime(r.get('last_sent_at'))
+            if last_sent and last_sent.date() == now.date():
+                continue  # already fired today — don't re-fire on every later check
             try:
                 _fire_scheduled_report(r)
             except Exception as e:
@@ -12643,10 +12678,19 @@ def _fire_scheduled_report(r):
     raw = r.get('recipient_emails','')
     if raw:
         emails += [e.strip() for e in raw.split(',') if e.strip()]
-    emails = list(set(emails))
-    if not emails: return
+    if not emails:
+        c = get_db()
+        execute(c, '''INSERT INTO scheduled_report_runs (id, scheduled_report_id, report_type, success, note)
+            VALUES (%s,%s,%s,FALSE,%s)''', (str(uuid.uuid4()), r['id'], rtype, 'No email recipients configured.'))
+        c.commit(); c.close()
+        return
 
-    ok, _ = send_email(emails, subject, html)
+    ok, msg = send_email(emails, subject, html)
+    c = get_db()
+    execute(c, '''INSERT INTO scheduled_report_runs (id, scheduled_report_id, report_type, success, email_sent_to, email_error)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (str(uuid.uuid4()), r['id'], rtype, ok, ', '.join(emails) if ok else '', None if ok else (msg or 'Failed to send')))
+    c.commit(); c.close()
     if ok:
         # Update last sent and compute next send
         next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'), r.get('send_time'))
@@ -12661,7 +12705,9 @@ def _fire_payroll_report(r):
     plus whatever's manually configured, emails a copy, and — if enabled —
     texts a link to a live-refreshing view of the same report. Email and SMS
     are independent: having no email recipients configured must never block
-    the text from going out, and vice versa."""
+    the text from going out, and vice versa. Every attempt gets logged to
+    scheduled_report_runs — success or failure — so "did it actually send"
+    is always answerable without server log access."""
     data = build_payroll_unpaid_hours_report()
     subject = f"💰 Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
 
@@ -12686,40 +12732,56 @@ def _fire_payroll_report(r):
         phones = [p.strip() for p in (r.get('sms_phones') or '').split(',') if p.strip()] + treasurer_phones
         phones = list(set(phones))
 
+    def _log_run(success, email_sent_to='', email_error=None, sms_sent_to='', sms_errors=None, note=None, token=None):
+        c = get_db()
+        execute(c, '''INSERT INTO scheduled_report_runs
+            (id, scheduled_report_id, report_type, token, success, email_sent_to, email_error, sms_sent_to, sms_errors, note)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), r['id'], 'payroll_unpaid_hours', token, success,
+             email_sent_to, email_error, sms_sent_to, json.dumps(sms_errors) if sms_errors else None, note))
+        c.commit(); c.close()
+
     if not emails and not phones:
-        # Genuinely nothing configured to send to at all — nothing to do,
-        # and nothing to advance the schedule for either.
+        # Genuinely nothing configured to send to at all — log it as a
+        # no-op rather than silently doing nothing with no trace of why.
+        _log_run(False, note='Nothing to send to — no email recipients and no phone numbers configured.')
         return
 
     # A fresh token per firing, so each text/email links to its own send —
     # the page behind it always shows current live data when opened, though.
     token = secrets.token_urlsafe(24)
-    conn = get_db()
-    execute(conn, '''INSERT INTO scheduled_report_runs (id, scheduled_report_id, report_type, token)
-        VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), r['id'], 'payroll_unpaid_hours', token))
-    conn.commit(); conn.close()
     link = f'{APP_URL}/payroll-report/{token}'
 
     sent_something = False
+    email_sent_to, email_error = '', None
     if emails:
         html_with_link = build_payroll_report_html(data, link=link)
-        ok, _ = send_email(emails, subject, html_with_link)
+        ok, msg = send_email(emails, subject, html_with_link)
         if ok:
             sent_something = True
+            email_sent_to = ', '.join(emails)
+        else:
+            email_error = msg or 'Failed to send'
 
+    sms_sent_to_list, sms_errors = [], []
     if phones:
         sms_body = f"💰 Unpaid Payroll Report: {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed. View: {link}"
         for phone in phones:
-            ok_sms, _err = _send_sms(phone, sms_body)
+            ok_sms, err = _send_sms(phone, sms_body)
             if ok_sms:
                 sent_something = True
+                sms_sent_to_list.append(phone)
+            else:
+                sms_errors.append({'phone': phone, 'error': err})
+
+    _log_run(sent_something, email_sent_to=email_sent_to, email_error=email_error,
+              sms_sent_to=', '.join(sms_sent_to_list), sms_errors=sms_errors or None, token=token)
 
     if sent_something:
         next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'), r.get('send_time'))
         conn = get_db()
         execute(conn, 'UPDATE scheduled_reports SET last_sent_at=NOW(), next_send_at=%s WHERE id=%s',
                 (next_send, r['id']))
-        conn.commit(); conn.close()
         conn.commit(); conn.close()
 
 @app.route('/payroll-report/<token>')

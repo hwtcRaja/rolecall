@@ -12424,6 +12424,34 @@ def delete_scheduled_report(rid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/scheduled-reports/scheduler-status', methods=['GET'])
+def get_scheduler_status():
+    """Proof the background scheduler that actually fires reports on time is
+    alive — not just that the app is running (it always would be), but that
+    the specific per-minute job checking due reports is genuinely ticking.
+    A stale or missing heartbeat means reports won't fire at their scheduled
+    time even though nothing else about the site looks broken."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='scheduler_heartbeat'")
+    conn.close()
+    if not row or not row.get('value'):
+        return jsonify({'healthy': False, 'last_heartbeat': None,
+                        'note': 'No heartbeat recorded yet — the scheduler may not have started, or hasn\'t run its first check yet.'})
+    try:
+        import datetime as _dtst
+        last = _dtst.datetime.fromisoformat(row['value'])
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=_dtst.timezone.utc)
+        seconds_ago = (_dtst.datetime.now(_dtst.timezone.utc) - last).total_seconds()
+        healthy = seconds_ago < 150  # should update every ~60s if alive
+        return jsonify({'healthy': healthy, 'last_heartbeat': row['value'], 'seconds_ago': int(seconds_ago),
+                        'note': None if healthy else 'Heartbeat is stale — the scheduler appears to have stopped. Reports will not fire on time until this is fixed (a redeploy/restart usually resolves it).'})
+    except Exception:
+        return jsonify({'healthy': False, 'last_heartbeat': row.get('value'),
+                        'note': 'Could not parse the stored heartbeat.'})
+
 @app.route('/api/scheduled-reports/<rid>/test-sms', methods=['POST'])
 def test_scheduled_report_sms(rid):
     """Sends a real test text to every phone number this report would text,
@@ -12542,6 +12570,13 @@ def _check_scheduled_reports_precise():
     on the exact minute matching its configured send_time, so 'every other
     Thursday at 9am' actually means 9am, not 'sometime that day when someone
     happens to visit the site'."""
+    try:
+        conn0 = get_db()
+        execute(conn0, """INSERT INTO settings (key, value) VALUES ('scheduler_heartbeat', NOW()::text)
+            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""")
+        conn0.commit(); conn0.close()
+    except Exception as e:
+        app.logger.warning(f'Scheduler heartbeat write failed: {e}')
     try:
         import datetime as _dtsr
         from zoneinfo import ZoneInfo as _ZIsr

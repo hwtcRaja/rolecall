@@ -17584,6 +17584,7 @@ function renderScheduledReportsList(){
  </div>
  </div>
  <div style="display:flex;gap:6px;flex-shrink:0">
+ <button class="btn btn-outline btn-sm" onclick="viewScheduledReportSendLog('${r.id}','${escHtml(r.name)}')">Send Log</button>
  ${r.sms_enabled?`<button class="btn btn-outline btn-sm" onclick="testScheduledReportSms('${r.id}','${escHtml(r.name)}')">Test Text</button>`:''}
  <button class="btn btn-secondary btn-sm" onclick="openScheduledReportForm('${r.id}')">Edit Schedule</button>
  <button class="btn btn-danger btn-sm" onclick="deleteScheduledReport('${r.id}')">Delete</button>
@@ -17711,6 +17712,44 @@ async function testScheduledReportSms(rid, name){
  document.body.appendChild(overlay)
  modal.querySelector('#test-sms-close-btn').addEventListener('click', function(){ overlay.remove() })
  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+}
+
+async function viewScheduledReportSendLog(rid, name){
+ const runs = await api('/api/scheduled-reports/'+rid+'/send-log')
+ var rowsHtml
+ if(!Array.isArray(runs) || !runs.length){
+ rowsHtml = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;text-align:center">No send attempts recorded yet.</div>'
+ } else {
+ rowsHtml = runs.map(function(run){
+ var when = formatDateTime(run.fired_at)
+ var statusIcon = run.success ? '✅' : '❌'
+ var parts = []
+ if(run.email_sent_to) parts.push('📧 Sent to: '+escHtml(run.email_sent_to))
+ if(run.email_error) parts.push('📧 <span style="color:#b91c1c">Failed: '+escHtml(run.email_error)+'</span>')
+ if(run.sms_sent_to) parts.push('📱 Texted: '+escHtml(run.sms_sent_to))
+ if(run.sms_errors && run.sms_errors.length){
+ run.sms_errors.forEach(function(e){
+ parts.push('📱 <span style="color:#b91c1c">Failed to '+escHtml(e.phone)+': '+escHtml(e.error||'unknown error')+'</span>')
+ })
+ }
+ if(run.note) parts.push('<span style="color:var(--text-muted)">'+escHtml(run.note)+'</span>')
+ return '<div style="border-bottom:1px solid var(--border);padding:10px 0">'
+ + '<div style="font-size:13px;font-weight:700">'+statusIcon+' '+when+'</div>'
+ + '<div style="font-size:12px;color:var(--text-hint);line-height:1.6;margin-top:4px">'+(parts.join('<br>')||'—')+'</div>'
+ + '</div>'
+ }).join('')
+ }
+ var overlay2 = document.createElement('div')
+ overlay2.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:20000;display:flex;align-items:center;justify-content:center;padding:20px'
+ var modal2 = document.createElement('div')
+ modal2.style.cssText = 'background:var(--surface);border-radius:14px;width:100%;max-width:520px;max-height:80vh;overflow-y:auto;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.3)'
+ modal2.innerHTML = '<div style="font-size:16px;font-weight:800;margin-bottom:12px">Send Log — '+escHtml(name)+'</div>'
+ + rowsHtml
+ + '<button class="btn btn-primary" id="send-log-close-btn" style="margin-top:18px;width:100%">Close</button>'
+ overlay2.appendChild(modal2)
+ document.body.appendChild(overlay2)
+ modal2.querySelector('#send-log-close-btn').addEventListener('click', function(){ overlay2.remove() })
+ overlay2.addEventListener('click', function(e){ if(e.target===overlay2) overlay2.remove() })
 }
 
 async function loadEventLogs(){

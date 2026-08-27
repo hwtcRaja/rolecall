@@ -12365,7 +12365,7 @@ def create_scheduled_report():
     conn = get_db()
     # Calculate next send date
     import datetime as _dt
-    next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
+    next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1), send_time=(d.get('send_time') or '09:00').strip())
     execute(conn, '''INSERT INTO scheduled_reports
         (id,name,report_type,cadence,send_day,recipient_user_ids,recipient_emails,params,is_active,next_send_at,sms_enabled,sms_phones,send_time)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
@@ -12398,7 +12398,7 @@ def update_scheduled_report(rid):
     if existing and existing.get('cadence') == new_cadence and int(existing.get('send_day') or 1) == int(new_send_day or 1):
         next_send = existing.get('next_send_at')
     else:
-        next_send = _compute_next_send(new_cadence, new_send_day)
+        next_send = _compute_next_send(new_cadence, new_send_day, send_time=(d.get('send_time') or '09:00').strip())
     execute(conn, '''UPDATE scheduled_reports SET name=%s,report_type=%s,cadence=%s,
         send_day=%s,recipient_user_ids=%s,recipient_emails=%s,params=%s,is_active=%s,next_send_at=%s,
         sms_enabled=%s,sms_phones=%s,send_time=%s WHERE id=%s''',
@@ -12420,10 +12420,25 @@ def delete_scheduled_report(rid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
-def _compute_next_send(cadence, send_day, current_next_send=None):
+def _compute_next_send(cadence, send_day, current_next_send=None, send_time=None):
     import datetime as _dt
-    today = _dt.date.today()
+    from zoneinfo import ZoneInfo as _ZIcns
+    # Compute "today" in the org's own timezone, not the server's — the
+    # server may well run in UTC, which would silently shift the date around
+    # anything near midnight Eastern.
+    now_ny = _dt.datetime.now(_ZIcns('America/New_York'))
+    today = now_ny.date()
     day = max(1, min(28, int(send_day or 1)))
+
+    def _target_time_already_passed_today():
+        if not send_time:
+            return False
+        try:
+            th, tm = [int(x) for x in str(send_time).split(':')[:2]]
+        except Exception:
+            return False
+        return (now_ny.hour, now_ny.minute) >= (th, tm)
+
     if cadence == 'monthly':
         # Next month on send_day
         if today.day < day:
@@ -12435,16 +12450,20 @@ def _compute_next_send(cadence, send_day, current_next_send=None):
         try: return _dt.date(ny, nm, day).isoformat()
         except Exception: return None
     elif cadence == 'weekly':
-        # Next occurrence of send_day (0=Mon)
+        # Next occurrence of send_day (0=Mon) — today counts if its send_time
+        # hasn't happened yet, so a report created the morning of its own
+        # send day can still fire that same day instead of skipping a week.
         days_ahead = (int(send_day) - today.weekday()) % 7
-        if days_ahead == 0: days_ahead = 7
+        if days_ahead == 0 and _target_time_already_passed_today():
+            days_ahead = 7
         return (today + _dt.timedelta(days=days_ahead)).isoformat()
     elif cadence == 'biweekly':
         # Self-perpetuating: always exactly 14 days after the last scheduled
         # date, not "14 days from today" — keeps the every-other-week
         # cadence exact even if the cron check happens to run a bit late.
         # First time (no prior next_send to anchor from), fall back to the
-        # next occurrence of send_day, same as weekly.
+        # next occurrence of send_day (today counts if not yet past its
+        # send_time), same as weekly.
         if current_next_send:
             try:
                 base = current_next_send if isinstance(current_next_send, _dt.date) else _dt.datetime.strptime(str(current_next_send)[:10], '%Y-%m-%d').date()
@@ -12452,7 +12471,8 @@ def _compute_next_send(cadence, send_day, current_next_send=None):
             except Exception:
                 pass
         days_ahead = (int(send_day) - today.weekday()) % 7
-        if days_ahead == 0: days_ahead = 7
+        if days_ahead == 0 and _target_time_already_passed_today():
+            days_ahead = 7
         return (today + _dt.timedelta(days=days_ahead)).isoformat()
     return None
 
@@ -12557,7 +12577,7 @@ def _fire_scheduled_report(r):
     ok, _ = send_email(emails, subject, html)
     if ok:
         # Update last sent and compute next send
-        next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'))
+        next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'), r.get('send_time'))
         conn = get_db()
         execute(conn, 'UPDATE scheduled_reports SET last_sent_at=NOW(), next_send_at=%s WHERE id=%s',
                 (next_send, r['id']))
@@ -12609,7 +12629,7 @@ def _fire_payroll_report(r):
             _send_sms(phone, sms_body)
 
     if ok:
-        next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'))
+        next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'), r.get('send_time'))
         conn = get_db()
         execute(conn, 'UPDATE scheduled_reports SET last_sent_at=NOW(), next_send_at=%s WHERE id=%s',
                 (next_send, r['id']))

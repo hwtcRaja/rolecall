@@ -1489,6 +1489,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="font-size:13px;color:var(--text-muted)">Reports run automatically and email results on your chosen schedule.</div>
  <button class="btn btn-primary btn-sm" onclick="openScheduledReportForm(null)">+ Schedule Report</button>
  </div>
+ <div id="scheduler-status-banner" style="margin-bottom:16px"></div>
  <div id="scheduled-report-form-area"></div>
  <div id="scheduled-reports-list"></div>
  </div>
@@ -17515,6 +17516,24 @@ async function loadScheduledReports(){
  _scheduledReports = Array.isArray(reports) ? reports: []
  if(Array.isArray(users)) _allUsers = users
  renderScheduledReportsList()
+ loadSchedulerStatus()
+}
+
+async function loadSchedulerStatus(){
+ const el = document.getElementById('scheduler-status-banner')
+ if(!el) return
+ try{
+ const s = await api('/api/scheduled-reports/scheduler-status')
+ if(s.healthy){
+ el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);padding:8px 12px;background:var(--bg);border-radius:8px">
+ <span style="width:8px;height:8px;border-radius:50%;background:#16a34a;display:inline-block"></span>
+ Scheduler running — checked ${s.seconds_ago}s ago</div>`
+ } else {
+ el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;font-size:12px;color:#991b1b;padding:10px 12px;background:#fee2e2;border:1px solid #fca5a5;border-radius:8px">
+ <span style="width:8px;height:8px;border-radius:50%;background:#dc2626;display:inline-block;flex-shrink:0"></span>
+ <span><strong>Scheduler not responding</strong> — reports will not fire on time until this is fixed. ${s.note||''}</span></div>`
+ }
+ }catch(e){ el.innerHTML = '' }
 }
 
 function formatSendTime(t){

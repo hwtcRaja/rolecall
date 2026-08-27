@@ -12587,7 +12587,9 @@ def _fire_payroll_report(r):
     """Fires the Unpaid Payroll report — always includes the current
     Treasurer (looked up live from the board roster, not a fixed recipient)
     plus whatever's manually configured, emails a copy, and — if enabled —
-    texts a link to a live-refreshing view of the same report."""
+    texts a link to a live-refreshing view of the same report. Email and SMS
+    are independent: having no email recipients configured must never block
+    the text from going out, and vice versa."""
     data = build_payroll_unpaid_hours_report()
     subject = f"💰 Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
 
@@ -12606,7 +12608,15 @@ def _fire_payroll_report(r):
         emails += [e.strip() for e in raw.split(',') if e.strip()]
     treasurer_emails, treasurer_phones = _current_treasurer_contacts()
     emails = list(set(emails + treasurer_emails))
-    if not emails:
+
+    phones = []
+    if r.get('sms_enabled'):
+        phones = [p.strip() for p in (r.get('sms_phones') or '').split(',') if p.strip()] + treasurer_phones
+        phones = list(set(phones))
+
+    if not emails and not phones:
+        # Genuinely nothing configured to send to at all — nothing to do,
+        # and nothing to advance the schedule for either.
         return
 
     # A fresh token per firing, so each text/email links to its own send —
@@ -12617,22 +12627,26 @@ def _fire_payroll_report(r):
         VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), r['id'], 'payroll_unpaid_hours', token))
     conn.commit(); conn.close()
     link = f'{APP_URL}/payroll-report/{token}'
-    html_with_link = build_payroll_report_html(data, link=link)
 
-    ok, _ = send_email(emails, subject, html_with_link)
+    sent_something = False
+    if emails:
+        html_with_link = build_payroll_report_html(data, link=link)
+        ok, _ = send_email(emails, subject, html_with_link)
+        if ok:
+            sent_something = True
 
-    if r.get('sms_enabled'):
-        phones = [p.strip() for p in (r.get('sms_phones') or '').split(',') if p.strip()] + treasurer_phones
-        phones = list(set(phones))
+    if phones:
         sms_body = f"💰 Unpaid Payroll Report: {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed. View: {link}"
         for phone in phones:
-            _send_sms(phone, sms_body)
+            if _send_sms(phone, sms_body):
+                sent_something = True
 
-    if ok:
+    if sent_something:
         next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'), r.get('send_time'))
         conn = get_db()
         execute(conn, 'UPDATE scheduled_reports SET last_sent_at=NOW(), next_send_at=%s WHERE id=%s',
                 (next_send, r['id']))
+        conn.commit(); conn.close()
         conn.commit(); conn.close()
 
 @app.route('/payroll-report/<token>')

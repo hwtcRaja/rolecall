@@ -12386,17 +12386,24 @@ def update_scheduled_report(rid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    existing = fetchone(conn, 'SELECT next_send_at, cadence FROM scheduled_reports WHERE id=%s', (rid,))
+    existing = fetchone(conn, 'SELECT next_send_at, cadence, send_day FROM scheduled_reports WHERE id=%s', (rid,))
     new_cadence = d.get('cadence','monthly')
-    # Only carry forward the existing next_send_at as the biweekly anchor if
-    # the cadence isn't changing — switching cadence should recompute fresh.
-    anchor = existing['next_send_at'] if (existing and existing.get('cadence') == new_cadence) else None
-    next_send = _compute_next_send(new_cadence, d.get('send_day',1), anchor)
+    new_send_day = d.get('send_day', 1)
+    # The "add 14 days to the existing date" self-perpetuating logic belongs
+    # only to an actual firing (_fire_scheduled_report) — never to a manual
+    # edit, or every click of Save would push the schedule out by another 14
+    # days regardless of what was actually changed. Only recompute a fresh
+    # next_send_at here if the cadence or day actually changed; otherwise
+    # leave whatever's already scheduled untouched.
+    if existing and existing.get('cadence') == new_cadence and int(existing.get('send_day') or 1) == int(new_send_day or 1):
+        next_send = existing.get('next_send_at')
+    else:
+        next_send = _compute_next_send(new_cadence, new_send_day)
     execute(conn, '''UPDATE scheduled_reports SET name=%s,report_type=%s,cadence=%s,
         send_day=%s,recipient_user_ids=%s,recipient_emails=%s,params=%s,is_active=%s,next_send_at=%s,
         sms_enabled=%s,sms_phones=%s,send_time=%s WHERE id=%s''',
         (d.get('name',''), d['report_type'], new_cadence,
-         d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
+         new_send_day, json.dumps(d.get('recipient_user_ids',[])),
          d.get('recipient_emails',''), json.dumps(d.get('params',{})),
          d.get('is_active',True), next_send,
          bool(d.get('sms_enabled', False)), d.get('sms_phones',''),

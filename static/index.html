@@ -3227,12 +3227,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>Background Check Date</label><input type="date" id="vol-bgcheck-date"/></div>
  </div>
  <div class="form-group">
- <label>Employer Giving Program</label>
- <select id="vol-employer-program">
- <option value="">— None —</option>
- <option value="Disney Cast Member"> Disney Cast Member</option>
- <option value="Universal Team Member"> Universal Team Member</option>
- </select>
+ <label>Employer Giving Program <span style="font-weight:400;text-transform:none;color:var(--text-hint)">(check both if they qualify for both)</span></label>
+ <div style="display:flex;gap:16px;align-items:center;padding:6px 0">
+ <label style="display:flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" id="vol-employer-disney"/> Disney Cast Member</label>
+ <label style="display:flex;align-items:center;gap:6px;font-weight:400;cursor:pointer"><input type="checkbox" id="vol-employer-universal"/> Universal Team Member</label>
+ </div>
  </div>
  <div class="form-group"><label>Interests</label><div class="checkbox-group" id="interests-checkboxes"></div></div>
  <div id="vol-sub-selections-wrap" style="display:none">
@@ -4559,7 +4558,7 @@ async function renderDashboard(){
  if(d<=30) return '<span style="color:var(--text-muted)">'+d+'d ago</span>'
  return '<span style="color:var(--amber-600)">'+d+'d ago</span>'
  }
- var mkTable = function(img, label, rows){
+ var mkTable = function(img, label, rows, programKey){
  if(!rows.length) return ''
  var trs = rows.map(function(v){
  var hrs = parseFloat(v.recent_hours||0)
@@ -4569,7 +4568,7 @@ async function renderDashboard(){
  +'<td style="padding:8px 12px;font-weight:700;color:'+hrsColor+';font-size:13px">'+(hrs>0?hrs.toFixed(1)+'h':'—')+'</td>'
  +'<td style="padding:8px 12px;font-size:12px">'+fmtDays(v.last_reminder_sent)+'</td>'
  +'<td style="padding:8px 4px;text-align:right">'
- +'<button onclick="event.stopPropagation();sendSingleGivingReminder(\''+v.id+'\',\''+escHtml(v.name||'')+'\',\''+escHtml(v.employer_program||'')+'\',true)" '
+ +'<button onclick="event.stopPropagation();sendSingleGivingReminder(\''+v.id+'\',\''+escHtml(v.name||'')+'\',\''+escHtml(v.employer_program||'')+'\',true,\''+programKey+'\')" '
  +'style="background:none;border:1px solid var(--border);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;color:var(--teal-600);font-family:inherit" '
  +'title="Send reminder">Send</button></td>'
  +'</tr>'
@@ -4587,8 +4586,8 @@ async function renderDashboard(){
  +'<th></th>'
  +'</tr></thead><tbody>'+trs+'</tbody></table></div>'
  }
- egEl.innerHTML = mkTable('/static/images/mickey.png','Disney Cast Members',disney)
- + mkTable('/static/images/universial.png','Universal Team Members',universal)
+ egEl.innerHTML = mkTable('/static/images/mickey.png','Disney Cast Members',disney,'disney')
+ + mkTable('/static/images/universial.png','Universal Team Members',universal,'universal')
  }
  }
 
@@ -4936,7 +4935,7 @@ function renderVolunteers(){
  <div style="display:flex;align-items:center;gap:10px">
  ${avatarHTML(v.name)}
  <div>
- <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(v.name)}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}${v.employer_program==='Disney Cast Member'?` <img src="/static/images/mickey.png" style="width:14px;height:14px;vertical-align:middle;margin-left:2px" title="Disney Cast Member"/>`:v.employer_program==='Universal Team Member'?' <img src="/static/images/universial.png" style="width:14px;height:14px;vertical-align:middle;margin-left:2px" title="Universal Team Member"/>':''}</div>
+ <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(v.name)}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}${employerProgramIcons(v)}</div>
  <div style="font-size:11px;color:var(--text-muted)">${escHtml(v.email)}${v.phone?` · ${escHtml(v.phone)}`:''}</div>
  </div>
  </div>
@@ -5038,8 +5037,8 @@ async function openProfile(volId){
  v.linked_participant_id?(()=>{ const p=allYouth.find(y=>y.id===v.linked_participant_id); return p?{label:' Participant: '+p.first_name+' '+p.last_name,bg:'rgba(139,92,246,0.35)'}:null })():null,
  v.background_check_status==='cleared'?{label:' BGC Cleared',bg:'rgba(45,158,107,0.4)'}:null,
  v.background_check_status==='pending'?{label:' BGC Pending',bg:'rgba(212,131,10,0.4)'}:null,
- v.employer_program==='Disney Cast Member'?{label:' Disney Cast Member',bg:'rgba(30,64,175,0.4)'}:null,
- v.employer_program==='Universal Team Member'?{label:' Universal Team Member',bg:'rgba(124,45,18,0.4)'}:null,
+ (v.employer_program||'').toLowerCase().indexOf('disney')>-1?{label:' Disney Cast Member',bg:'rgba(30,64,175,0.4)'}:null,
+ (v.employer_program||'').toLowerCase().indexOf('universal')>-1?{label:' Universal Team Member',bg:'rgba(124,45,18,0.4)'}:null,
  {label:(v.total_hours||0)+'h total',bg:'rgba(255,255,255,0.15)'}
  ].filter(Boolean),
  actions: []
@@ -5067,9 +5066,9 @@ async function openProfile(volId){
  if(v.board_member){
  mkBtn(' Board Profile', function(){ navTo('board'); setTimeout(function(){ editBoardMember(v.board_member.id) },400) })
  }
- if(v.employer_program==='Disney Cast Member'||v.employer_program==='Universal Team Member'){
- var icon = v.employer_program==='Disney Cast Member' ? '': ''
- mkBtn(icon+' Send Giving Reminder', function(){ sendSingleGivingReminder(v.id, v.name, v.employer_program) })
+ var epLower=(v.employer_program||'').toLowerCase()
+ if(epLower.indexOf('disney')>-1||epLower.indexOf('universal')>-1){
+ mkBtn(' Send Giving Reminder', function(){ sendSingleGivingReminder(v.id, v.name, v.employer_program) })
  }
  mkBtn('🪪 ID Card', function(){ printVolIdCard(v.id, safeName) })
  mkBtn(' Link Participant', function(){ openLinkModal('volunteer', v.id, '') })
@@ -9576,8 +9575,11 @@ function openEditVolModal(volId){
  if(bgEl) bgEl.value=v.background_check_status||'none'
  var bgdEl=document.getElementById('vol-bgcheck-date')
  if(bgdEl) bgdEl.value=v.background_check_date||''
- var epEl=document.getElementById('vol-employer-program')
- if(epEl) epEl.value=v.employer_program||''
+ var epProg=(v.employer_program||'').toLowerCase()
+ var epDisneyEl=document.getElementById('vol-employer-disney')
+ if(epDisneyEl) epDisneyEl.checked = epProg.indexOf('disney')>-1
+ var epUnivEl=document.getElementById('vol-employer-universal')
+ if(epUnivEl) epUnivEl.checked = epProg.indexOf('universal')>-1
  const bioEl=document.getElementById('vol-bio'); if(bioEl) bioEl.value=v.bio||''
  const photoEl=document.getElementById('vol-photo-url'); if(photoEl) photoEl.value=v.photo_url||''
 
@@ -9588,6 +9590,19 @@ function openEditVolModal(volId){
  }catch(e){}
 
  openModal('modal-volunteer')
+}
+function employerProgramIcons(v){
+ var prog=(v.employer_program||'').toLowerCase()
+ var html=''
+ if(prog.indexOf('disney')>-1) html+=' <img src="/static/images/mickey.png" style="width:14px;height:14px;vertical-align:middle;margin-left:2px" title="Disney Cast Member"/>'
+ if(prog.indexOf('universal')>-1) html+=' <img src="/static/images/universial.png" style="width:14px;height:14px;vertical-align:middle;margin-left:2px" title="Universal Team Member"/>'
+ return html
+}
+function buildEmployerProgramValue(){
+ var parts=[]
+ if(document.getElementById('vol-employer-disney')?.checked) parts.push('Disney Cast Member')
+ if(document.getElementById('vol-employer-universal')?.checked) parts.push('Universal Team Member')
+ return parts.join(', ')
 }
 async function saveVolunteer(){
  const name=document.getElementById('vol-name').value.trim()
@@ -9603,7 +9618,7 @@ async function saveVolunteer(){
  sub_selections:getVolSubSelections(),
  background_check_status:document.getElementById('vol-bgcheck').value,
  background_check_date:document.getElementById('vol-bgcheck-date').value||null,
- employer_program:document.getElementById('vol-employer-program')?.value||'',
+ employer_program:buildEmployerProgramValue(),
  bio:document.getElementById('vol-bio')?.value.trim()||'',
  photo_url:document.getElementById('vol-photo-url')?.value.trim()||''
  }
@@ -10887,21 +10902,27 @@ async function testEmail(){
  }
 }
 
-async function sendSingleGivingReminder(volId, name, program, skipConfirm){
- var icon = program==='Disney Cast Member' ? '': ''
- var label = program==='Disney Cast Member' ? 'Disney VoluntEARS': 'Universal Giving'
+async function sendSingleGivingReminder(volId, name, program, skipConfirm, programKey){
+ var epLower=(program||'').toLowerCase()
+ var labels=[]
+ if((!programKey||programKey==='disney') && epLower.indexOf('disney')>-1) labels.push('Disney VoluntEARS')
+ if((!programKey||programKey==='universal') && epLower.indexOf('universal')>-1) labels.push('Universal Giving')
+ var label = labels.join(' and ') || 'giving program'
  if(!skipConfirm &&!confirm('Send a personalized '+label+' reminder to '+name+'?\n\nThis will include a list of all their recent volunteer hours.')){return}
  const _fi=await new Promise(r=>pickSender(r)); if(_fi===null) return
- var res = await api('/api/volunteers/'+volId+'/send-giving-reminder','POST',{from_identity:_fi})
+ var res = await api('/api/volunteers/'+volId+'/send-giving-reminder','POST',{from_identity:_fi, program:programKey||null})
  if(res&&res.error){ toast(res.error,'error'); return }
- toast(icon+' Sent to '+res.sent_to+' — '+parseFloat(res.total_hours).toFixed(1)+'h total','success')
+ var sentLabel = (res.programs_sent||[]).join(' and ') || label
+ var msg = sentLabel+' reminder sent to '+res.sent_to+' — '+parseFloat(res.total_hours||0).toFixed(1)+'h total'
+ if(res.errors && res.errors.length) msg += ' (note: '+res.errors.join('; ')+')'
+ toast(msg,'success')
  if(typeof renderDashboard==='function' && document.getElementById('page-dashboard')?.classList.contains('active')) renderDashboard()
 }
 
 async function openEmployerReminderModal(){
  var existing=document.getElementById('employer-reminder-overlay'); if(existing) existing.remove()
- var disney=volunteers.length ? volunteers.filter(function(v){return v.employer_program==='Disney Cast Member'&&v.status==='active'}).length: '?'
- var universal=volunteers.length ? volunteers.filter(function(v){return v.employer_program==='Universal Team Member'&&v.status==='active'}).length: '?'
+ var disney=volunteers.length ? volunteers.filter(function(v){return (v.employer_program||'').toLowerCase().indexOf('disney')>-1&&v.status==='active'}).length: '?'
+ var universal=volunteers.length ? volunteers.filter(function(v){return (v.employer_program||'').toLowerCase().indexOf('universal')>-1&&v.status==='active'}).length: '?'
  var log=await api('/api/volunteers/employer-reminder-log')
  var logHtml=''
  if(Array.isArray(log)&&log.length){
@@ -17008,6 +17029,7 @@ const REPORT_TYPES = [
  { id:'board_attendance', label:'Board Attendance', icon:'', desc:'Meeting attendance rates and per-member breakdown', hasRange:true },
  { id:'enrollment', label:'Youth Enrollment', icon:'', desc:'Program enrollment counts and new participant roster', hasRange:true },
  { id:'lapsed_volunteers', label:'Lapsed Volunteers', icon:'', desc:'Members with no activity in X days', hasRange:false },
+ { id:'payroll_unpaid_hours', label:'Unpaid Payroll', icon:'💰', desc:'Paid-instruction hours logged but not yet paid in BloomBooks, with $ owed per instructor', hasRange:false },
 ]
 
 let _currentReportType = 'monthly_recap'
@@ -17490,7 +17512,7 @@ function renderScheduledReportsList(){
  }
  el.innerHTML = _scheduledReports.map(r=>{
  const rtype = REPORT_TYPES.find(x=>x.id===r.report_type)
- const cadenceLabel = {monthly:'Monthly', weekly:'Weekly'}[r.cadence]||r.cadence
+ const cadenceLabel = {monthly:'Monthly', weekly:'Weekly', biweekly:'Every other week'}[r.cadence]||r.cadence
  return `<div class="card" style="padding:18px 20px;margin-bottom:12px;${!r.is_active?'opacity:0.6':''}">
  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
  <div style="flex:1">
@@ -17536,15 +17558,22 @@ function openScheduledReportForm(rid){
  <select id="sr-cadence">
  <option value="monthly" ${(!r||r.cadence==='monthly')?'selected':''}>Monthly</option>
  <option value="weekly" ${r?.cadence==='weekly'?'selected':''}>Weekly</option>
+ <option value="biweekly" ${r?.cadence==='biweekly'?'selected':''}>Every other week</option>
  </select></div>
  <div class="form-group"><label>Send on day</label>
  <input type="number" id="sr-day" value="${r?.send_day||1}" min="1" max="28" style="width:80px"/>
- <div style="font-size:11px;color:var(--text-hint);margin-top:3px">Day of month (monthly) or day of week 0=Mon (weekly)</div>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:3px" id="sr-day-hint">Day of month (monthly) or day of week 0=Mon (weekly/every other week)</div>
  </div>
  <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:20px">
  <input type="checkbox" id="sr-active" ${(!r||r.is_active)?'checked':''} style="accent-color:var(--teal);width:15px;height:15px"/>
  <label for="sr-active" style="font-size:13px;font-weight:500;cursor:pointer">Active</label>
  </div>
+ <div class="form-group" style="grid-column:1/-1;display:flex;align-items:center;gap:8px">
+ <input type="checkbox" id="sr-sms-enabled" ${r?.sms_enabled?'checked':''} style="accent-color:var(--teal);width:15px;height:15px"/>
+ <label for="sr-sms-enabled" style="font-size:13px;font-weight:500;cursor:pointer">Also send a text alert with a link to the report</label>
+ </div>
+ <div class="form-group" style="grid-column:1/-1"><label>Text Alert Phone Numbers <span style="font-weight:400;color:var(--text-hint)">(comma-separated — the Treasurer's phone on file is always included automatically for the Unpaid Payroll report)</span></label>
+ <input type="text" id="sr-sms-phones" value="${escHtml(r?.sms_phones||'')}" placeholder="e.g. 407-555-1234"/></div>
  <div class="form-group" style="grid-column:1/-1"><label>Recipients — Staff Users</label>
  <div style="display:flex;flex-wrap:wrap;gap:8px;padding:10px;border:1.5px solid var(--border-md);border-radius:var(--radius)">
  ${_allUsers.map(u=>`<label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
@@ -17575,6 +17604,8 @@ async function saveScheduledReport(rid){
  is_active: document.getElementById('sr-active').checked,
  recipient_user_ids: recipIds,
  recipient_emails: document.getElementById('sr-emails').value.trim(),
+ sms_enabled: document.getElementById('sr-sms-enabled')?.checked||false,
+ sms_phones: document.getElementById('sr-sms-phones')?.value.trim()||'',
  params: {}
  }
  const res = rid ? await api('/api/scheduled-reports/'+rid,'PUT',body)

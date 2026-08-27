@@ -17400,6 +17400,24 @@ function renderReportResults(res){
  }
  if(data.new_youth?.length)
  html += reportSection(` New Participants (${data.new_youth.length})`, reportTable(['Name','Join Date'], data.new_youth, ['name','join_date']))
+
+ } else if(rtype === 'payroll_unpaid_hours'){
+ html += `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:20px">
+ ${statCard('Total Owed', '$'+(data.grand_total||0).toFixed(2), 'var(--teal-dark)')}
+ ${statCard('Instructors', data.people?.length||0, 'var(--blue-600)')}
+ </div>`
+ if(data.people?.length){
+ html += reportSection(' Unpaid by Instructor', reportTable(
+ ['Instructor','Sessions','Owed','Linked in BloomBooks'],
+ data.people,
+ ['name', r=>(r.lines?.length||0), r=>'$'+(r.total_owed||0).toFixed(2), r=>r.linked_to_bloombooks?'Yes':'⚠ No']
+ ))
+ } else {
+ html += `<div style="color:var(--text-muted);font-size:13px;padding:12px 0">Nothing outstanding right now — every logged paid-instruction hour has already been paid.</div>`
+ }
+
+ } else {
+ html += `<div style="color:var(--text-muted);font-size:13px;padding:20px 0;text-align:center">No preview available for this report type.</div>`
  }
 
  el.innerHTML = html

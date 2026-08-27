@@ -17499,6 +17499,14 @@ async function loadScheduledReports(){
  renderScheduledReportsList()
 }
 
+function formatSendTime(t){
+ try{
+ var parts=t.split(':'); var h=parseInt(parts[0]); var m=parts[1]
+ var ampm = h>=12?'PM':'AM'
+ var h12 = h%12; if(h12===0) h12=12
+ return h12+':'+m+' '+ampm
+ }catch(e){ return t }
+}
 function renderScheduledReportsList(){
  const el = document.getElementById('scheduled-reports-list')
  if(!el) return
@@ -17522,7 +17530,7 @@ function renderScheduledReportsList(){
  </div>
  <div style="font-size:13px;color:var(--text-muted);display:flex;gap:14px;flex-wrap:wrap">
  <span>${rtype?.icon||''} ${rtype?.label||r.report_type}</span>
- <span> ${cadenceLabel}</span>
+ <span> ${cadenceLabel}${r.send_time?` at ${formatSendTime(r.send_time)}`:''}</span>
  ${r.next_send_at?`<span>Next: ${formatDate(r.next_send_at)}</span>`:''}
  ${r.last_sent_at?`<span style="color:var(--text-hint)">Last sent: ${formatDate(r.last_sent_at)}</span>`:''}
  </div>
@@ -17564,6 +17572,10 @@ function openScheduledReportForm(rid){
  <input type="number" id="sr-day" value="${r?.send_day||1}" min="1" max="28" style="width:80px"/>
  <div style="font-size:11px;color:var(--text-hint);margin-top:3px" id="sr-day-hint">Day of month (monthly) or day of week 0=Mon (weekly/every other week)</div>
  </div>
+ <div class="form-group"><label>Send at</label>
+ <input type="time" id="sr-time" value="${r?.send_time||'09:00'}" style="width:120px"/>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:3px">Eastern time</div>
+ </div>
  <div class="form-group" style="display:flex;align-items:center;gap:8px;padding-top:20px">
  <input type="checkbox" id="sr-active" ${(!r||r.is_active)?'checked':''} style="accent-color:var(--teal);width:15px;height:15px"/>
  <label for="sr-active" style="font-size:13px;font-weight:500;cursor:pointer">Active</label>
@@ -17601,6 +17613,7 @@ async function saveScheduledReport(rid){
  name, report_type: document.getElementById('sr-type').value,
  cadence: document.getElementById('sr-cadence').value,
  send_day: parseInt(document.getElementById('sr-day').value||1),
+ send_time: document.getElementById('sr-time')?.value||'09:00',
  is_active: document.getElementById('sr-active').checked,
  recipient_user_ids: recipIds,
  recipient_emails: document.getElementById('sr-emails').value.trim(),

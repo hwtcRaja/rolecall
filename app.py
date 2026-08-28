@@ -7649,6 +7649,182 @@ def delete_youth(yid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+def _youth_merge_counts(conn, yid):
+    """Row counts across every table that hangs off a youth_participants
+    record, used to show what a merge will move before it happens and to
+    log what actually moved afterward."""
+    def n(sql):
+        r = fetchone(conn, sql, (yid,))
+        return (r or {}).get('c', 0)
+    return {
+        'guardians': n('SELECT COUNT(*) c FROM youth_guardians WHERE youth_id=%s'),
+        'emergency_contacts': n('SELECT COUNT(*) c FROM youth_emergency_contacts WHERE youth_id=%s'),
+        'authorized_pickups': n('SELECT COUNT(*) c FROM youth_authorized_pickups WHERE youth_id=%s'),
+        'waivers': n('SELECT COUNT(*) c FROM youth_waivers WHERE youth_id=%s'),
+        'enrollments': n('SELECT COUNT(*) c FROM youth_program_enrollments WHERE youth_id=%s'),
+        'production_roles': n('SELECT COUNT(*) c FROM youth_production_members WHERE youth_id=%s'),
+        'notes': n('SELECT COUNT(*) c FROM youth_notes WHERE youth_id=%s'),
+        'incidents': n('SELECT COUNT(*) c FROM youth_incidents WHERE youth_id=%s'),
+        'sign_ins': n('SELECT COUNT(*) c FROM youth_sign_ins WHERE youth_id=%s'),
+        'conflicts_absences': n('SELECT COUNT(*) c FROM production_conflicts WHERE youth_id=%s'),
+        'carpools': n('SELECT COUNT(*) c FROM carpool_members WHERE youth_id=%s'),
+        'family_links': n('SELECT COUNT(*) c FROM youth_family_links WHERE youth_id=%s'),
+        'registrations': n('SELECT COUNT(*) c FROM program_registrations WHERE youth_id=%s'),
+    }
+
+
+@app.route('/api/youth/merge-preview', methods=['POST'])
+def youth_merge_preview():
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    id_a, id_b = d.get('id_a'), d.get('id_b')
+    if not id_a or not id_b or id_a == id_b:
+        return jsonify({'error': 'Two different participants are required'}), 400
+    conn = get_db()
+    a = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (id_a,))
+    b = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (id_b,))
+    if not a or not b:
+        conn.close(); return jsonify({'error': 'Participant not found'}), 404
+    a['counts'] = _youth_merge_counts(conn, id_a)
+    b['counts'] = _youth_merge_counts(conn, id_b)
+    a['has_login'] = bool(a.get('passphrase') or a.get('family_id'))
+    b['has_login'] = bool(b.get('passphrase') or b.get('family_id'))
+    a['has_volunteer_link'] = bool(a.get('linked_volunteer_id'))
+    b['has_volunteer_link'] = bool(b.get('linked_volunteer_id'))
+    conn.close()
+    return jsonify({'a': a, 'b': b})
+
+
+@app.route('/api/youth/merge', methods=['POST'])
+def youth_merge():
+    # Merging is destructive and irreversible (the losing profile is
+    # deleted once everything is moved), so this requires admin rather
+    # than just edit access to the youth section.
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    parent_id = d.get('parent_id')
+    dup_id = d.get('duplicate_id')
+    if not parent_id or not dup_id or parent_id == dup_id:
+        return jsonify({'error': 'A parent and a duplicate participant are required'}), 400
+
+    conn = get_db()
+    try:
+        parent = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (parent_id,))
+        dup = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (dup_id,))
+        if not parent or not dup:
+            conn.close(); return jsonify({'error': 'Participant not found'}), 404
+
+        moved = _youth_merge_counts(conn, dup_id)
+
+        # 1) Fill in any blanks on the parent from the duplicate. Consent
+        # flags (photo/medical) are deliberately left alone rather than
+        # auto-merged — those shouldn't silently flip from a duplicate record.
+        fill_fields = ['dob', 'program', 'medical_notes', 'allergies', 'shirt_size',
+                        'pronouns', 'grade', 'passphrase', 'family_id', 'linked_volunteer_id']
+        updates, params = [], []
+        for f in fill_fields:
+            if not parent.get(f) and dup.get(f):
+                updates.append(f"{f}=%s")
+                params.append(dup.get(f))
+        if updates:
+            params.append(parent_id)
+            execute(conn, f"UPDATE youth_participants SET {','.join(updates)} WHERE id=%s", tuple(params))
+
+        # 2) Guardians / emergency contacts: skip true duplicates (same
+        # name+phone already on the parent), move everything else.
+        existing_guardians = {(g['name'] or '').strip().lower() + '|' + (g['phone'] or '').strip()
+                               for g in fetchall(conn, 'SELECT name,phone FROM youth_guardians WHERE youth_id=%s', (parent_id,))}
+        for g in fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s', (dup_id,)):
+            key = (g['name'] or '').strip().lower() + '|' + (g['phone'] or '').strip()
+            if key in existing_guardians:
+                execute(conn, 'DELETE FROM youth_guardians WHERE id=%s', (g['id'],))
+            else:
+                execute(conn, 'UPDATE youth_guardians SET youth_id=%s WHERE id=%s', (parent_id, g['id']))
+
+        existing_ec = {(e['name'] or '').strip().lower() + '|' + (e['phone'] or '').strip()
+                       for e in fetchall(conn, 'SELECT name,phone FROM youth_emergency_contacts WHERE youth_id=%s', (parent_id,))}
+        for e in fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (dup_id,)):
+            key = (e['name'] or '').strip().lower() + '|' + (e['phone'] or '').strip()
+            if key in existing_ec:
+                execute(conn, 'DELETE FROM youth_emergency_contacts WHERE id=%s', (e['id'],))
+            else:
+                execute(conn, 'UPDATE youth_emergency_contacts SET youth_id=%s WHERE id=%s', (parent_id, e['id']))
+
+        # 3) Straight one-to-many history/records — no unique constraints
+        # to worry about, just repoint them all at the parent.
+        for tbl in ('youth_authorized_pickups', 'youth_waivers', 'youth_notes',
+                    'youth_incidents', 'youth_sign_ins', 'production_conflicts',
+                    'program_registrations'):
+            execute(conn, f'UPDATE {tbl} SET youth_id=%s WHERE youth_id=%s', (parent_id, dup_id))
+        execute(conn, 'UPDATE volunteer_waivers SET youth_id=%s WHERE youth_id=%s', (parent_id, dup_id))
+        execute(conn, 'UPDATE pending_profile_updates SET youth_id=%s WHERE youth_id=%s', (parent_id, dup_id))
+
+        # 4) Tables with a UNIQUE(youth_id, X) constraint: move rows that
+        # don't already exist for the parent, drop the ones that do (the
+        # parent already has that link, so the duplicate's copy is redundant).
+        execute(conn, '''UPDATE youth_program_enrollments SET youth_id=%s
+                         WHERE youth_id=%s AND program_id IS NOT NULL
+                         AND program_id NOT IN (SELECT program_id FROM youth_program_enrollments
+                                                 WHERE youth_id=%s AND program_id IS NOT NULL)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, '''UPDATE youth_program_enrollments SET youth_id=%s
+                         WHERE youth_id=%s AND production_id IS NOT NULL
+                         AND production_id NOT IN (SELECT production_id FROM youth_program_enrollments
+                                                    WHERE youth_id=%s AND production_id IS NOT NULL)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, 'DELETE FROM youth_program_enrollments WHERE youth_id=%s', (dup_id,))
+
+        execute(conn, '''UPDATE youth_production_members SET youth_id=%s
+                         WHERE youth_id=%s AND production_id NOT IN
+                             (SELECT production_id FROM youth_production_members WHERE youth_id=%s)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, 'DELETE FROM youth_production_members WHERE youth_id=%s', (dup_id,))
+
+        execute(conn, '''UPDATE youth_family_links SET youth_id=%s
+                         WHERE youth_id=%s AND family_id NOT IN
+                             (SELECT family_id FROM youth_family_links WHERE youth_id=%s)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, 'DELETE FROM youth_family_links WHERE youth_id=%s', (dup_id,))
+
+        execute(conn, '''UPDATE carpool_members SET youth_id=%s
+                         WHERE youth_id=%s AND carpool_id NOT IN
+                             (SELECT carpool_id FROM carpool_members WHERE youth_id=%s)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, 'DELETE FROM carpool_members WHERE youth_id=%s', (dup_id,))
+
+        # 5) If a volunteer account points at the duplicate as its linked
+        # participant, repoint it at the parent.
+        execute(conn, 'UPDATE volunteers SET linked_participant_id=%s WHERE linked_participant_id=%s',
+                (parent_id, dup_id))
+
+        # 6) Leave a paper trail on the surviving profile.
+        dup_name = f"{dup.get('first_name','')} {dup.get('last_name','')}".strip()
+        summary_bits = [f"{v} {k.replace('_',' ')}" for k, v in moved.items() if v]
+        summary = ', '.join(summary_bits) if summary_bits else 'no linked records'
+        execute(conn, '''INSERT INTO youth_notes (id,youth_id,author,author_id,content,note_type)
+                         VALUES (%s,%s,%s,%s,%s,%s)''',
+                (str(uuid.uuid4()), parent_id, session.get('user_name', 'Staff'), session.get('user_id'),
+                 f"Merged duplicate profile \"{dup_name}\" into this record ({summary}).", 'general'))
+
+        # 7) The duplicate is now empty of everything meaningful — anything
+        # still cascading off it (ON DELETE CASCADE) is a redundant row we
+        # already accounted for above.
+        execute(conn, 'DELETE FROM youth_participants WHERE id=%s', (dup_id,))
+
+        conn.commit()
+    except Exception as ex:
+        conn.rollback(); conn.close()
+        return jsonify({'error': f'Merge failed: {ex}'}), 500
+
+    result = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (parent_id,))
+    result['guardians'] = fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC', (parent_id,))
+    result['emergency_contacts'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (parent_id,))
+    conn.close()
+    return jsonify({'ok': True, 'moved': moved, 'youth': result})
+
+
 @app.route('/api/youth/<yid>/guardians', methods=['POST'])
 def add_guardian(yid):
     err = require_permission('youth')

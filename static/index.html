@@ -3163,6 +3163,32 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 </div>
 
+<!-- MERGE YOUTH PROFILES MODAL -->
+<div class="modal-overlay" id="modal-youth-merge">
+ <div class="modal" style="max-width:640px">
+ <div class="modal-header"><div class="modal-title">Merge Duplicate Profiles</div><button class="modal-close" onclick="closeModal('modal-youth-merge')">×</button></div>
+ <div class="modal-body">
+ <div id="ym-step-pick">
+ <div class="form-group">
+ <label>Find the duplicate profile to merge</label>
+ <input type="text" id="ym-search" placeholder="Search by name…" oninput="renderYouthMergeCandidates()" autocomplete="off"/>
+ </div>
+ <div id="ym-candidates" style="max-height:280px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+ </div>
+ <div id="ym-step-confirm" style="display:none">
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Choose which profile to keep. Everything from the other profile — guardians, waivers, notes, sign-in history, portal login, etc. — will be copied onto the one you keep, and the other profile will be deleted.</div>
+ <div id="ym-compare" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px"></div>
+ <div style="font-size:12px;color:var(--text-hint)">This can't be undone. A note will be added to the kept profile recording what was merged in.</div>
+ </div>
+ </div>
+ <div class="modal-footer">
+ <button class="btn btn-secondary" onclick="closeModal('modal-youth-merge')">Cancel</button>
+ <button class="btn btn-secondary" id="ym-back-btn" style="display:none" onclick="youthMergeBackToPick()">← Back</button>
+ <button class="btn btn-danger" id="ym-confirm-btn" style="display:none" onclick="confirmYouthMerge()">Merge Profiles</button>
+ </div>
+ </div>
+</div>
+
 <!-- BOARD NOMINATION MODAL -->
 <div class="modal-overlay" id="modal-board-nomination">
  <div class="modal" style="max-width:420px">
@@ -6748,6 +6774,7 @@ async function openYouthProfile(yid){
  actions:isAdmin?[
  {label:'Edit',onclick:"openEditYouthModal('"+y.id+"')" },
  {label:' Link Volunteer',onclick:"openLinkModal('youth','"+y.id+"','')" },
+ {label:' Merge Duplicate',onclick:"openYouthMergeModal('"+y.id+"')" },
  {label:'Delete',onclick:"deleteYouth('"+y.id+"')",danger:true}
  ]:[],
  linked_volunteer: y.linked_volunteer_id ? volunteers.find(v=>v.id===y.linked_volunteer_id): null
@@ -9411,6 +9438,96 @@ async function deleteYouth(yid){
  renderYouth()
 }
 
+// ── MERGE DUPLICATE YOUTH PROFILES ──
+let ymState={sourceId:null,otherId:null,parentId:null}
+
+function openYouthMergeModal(yid){
+ ymState={sourceId:yid,otherId:null,parentId:null}
+ document.getElementById('ym-search').value=''
+ document.getElementById('ym-step-pick').style.display=''
+ document.getElementById('ym-step-confirm').style.display='none'
+ document.getElementById('ym-back-btn').style.display='none'
+ document.getElementById('ym-confirm-btn').style.display='none'
+ renderYouthMergeCandidates()
+ openModal('modal-youth-merge')
+}
+
+function renderYouthMergeCandidates(){
+ const q=(document.getElementById('ym-search').value||'').toLowerCase().trim()
+ const box=document.getElementById('ym-candidates')
+ if(!q){ box.innerHTML='<div style="font-size:12px;color:var(--text-hint);padding:8px 0">Start typing a name…</div>'; return }
+ const matches=allYouth.filter(y=>y.id!==ymState.sourceId && `${y.first_name} ${y.last_name}`.toLowerCase().includes(q)).slice(0,15)
+ if(!matches.length){ box.innerHTML='<div style="font-size:12px;color:var(--text-hint);padding:8px 0">No matches</div>'; return }
+ box.innerHTML=matches.map(y=>`
+ <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer" onclick="selectYouthMergeCandidate('${y.id}')">
+ <div>
+ <div style="font-weight:600;font-size:13px">${escHtml(y.first_name)} ${escHtml(y.last_name)}</div>
+ <div style="font-size:11px;color:var(--text-muted)">${y.dob?formatDate(y.dob):'No DOB on file'}${y.status?' · '+y.status:''}</div>
+ </div>
+ <span style="font-size:12px;color:var(--teal-600);font-weight:600">Select →</span>
+ </div>`).join('')
+}
+
+async function selectYouthMergeCandidate(otherId){
+ ymState.otherId=otherId
+ const preview=await api('/api/youth/merge-preview','POST',{id_a:ymState.sourceId,id_b:otherId})
+ if(preview.error){ toast(preview.error,'error'); return }
+ ymState.parentId=ymState.sourceId
+ renderYouthMergeCompare(preview.a,preview.b)
+ document.getElementById('ym-step-pick').style.display='none'
+ document.getElementById('ym-step-confirm').style.display=''
+ document.getElementById('ym-back-btn').style.display=''
+ document.getElementById('ym-confirm-btn').style.display=''
+}
+
+function youthMergeBackToPick(){
+ document.getElementById('ym-step-pick').style.display=''
+ document.getElementById('ym-step-confirm').style.display='none'
+ document.getElementById('ym-back-btn').style.display='none'
+ document.getElementById('ym-confirm-btn').style.display='none'
+}
+
+function youthMergeCardHTML(y,isParent){
+ const name=`${y.first_name||''} ${y.last_name||''}`.trim()
+ const c=y.counts||{}
+ const rows=[
+ ['Guardians',c.guardians],['Emergency contacts',c.emergency_contacts],['Waivers',c.waivers],
+ ['Enrollments',c.enrollments],['Notes',c.notes],['Incidents',c.incidents],
+ ['Sign-ins',c.sign_ins],['Carpools',c.carpools]
+ ].filter(r=>r[1])
+ return `
+ <div style="border:2px solid ${isParent?'var(--teal-400)':'var(--border)'};border-radius:10px;padding:12px;cursor:pointer;position:relative" onclick="setYouthMergeParent('${y.id}')">
+ ${isParent?`<div style="position:absolute;top:-10px;right:10px;background:var(--teal-400);color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px">KEEP THIS ONE</div>`:''}
+ <div style="font-weight:700;font-size:14px;margin-bottom:2px">${escHtml(name)}</div>
+ <div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">${y.dob?formatDate(y.dob):'No DOB'}${y.has_login?' ·  Portal login':''}${y.has_volunteer_link?' ·  Linked volunteer':''}</div>
+ ${rows.length?rows.map(r=>`<div style="font-size:12px;display:flex;justify-content:space-between;padding:2px 0"><span style="color:var(--text-muted)">${r[0]}</span><strong>${r[1]}</strong></div>`).join(''):'<div style="font-size:12px;color:var(--text-hint)">No linked records</div>'}
+ </div>`
+}
+
+function renderYouthMergeCompare(a,b){
+ ymState._a=a; ymState._b=b
+ const box=document.getElementById('ym-compare')
+ box.innerHTML=youthMergeCardHTML(a,ymState.parentId===a.id)+youthMergeCardHTML(b,ymState.parentId===b.id)
+}
+
+function setYouthMergeParent(id){
+ ymState.parentId=id
+ renderYouthMergeCompare(ymState._a,ymState._b)
+}
+
+async function confirmYouthMerge(){
+ const parentId=ymState.parentId
+ const dupId=parentId===ymState._a.id?ymState._b.id:ymState._a.id
+ const parentName=parentId===ymState._a.id?`${ymState._a.first_name} ${ymState._a.last_name}`:`${ymState._b.first_name} ${ymState._b.last_name}`
+ const dupName=dupId===ymState._a.id?`${ymState._a.first_name} ${ymState._a.last_name}`:`${ymState._b.first_name} ${ymState._b.last_name}`
+ if(!confirm(`Merge "${dupName}" into "${parentName}"?\n\n"${dupName}" will be permanently deleted after everything is copied over. This cannot be undone.`)) return
+ const res=await api('/api/youth/merge','POST',{parent_id:parentId,duplicate_id:dupId})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Profiles merged')
+ closeModal('modal-youth-merge')
+ allYouth=await api('/api/youth')
+ openYouthProfile(parentId)
+}
 
 function openYouthWaiverModal(yid){
  document.getElementById('yw-youth-id').value=yid

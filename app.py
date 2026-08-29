@@ -6093,7 +6093,7 @@ def build_cast_list_data(conn, context_type, context_id):
         ORDER BY cast_role, submitter_name""", (context_type, context_id))
     cast_list = [dict(c) for c in cast]
     if context_type == 'production':
-        youth_cast = fetchall(conn, """SELECT y.first_name||' '||y.last_name AS submitter_name,
+        youth_cast = fetchall(conn, """SELECT COALESCE(y.first_name,'')||' '||COALESCE(y.last_name,'') AS submitter_name,
                 ypm.role AS cast_role, NULL AS submitter_email,
                 COALESCE(ypm.cast_section,'') AS cast_section, COALESCE(ypm.cast_title,'') AS cast_title
             FROM youth_production_members ypm
@@ -6597,11 +6597,13 @@ def get_cast_list(context_type, context_id):
     elif context_type == 'program':
         p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (context_id,))
         if p: ctx_name = p['name']
+    # Build live from current data rather than the stored snapshot — once
+    # published, the list should always reflect the Cast tab, including
+    # anyone added, re-sectioned, or given a title *after* Publish was
+    # clicked. (Preview already worked this way; this brings the real
+    # published view in line with it instead of freezing at publish time.)
+    cast = build_cast_list_data(conn, context_type, context_id)
     conn.close()
-    try:
-        cast = json.loads(row.get('cast_list') or '[]')
-    except Exception:
-        cast = []
     title = row.get('title') or ctx_name
     resp = jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name,
         'portal_color': portal_color, 'portal_logo_url': portal_logo_url})

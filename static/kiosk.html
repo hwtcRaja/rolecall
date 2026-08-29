@@ -208,10 +208,10 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   <button class="idle-btn">Check-In</button>
   <div class="idle-sub">Tap anywhere to get started</div>
   <div class="idle-services">
-    <div class="idle-svc">⏱ Log Hours</div>
-    <div class="idle-svc">📋 Sign Waivers</div>
-    <div class="idle-svc">👤 Update Info</div>
-    <div class="idle-svc">🎬 ELIC Login</div>
+    <div class="idle-svc"> Log Hours</div>
+    <div class="idle-svc"> Sign Waivers</div>
+    <div class="idle-svc"> Update Info</div>
+    <div class="idle-svc"> ELIC Login</div>
   </div>
   <a href="/" class="admin-link" onclick="event.stopPropagation()">Admin Login →</a>
 </div>
@@ -225,17 +225,17 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   </div>
   <div class="role-grid">
     <button class="role-btn vol" onclick="goVolSearch()">
-      <div class="role-icon">👋</div>
+      <div class="role-icon"></div>
       <div class="role-label">Check-In</div>
       <div class="role-desc">Log hours, sign waivers, update info</div>
     </button>
     <button class="role-btn elic" onclick="goElicPin()">
-      <div class="role-icon">🎬</div>
+      <div class="role-icon"></div>
       <div class="role-label">Event Lead</div>
       <div class="role-desc">Open or close an event (ELIC)</div>
     </button>
     <button class="role-btn elic" onclick="goPaidInstructionPin()">
-      <div class="role-icon">🎓</div>
+      <div class="role-icon"></div>
       <div class="role-label">Paid Instruction</div>
       <div class="role-desc">Enter your instructor code</div>
     </button>
@@ -251,7 +251,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
     <div class="screen-sub">Type your name to find your profile</div>
   </div>
   <div class="search-wrap">
-    <span class="search-icon">🔍</span>
+    <span class="search-icon"></span>
     <input class="search-box" id="vol-search" type="text" placeholder="Start typing your name…" autocomplete="off" autocorrect="off" spellcheck="false" oninput="searchVols()"/>
   </div>
   <div class="hint-text" id="search-hint">Type at least 2 characters</div>
@@ -279,7 +279,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   <div class="waiver-text" id="ws-body"></div>
   <input class="sign-inp" id="ws-sig" type="text" placeholder="Type your full legal name to sign" oninput="updSignBtn()"/>
   <div style="font-size:12px;color:var(--hint);margin-bottom:14px;width:100%;max-width:620px;text-align:center">Today: <strong id="ws-date"></strong></div>
-  <button class="sign-btn" id="ws-btn" onclick="submitSign()" disabled>✍️ Sign Waiver</button>
+  <button class="sign-btn" id="ws-btn" onclick="submitSign()" disabled> Sign Waiver</button>
 </div>
 
 <!-- VOLUNTEER MENU -->
@@ -290,33 +290,33 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
     <div><div style="font-weight:700;font-size:16px;color:var(--teal-dark)" id="vm-name"></div><div style="font-size:12px;color:var(--muted)">What would you like to do?</div></div>
   </div>
   <div id="paid-instruction-banner" style="display:none;background:#fef3c7;border:2px solid #f59e0b;color:#92400e;border-radius:var(--radius);padding:12px 16px;margin-bottom:14px;font-size:13px;font-weight:700;text-align:center">
-    🎓 Paid Instruction mode — time logged now will be marked as paid instruction
+     Paid Instruction mode — time logged now will be marked as paid instruction
   </div>
   <!-- Active session banner -->
   <div id="active-session-banner" style="display:none;background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border-radius:var(--radius);padding:20px 24px;margin-bottom:14px">
-    <div style="font-size:14px;font-weight:700;margin-bottom:4px" id="active-session-title">🟢 Currently Volunteering</div>
+    <div style="font-size:14px;font-weight:700;margin-bottom:4px" id="active-session-title"> Currently Volunteering</div>
     <div style="font-size:13px;opacity:0.85" id="active-session-info">Session active</div>
     <div style="font-size:52px;font-weight:900;margin:10px 0 6px;font-variant-numeric:tabular-nums;letter-spacing:-1px;text-align:center" id="active-session-timer">0:00:00</div>
-    <button onclick="goStopVolunteering()" id="stop-session-btn" style="background:#fff;color:#166534;border:none;border-radius:12px;padding:18px 24px;font-family:inherit;font-size:20px;font-weight:800;cursor:pointer;width:100%;letter-spacing:-0.3px">🔴 Stop Volunteering</button>
+    <button onclick="goStopVolunteering()" id="stop-session-btn" style="background:#fff;color:#166534;border:none;border-radius:12px;padding:18px 24px;font-family:inherit;font-size:20px;font-weight:800;cursor:pointer;width:100%;letter-spacing:-0.3px"> Stop Volunteering</button>
   </div>
   <div class="menu-grid" id="vol-menu-grid">
     <button class="menu-btn" style="background:linear-gradient(135deg,#166534,#16a34a);color:#fff;grid-column:1/-1;padding:28px 20px" onclick="kioskAction(goBeginVolunteering)" id="begin-vol-btn">
-      <div class="menu-icon" style="font-size:40px" id="begin-vol-icon">🟢</div>
+      <div class="menu-icon" style="font-size:40px" id="begin-vol-icon"></div>
       <div class="menu-label" style="color:#fff;font-size:22px" id="begin-vol-label">Begin Volunteering</div>
       <div class="menu-desc" style="color:rgba(255,255,255,0.85);font-size:15px" id="begin-vol-desc">Tap here to start your session timer</div>
     </button>
     <button class="menu-btn t" onclick="kioskAction(goEventSelect)">
-      <div class="menu-icon">⏱</div>
+      <div class="menu-icon"></div>
       <div class="menu-label">Log Hours</div>
       <div class="menu-desc">Manually enter time for an event</div>
     </button>
     <button class="menu-btn g" id="waiver-menu-btn" onclick="kioskAction(()=>goWaiverCheck(true))">
-      <div class="menu-icon">📋</div>
+      <div class="menu-icon"></div>
       <div class="menu-label">Sign Waivers</div>
       <div class="menu-desc" id="waiver-menu-desc">Review your waivers</div>
     </button>
     <button class="menu-btn p" onclick="kioskAction(goUpdateInfo)">
-      <div class="menu-icon">👤</div>
+      <div class="menu-icon"></div>
       <div class="menu-label">Update Info</div>
       <div class="menu-desc">Phone, interests, emergency contact</div>
     </button>
@@ -338,7 +338,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   </div>
   <div class="event-grid" id="event-grid"></div>
   <div id="no-events" class="hidden" style="text-align:center;padding:40px;color:var(--muted);max-width:440px">
-    <div style="font-size:40px;margin-bottom:12px">🔒</div>
+    <div style="font-size:40px;margin-bottom:12px"></div>
     <div style="font-weight:600;margin-bottom:6px" id="no-events-title">No open events</div>
     <div id="no-events-desc">Events must be opened by an Event Lead before volunteers can log hours. Please see a staff member.</div>
   </div>
@@ -381,7 +381,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
       <div id="bv-override-section">
       <button id="bv-no-event" onclick="toggleNoEventOverride()"
         style="width:100%;padding:10px;border:2px dashed var(--border);border-radius:var(--radius);background:transparent;font-family:inherit;font-size:13px;color:var(--muted);cursor:pointer;margin-top:4px">
-        ⚙️ No event listed — request override
+         No event listed — request override
       </button>
       <div id="bv-override-panel" style="display:none;margin-top:10px;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px">
         <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px">Override reason (required)</div>
@@ -398,7 +398,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
     </div>
     <button id="bv-begin-btn" onclick="submitBeginVolunteering()" disabled
       style="width:100%;padding:16px;background:linear-gradient(135deg,#166534,#16a34a);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;opacity:0.4"
-      title="Please select an event to begin">🟢 Begin Volunteering</button>
+      title="Please select an event to begin"> Begin Volunteering</button>
     <div id="bv-event-hint" style="text-align:center;font-size:12px;color:var(--muted);margin-top:8px">
       Please select an event above to begin tracking hours
     </div>
@@ -468,11 +468,11 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   </div>
   <div class="elic-bar">
     <div><div class="elic-name" id="elic-name">—</div><div class="elic-role" id="elic-role">—</div></div>
-    <div style="font-size:32px">🎬</div>
+    <div style="font-size:32px"></div>
   </div>
   <div class="elic-events" id="elic-events"></div>
   <button onclick="goElicMasterView()" style="width:100%;max-width:600px;margin-top:16px;padding:16px;background:var(--surface);border:2px solid var(--teal);border-radius:var(--radius);font-family:inherit;font-size:15px;font-weight:700;color:var(--teal-dark);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px">
-    👥 Volunteer Overview — See who's here &amp; manage clocks
+     Volunteer Overview — See who's here &amp; manage clocks
   </button>
 </div>
 
@@ -519,7 +519,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 <!-- CONFIRM -->
 <div class="screen hidden" id="screen-confirm">
   <div class="conf-card">
-    <div class="conf-icon" id="conf-icon">✅</div>
+    <div class="conf-icon" id="conf-icon"></div>
     <div class="conf-title" id="conf-title">Done!</div>
     <div class="conf-sub" id="conf-sub"></div>
     <div class="conf-note" id="conf-note"></div>
@@ -625,9 +625,9 @@ async function goBeginVolunteering(){
         const isOpen = e.status === 'open'
         const canSelfOpen = !isOpen && !!e.can_self_open
         const autoLog = !!e.auto_log_hours
-        const badge = autoLog && isOpen ? '<div style="font-size:10px;font-weight:700;background:#166534;color:#fff;padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block">⚡ Auto-Log Full Hours</div>' : ''
-        const statusBadge = !isOpen && !canSelfOpen ? `<div style="font-size:10px;font-weight:700;background:var(--bg);color:var(--muted);padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block">🔒 Not open yet</div>` : ''
-        const selfOpenBadge = canSelfOpen ? `<div style="font-size:10px;font-weight:700;background:#5b21b6;color:#fff;padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block">🔓 Tap to open &amp; begin</div>` : ''
+        const badge = autoLog && isOpen ? '<div style="font-size:10px;font-weight:700;background:#166534;color:#fff;padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block"> Auto-Log Full Hours</div>' : ''
+        const statusBadge = !isOpen && !canSelfOpen ? `<div style="font-size:10px;font-weight:700;background:var(--bg);color:var(--muted);padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block"> Not open yet</div>` : ''
+        const selfOpenBadge = canSelfOpen ? `<div style="font-size:10px;font-weight:700;background:#5b21b6;color:#fff;padding:2px 6px;border-radius:20px;margin-top:4px;display:inline-block"> Tap to open &amp; begin</div>` : ''
         if(!isOpen && !canSelfOpen){
           // Show but greyed out and non-clickable
           return `<div id="bv-evt-${e.id}" style="padding:10px 12px;border:2px solid var(--border);border-radius:var(--radius);background:var(--bg);font-family:inherit;font-size:13px;font-weight:600;text-align:left;opacity:0.5;cursor:not-allowed">
@@ -745,7 +745,7 @@ async function submitBeginVolunteering(){
       const d = await r.json()
       btn.disabled=false; resetBtnText()
       if(d.error){ alert(d.error); return }
-      showConfirm('⚡','Hours Logged!',
+      showConfirm('','Hours Logged!',
         d.hours+'h submitted for "'+d.event+'".',
         paidInstructionMode ? 'You\'ve been credited for the full class.' : 'You\'ve been credited for the full event. Thanks for volunteering!',
         ()=>showScreen('screen-vol-menu'))
@@ -773,7 +773,7 @@ async function submitBeginVolunteering(){
     showActiveSessionBanner(role)
     if(_bvOverrideReason && !paidInstructionMode){
       // Remind volunteer their hours need review
-      setTimeout(()=>showConfirm('⚠️','Override Active',
+      setTimeout(()=>showConfirm('','Override Active',
         'Hours logged without an event require admin review.',
         'Your hours will appear as pending until approved.',
         ()=>{}), 500)
@@ -794,7 +794,7 @@ async function goStopVolunteering(){
     const d = await r.json()
     if(d.error){ alert('Error: ' + d.error); return }
     hideActiveSessionBanner()
-    showConfirm('✅','Thank You!',
+    showConfirm('','Thank You!',
       d.hours+'h submitted for approval.',
       paidInstructionMode ? 'Your instruction time has been recorded.' : 'Your time has been recorded. Thanks for volunteering!',
       ()=>showScreen('screen-vol-menu'))
@@ -901,7 +901,7 @@ async function goWaiverCheck(fromMenu=false){
   showScreen('screen-waiver-check')
   document.getElementById('wc-title').textContent='Checking Waivers…'
   document.getElementById('wc-sub').textContent=''
-  document.getElementById('wc-content').innerHTML='<div style="font-size:36px;text-align:center;padding:40px">⏳</div>'
+  document.getElementById('wc-content').innerHTML='<div style="font-size:36px;text-align:center;padding:40px"></div>'
   try {
     const r=await fetch(`/api/kiosk/waiver-check?volunteer_id=${selVol.id}`)
     const data=await r.json()
@@ -925,7 +925,7 @@ function renderWaiverCheck(fromMenu,allClear){
       document.getElementById('wc-title').textContent='Your Waivers'
       document.getElementById('wc-sub').textContent='All waivers are current'
       content.innerHTML=`<div class="all-clear">
-        <div style="font-size:44px;margin-bottom:10px">✅</div>
+        <div style="font-size:44px;margin-bottom:10px"></div>
         <div style="font-size:18px;font-weight:700;color:var(--green);margin-bottom:4px">All Waivers Current</div>
         <div style="font-size:14px;color:var(--muted);margin-bottom:18px">No action needed</div>
         <button onclick="showScreen('screen-vol-menu')" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:12px 28px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer">← Back to Menu</button>
@@ -938,17 +938,17 @@ function renderWaiverCheck(fromMenu,allClear){
   updateWaiverMenuBtn(waiverIssues.length)
   content.innerHTML=waiverIssues.map((w,i)=>`
     <div class="waiver-issue">
-      <div class="wtag ${w.status==='expired'?'wtag-exp':'wtag-miss'}">${w.status==='expired'?'❌ Expired':'⚠️ Missing'}</div>
+      <div class="wtag ${w.status==='expired'?'wtag-exp':'wtag-miss'}">${w.status==='expired'?' Expired':' Missing'}</div>
       <div style="font-size:18px;font-weight:700;margin-bottom:4px">${w.name}</div>
       ${w.description?`<div style="font-size:13px;color:var(--muted);margin-bottom:12px">${w.description}</div>`:''}
       ${w.can_sign_online
-        ?`<button class="wsign-btn" onclick="startSign(${i})">✍️ Sign Now</button>`
+        ?`<button class="wsign-btn" onclick="startSign(${i})"> Sign Now</button>`
         :`<div style="font-size:13px;color:var(--muted)">This waiver requires an uploaded document. See an administrator.</div>`}
     </div>`).join('')+
   (fromMenu
     ? `<button onclick="showScreen('screen-vol-menu')" style="background:var(--teal);color:#fff;border:none;border-radius:var(--radius);padding:14px 28px;font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;width:100%;max-width:620px;margin-top:4px">← Back to Menu</button>`
     : `<div style="background:var(--red-light);border:2px solid #FCA5A5;border-radius:var(--radius);padding:14px;text-align:center;max-width:620px;width:100%;margin-top:8px">
-        <div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:8px">⚠️ Waivers required to volunteer</div>
+        <div style="font-size:14px;font-weight:700;color:var(--red);margin-bottom:8px"> Waivers required to volunteer</div>
         <div style="font-size:13px;color:var(--muted);margin-bottom:12px">Please sign the waivers above, or see an administrator for documents that require uploading.</div>
         <button onclick="showScreen('screen-search')" style="background:none;border:none;color:var(--muted);font-family:inherit;font-size:13px;cursor:pointer;text-decoration:underline">← Go Back</button>
       </div>`
@@ -980,10 +980,10 @@ async function submitSign(){
   btn.disabled=true;btn.textContent='Signing…'
   const r=await fetch('/api/kiosk/sign-waiver',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volunteer_id:selVol.id,waiver_type_id:signingWaiver.waiver_type_id,signed_name:name})})
   const d=await r.json()
-  btn.textContent='✍️ Sign Waiver'
+  btn.textContent=' Sign Waiver'
   if(d.error){btn.disabled=false;alert(d.error);return}
   waiverIssues=waiverIssues.filter(w=>w.waiver_type_id!==signingWaiver.waiver_type_id)
-  showConfirm('📋','Waiver Signed!',`${signingWaiver.name} signed successfully.`,'',()=>showScreen('screen-waiver-check'))
+  showConfirm('','Waiver Signed!',`${signingWaiver.name} signed successfully.`,'',()=>showScreen('screen-waiver-check'))
 }
 
 function goVolMenu(){
@@ -1003,8 +1003,8 @@ function goVolMenu(){
 // Purple = paid instruction, green = regular volunteering — kept visually
 // and textually distinct everywhere a session can be started/stopped.
 const SESSION_COLORS = {
-  volunteer:  {grad:'linear-gradient(135deg,#166534,#16a34a)', solid:'#166534', icon:'🟢'},
-  instruction:{grad:'linear-gradient(135deg,#5b21b6,#7c3aed)', solid:'#5b21b6', icon:'🎓'}
+  volunteer:  {grad:'linear-gradient(135deg,#166534,#16a34a)', solid:'#166534', icon:''},
+  instruction:{grad:'linear-gradient(135deg,#5b21b6,#7c3aed)', solid:'#5b21b6', icon:''}
 }
 function sessionMode(){ return paidInstructionMode ? 'instruction' : 'volunteer' }
 function sessionVerb(){ return paidInstructionMode ? 'Instruction' : 'Volunteering' }
@@ -1023,7 +1023,7 @@ function applySessionModeTheme(){
   if(banner) banner.style.background = c.grad
   const title = document.getElementById('active-session-title'); if(title) title.textContent = c.icon+' Currently '+(paidInstructionMode?'Instructing':'Volunteering')
   const stopBtn = document.getElementById('stop-session-btn')
-  if(stopBtn){ stopBtn.textContent = '🔴 Stop '+verb; stopBtn.style.color = c.solid }
+  if(stopBtn){ stopBtn.textContent = ' Stop '+verb; stopBtn.style.color = c.solid }
   const pill = document.getElementById('bv-step-pill'); if(pill) pill.textContent = 'Begin '+verb
   const bvTitle = document.getElementById('bv-screen-title'); if(bvTitle) bvTitle.textContent = paidInstructionMode ? 'Ready to begin instruction?' : 'Ready to volunteer?'
   const bvSub = document.getElementById('bv-screen-sub')
@@ -1060,8 +1060,8 @@ async function goEventSelect(){
   grid.innerHTML=events.map(e=>`
     <button class="event-btn" onclick='selectEvent(${JSON.stringify(e)})'>
       <div class="event-name">${e.name}</div>
-      ${e.event_date?`<div class="event-date">📅 ${fmtDate(e.event_date)}</div>`:'<div class="event-date" style="color:var(--teal)">● Ongoing</div>'}
-      ${e.status==='open'?'<div style="font-size:11px;background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:10px;font-weight:700;margin-top:4px;display:inline-block">● Open</div>':'<div style="font-size:11px;background:var(--teal-light);color:var(--teal);padding:2px 8px;border-radius:10px;font-weight:700;margin-top:4px;display:inline-block">📅 Scheduled</div>'}
+      ${e.event_date?`<div class="event-date"> ${fmtDate(e.event_date)}</div>`:'<div class="event-date" style="color:var(--teal)">● Ongoing</div>'}
+      ${e.status==='open'?'<div style="font-size:11px;background:var(--green-light);color:var(--green);padding:2px 8px;border-radius:10px;font-weight:700;margin-top:4px;display:inline-block">● Open</div>':'<div style="font-size:11px;background:var(--teal-light);color:var(--teal);padding:2px 8px;border-radius:10px;font-weight:700;margin-top:4px;display:inline-block"> Scheduled</div>'}
     </button>`).join('')
 }
 
@@ -1085,7 +1085,7 @@ async function submitHours(){
   const d=await r.json()
   btn.textContent='Submit Hours'
   if(d.error){btn.disabled=false;alert(d.error);return}
-  showConfirm('✅','Hours Submitted!',`${curHours}h for "${selEvent.name}" submitted for approval.`,'',()=>showScreen('screen-vol-menu'))
+  showConfirm('','Hours Submitted!',`${curHours}h for "${selEvent.name}" submitted for approval.`,'',()=>showScreen('screen-vol-menu'))
 }
 
 async function goUpdateInfo(){
@@ -1114,7 +1114,7 @@ async function submitUpdate(){
   const r=await fetch('/api/kiosk/update-profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({volunteer_id:selVol.id,updates})})
   const d=await r.json()
   if(d.error){alert(d.error);return}
-  showConfirm('👤','Updates Submitted!',`${updates.length} update${updates.length>1?'s':''} submitted for review.`,'An admin will review and apply your changes.',()=>showScreen('screen-vol-menu'))
+  showConfirm('','Updates Submitted!',`${updates.length} update${updates.length>1?'s':''} submitted for review.`,'An admin will review and apply your changes.',()=>showScreen('screen-vol-menu'))
 }
 
 // ── ELIC FLOW ──
@@ -1208,7 +1208,7 @@ function renderOpeningChecklist(){
   const {evname,isOffSite} = pendingAction
   document.getElementById('opening-cl-event-name').textContent = evname
   document.getElementById('opening-cl-sub').innerHTML = 'Complete before opening: ' + evname
-    + (isOffSite ? '<div style="margin-top:8px;padding:8px 12px;background:#ede9fe;color:#6d28d9;border-radius:8px;font-size:13px;font-weight:600">📍 This is an off-site event — studio-only items have been removed</div>' : '')
+    + (isOffSite ? '<div style="margin-top:8px;padding:8px 12px;background:#ede9fe;color:#6d28d9;border-radius:8px;font-size:13px;font-weight:600"> This is an off-site event — studio-only items have been removed</div>' : '')
   const container = document.getElementById('opening-cl-items')
   container.innerHTML = openingChecklistItems.map(item=>`
     <div class="cl-item" id="ocl-item-${item.id}">
@@ -1216,8 +1216,8 @@ function renderOpeningChecklist(){
       ${item.hint?`<div class="cl-hint">${item.hint}</div>`:''}
       ${item.item_type==='checkbox'?`
         <div class="cl-check-btns">
-          <button class="cl-yes" id="ocl-y-${item.id}" onclick="setOpeningClResponse('${item.id}','true','${item.item_type}')">✅ Done</button>
-          <button class="cl-no" id="ocl-n-${item.id}" onclick="setOpeningClResponse('${item.id}','false','${item.item_type}')">❌ Not Done</button>
+          <button class="cl-yes" id="ocl-y-${item.id}" onclick="setOpeningClResponse('${item.id}','true','${item.item_type}')"> Done</button>
+          <button class="cl-no" id="ocl-n-${item.id}" onclick="setOpeningClResponse('${item.id}','false','${item.item_type}')"> Not Done</button>
         </div>`:
       `<textarea class="cl-textarea" id="ocl-t-${item.id}" placeholder="${item.hint||'Enter notes…'}" oninput="setOpeningClResponse('${item.id}',this.value,'${item.item_type}')"></textarea>`}
     </div>`).join('')
@@ -1270,7 +1270,7 @@ async function refreshMasterView(){
     if(!sessions.length){
       if(sub) sub.textContent = 'No active sessions right now'
       el.innerHTML = `<div style="text-align:center;padding:40px;color:var(--muted)">
-        <div style="font-size:40px;margin-bottom:12px">🕐</div>
+        <div style="font-size:40px;margin-bottom:12px"></div>
         <div style="font-weight:600">No one is currently clocked in</div>
       </div>`
       return
@@ -1293,7 +1293,7 @@ async function refreshMasterView(){
         </div>
         <div style="text-align:right;flex-shrink:0">
           <div style="font-size:13px;color:var(--muted);margin-bottom:8px">${hrs}h so far</div>
-          <button onclick="elicStopSession('${s.id}','${s.volunteer_name.replace(/'/g,"\\'")}')" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">🔴 Stop Clock</button>
+          <button onclick="elicStopSession('${s.id}','${s.volunteer_name.replace(/'/g,"\\'")}')" style="background:#dc2626;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer"> Stop Clock</button>
         </div>
       </div>`
     }).join('')
@@ -1361,9 +1361,9 @@ function renderElicMenu(){
   function buildCard(e, idx){
     const status=getStatus(e)
     const isRS=e.stage==='rising_stars'
-    const rsBadge=isRS?'<span style="font-size:11px;background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-weight:700;margin-left:6px">⭐ RS</span>':''
+    const rsBadge=isRS?'<span style="font-size:11px;background:#F3EEFF;color:#6D28D9;padding:2px 8px;border-radius:10px;font-weight:700;margin-left:6px"> RS</span>':''
     const statusColors={open:'#16A34A',closed:'#6B7280',draft:'#1D4ED8'}
-    const statusLabels={open:'🟢 Open',closed:'✓ Closed',draft:'Scheduled'}
+    const statusLabels={open:' Open',closed:'✓ Closed',draft:'Scheduled'}
     const statusTag='<span style="font-size:12px;font-weight:700;color:'+( statusColors[status]||statusColors.draft)+'">'+(statusLabels[status]||status)+'</span>'
     const timeStr=e.start_time?(e.end_time?fmtTime(e.start_time)+' – '+fmtTime(e.end_time):fmtTime(e.start_time)):''
     const todayBadge=e.event_date===today?'<span style="background:#FCD34D;color:#78350F;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:800;margin-right:6px">TODAY</span>':''
@@ -1390,10 +1390,10 @@ function renderElicMenu(){
         showPickupBtn = hasYouth
       }
       actionArea='<div style="display:flex;gap:8px;flex-wrap:wrap">'
-        +'<button class="elic-close-btn" onclick="handleElicCloseIdx('+idx+')">🔒 Close Event</button>'
-        +(showProdBtn?'<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx('+idx+')">🎭 Production Sign-In</button>':'')
-        +(showStandardProgramBtn?'<button style="background:var(--blue-light,#dbeafe);color:var(--blue,#1e40af);border:2px solid #bfdbfe;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleStandardYouthSignInIdx('+idx+')">📋 Standard Sign-In</button>':'')
-        +(showPickupBtn?'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx('+idx+')">👤 Participant Pickup</button>':'')
+        +'<button class="elic-close-btn" onclick="handleElicCloseIdx('+idx+')"> Close Event</button>'
+        +(showProdBtn?'<button style="background:var(--purple-light);color:var(--purple);border:2px solid #C4B5FD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleProdSignInIdx('+idx+')"> Production Sign-In</button>':'')
+        +(showStandardProgramBtn?'<button style="background:var(--blue-light,#dbeafe);color:var(--blue,#1e40af);border:2px solid #bfdbfe;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleStandardYouthSignInIdx('+idx+')"> Standard Sign-In</button>':'')
+        +(showPickupBtn?'<button style="background:var(--green-light);color:var(--green);border:2px solid #86EFAD;border-radius:var(--radius);padding:12px 20px;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" onclick="handleYouthSignInIdx('+idx+')"> Participant Pickup</button>':'')
         +'</div>'
     } else if(status==='closed'){
       actionArea='<div style="font-size:13px;color:var(--hint);padding:6px 0">Event closed ✓</div>'
@@ -1404,7 +1404,7 @@ function renderElicMenu(){
         +'<div id="cd-'+e.id+'" style="font-size:20px;font-weight:800;color:var(--teal);font-variant-numeric:tabular-nums">—</div>'
         +'</div>'
     } else {
-      actionArea='<button class="elic-open-btn" onclick="handleElicOpenIdx('+idx+')">🟢 Open Event</button>'
+      actionArea='<button class="elic-open-btn" onclick="handleElicOpenIdx('+idx+')"> Open Event</button>'
     }
 
     const cardBorder=status==='open'?'border:2px solid #86EFAD;':status==='closed'?'border:1px solid var(--border);opacity:0.7;':mins!==null&&mins>60?'border:2px dashed #d1d5db;':'border:2px solid var(--border);'
@@ -1430,12 +1430,12 @@ function renderElicMenu(){
   }
 
   container.innerHTML=''
-    +section('Currently Open','🟢',openNow,'#16A34A')
-    +section("Today's Events",'📅',todaySched,'#1D4ED8')
+    +section('Currently Open','',openNow,'#16A34A')
+    +section("Today's Events",'',todaySched,'#1D4ED8')
     +section("Closed Today",'✓',todayClosed,'#6B7280')
-    +(upcoming.length?'<details style="margin-bottom:20px"><summary style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:#6B7280;cursor:pointer;margin-bottom:8px;list-style:none;display:flex;align-items:center;gap:6px">📆 Upcoming Events ('+upcoming.length+')</summary><div style="margin-top:8px">'+upcoming.map(e=>buildCard(e,elicEventList.indexOf(e))).join('')+'</div></details>':'')
-    +(undated.length?section('No Date Set','❓',undated,'#9CA3AF'):'')
-    +(pastClosed.length?'<details style="margin-bottom:20px"><summary style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:#9CA3AF;cursor:pointer;margin-bottom:8px;list-style:none;display:flex;align-items:center;gap:6px">🗂 Past / Closed ('+pastClosed.length+')</summary><div style="margin-top:8px">'+pastClosed.map(e=>buildCard(e,elicEventList.indexOf(e))).join('')+'</div></details>':'')
+    +(upcoming.length?'<details style="margin-bottom:20px"><summary style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:#6B7280;cursor:pointer;margin-bottom:8px;list-style:none;display:flex;align-items:center;gap:6px"> Upcoming Events ('+upcoming.length+')</summary><div style="margin-top:8px">'+upcoming.map(e=>buildCard(e,elicEventList.indexOf(e))).join('')+'</div></details>':'')
+    +(undated.length?section('No Date Set','',undated,'#9CA3AF'):'')
+    +(pastClosed.length?'<details style="margin-bottom:20px"><summary style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.8px;color:#9CA3AF;cursor:pointer;margin-bottom:8px;list-style:none;display:flex;align-items:center;gap:6px"> Past / Closed ('+pastClosed.length+')</summary><div style="margin-top:8px">'+pastClosed.map(e=>buildCard(e,elicEventList.indexOf(e))).join('')+'</div></details>':'')
 
   // Start countdown timer for any locked events
   startCountdownTimers()
@@ -1530,7 +1530,7 @@ async function doOpenEvent(){
   if(d.error){alert(d.error);return}
   elicEventList=elicEventList.map(e=>e.id===evid?{...e,current_status:'open',status:'open'}:e)
   renderElicMenu()
-  showConfirm('🟢','Event Opened!',`"${evname}" is now open for hour logging.`,'Volunteers can now log their hours.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
+  showConfirm('','Event Opened!',`"${evname}" is now open for hour logging.`,'Volunteers can now log their hours.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
 }
 
 async function startClose(evid,evname){
@@ -1554,7 +1554,7 @@ async function startClose(evid,evname){
 function renderChecklist(){
   document.getElementById('cl-event-name').textContent=closingEvent.name
   document.getElementById('cl-subtitle').innerHTML='Complete the closing checklist before locking up'
-    + (closingEvent.isOffSite ? '<div style="margin-top:8px;padding:8px 12px;background:#ede9fe;color:#6d28d9;border-radius:8px;font-size:13px;font-weight:600">📍 This is an off-site event — studio-only items have been removed</div>' : '')
+    + (closingEvent.isOffSite ? '<div style="margin-top:8px;padding:8px 12px;background:#ede9fe;color:#6d28d9;border-radius:8px;font-size:13px;font-weight:600"> This is an off-site event — studio-only items have been removed</div>' : '')
   const container=document.getElementById('cl-items')
   container.innerHTML=checklistItems.map(item=>`
     <div class="cl-item" id="cl-item-${item.id}">
@@ -1562,8 +1562,8 @@ function renderChecklist(){
       ${item.hint?`<div class="cl-hint">${item.hint}</div>`:''}
       ${item.item_type==='checkbox'?`
         <div class="cl-check-btns">
-          <button class="cl-yes" id="cl-y-${item.id}" onclick="setClResponse('${item.id}','true','${item.item_type}')">✅ Done</button>
-          <button class="cl-no" id="cl-n-${item.id}" onclick="setClResponse('${item.id}','false','${item.item_type}')">❌ Not Done</button>
+          <button class="cl-yes" id="cl-y-${item.id}" onclick="setClResponse('${item.id}','true','${item.item_type}')"> Done</button>
+          <button class="cl-no" id="cl-n-${item.id}" onclick="setClResponse('${item.id}','false','${item.item_type}')"> Not Done</button>
         </div>`:
       item.item_type==='rating'?`
         <div class="cl-rating">
@@ -1601,7 +1601,7 @@ async function submitChecklist(){
     try { d=await r.json() } catch(e){ alert('Server error closing event ('+r.status+'). Please try again.'); return }
     if(d.error){alert(d.error);return}
     elicEventList=elicEventList.map(e=>e.id===closingEvent.id?{...e,current_status:'close',status:'closed'}:e)
-    showConfirm('🔒','Event Closed!',`"${closingEvent.name}" has been closed.`,'Checklist submitted to admin portal.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
+    showConfirm('','Event Closed!',`"${closingEvent.name}" has been closed.`,'Checklist submitted to admin portal.',()=>{renderElicMenu();showScreen('screen-elic-menu')})
   } catch(err) {
     alert('Network error: '+err.message+'. Please check connection and try again.')
   }
@@ -1630,7 +1630,7 @@ async function openEysSignIn(evt, mode){
   eysEventData=evt
   const isProgram = !evt.production_id && evt.program_id
   document.getElementById('eys-prod-name').textContent = evt.production_name || evt.program_name || evt.name
-  document.getElementById('eys-event-name').textContent = (isProgram ? '📚 ' : '⭐ Rising Stars · ') + evt.name
+  document.getElementById('eys-event-name').textContent = (isProgram ? ' ' : ' Rising Stars · ') + evt.name
   document.getElementById('eys-roster').innerHTML='<div style="text-align:center;padding:32px;color:var(--muted)">Loading…</div>'
   showScreen('screen-elic-youth-signin')
 
@@ -1698,7 +1698,7 @@ function renderEysCarpools(){
   const el = document.getElementById('eys-carpools-list')
   if(!el) return
   if(!eysCarpools.length){
-    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)"><div style="font-size:32px;margin-bottom:10px">🚗</div><div>No carpools for this event</div></div>'
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted)"><div style="font-size:32px;margin-bottom:10px"></div><div>No carpools for this event</div></div>'
     return
   }
   el.innerHTML = eysCarpools.map(cp=>{
@@ -1709,7 +1709,7 @@ function renderEysCarpools(){
     return `<div style="background:var(--surface);border:2px solid var(--border);border-left:4px solid #3b82f6;border-radius:var(--radius-lg);padding:18px;margin-bottom:12px;box-shadow:var(--shadow)">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
         <div style="flex:1">
-          <div style="font-size:17px;font-weight:700;color:var(--teal-dark);margin-bottom:4px">🚗 ${cp.name}</div>
+          <div style="font-size:17px;font-weight:700;color:var(--teal-dark);margin-bottom:4px"> ${cp.name}</div>
           <div style="font-size:13px;color:var(--muted);margin-bottom:10px">
             Driver: <strong style="color:var(--text)">${cp.driver_name}</strong>
             ${cp.driver_phone?` · ${cp.driver_phone}`:''}
@@ -1798,7 +1798,7 @@ function filterEysRoster(){
   // (they drop off once signed out) — one queue at a time instead of
   // hunting through the full roster.
   roster = roster.filter(y => eysSignMode==='in' ? !activeSignIn[y.id] : !!activeSignIn[y.id])
-  const emptyMsg = eysSignMode==='in' ? 'Everyone\'s signed in! 🎉' : 'No one is currently signed in.'
+  const emptyMsg = eysSignMode==='in' ? 'Everyone\'s signed in! ' : 'No one is currently signed in.'
 
   if(eysView==='card'){
     const cards=roster.map(y=>{
@@ -1814,7 +1814,7 @@ function filterEysRoster(){
       card+='<div style="width:42px;height:42px;border-radius:50%;background:'+(isIn?'var(--green)':'var(--hint)')+';color:#fff;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:700;flex-shrink:0">'+initials+'</div>'
       card+='<div style="flex:1"><div style="font-weight:700;font-size:15px">'+y.first_name+' '+y.last_name+'</div>'
       card+='<div style="font-size:11px;color:'+sinceColor+'">'+sinceStr+'</div></div>'
-      card+='<div style="font-size:12px;font-weight:700;color:'+(isIn?'var(--green)':'var(--hint)')+'">'+( isIn?'✅ IN':'◯')+'</div>'
+      card+='<div style="font-size:12px;font-weight:700;color:'+(isIn?'var(--green)':'var(--hint)')+'">'+( isIn?' IN':'◯')+'</div>'
       card+='</div>'
       card+='<div style="display:flex;gap:8px">'
       if(!isIn) card+='<button style="flex:1;padding:10px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer" data-yid="'+y.id+'" data-yname="'+y.first_name+' '+y.last_name+'" onclick="eysStartDropOff(this)">'+(eysMode==='quick'?'Sign In':'Drop Off')+'</button>'
@@ -2016,10 +2016,10 @@ function filterPsRoster(){
   const container=document.getElementById('ps-roster')
   if(!filtered.length){container.innerHTML='<div style="text-align:center;padding:24px;color:var(--muted)">No members found</div>';return}
 
-  const conflictStyles={absent:{bg:'#fef2f2',border:'#fca5a5',badge:'🔴 Absent',badgeBg:'#dc2626'},
-    sick:{bg:'#fef2f2',border:'#fca5a5',badge:'🤒 Sick',badgeBg:'#dc2626'},
-    late:{bg:'#fffbeb',border:'#fcd34d',badge:'🟡 Late',badgeBg:'#d97706'},
-    leaving_early:{bg:'#fffbeb',border:'#fcd34d',badge:'🟠 Leaving Early',badgeBg:'#d97706'}}
+  const conflictStyles={absent:{bg:'#fef2f2',border:'#fca5a5',badge:' Absent',badgeBg:'#dc2626'},
+    sick:{bg:'#fef2f2',border:'#fca5a5',badge:' Sick',badgeBg:'#dc2626'},
+    late:{bg:'#fffbeb',border:'#fcd34d',badge:' Late',badgeBg:'#d97706'},
+    leaving_early:{bg:'#fffbeb',border:'#fcd34d',badge:' Leaving Early',badgeBg:'#d97706'}}
 
   // Build conflict lookup by volunteer_id
   const conflictByVol={}
@@ -2049,7 +2049,7 @@ function filterPsRoster(){
             ${conflict?`<div style="font-size:11px;font-weight:600;color:${cs.badgeBg};margin-top:2px">${cs.badge}${conflict.notes?' — '+conflict.notes:''} ${conflict.source==='portal'?'(self-reported)':'(staff entered)'}</div>`:''}
           </div>
           <div style="font-size:12px;font-weight:700;color:${cs?cs.badgeBg:isIn?'var(--green)':'var(--hint)'};flex-shrink:0">
-            ${cs?cs.badge.split(' ')[0]:isIn?'✅ IN':'◯ OUT'}
+            ${cs?cs.badge.split(' ')[0]:isIn?' IN':'◯ OUT'}
           </div>
         </div>`
       }).join('')}
@@ -2166,7 +2166,7 @@ function showConfirm(icon,title,sub,note,onBack){
     <div id="eys-auth-list" style="margin-bottom:16px"></div>
     <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--hint);margin-bottom:8px" id="eys-auth-label">Dropped Off By</div>
     <input type="text" id="eys-auth-name" placeholder="Name" style="width:100%;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:18px;outline:none;margin-bottom:16px"/>
-    <div id="eys-auth-warn" style="font-size:13px;color:var(--amber-600);margin-bottom:16px;display:none">⚠️ Not on authorized list. Admin will be notified to update.</div>
+    <div id="eys-auth-warn" style="font-size:13px;color:var(--amber-600);margin-bottom:16px;display:none"> Not on authorized list. Admin will be notified to update.</div>
     <button onclick="eysConfirmPerson()" style="width:100%;padding:18px;background:var(--teal);color:#fff;border:none;border-radius:var(--radius);font-family:inherit;font-size:18px;font-weight:700;cursor:pointer">Confirm</button>
   </div>
 </div>
@@ -2175,18 +2175,18 @@ function showConfirm(icon,title,sub,note,onBack){
   <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
   <div class="screen-heading">
     <div class="screen-title" id="eys-prod-name">Participant Sign-In</div>
-    <div class="screen-sub" id="eys-event-name">⭐ Rising Stars</div>
+    <div class="screen-sub" id="eys-event-name"> Rising Stars</div>
   </div>
   <div style="width:100%;max-width:720px">
     <!-- Tabs -->
     <div style="display:flex;border-bottom:2px solid var(--border);margin-bottom:16px">
       <button id="eys-tab-roster" onclick="setEysTab('roster')"
         style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;color:var(--teal-dark);border-bottom:3px solid var(--teal);margin-bottom:-2px">
-        👤 Participants
+         Participants
       </button>
       <button id="eys-tab-carpools" onclick="setEysTab('carpools')"
         style="padding:10px 20px;font-size:14px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-2px">
-        🚗 Carpools
+         Carpools
       </button>
     </div>
 
@@ -2244,7 +2244,7 @@ function showConfirm(icon,title,sub,note,onBack){
 <div class="screen hidden" id="screen-eys-out">
   <button class="back-btn" onclick="showScreen('screen-elic-youth-signin')">← Back</button>
   <div style="background:var(--surface);border-radius:var(--radius-lg);padding:44px;max-width:460px;width:100%;box-shadow:var(--shadow-lg);text-align:center">
-    <div style="font-size:56px;margin-bottom:16px">👋</div>
+    <div style="font-size:56px;margin-bottom:16px"></div>
     <div style="font-size:24px;font-weight:800;color:var(--teal-dark);margin-bottom:6px" id="eys-out-name"></div>
     <div style="font-size:14px;color:var(--muted);margin-bottom:24px" id="eys-out-since"></div>
     <div style="margin-bottom:18px">
@@ -2279,7 +2279,7 @@ function showConfirm(icon,title,sub,note,onBack){
 <div class="screen hidden" id="screen-prod-signout">
   <button class="back-btn" onclick="showScreen('screen-prod-signin')">← Back</button>
   <div style="background:var(--surface);border-radius:var(--radius-lg);padding:44px;max-width:460px;width:100%;box-shadow:var(--shadow-lg);text-align:center">
-    <div style="font-size:56px;margin-bottom:16px">👋</div>
+    <div style="font-size:56px;margin-bottom:16px"></div>
     <div style="font-size:24px;font-weight:800;color:var(--teal-dark);margin-bottom:8px" id="pso-name"></div>
     <div style="font-size:15px;color:var(--muted);margin-bottom:4px" id="pso-role"></div>
     <div style="font-size:13px;color:var(--hint);margin-bottom:28px" id="pso-time"></div>
@@ -2296,7 +2296,7 @@ function showConfirm(icon,title,sub,note,onBack){
 <!-- Kiosk Confirm Dialog -->
 <div id="kiosk-confirm" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center;padding:24px">
   <div style="background:#fff;border-radius:24px;padding:40px;max-width:400px;width:100%;text-align:center;box-shadow:0 24px 80px rgba(0,0,0,0.3)">
-    <div style="font-size:40px;margin-bottom:16px" id="kc-icon">❓</div>
+    <div style="font-size:40px;margin-bottom:16px" id="kc-icon"></div>
     <div style="font-size:22px;font-weight:700;color:#0d3d4d;margin-bottom:8px" id="kc-title"></div>
     <div style="font-size:15px;color:#5F5E5A;margin-bottom:32px" id="kc-body"></div>
     <div style="display:flex;gap:12px">
@@ -2309,7 +2309,7 @@ function showConfirm(icon,title,sub,note,onBack){
 
 <!-- NFC Welcome overlay -->
 <div id="nfc-welcome" style="display:none;position:fixed;inset:0;background:linear-gradient(155deg,#0d3d4d,#145466);z-index:9999;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center">
-  <div style="font-size:64px;margin-bottom:20px">👋</div>
+  <div style="font-size:64px;margin-bottom:20px"></div>
   <div style="font-size:36px;font-weight:900;letter-spacing:-0.5px;margin-bottom:8px" id="nfc-welcome-name">Welcome!</div>
   <div style="font-size:18px;opacity:0.8">Loading your profile…</div>
   <div style="margin-top:32px;width:48px;height:4px;border-radius:2px;background:rgba(255,255,255,0.3);overflow:hidden">

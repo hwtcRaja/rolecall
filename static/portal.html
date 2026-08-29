@@ -180,7 +180,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
  <p>Horizon West Theater Company</p>
  </div>
  <div class="login-tabs">
- <button class="login-tab active" onclick="switchLoginTab('family')">‍‍ Family / Participant</button>
+ <button class="login-tab active" onclick="switchLoginTab('family')"> Family / Participant</button>
  <button class="login-tab" onclick="switchLoginTab('instructor')">Instructor</button>
  </div>
  <div id="error-msg" class="login-error"></div>
@@ -577,7 +577,7 @@ function renderFamilyContent(){
  productions.forEach(p=>{
  const col = '#7c3aed'
  const archived = isArchivedProduction(p)
- const body = '<div class="program-card-name">⭐ '+p.name+(archived?' <span style="font-size:10px;font-weight:700;color:#6b7280;background:#e5e7eb;padding:2px 7px;border-radius:10px;margin-left:4px">ARCHIVED</span>':'')+'</div>'
+ const body = '<div class="program-card-name"> '+p.name+(archived?' <span style="font-size:10px;font-weight:700;color:#6b7280;background:#e5e7eb;padding:2px 7px;border-radius:10px;margin-left:4px">ARCHIVED</span>':'')+'</div>'
  +'<div class="program-card-meta"><span style="background:#ede9fe;color:#7c3aed;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-top:4px;display:inline-block">Rising Stars</span>'
  +(p.cast_role?'<span> Role: '+p.cast_role+'</span>':'')
  +'</div>'
@@ -786,7 +786,7 @@ async function selectContext(type, id, name, color){
  +'<div class="detail-hero-name">'+ctxName+'</div>'
  +(castRole?'<div style="margin-top:5px"><span style="background:rgba(255,255,255,0.18);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">'+castRole+'</span></div>':'')
  +(heroDetailLine?'<div style="margin-top:8px;font-size:12px;opacity:0.75;line-height:1.5">'+heroDetailLine+'</div>':'')
- +(type==='production'?'<div style="margin-top:6px"><span style="background:rgba(255,255,255,0.12);color:rgba(255,255,255,0.8);padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:0.3px">⭐ Rising Stars</span></div>':'')
+ +(type==='production'?'<div style="margin-top:6px"><span style="background:rgba(255,255,255,0.12);color:rgba(255,255,255,0.8);padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:0.3px"> Rising Stars</span></div>':'')
  +'</div>'
  // Right column — today's date
  +'<div style="text-align:right;flex-shrink:0;padding-top:2px">'
@@ -820,7 +820,7 @@ async function selectContext(type, id, name, color){
  // or actually published, so productions without auditions never show an
  // empty tab.
  const showCastListTab = isProduction && (castListData?.published || auditionSettings?.cast_list_reveal_at)
- if(showCastListTab) tabDefs.push({id:'castlist', label:'📋 Cast List'})
+ if(showCastListTab) tabDefs.push({id:'castlist', label:' Cast List'})
  // Add Auditions tab if open (loaded async — add as placeholder, fill when clicked)
  tabDefs.push({id:'auditions', label:' Auditions'})
  tabDefs.push({id:'messages', label:' Messages'})
@@ -1118,7 +1118,7 @@ function buildProfileTab(y, yid){
  var inFamily = portalSession && portalSession.type === 'family'
  if(inFamily){
  html += '<div style="display:flex;gap:8px;margin-bottom:16px">'
- +'<button id="pp-tab-family" onclick="switchPPTab(\'family\')" style="padding:8px 16px;border:1.5px solid var(--teal);border-radius:var(--radius);background:var(--teal);color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">‍‍ Family Passphrase</button>'
+ +'<button id="pp-tab-family" onclick="switchPPTab(\'family\')" style="padding:8px 16px;border:1.5px solid var(--teal);border-radius:var(--radius);background:var(--teal);color:#fff;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer"> Family Passphrase</button>'
  +'<button id="pp-tab-individual" onclick="switchPPTab(\'individual\')" style="padding:8px 16px;border:1.5px solid var(--border-md);border-radius:var(--radius);background:var(--surface);color:var(--text);font-family:inherit;font-size:13px;font-weight:600;cursor:pointer">Individual Passphrase</button>'
  +'</div>'
  +'<div id="pp-panel-family" style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:12px">Changes the passphrase that logs in <strong>all children</strong> in your family at once.</div>'
@@ -1974,7 +1974,7 @@ function buildCastListTabHTML(castData, settings){
  // target time passes, starts checking for the real list to appear.
  const title = settings?.title || 'Cast List'
  return `<div style="max-width:480px;text-align:center;padding:20px 16px">
- <div style="font-size:34px;margin-bottom:6px">🎭</div>
+ <div style="font-size:34px;margin-bottom:6px"></div>
  <div style="font-size:18px;font-weight:800;margin-bottom:2px">${escHtml(title)}</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">The cast list is on its way…</div>
  <div id="cast-countdown-value" style="font-size:15px;font-weight:700;color:#145466;background:var(--teal-50);border-radius:var(--radius-lg);padding:16px;margin-bottom:6px"> Loading countdown…</div>
@@ -2291,7 +2291,7 @@ function enterInstructorPortal(d){
  if(!d.productions.length) prodList.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">No productions assigned</div>'
  else prodList.innerHTML = d.productions.map(p=>`
  <div class="item" onclick="selectInstructorContext('production','${p.id}','${p.name.replace(/'/g,"\\'")}',this)">
- <div>⭐ ${p.name}</div>
+ <div> ${p.name}</div>
  </div>`).join('')
 
  if(d.programs.length) {
@@ -2322,7 +2322,7 @@ async function selectInstructorContext(type, id, name, el){
  <div class="card" style="margin-bottom:16px">
  <div class="card-header">
  <div class="card-title">${name}</div>
- ${type==='production'?'<span style="background:#ede9fe;color:#7c3aed;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">⭐ Rising Stars</span>':''}
+ ${type==='production'?'<span style="background:#ede9fe;color:#7c3aed;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700"> Rising Stars</span>':''}
  </div>
  <div class="card-body">
  <!-- TABS -->

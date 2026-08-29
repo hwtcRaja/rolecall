@@ -1318,6 +1318,10 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS performance_location TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_color TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_image_url TEXT",
+        # A small logo/crest shown alongside the show's branding (cast list,
+        # hero header) — separate from portal_image_url, which is the big
+        # background photo behind the hero banner.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_logo_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT",
         # meet the team
         """CREATE TABLE IF NOT EXISTS production_team_members (
@@ -6563,20 +6567,33 @@ def get_cast_list(context_type, context_id):
         (context_type, context_id))
     row = maybe_auto_reveal_cast_list(conn, context_type, context_id, row)
     if not row or not row.get('cast_list_published'):
-        conn.close()
         reveal_at = row.get('cast_list_reveal_at') if row else None
+        portal_color = None
+        portal_logo_url = None
+        if context_type == 'production':
+            p = fetchone(conn, 'SELECT portal_color, portal_logo_url FROM productions WHERE id=%s', (context_id,))
+            if p:
+                portal_color = p.get('portal_color') or None
+                portal_logo_url = p.get('portal_logo_url') or None
+        conn.close()
         resp = jsonify({
             'published': False, 'cast': [],
             'reveal_at': reveal_at.isoformat() if reveal_at else None,
             'queued': bool(row.get('cast_list_queued')) if row else False,
+            'portal_color': portal_color, 'portal_logo_url': portal_logo_url,
         })
         resp.headers['Cache-Control'] = 'no-store'
         return resp
-    # Get the actual production/program name
+    # Get the actual production/program name (and branding, for productions)
     ctx_name = ''
+    portal_color = None
+    portal_logo_url = None
     if context_type == 'production':
-        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
-        if p: ctx_name = p['name']
+        p = fetchone(conn, 'SELECT name, portal_color, portal_logo_url FROM productions WHERE id=%s', (context_id,))
+        if p:
+            ctx_name = p['name']
+            portal_color = p.get('portal_color') or None
+            portal_logo_url = p.get('portal_logo_url') or None
     elif context_type == 'program':
         p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (context_id,))
         if p: ctx_name = p['name']
@@ -6586,7 +6603,8 @@ def get_cast_list(context_type, context_id):
     except Exception:
         cast = []
     title = row.get('title') or ctx_name
-    resp = jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name})
+    resp = jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name,
+        'portal_color': portal_color, 'portal_logo_url': portal_logo_url})
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
@@ -10544,8 +10562,13 @@ def portal_get_participant(yid):
         # cast list for that production — otherwise a family would see their
         # kid's role (or even just that they're cast at all) before the
         # reveal, which defeats the whole point of the countdown/hype flow.
+        # Also pulls branding (color/background/logo) and venue/date fields
+        # the portal's hero and overview sections read but this query was
+        # never actually selecting.
         productions = fetchall(conn, '''SELECT p.id, p.name, p.stage, p.status,
             p.description, p.image_url, p.director, p.venue, p.portal_tab_order,
+            p.portal_color, p.portal_image_url, p.portal_logo_url,
+            p.performance_location, p.start_date, p.end_date,
             CASE WHEN aset.cast_list_published THEN ypm.role ELSE NULL END as cast_role,
             ypm.id as member_id
             FROM youth_production_members ypm
@@ -11174,10 +11197,11 @@ def update_production_about(pid):
     execute(conn, '''UPDATE productions SET
         director=%s, venue=%s, performance_location=%s,
         start_date=%s, end_date=%s, description=%s,
-        portal_color=%s, portal_image_url=%s WHERE id=%s''',
+        portal_color=%s, portal_image_url=%s, portal_logo_url=%s WHERE id=%s''',
         (d.get('director',''), d.get('venue',''), d.get('performance_location',''),
          d.get('start_date') or None, d.get('end_date') or None,
-         d.get('description',''), d.get('portal_color',''), d.get('portal_image_url',''), pid))
+         d.get('description',''), d.get('portal_color',''), d.get('portal_image_url',''),
+         d.get('portal_logo_url',''), pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

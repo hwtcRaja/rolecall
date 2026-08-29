@@ -11882,18 +11882,10 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
   </div>`
  }
 
- if(settings.cast_list_reveal_at && !settings.cast_list_published){
-  html += `<div style="text-align:center;margin-bottom:10px">
-   <div style="display:inline-block;background:#fdf4ff;border:1px solid #e9d5ff;border-radius:20px;padding:6px 16px;font-size:13px;font-weight:700;color:#7e22ce" id="ym-countdown-${contextId}"> Loading countdown…</div>
-  </div>`
- }
  html += `<div style="text-align:center;margin-top:4px"><button class="btn ${castCount>0?'btn-primary':'btn-secondary'} btn-sm"
   onclick="openPublishCastModal('${contextType}','${contextId}','${containerId}')"
   ${castCount===0?'style="opacity:0.5"':''}>
   ${settings.cast_list_published?'✓ Cast List Published':'Publish Cast List'}${castCount>0?' ('+castCount+' cast)':''}</button></div>`
- if(settings.cast_list_reveal_at && !settings.cast_list_published){
-  startCastCountdown(contextId, settings.cast_list_reveal_at)
- }
 
  html += `</div>` // end overview panel
 
@@ -12261,12 +12253,6 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  <label>Also notify this email on submissions <span style="font-weight:400;color:var(--text-muted)">(in addition to admins)</span></label>
  <input type="email" id="aud-s-email" value="${escHtml(settings.email_submissions||'')}" placeholder="director@hwtco.org"/>
  </div>
- <div style="background:#fdf4ff;border:1px solid #e9d5ff;border-radius:var(--radius);padding:12px 14px">
- <div style="font-size:12px;font-weight:700;color:#7e22ce;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px"> Cast List Reveal Countdown</div>
- <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Announce when the cast list drops to build hype on the portal — this is just the countdown target. You still publish the actual list yourself when casting is finalized.</div>
- <input type="datetime-local" id="aud-s-reveal-at" value="${settings.cast_list_reveal_at?String(settings.cast_list_reveal_at).slice(0,16):''}"/>
- ${settings.cast_list_reveal_at?`<button type="button" class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="document.getElementById('aud-s-reveal-at').value=''">Clear</button>`:''}
- </div>
  <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px">
  <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">Allow families to submit</div>
  <div style="display:flex;flex-direction:column;gap:8px">
@@ -12346,7 +12332,6 @@ async function saveAuditionSettings(contextType, contextId, containerId){
    allow_headshot_link: !!document.getElementById('aud-s-headshot')?.checked,
    allow_slots: allowSlots,
    tab_visible: !!document.getElementById('aud-s-tab-visible')?.checked,
-   cast_list_reveal_at: document.getElementById('aud-s-reveal-at')?.value||null,
  }
  console.log('saveAuditionSettings payload:', data)
  const res = await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', data)
@@ -12410,37 +12395,6 @@ async function generateAudSlots(contextType, contextId, containerId){
    toast('Created '+res.created+' slot'+(res.created===1?'':'s'),'success')
    openAuditionSettingsModal(contextType, contextId, containerId)
  } else toast((res&&res.error)||'Error','error')
-}
-
-// ── CAST LIST REVEAL COUNTDOWN ──
-// Purely a "build hype" display — it never auto-publishes anything.
-// Staff still click Publish Cast List themselves once casting is final.
-let _castCountdownTimers = {}
-function startCastCountdown(contextId, revealAtISO){
- if(_castCountdownTimers[contextId]) clearInterval(_castCountdownTimers[contextId])
- const target = new Date(revealAtISO).getTime()
- function tick(){
-  const el = document.getElementById('ym-countdown-'+contextId)
-  if(!el){ clearInterval(_castCountdownTimers[contextId]); delete _castCountdownTimers[contextId]; return }
-  const diff = target - Date.now()
-  if(diff <= 0){
-   el.innerHTML = ' Reveal time has arrived — publish when ready!'
-   clearInterval(_castCountdownTimers[contextId]); delete _castCountdownTimers[contextId]
-   return
-  }
-  const days = Math.floor(diff/86400000)
-  const hours = Math.floor(diff%86400000/3600000)
-  const mins = Math.floor(diff%3600000/60000)
-  const secs = Math.floor(diff%60000/1000)
-  let parts = []
-  if(days) parts.push(days+'d')
-  if(days||hours) parts.push(hours+'h')
-  if(days||hours||mins) parts.push(mins+'m')
-  parts.push(secs+'s')
-  el.innerHTML = ' Cast list reveals in '+parts.join(' ')
- }
- tick()
- _castCountdownTimers[contextId] = setInterval(tick, 1000)
 }
 
 function openPublishCastModal(contextType, contextId, containerId){
@@ -15740,6 +15694,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  // Youth cast tab (RS only)
  if(p.stage==='rising_stars'){
  s += '<div id="prodtab-youth" class="card" style="padding:20px;display:none">'
+ s += '<div id="cast-announcement-'+p.id+'" style="margin-bottom:20px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
  s += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
  s += '<div style="font-size:15px;font-weight:600">Cast Members</div>'
  if(isAdmin) s += '<div style="display:flex;gap:8px">'
@@ -15857,7 +15812,7 @@ function openProductionDetail(prodId, fromPage){
  }
  navTo('production-detail')
  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
- if(p.stage==='rising_stars') setTimeout(()=>loadYouthProdMembers(p.id),100)
+ if(p.stage==='rising_stars'){ setTimeout(()=>loadYouthProdMembers(p.id),100); setTimeout(()=>loadCastAnnouncementPanel(p.id),100) }
 }
 
 function openProductionModal(){
@@ -22648,7 +22603,7 @@ function switchProductionTab(tab){
  if(btn){ btn.style.borderBottomColor=t===tab?'var(--teal-mid)':'transparent'; btn.style.color=t===tab?'var(--teal-dark)':'var(--text-muted)' }
  })
  if(tab==='portal') loadProductionPortalContent(pid)
- if(tab==='youth' && pid) loadYouthProdMembers(pid)
+ if(tab==='youth' && pid){ loadYouthProdMembers(pid); loadCastAnnouncementPanel(pid) }
  if(tab==='waivers' && pid) loadProductionWaiverStatus(pid)
  if(tab==='auditions' && pid){
  const inner = document.getElementById('prodtab-auditions-inner-'+pid)
@@ -26169,6 +26124,96 @@ async function backfillCastEnrollments(prodId){
   loadYouthProdMembers(prodId)
   allYouth = await api('/api/youth')
   populateYouthFilters()
+}
+
+// ── Cast List Announcement (Cast tab) ──
+// Lets staff set a "reveal" countdown to build hype, and publish the cast
+// list to the family portal once casting is finalized. This lives on the
+// Cast tab (where roles actually get assigned via youth_production_members)
+// rather than the Auditions tab, since Rising Stars shows are cast here
+// regardless of whether they ever ran a formal audition process.
+async function loadCastAnnouncementPanel(pid){
+ const el = document.getElementById('cast-announcement-'+pid)
+ if(!el) return
+ const settings = await api(`/api/auditions/settings/production/${pid}`)
+ const isAdmin = canEdit('rising_stars')
+ const published = !!settings?.cast_list_published
+ const revealAt = settings?.cast_list_reveal_at ? String(settings.cast_list_reveal_at).slice(0,16) : ''
+ el.innerHTML = `
+ <div style="background:#fdf4ff;border:1px solid #e9d5ff;border-radius:var(--radius);padding:14px 16px">
+ <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:${isAdmin?'10px':'0'}">
+ <div style="font-size:12px;font-weight:700;color:#7e22ce;text-transform:uppercase;letter-spacing:0.4px"> Cast List Announcement</div>
+ <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;background:${published?'#dcfce7':'#f3f4f6'};color:${published?'#166534':'#6b7280'}">${published?'Published to Portal':'Not Published'}</span>
+ </div>
+ <div id="cast-countdown-${pid}" style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:${isAdmin?'10px':'0'}"></div>
+ ${isAdmin?`
+ <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+ <div>
+ <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Reveal countdown targets</label>
+ <input type="datetime-local" id="cast-reveal-at-${pid}" value="${revealAt}" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+ </div>
+ <button class="btn btn-secondary btn-sm" onclick="saveCastRevealAt('${pid}')">Save Countdown</button>
+ ${revealAt?`<button class="btn btn-secondary btn-sm" onclick="clearCastRevealAt('${pid}')">Clear</button>`:''}
+ </div>
+ <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">The countdown just builds hype on the portal — it never auto-publishes. Publish the list yourself once every role above is final.</div>
+ <button class="btn ${published?'btn-secondary':'btn-primary'} btn-sm" onclick="toggleCastPublish('${pid}',${!published})">${published?'Unpublish Cast List':'Publish Cast List to Portal'}</button>
+ `:''}
+ </div>`
+ if(settings?.cast_list_reveal_at && !published){
+ startCastTabCountdown(pid, settings.cast_list_reveal_at)
+ }
+}
+
+async function saveCastRevealAt(pid){
+ const val = document.getElementById('cast-reveal-at-'+pid)?.value || null
+ const res = await api(`/api/auditions/settings/production/${pid}/reveal`, 'PUT', {cast_list_reveal_at: val})
+ if(res?.error){ toast(res.error,'error'); return }
+ toast(val?'Countdown set!':'Countdown cleared','success')
+ loadCastAnnouncementPanel(pid)
+}
+
+async function clearCastRevealAt(pid){
+ const res = await api(`/api/auditions/settings/production/${pid}/reveal`, 'PUT', {cast_list_reveal_at: null})
+ if(res?.error){ toast(res.error,'error'); return }
+ toast('Countdown cleared','success')
+ loadCastAnnouncementPanel(pid)
+}
+
+async function toggleCastPublish(pid, publish){
+ if(publish && !confirm('Publish the cast list to the family portal now? Everyone will be able to see their role.')) return
+ if(!publish && !confirm('Unpublish the cast list? Families will no longer see it on the portal.')) return
+ const res = await api(`/api/auditions/settings/production/${pid}/publish-cast`, 'POST', {publish})
+ if(res?.error){ toast(res.error,'error'); return }
+ toast(publish?'Cast list published!':'Cast list unpublished','success')
+ loadCastAnnouncementPanel(pid)
+}
+
+let _castTabCountdownTimers = {}
+function startCastTabCountdown(pid, revealAtISO){
+ if(_castTabCountdownTimers[pid]) clearInterval(_castTabCountdownTimers[pid])
+ const target = new Date(revealAtISO).getTime()
+ function tick(){
+  const el = document.getElementById('cast-countdown-'+pid)
+  if(!el){ clearInterval(_castTabCountdownTimers[pid]); delete _castTabCountdownTimers[pid]; return }
+  const diff = target - Date.now()
+  if(diff <= 0){
+   el.innerHTML = ' Reveal time has arrived — publish when ready!'
+   clearInterval(_castTabCountdownTimers[pid]); delete _castTabCountdownTimers[pid]
+   return
+  }
+  const days = Math.floor(diff/86400000)
+  const hours = Math.floor(diff%86400000/3600000)
+  const mins = Math.floor(diff%3600000/60000)
+  const secs = Math.floor(diff%60000/1000)
+  let parts = []
+  if(days) parts.push(days+'d')
+  if(days||hours) parts.push(hours+'h')
+  if(days||hours||mins) parts.push(mins+'m')
+  parts.push(secs+'s')
+  el.innerHTML = ' Cast list reveals in '+parts.join(' ')
+ }
+ tick()
+ _castTabCountdownTimers[pid] = setInterval(tick, 1000)
 }
 
 async function loadYouthProdMembers(prodId){

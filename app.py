@@ -3087,7 +3087,7 @@ def maybe_auto_reveal_cast_list(conn, context_type, context_id, row):
     if not row or not row.get('cast_list_queued') or row.get('cast_list_published'):
         return row
     reveal_at = parse_db_datetime(row.get('cast_list_reveal_at'))
-    if not reveal_at or reveal_at <= datetime.now():
+    if not reveal_at or reveal_at <= now_eastern():
         execute(conn, """UPDATE audition_settings SET cast_list_published=TRUE, cast_list_queued=FALSE,
             updated_at=NOW() WHERE context_type=%s AND context_id=%s""", (context_type, context_id))
         conn.commit()
@@ -6106,7 +6106,7 @@ def publish_cast_list(context_type, context_id):
         # back — queued and ready, but not actually shown to families — so
         # clicking Publish early doesn't spoil the countdown. get_cast_list
         # flips it live the moment the reveal time passes.
-        hold_for_countdown = bool(reveal_at) and reveal_at > datetime.now() and not force
+        hold_for_countdown = bool(reveal_at) and reveal_at > now_eastern() and not force
         if existing:
             execute(conn, """UPDATE audition_settings
                 SET cast_list_published=%s, cast_list_queued=%s, cast_list=%s, updated_at=NOW()

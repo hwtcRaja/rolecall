@@ -63,7 +63,7 @@ def seed_system_email_templates(conn=None):
          'Sent to admins/recipients when an ELIC closes an event via the kiosk.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px;border-radius:10px 10px 0 0;color:#fff">
-    <h2 style="margin:0">🔒 Event Closed: {{event_name}}</h2>
+    <h2 style="margin:0"> Event Closed: {{event_name}}</h2>
     <p style="opacity:0.8;margin:6px 0 0">Closed by {{elic_name}} on {{date}}</p>
   </div>
   <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
@@ -93,7 +93,7 @@ def seed_system_email_templates(conn=None):
          'Sent to volunteers when they are invited to sign up for an event.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px;border-radius:10px 10px 0 0;color:#fff">
-    <h2 style="margin:0">🎭 Volunteer Opportunity</h2>
+    <h2 style="margin:0"> Volunteer Opportunity</h2>
   </div>
   <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
     <p>Hi {{volunteer_name}},</p>
@@ -111,16 +111,16 @@ def seed_system_email_templates(conn=None):
   <p>Hi {{name}},</p>
   <p>We\'re scheduling the board meeting for <strong>{{month}} {{year}}</strong> and need to know your availability. Please click below and mark any dates you <strong>cannot</strong> attend.</p>
   <div style="text-align:center;margin:28px 0">
-    <a href="{{link}}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">📅 Submit My Availability</a>
+    <a href="{{link}}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block"> Submit My Availability</a>
   </div>
   <p style="font-size:13px;color:#888">This link is unique to you. You can update your availability at any time by clicking it again.</p>
 </div>'''),
 
-        ('disney_reminder', '🐭 Reminder: Submit Your Volunteer Hours  -  Disney VoluntEARS', 'disney_reminder',
+        ('disney_reminder', ' Reminder: Submit Your Volunteer Hours  -  Disney VoluntEARS', 'disney_reminder',
          'Sent to Disney Cast Members who have logged hours, reminding them to submit to VoluntEARS.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
-    <div style="font-size:48px;margin-bottom:8px">🐭</div>
+    <div style="font-size:48px;margin-bottom:8px"></div>
     <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
@@ -225,7 +225,7 @@ def seed_system_email_templates(conn=None):
          'Sent to admins/guardians when an unauthorized pickup attempt is detected at the kiosk.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;border:2px solid #dc2626;border-radius:10px;overflow:hidden">
   <div style="background:#dc2626;padding:16px 24px;color:#fff">
-    <h2 style="margin:0">⚠️ Unauthorized Pickup Attempt</h2>
+    <h2 style="margin:0"> Unauthorized Pickup Attempt</h2>
   </div>
   <div style="padding:24px">
     <p>An unauthorized pickup attempt was detected for <strong>{{participant_name}}</strong>.</p>
@@ -237,7 +237,7 @@ def seed_system_email_templates(conn=None):
          'Welcome to {{program_name}}  -  HWTC RoleCall',
          'welcome_email',
          'Sent to everyone enrolled in a program — youth and adult registrants alike. Includes their portal passphrase and, when available, what they registered for (sessions, dates/times). Wording automatically adapts for adult registrants (no "your child"/pick-up language). Supports {{program_name}}, {{passphrase}}, {{family_greeting}}, {{schedule_block}}, {{passphrase_block}}, {{intro_block}}, {{portal_tagline}}, {{passphrase_reminder_line}}, {{closing_line}} merge tags.',
-         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}}  -  HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; }\n  .step-block { margin-bottom: 2.5rem; }\n  .step-header-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }\n  .step-header-table td { vertical-align: top; padding: 0; }\n  .step-header-icon-cell { width: 48px; padding-right: 14px !important; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; text-align: center; line-height: 34px; font-size: 15px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { }\n  .section-card { margin-bottom: 8px; }\n  .section-card-table { width: 100%; border-collapse: collapse; }\n  .section-card-table td { vertical-align: top; padding: 0; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; text-align: center; line-height: 34px; font-size: 16px; }\n  .section-icon-cell { width: 48px; padding-right: 11px !important; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { margin-bottom: 4px; }\n  .ann-chip { margin-right: 6px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall  -  {{portal_tagline}}</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    {{intro_block}}\n\n    {{schedule_block}}\n\n    {{passphrase_block}}\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started  -  three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">1</td>\n          <td>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">2</td>\n          <td>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to {{passphrase_reminder_line}}</div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">My Profile  -  changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title">🔑 Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">3</td>\n          <td>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during {{program_name}}.</div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell">📢</td>\n              <td>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </td>\n            </tr></table>\n            </div>\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell">🚗</td>\n              <td>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families  -  create a carpool or join an existing one for any scheduled day</div>\n              </td>\n            </tr></table>\n            </div>\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell">👤</td>\n              <td>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </td>\n            </tr></table>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">Stay in the loop</h2>\n\n    <p>Schedule updates, materials, and important reminders for {{program_name}} will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first whenever you have a question!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements  -  inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">What to bring on day one</span>\n            </div>\n            <div class="ann-item-body">A quick checklist to make your first day as smooth as possible.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you join us. Please review any supply list, schedule, or dress code details before your first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    {{closing_line}}\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
+         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}}  -  HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; }\n  .step-block { margin-bottom: 2.5rem; }\n  .step-header-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }\n  .step-header-table td { vertical-align: top; padding: 0; }\n  .step-header-icon-cell { width: 48px; padding-right: 14px !important; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; text-align: center; line-height: 34px; font-size: 15px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { }\n  .section-card { margin-bottom: 8px; }\n  .section-card-table { width: 100%; border-collapse: collapse; }\n  .section-card-table td { vertical-align: top; padding: 0; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; text-align: center; line-height: 34px; font-size: 16px; }\n  .section-icon-cell { width: 48px; padding-right: 11px !important; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { margin-bottom: 4px; }\n  .ann-chip { margin-right: 6px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall  -  {{portal_tagline}}</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    {{intro_block}}\n\n    {{schedule_block}}\n\n    {{passphrase_block}}\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started  -  three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">1</td>\n          <td>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">2</td>\n          <td>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to {{passphrase_reminder_line}}</div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">My Profile  -  changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title"> Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">3</td>\n          <td>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during {{program_name}}.</div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell"></td>\n              <td>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </td>\n            </tr></table>\n            </div>\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell"></td>\n              <td>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families  -  create a carpool or join an existing one for any scheduled day</div>\n              </td>\n            </tr></table>\n            </div>\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell"></td>\n              <td>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </td>\n            </tr></table>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">Stay in the loop</h2>\n\n    <p>Schedule updates, materials, and important reminders for {{program_name}} will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first whenever you have a question!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements  -  inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">What to bring on day one</span>\n            </div>\n            <div class="ann-item-body">A quick checklist to make your first day as smooth as possible.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you join us. Please review any supply list, schedule, or dress code details before your first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    {{closing_line}}\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
 
     ]
 
@@ -270,11 +270,11 @@ def _giving_programs_for(employer_program_text):
     if 'disney' in prog:
         programs.append({'key': 'disney', 'label': 'Disney Cast Member',
                           'submit_name': 'Disney VoluntEARS', 'submit_link': 'https://disneyvoluntears.com',
-                          'icon': '🐭', 'tmpl_key': 'disney_reminder'})
+                          'icon': '', 'tmpl_key': 'disney_reminder'})
     if 'universal' in prog:
         programs.append({'key': 'universal', 'label': 'Universal Team Member',
                           'submit_name': 'Universal Giving', 'submit_link': 'https://universalgiving.org',
-                          'icon': '🎬', 'tmpl_key': 'universal_reminder'})
+                          'icon': '', 'tmpl_key': 'universal_reminder'})
     return programs
 
 def get_system_template(conn, key):
@@ -1157,6 +1157,10 @@ def init_db():
         # of actually publishing, so staff can announce "cast list drops
         # Friday at 7pm" before casting is even finalized.
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_reveal_at TIMESTAMP",
+        # A cast list can be "queued" — built and ready, but held back until
+        # cast_list_reveal_at passes, so clicking Publish before the
+        # countdown ends doesn't spoil the reveal.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_queued BOOLEAN DEFAULT FALSE",
         # Family-portal tab order — a JSON array of tab ids, e.g. ["overview",
         # "castlist","schedule",...]. Empty/missing means use the built-in
         # default order. Any tab id not in the saved list (new tabs added
@@ -3073,6 +3077,23 @@ def fetchone(conn, sql, params=()):
 def execute(conn, sql, params=()):
     with conn.cursor() as c:
         c.execute(sql, params)
+
+def maybe_auto_reveal_cast_list(conn, context_type, context_id, row):
+    """If a cast list is queued (Publish was clicked while a countdown was
+    still running) and the reveal time has now passed, flip it live. Shared
+    by both the public cast-list endpoint and the admin settings endpoint so
+    the reveal shows up the moment anyone — family or staff — next loads
+    either page, without needing a background job."""
+    if not row or not row.get('cast_list_queued') or row.get('cast_list_published'):
+        return row
+    reveal_at = parse_db_datetime(row.get('cast_list_reveal_at'))
+    if not reveal_at or reveal_at <= datetime.now():
+        execute(conn, """UPDATE audition_settings SET cast_list_published=TRUE, cast_list_queued=FALSE,
+            updated_at=NOW() WHERE context_type=%s AND context_id=%s""", (context_type, context_id))
+        conn.commit()
+        row['cast_list_published'] = True
+        row['cast_list_queued'] = False
+    return row
 
 def get_waiver_summary(conn, vol_id):
     from datetime import date as _date, datetime as _datetime
@@ -5055,7 +5076,7 @@ def send_program_email(pid):
     prog_name = prog.get('name', 'Program')
     html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
       <div style="background:#0d9488;padding:20px;border-radius:8px 8px 0 0">
-        <h2 style="color:white;margin:0">📚 {prog_name}</h2>
+        <h2 style="color:white;margin:0"> {prog_name}</h2>
       </div>
       <div style="background:#f8fafc;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0">
         <div style="white-space:pre-wrap;font-size:15px;line-height:1.7;color:#1e293b">{body}</div>
@@ -5570,6 +5591,7 @@ def get_audition_settings(context_type, context_id):
         COALESCE(tab_visible, TRUE) AS tab_visible
         FROM audition_settings WHERE context_id=%s AND context_type=%s''',
         (context_id, context_type))
+    row = maybe_auto_reveal_cast_list(conn, context_type, context_id, row)
     # Load slots
     slots = fetchall(conn, '''SELECT as2.*,
         (SELECT COUNT(*) FROM audition_submissions WHERE slot_id=as2.id) AS booked_count
@@ -6003,11 +6025,18 @@ def set_cast_list_reveal(context_type, context_id):
     reveal_raw = (d.get('cast_list_reveal_at') or '').strip()
     reveal_at = reveal_raw or None
     conn = get_db()
-    existing = fetchone(conn, 'SELECT id FROM audition_settings WHERE context_id=%s AND context_type=%s',
+    existing = fetchone(conn, 'SELECT id, cast_list_queued, cast_list_published FROM audition_settings WHERE context_id=%s AND context_type=%s',
         (context_id, context_type))
     if existing:
         execute(conn, 'UPDATE audition_settings SET cast_list_reveal_at=%s, updated_at=NOW() WHERE id=%s',
             (reveal_at, existing['id']))
+        # If a list was queued waiting on the old countdown and the new
+        # target is gone or already in the past, reveal it right away
+        # instead of leaving it stuck until the next poll.
+        conn.commit()
+        maybe_auto_reveal_cast_list(conn, context_type, context_id,
+            {'cast_list_queued': existing.get('cast_list_queued'), 'cast_list_published': existing.get('cast_list_published'),
+             'cast_list_reveal_at': reveal_at})
     else:
         execute(conn, '''INSERT INTO audition_settings (id,context_type,context_id,cast_list_reveal_at)
             VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), context_type, context_id, reveal_at))
@@ -6042,6 +6071,7 @@ def publish_cast_list(context_type, context_id):
     if err: return err
     d = request.json or {}
     publish = bool(d.get('publish', True))
+    force = bool(d.get('force', False))  # skip the countdown gate and publish immediately
     conn = get_db()
     if publish:
         # Build the cast list from every source that actually assigns roles:
@@ -6069,18 +6099,27 @@ def publish_cast_list(context_type, context_id):
                     cast_list.append(dict(yc))
                     seen.add(key)
         cast_json = json.dumps(cast_list)
-        existing = fetchone(conn, 'SELECT id FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        existing = fetchone(conn, 'SELECT id, cast_list_reveal_at FROM audition_settings WHERE context_id=%s AND context_type=%s',
             (context_id, context_type))
+        reveal_at = parse_db_datetime(existing.get('cast_list_reveal_at')) if existing else None
+        # If a reveal countdown is set and still in the future, hold the list
+        # back — queued and ready, but not actually shown to families — so
+        # clicking Publish early doesn't spoil the countdown. get_cast_list
+        # flips it live the moment the reveal time passes.
+        hold_for_countdown = bool(reveal_at) and reveal_at > datetime.now() and not force
         if existing:
             execute(conn, """UPDATE audition_settings
-                SET cast_list_published=TRUE, cast_list=%s, updated_at=NOW()
-                WHERE id=%s""", (cast_json, existing['id']))
+                SET cast_list_published=%s, cast_list_queued=%s, cast_list=%s, updated_at=NOW()
+                WHERE id=%s""", (not hold_for_countdown, hold_for_countdown, cast_json, existing['id']))
         else:
             execute(conn, """INSERT INTO audition_settings
-                (id,context_type,context_id,cast_list_published,cast_list)
-                VALUES (%s,%s,%s,TRUE,%s)""", (str(uuid.uuid4()), context_type, context_id, cast_json))
+                (id,context_type,context_id,cast_list_published,cast_list_queued,cast_list)
+                VALUES (%s,%s,%s,%s,%s,%s)""",
+                (str(uuid.uuid4()), context_type, context_id, not hold_for_countdown, hold_for_countdown, cast_json))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'queued': hold_for_countdown})
     else:
-        execute(conn, """UPDATE audition_settings SET cast_list_published=FALSE, updated_at=NOW()
+        execute(conn, """UPDATE audition_settings SET cast_list_published=FALSE, cast_list_queued=FALSE, updated_at=NOW()
             WHERE context_type=%s AND context_id=%s""", (context_type, context_id))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -6469,17 +6508,25 @@ def download_board_application_file(aid, fid):
 def get_cast_list(context_type, context_id):
     """Public endpoint - returns cast list if published. Also returns the
     reveal_at countdown target (if staff set one) so a public page can show
-    a "cast list drops in..." countdown even before anything is published."""
+    a "cast list drops in..." countdown even before anything is published.
+
+    If a list was queued (Publish clicked while a countdown was still
+    running), this is also where the reveal actually happens: the first
+    request that lands after cast_list_reveal_at has passed flips it live,
+    so nobody needs a background job — the family portal's own polling
+    (or an admin refreshing the page) is what triggers the reveal."""
     conn = get_db()
-    row = fetchone(conn, """SELECT cast_list, cast_list_published, title, cast_list_reveal_at
+    row = fetchone(conn, """SELECT cast_list, cast_list_published, cast_list_queued, title, cast_list_reveal_at
         FROM audition_settings WHERE context_type=%s AND context_id=%s""",
         (context_type, context_id))
+    row = maybe_auto_reveal_cast_list(conn, context_type, context_id, row)
     if not row or not row.get('cast_list_published'):
         conn.close()
         reveal_at = row.get('cast_list_reveal_at') if row else None
         resp = jsonify({
             'published': False, 'cast': [],
             'reveal_at': reveal_at.isoformat() if reveal_at else None,
+            'queued': bool(row.get('cast_list_queued')) if row else False,
         })
         resp.headers['Cache-Control'] = 'no-store'
         return resp
@@ -8143,7 +8190,7 @@ def get_youth_history(yid):
     try:
         yp = fetchone(conn, 'SELECT created_at, first_name, last_name FROM youth_participants WHERE id=%s', (yid,))
         if yp and yp.get('created_at'):
-            timeline.append({'type':'joined','icon':'🌟','label':'Added to RoleCall',
+            timeline.append({'type':'joined','icon':'','label':'Added to RoleCall',
                 'detail':f'{yp["first_name"]} {yp["last_name"]} profile created',
                 'ts':str(yp['created_at'])})
     except Exception as e: app.logger.warning(f'history joined: {e}')
@@ -8155,7 +8202,7 @@ def get_youth_history(yid):
             WHERE pr.youth_id=%s ORDER BY pr.created_at DESC''', (yid,)) or []
         for r in regs:
             sl = {'confirmed':'Enrolled','pending_payment':'Pending Payment','waitlisted':'Waitlisted','cancelled':'Cancelled'}.get(r.get('status',''),'Registered')
-            timeline.append({'type':'program','icon':'📚','label':f'Program: {r.get("program_name","")}',
+            timeline.append({'type':'program','icon':'','label':f'Program: {r.get("program_name","")}',
                 'detail':sl,'ts':str(r.get('created_at') or '')})
     except Exception as e: app.logger.warning(f'history programs: {e}')
     # 3. Events attended
@@ -8173,7 +8220,7 @@ def get_youth_history(yid):
                     hrs = diff // 60; mins = diff % 60
                     detail += f' · {hrs}h {mins}m' if hrs else f' · {mins}m'
                 except Exception: pass
-            timeline.append({'type':'event','icon':'📅','label':f'Attended: {s.get("event_name","Event")}',
+            timeline.append({'type':'event','icon':'','label':f'Attended: {s.get("event_name","Event")}',
                 'detail':detail,'ts':str(s.get('signed_in_at') or '')})
     except Exception as e: app.logger.warning(f'history events: {e}')
     # 4. Waivers
@@ -8183,7 +8230,7 @@ def get_youth_history(yid):
             WHERE yw.youth_id=%s ORDER BY yw.created_at DESC''', (yid,)) or []
         for w in waivers:
             detail = f'Signed {w.get("signed_date","")}' + (f' by {w["signed_by"]}' if w.get('signed_by') else '')
-            timeline.append({'type':'waiver','icon':'📋','label':f'Waiver: {w.get("waiver_name","")}',
+            timeline.append({'type':'waiver','icon':'','label':f'Waiver: {w.get("waiver_name","")}',
                 'detail':detail,'ts':str(w.get('created_at') or w.get('signed_date') or '')})
     except Exception as e: app.logger.warning(f'history waivers: {e}')
     # 5. Notes
@@ -8191,7 +8238,7 @@ def get_youth_history(yid):
         notes = fetchall(conn, 'SELECT * FROM youth_notes WHERE youth_id=%s ORDER BY created_at DESC', (yid,)) or []
         for n in notes:
             c = (n.get('content') or '')
-            timeline.append({'type':'note','icon':'📝','label':'Note Added',
+            timeline.append({'type':'note','icon':'','label':'Note Added',
                 'detail':c[:80]+('…' if len(c)>80 else '') + (f' — {n["author"]}' if n.get('author') else ''),
                 'ts':str(n.get('created_at') or '')})
     except Exception as e: app.logger.warning(f'history notes: {e}')
@@ -8199,7 +8246,7 @@ def get_youth_history(yid):
     try:
         incidents = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY created_at DESC', (yid,)) or []
         for i in incidents:
-            timeline.append({'type':'incident','icon':'⚠️','label':f'Incident: {i.get("title","")}',
+            timeline.append({'type':'incident','icon':'','label':f'Incident: {i.get("title","")}',
                 'detail':(i.get('description') or '')[:80],
                 'ts':str(i.get('incident_date') or i.get('created_at') or '')})
     except Exception as e: app.logger.warning(f'history incidents: {e}')
@@ -9350,7 +9397,7 @@ button:disabled{{opacity:0.6}}
 <div class="num">{from_number or to_number}</div>
 <label>Your cell number (we'll call you first)</label>
 <input type="tel" id="agent" placeholder="+14075550100" value=""/>
-<button onclick="startCall()">📞 Connect Call</button>
+<button onclick="startCall()"> Connect Call</button>
 <div id="status"></div>
 </div>
 <script>
@@ -9375,9 +9422,9 @@ async function startCall(){{
     }} else {{
       status.textContent = 'Error: ' + (d.error||'Unknown');
       status.style.color = '#991b1b';
-      btn.disabled=false; btn.textContent='📞 Try Again';
+      btn.disabled=false; btn.textContent=' Try Again';
     }}
-  }} catch(e){{ status.textContent='Error: '+e.message; btn.disabled=false; btn.textContent='📞 Try Again'; }}
+  }} catch(e){{ status.textContent='Error: '+e.message; btn.disabled=false; btn.textContent=' Try Again'; }}
 }}
 </script></body></html>''', 200, {'Content-Type': 'text/html'}
 
@@ -10150,7 +10197,7 @@ def test_template_email(tid):
         subject = subject.replace(var, val)
     # Wrap with test banner
     body = f'''<div style="background:#fef9c3;border:2px dashed #f59e0b;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-family:sans-serif;font-size:13px;color:#854d0e">
-        <strong>⚠️ This is a test email</strong>  -  sent to {to}. Sample values have been substituted for real data.
+        <strong> This is a test email</strong>  -  sent to {to}. Sample values have been substituted for real data.
     </div>''' + body
     ok, msg = send_email([to], subject, body)
     if ok: return jsonify({'ok': True, 'sent_to': to})
@@ -12332,7 +12379,7 @@ def build_payroll_report_html(data, standalone_page=False, link=None):
                     <td style="padding:4px 12px;text-align:right">{f"{l['hours']}h × ${l['rate_amount']:,.2f}" if l['rate_type']=='hourly' else f"flat ${l['rate_amount']:,.2f}"}</td>
                     <td style="padding:4px 12px;text-align:right">${l['amount']:,.2f}</td>
                 </tr>''' for l in pp['lines'])
-            flag = '' if pp['linked_to_bloombooks'] else '<div style="font-size:11px;color:#b45309;margin-top:2px">⚠ Not yet linked to a contractor record in BloomBooks</div>'
+            flag = '' if pp['linked_to_bloombooks'] else '<div style="font-size:11px;color:#b45309;margin-top:2px"> Not yet linked to a contractor record in BloomBooks</div>'
             rows += f'''
             <tr style="background:#f9fafb"><td colspan="3" style="padding:10px 12px;font-weight:700;font-size:14px">{_esc(pp['name'])}
                 <span style="float:right">${pp['total_owed']:,.2f}</span>{flag}</td></tr>
@@ -12435,7 +12482,7 @@ def build_report_email_html(report_type, data, params=None):
             body += f'<div style="font-size:15px;font-weight:700;margin:20px 0 8px">New Volunteers ({len(data["new_volunteers"])})</div>'
             body += table(['Name','Email'], data['new_volunteers'], ['name','email'])
         if data['lapsed_volunteers']:
-            body += f'<div style="font-size:15px;font-weight:700;margin:20px 0 8px">⚠️ Lapsed Volunteers (60+ days)</div>'
+            body += f'<div style="font-size:15px;font-weight:700;margin:20px 0 8px"> Lapsed Volunteers (60+ days)</div>'
             body += table(['Name','Last Active','Email'], data['lapsed_volunteers'], ['name','last_date','email'])
 
     elif report_type == 'top_volunteers':
@@ -12612,7 +12659,7 @@ def send_report_now():
             VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), None, 'payroll_unpaid_hours', token))
         conn.commit(); conn.close()
         html = build_payroll_report_html(data, link=f'{APP_URL}/payroll-report/{token}')
-        subject = f"💰 Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
+        subject = f" Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
         fi = d.get('from_identity') or {}
         ok, msg = send_email(emails, subject, html, fi.get('email') or None, fi.get('name') or None)
         if ok: return jsonify({'ok': True, 'sent_to': emails})
@@ -12980,7 +13027,7 @@ def _fire_payroll_report(r):
     scheduled_report_runs — success or failure — so "did it actually send"
     is always answerable without server log access."""
     data = build_payroll_unpaid_hours_report()
-    subject = f"💰 Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
+    subject = f" Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
 
     conn = get_db()
     emails = []
@@ -13036,7 +13083,7 @@ def _fire_payroll_report(r):
 
     sms_sent_to_list, sms_errors = [], []
     if phones:
-        sms_body = f"💰 Unpaid Payroll Report: {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed. View: {link}"
+        sms_body = f" Unpaid Payroll Report: {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed. View: {link}"
         for phone in phones:
             ok_sms, err = _send_sms(phone, sms_body)
             if ok_sms:
@@ -13495,13 +13542,13 @@ def kiosk_close_event():
                 ol_rows = ''
                 for r in open_responses:
                     val = str(r.get('response',''))
-                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or ' - ')
+                    val_str = ' Done' if val=='true' else (' Not Done' if val=='false' else val or ' - ')
                     ol_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build closing checklist rows
                 cl_rows = ''
                 for r in responses:
                     val = str(r.get('response',''))
-                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or ' - ')
+                    val_str = ' Done' if val=='true' else (' Not Done' if val=='false' else val or ' - ')
                     cl_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build hours summary
                 hrs_rows = ''
@@ -13516,7 +13563,7 @@ def kiosk_close_event():
                 body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
                     <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px 28px;border-radius:8px 8px 0 0">
                       <div style="color:rgba(255,255,255,0.7);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Event Closed</div>
-                      <h2 style="color:#fff;margin:0;font-size:20px">🔒 {evt_name}</h2>
+                      <h2 style="color:#fff;margin:0;font-size:20px"> {evt_name}</h2>
                       <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:6px">Closed at <strong>{now_str}</strong>{" · Closed by "+open_elic_name if open_elic_name else ""}</div>
                     </div>
                     <div style="background:#f8fafc;padding:24px 28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
@@ -14181,7 +14228,7 @@ def get_notifications():
             needs_action.append({
                 'id':    ph['id'],
                 'type':  'pending_hours',
-                'icon':  '⏱',
+                'icon':  '',
                 'color': 'amber',
                 'title': f'{ph["volunteer_name"] or "A volunteer"}  -  {ph["hours"]}h',
                 'sub':   f'{ph["event"] or "General"} · {ph["date"] or ""}' +
@@ -14204,7 +14251,7 @@ def get_notifications():
             needs_action.append({
                 'id':    p['id'],
                 'type':  'profile_update',
-                'icon':  '👤',
+                'icon':  '',
                 'color': 'blue',
                 'title': f'{p["volunteer_name"] or "A volunteer"}  -  profile update',
                 'sub':   'Requested profile change awaiting review',
@@ -14225,7 +14272,7 @@ def get_notifications():
             needs_action.append({
                 'id':    lr['id'],
                 'type':  'licensing_request',
-                'icon':  '📄',
+                'icon':  '',
                 'color': 'purple',
                 'title': f'Licensing request  -  {lr["production_name"] or "Untitled production"}',
                 'sub':   f'{lr.get("licensor") or "Licensor TBD"} · from {lr.get("requester_name") or "staff"} · Ref {lr["ref_number"]}',
@@ -14250,7 +14297,7 @@ def get_notifications():
             needs_action.append({
                 'id':    lr['id'],
                 'type':  'licensing_contract_expiring',
-                'icon':  '⚠️' if expired else '📅',
+                'icon':  '' if expired else '',
                 'color': 'red' if expired else 'amber',
                 'title': f'Licensing contract {"expired" if expired else "expiring soon"}  -  {lr["production_name"] or "Untitled production"}',
                 'sub':   f'{lr.get("licensor") or "Licensor TBD"} · {"expired" if expired else "expires"} {exp.strftime("%b %d, %Y") if exp else ""} · Ref {lr["ref_number"]}',
@@ -14270,7 +14317,7 @@ def get_notifications():
             activity.append({
                 'id':    h['id'],
                 'type':  'hours_approved',
-                'icon':  '✅',
+                'icon':  '',
                 'color': 'green',
                 'title': f'{h["volunteer_name"] or "Volunteer"}  -  {h["hours"]}h approved',
                 'sub':   f'{h["event"] or ""} · {h["date"] or ""}',
@@ -14334,7 +14381,7 @@ def email_send_report(rid):
         rows = ''.join(f'''<tr>
             <td style="padding:8px 12px;border-bottom:1px solid #eee">{r.get('label','')}</td>
             <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:{'#16a34a' if str(r.get('response','')).lower() in ('true','yes','done') else '#dc2626' if r.get('item_type')=='checkbox' else '#374151'}">
-                {'✅ Done' if str(r.get('response','')).lower() in ('true','yes','done') else ('❌ Not Done' if r.get('item_type')=='checkbox' else str(r.get('response',' - ') or ' - '))}
+                {' Done' if str(r.get('response','')).lower() in ('true','yes','done') else (' Not Done' if r.get('item_type')=='checkbox' else str(r.get('response',' - ') or ' - '))}
             </td></tr>''' for r in items)
         return f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">{icon} {label}</h3>
         <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px">
@@ -14345,7 +14392,7 @@ def email_send_report(rid):
     if hours:
         hrs_rows = ''.join(f'''<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">{h.get('volunteer_name','')}</td>
             <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:700;color:#145466">{h.get('hours',0)}h</td></tr>''' for h in hours)
-        hours_html = f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">⏱ Volunteer Hours</h3>
+        hours_html = f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px"> Volunteer Hours</h3>
         <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px">
         <thead><tr style="background:#f0f8fa">
         <th style="padding:8px 12px;text-align:left;color:#5f5e5a;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Volunteer</th>
@@ -14357,7 +14404,7 @@ def email_send_report(rid):
     <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:10px 10px 0 0;color:#fff">
         <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" style="height:40px;margin-bottom:12px" alt="HWTC"/>
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;opacity:0.7">Event Report</div>
-        <div style="font-size:22px;font-weight:800;margin:4px 0">🔒 {close_log.get('event_name','')}</div>
+        <div style="font-size:22px;font-weight:800;margin:4px 0"> {close_log.get('event_name','')}</div>
         <div style="font-size:13px;opacity:0.75">{close_log.get('event_date') or ''} &nbsp;·&nbsp; Opened by {open_log.get('elic_name',' - ') if open_log else ' - '} &nbsp;·&nbsp; Closed by {close_log.get('elic_name',' - ')}</div>
     </div>
     <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:28px 32px;border-radius:0 0 10px 10px">
@@ -14375,8 +14422,8 @@ def email_send_report(rid):
                 <div style="font-size:11px;color:#888;margin-top:2px">Checklist Items</div>
             </div>
         </div>
-        {checklist_rows(opening_checklist, 'Opening Checklist', '🟢')}
-        {checklist_rows(closing_checklist, 'Closing Checklist', '✅')}
+        {checklist_rows(opening_checklist, 'Opening Checklist', '')}
+        {checklist_rows(closing_checklist, 'Closing Checklist', '')}
         {hours_html}
     </div>
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theater Company</p>
@@ -15636,7 +15683,7 @@ def send_rsvp_invite(eid):
         else:
             assign_role_id = ''
 
-    cta_label = ("✋ Yes, I'll Be There!" if not roles or assign_role_id else "✋ RSVP & Choose a Time") if is_guest else ("✋ Yes, I Can Help!" if not roles else "✋ Sign Up & Choose a Role")
+    cta_label = (" Yes, I'll Be There!" if not roles or assign_role_id else " RSVP & Choose a Time") if is_guest else (" Yes, I Can Help!" if not roles else " Sign Up & Choose a Role")
 
     sent = 0
     skipped = 0
@@ -15763,16 +15810,16 @@ def send_rsvp_invite(eid):
                 body = render_template_vars(tmpl_body, tmpl_vars)
                 email_subject = render_template_vars(tmpl_subject, tmpl_vars)
             else:
-                date_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>'
+                date_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px"> Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>'
                 display_time = this_block_time or time_str
-                time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{display_time}</td></tr>' if display_time else ''
-                location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
-                address_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">🏠 Address</td><td style="padding:10px 14px">{evt["address"]}</td></tr>' if evt.get('address') else ''
+                time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466"> Time</td><td style="padding:10px 14px">{display_time}</td></tr>' if display_time else ''
+                location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466"> Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
+                address_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466"> Address</td><td style="padding:10px 14px">{evt["address"]}</td></tr>' if evt.get('address') else ''
                 custom_message_block = f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''
                 description_block = f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''
                 tmpl_vars = {
                     'recipient_name': v['name'], 'recipient_email': v['email'],
-                    'kind_emoji': '🎉' if is_guest else '🎭', 'kind_label': kind_label, 'event_name': evt['name'],
+                    'kind_emoji': '' if is_guest else '', 'kind_label': kind_label, 'event_name': evt['name'],
                     'intro_line': intro_line, 'details_table': date_row + time_row + location_row + address_row,
                     'time': display_time, 'block_time': this_block_time, 'block_name': this_role_name,
                     'location': evt.get('location') or '', 'address': evt.get('address') or '',
@@ -15916,7 +15963,7 @@ def rsvp_page(token):
         return f'''<html><head><title>Event Cancelled</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled and is no longer accepting sign-ups.</p>
           <p style="color:#6b7280">Thank you for your interest  -  please check back for future events from Horizon West Theater Company.</p>
@@ -15959,7 +16006,7 @@ def rsvp_page(token):
         return f'''<html><head><title>RSVP Confirmed</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">✅</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#145466">You're already signed up!</h2>
           <p>Thanks {rsvp.get("volunteer_name","")}  -  we have your RSVP for <strong>{rsvp["event_name"]}</strong>.</p>
           {role_line}
@@ -15972,7 +16019,7 @@ def rsvp_page(token):
         return f'''<html><head><title>RSVP Recorded</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">💌</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#145466">We've noted you can't make it</h2>
           <p>Thanks for letting us know, {rsvp.get("volunteer_name","")}. We'll miss you at <strong>{rsvp["event_name"]}</strong>!</p>
           <p style="color:#888;font-size:13px">Changed your mind? <a href="/rsvp/{token}/undo">Click here</a> to RSVP instead.</p>
@@ -16043,9 +16090,9 @@ def rsvp_page(token):
             {hero_html}
             <div class="gi-details">
               <div class="gi-event-name">{rsvp["event_name"]}</div>
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
             </div>
             {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
             <div class="gi-divider"><span></span></div>
@@ -16133,7 +16180,7 @@ def rsvp_page(token):
 
         if not is_guest:
             top_html = f'''<div style="text-align:center;margin-bottom:28px">
-            <div style="font-size:40px;margin-bottom:12px">✋</div>
+            <div style="font-size:40px;margin-bottom:12px"></div>
             <h2 style="color:#145466;margin-bottom:6px">{heading}</h2>
             <p style="color:#555">{subheading}</p>
           </div>'''
@@ -16143,13 +16190,13 @@ def rsvp_page(token):
           {top_html}
           <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
               <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
-              {f'<div style="color:#374151;margin-top:6px;font-weight:600">📅 {date_str}</div>' if date_str else ''}
-              {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div style="color:#374151;margin-top:6px;font-weight:600"> {date_str}</div>' if date_str else ''}
+              {f'<div style="color:#6b7280;font-size:13px;margin-top:2px"> {rsvp["location"]}</div>' if rsvp.get("location") else ''}
             </div>
           <form method="POST" action="/rsvp/{token}">
             {locked_block_html if locked_block else f'<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>{roles_html}'}
             <button type="submit" name="rsvp_action" value="confirm" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:12px">
-              ✅ Confirm RSVP
+               Confirm RSVP
             </button>
             <button type="submit" name="rsvp_action" value="decline" formnovalidate style="width:100%;background:none;color:#888;border:1.5px solid #e0e0db;border-radius:10px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">
               Can't Make It
@@ -16183,9 +16230,9 @@ def rsvp_page(token):
             <p style="text-align:center;color:#6b6b64;margin:18px 0 -6px;font-size:14px">{subheading}</p>
             <div class="gi-details" style="margin-top:22px">
               <div class="gi-event-name">{rsvp["event_name"]}</div>
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
             </div>
             {locked_block_html}
             <div class="gi-divider"><span></span></div>
@@ -16215,17 +16262,17 @@ def rsvp_page(token):
             return f'''<html><head><title>RSVP  -  {rsvp["event_name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:40px;margin-bottom:12px">✋</div>
+          <div style="font-size:40px;margin-bottom:12px"></div>
           <h2 style="color:#145466;margin-bottom:6px">Sign up to volunteer!</h2>
           <p style="color:#555">Hi {vol_name} — can you make it to:</p>
           <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
             <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
-            {f'<div style="color:#374151;margin-top:6px;font-weight:600">📅 {date_str}</div>' if date_str else ''}
-            {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {rsvp["location"]}</div>' if rsvp.get("location") else ''}
+            {f'<div style="color:#374151;margin-top:6px;font-weight:600"> {date_str}</div>' if date_str else ''}
+            {f'<div style="color:#6b7280;font-size:13px;margin-top:2px"> {rsvp["location"]}</div>' if rsvp.get("location") else ''}
           </div>
           <form method="POST" action="/rsvp/{token}">
             <button type="submit" name="rsvp_action" value="confirm" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px">
-              ✅ Yes, I Can Help!
+               Yes, I Can Help!
             </button>
             <button type="submit" name="rsvp_action" value="decline" style="width:100%;background:none;color:#888;border:1.5px solid #e0e0db;border-radius:10px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">
               Can't Make It
@@ -16258,9 +16305,9 @@ def rsvp_page(token):
             {hero_html}
             <div class="gi-details">
               <div class="gi-event-name">{rsvp["event_name"]}</div>
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}</div>' if date_str else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{date_str}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
             </div>
             {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
             <div class="gi-divider"><span></span></div>
@@ -16298,7 +16345,7 @@ def rsvp_submit(token):
         conn.close()
         return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled. Sign-ups are no longer being accepted.</p>
           <p style="color:#6b7280">Thank you for your interest  -  please check back for future events.</p>
@@ -16323,7 +16370,7 @@ def rsvp_submit(token):
             recipients = get_recipient_emails(s)
             if recipients and s.get('alert_new_rsvp', True):
                 send_email(recipients, f'RSVP Decline: {rsvp["event_name"]}',
-                    f'<div style="font-family:sans-serif"><p>💌 <strong>{vol_name}</strong> declined the invite for <strong>{rsvp["event_name"]}</strong>.</p></div>')
+                    f'<div style="font-family:sans-serif"><p> <strong>{vol_name}</strong> declined the invite for <strong>{rsvp["event_name"]}</strong>.</p></div>')
         except Exception as e:
             app.logger.warning(f'rsvp decline alert email error: {e}')
         conn.close()
@@ -16331,7 +16378,7 @@ def rsvp_submit(token):
             return f'''<html><head><title>RSVP Recorded</title>
             <meta name="viewport" content="width=device-width,initial-scale=1"></head>
             <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-              <div style="font-size:48px;margin-bottom:16px">💌</div>
+              <div style="font-size:48px;margin-bottom:16px"></div>
               <h2 style="color:#145466">Thanks for letting us know</h2>
               <p>We've noted you can't make it to <strong>{rsvp["event_name"]}</strong>. Thanks for responding!</p>
             </body></html>'''
@@ -16390,7 +16437,7 @@ def rsvp_submit(token):
                     word = 'spot' if available == 1 else 'spots'
                     return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
                     <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-                      <div style="font-size:48px;margin-bottom:16px">😔</div>
+                      <div style="font-size:48px;margin-bottom:16px"></div>
                       <h2 style="color:#dc2626">Not quite enough room</h2>
                       <p>Only {available} {word} left, but {new_attending_ct} of your party {"is" if new_attending_ct==1 else "are"} checked as coming. Please adjust and try again, or reach out to us directly.</p>
                       <p><a href="/rsvp/{token}">Go back</a></p>
@@ -16408,7 +16455,7 @@ def rsvp_submit(token):
                 coming_names = ', '.join(r['name'] for r in responses if r['attending']) or 'no one'
                 not_coming_names = ', '.join(r['name'] for r in responses if not r['attending']) or 'no one'
                 send_email(recipients, f'RSVP: {rsvp["event_name"]}',
-                    f'<div style="font-family:sans-serif"><p>✋ <strong>{vol_name}</strong> responded for <strong>{rsvp["event_name"]}</strong>.</p>'
+                    f'<div style="font-family:sans-serif"><p> <strong>{vol_name}</strong> responded for <strong>{rsvp["event_name"]}</strong>.</p>'
                     f'<p><strong>Coming:</strong> {coming_names}<br/><strong>Not coming:</strong> {not_coming_names}</p></div>')
         except Exception as e:
             app.logger.warning(f'rsvp party alert email error: {e}')
@@ -16451,7 +16498,7 @@ def rsvp_submit(token):
                 conn.close()
                 return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
                 <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-                  <div style="font-size:48px;margin-bottom:16px">😔</div>
+                  <div style="font-size:48px;margin-bottom:16px"></div>
                   <h2 style="color:#dc2626">That {slot_word.lower()} just filled up</h2>
                   <p>Sorry, the <strong>{role["name"]}</strong> {slot_word.lower()} was just taken. <a href="/rsvp/{token}">Go back</a> to choose another.</p>
                 </body></html>''', 409
@@ -16473,7 +16520,7 @@ def rsvp_submit(token):
             # New RSVP alert
             if s.get('alert_new_rsvp', True):
                 send_email(recipients, f'New RSVP: {evt_name}' if is_guest else f'New Sign-up: {evt_name}',
-                    f'<div style="font-family:sans-serif"><p>✋ <strong>{vol_name}</strong> {action_word}{role_line} for <strong>{evt_name}</strong>.</p>'
+                    f'<div style="font-family:sans-serif"><p> <strong>{vol_name}</strong> {action_word}{role_line} for <strong>{evt_name}</strong>.</p>'
                     f'{f"<p>Date: {date_str}</p>" if date_str else ""}</div>')
             # Slot filled alert
             if role_id and role_name and s.get('alert_role_filled', True):
@@ -16481,7 +16528,7 @@ def rsvp_submit(token):
                 role_row = fetchone(conn, 'SELECT slots FROM event_roles WHERE id=%s', (role_id,))
                 if role_row and filled_now_ct >= int(role_row['slots']):
                     send_email(recipients, f'{slot_word} Filled: {role_name}  -  {evt_name}',
-                        f'<div style="font-family:sans-serif"><p>🎉 The <strong>{role_name}</strong> {slot_word.lower()} for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
+                        f'<div style="font-family:sans-serif"><p> The <strong>{role_name}</strong> {slot_word.lower()} for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
     except Exception as e:
         app.logger.warning(f'rsvp alert email error: {e}')
 
@@ -16491,7 +16538,7 @@ def rsvp_submit(token):
         return f'''<html><head><title>Signed Up!</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🎉</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#145466">You're signed up!</h2>
           <p>Thanks {vol_name}! We've got you down for:</p>
           <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:20px;margin:24px 0">
@@ -16586,7 +16633,7 @@ def public_rsvp_open_page(event_id):
         conn.close()
         return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{evt["name"]}</strong> has been cancelled and is no longer accepting RSVPs.</p>
         </body></html>'''
@@ -16669,7 +16716,7 @@ def public_rsvp_open_page(event_id):
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
           <div style="text-align:center;margin-bottom:24px">
-            <div style="font-size:40px;margin-bottom:12px">✋</div>
+            <div style="font-size:40px;margin-bottom:12px"></div>
             <h2 style="color:#145466;margin-bottom:6px">Sign Up to Volunteer</h2>
             <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
               <div style="font-size:18px;font-weight:700;color:#145466">{evt["name"]}</div>
@@ -16686,7 +16733,7 @@ def public_rsvp_open_page(event_id):
             <input type="email" id="pr-email" required style="width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box"/>
             {f'<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>{roles_html}' if roles else ''}
             <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp()" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px">
-              ✅ I Can Help!
+               I Can Help!
             </button>
           </form>
           <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">Horizon West Theater Company</p>
@@ -16707,10 +16754,10 @@ def public_rsvp_open_page(event_id):
             var data = await r.json()
             if(data.error){{
               document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
-              btn.disabled = false; btn.textContent = "✅ I Can Help!"
+              btn.disabled = false; btn.textContent = " I Can Help!"
               return
             }}
-            document.body.innerHTML = '<div style="text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;font-family:-apple-system,sans-serif"><div style="font-size:48px;margin-bottom:16px">🎉</div><h2 style="color:#145466">You\\'re in!</h2><p>Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p></div>'
+            document.body.innerHTML = '<div style="text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;font-family:-apple-system,sans-serif"><div style="font-size:48px;margin-bottom:16px"></div><h2 style="color:#145466">You\\'re in!</h2><p>Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p></div>'
           }}
           </script>
         </body></html>'''
@@ -16733,9 +16780,9 @@ def public_rsvp_open_page(event_id):
 
     details_html = f'''<div class="gi-details">
         <div class="gi-event-name">{evt["name"]}</div>
-        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
-        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{evt["location"]}</div>' if evt.get("location") else ''}
-        {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{evt["address"]}</div>' if evt.get("address") else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{evt["location"]}</div>' if evt.get("location") else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{evt["address"]}</div>' if evt.get("address") else ''}
       </div>
       {f'<p class="gi-desc">{evt["description"]}</p>' if evt.get('description') else ''}'''
 
@@ -16857,7 +16904,7 @@ def public_rsvp_open_submit(event_id):
         if recipients and s.get('alert_new_rsvp', True):
             role_line = f' for <strong>{role_name}</strong>' if role_name else ''
             send_email(recipients, f'New RSVP: {evt["name"]}',
-                f'<div style="font-family:sans-serif"><p>✋ <strong>{name}</strong> ({email}) submitted an RSVP{role_line} for <strong>{evt["name"]}</strong> via the public RSVP link.</p></div>')
+                f'<div style="font-family:sans-serif"><p> <strong>{name}</strong> ({email}) submitted an RSVP{role_line} for <strong>{evt["name"]}</strong> via the public RSVP link.</p></div>')
     except Exception as e:
         app.logger.warning(f'public rsvp alert email error: {e}')
 
@@ -17354,7 +17401,7 @@ def create_board_meeting():
                 body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
                   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:10px 10px 0 0">
                     <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" style="height:40px;margin-bottom:12px" alt="HWTC"/>
-                    <div style="color:#fff;font-size:20px;font-weight:700">📋 Board Meeting Scheduled</div>
+                    <div style="color:#fff;font-size:20px;font-weight:700"> Board Meeting Scheduled</div>
                   </div>
                   <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:28px 32px;border-radius:0 0 10px 10px">
                     <p style="margin:0 0 16px;font-size:15px">Hi {m['name']},</p>
@@ -17461,7 +17508,7 @@ def send_board_availability_request():
           <p>Hi {m['name']},</p>
           <p>Please click the link below and mark any dates you <strong>cannot</strong> attend.</p>
           <div style="text-align:center;margin:28px 0">
-            <a href="{link}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">📅 Submit My Availability</a>
+            <a href="{link}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block"> Submit My Availability</a>
           </div>
         </div>'''
         try:
@@ -17572,7 +17619,7 @@ def board_availability_form(token):
 </head>
 <body>
 <div class="header">
-  <h1>📅 Board Meeting Availability</h1>
+  <h1> Board Meeting Availability</h1>
   <p style="font-size:22px;font-weight:800;opacity:1;margin:6px 0 2px">{month_name} {record['year']}</p>
   <p style="font-size:14px;opacity:0.75">{record['member_name']}</p>
 </div>
@@ -17585,11 +17632,11 @@ def board_availability_form(token):
   </div>
   <div style="font-size:20px;font-weight:800;color:#145466;margin-bottom:12px;text-align:center">{month_name} {record['year']}</div>
   <div class="calendar" id="calendar"></div>
-  <button class="btn" id="submit-btn" onclick="submitAvailability()">✅ Submit My Availability</button>
+  <button class="btn" id="submit-btn" onclick="submitAvailability()"> Submit My Availability</button>
   <button class="btn btn-secondary" onclick="clearAll()">Clear all</button>
 </div>
 <div class="card success" id="success-card">
-  <div class="success-icon">🎉</div>
+  <div class="success-icon"></div>
   <h2 style="text-align:center;font-size:18px;margin-bottom:8px">Thanks, {record['member_name']}!</h2>
   <p style="text-align:center;color:#888;font-size:14px">Your availability for {month_name} {record['year']} has been recorded. You can update it anytime by clicking this link again.</p>
 </div>
@@ -17633,7 +17680,7 @@ async function submitAvailability(){{
     body: JSON.stringify({{token: TOKEN, blocked_dates: Array.from(blocked)}})
   }})
   var d = await r.json()
-  if(d.error){{ btn.disabled=false; btn.textContent='✅ Submit My Availability'; alert(d.error); return }}
+  if(d.error){{ btn.disabled=false; btn.textContent=' Submit My Availability'; alert(d.error); return }}
   document.getElementById('main-card').style.display='none'
   document.getElementById('success-card').style.display='block'
 }}
@@ -17876,7 +17923,7 @@ def send_employer_program_reminder():
                     'total': len(jobs)})
 
 if __name__ == '__main__':
-    print('\n🎭 RoleCall is running!')
+    print('\n RoleCall is running!')
     print('   Open http://localhost:5000 in your browser\n')
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
 
@@ -22693,7 +22740,7 @@ def post_oncall_slack_report():
             names = ', '.join(f'{s["person_name"]} ({fmt12h(s.get("start_time","08:00"))}–{fmt12h(s.get("end_time","22:00"))})' for s in day_shifts)
             day_lines.append(f'{day_label}: {names}')
         else:
-            day_lines.append(f'{day_label}: ⚠️ _No coverage_')
+            day_lines.append(f'{day_label}:  _No coverage_')
     # Who's on right now
     now_time = now.strftime('%H:%M')
     now_dow = now.weekday()
@@ -22701,9 +22748,9 @@ def post_oncall_slack_report():
         if s['start_date'] <= now.date().isoformat() <= s['end_date']
         and (s.get('start_time','08:00') or '08:00') <= now_time <= (s.get('end_time','22:00') or '22:00')
         and now_dow in (_jrep.loads(s.get('days_of_week') or '[0,1,2,3,4,5,6]') or [0,1,2,3,4,5,6])), None)
-    current_line = f'📞 *On call now:* {current["person_name"]} (`{current["phone"]}`)' if current else '📞 *On call now:* ⚠️ Nobody scheduled'
+    current_line = f' *On call now:* {current["person_name"]} (`{current["phone"]}`)' if current else ' *On call now:*  Nobody scheduled'
     blocks = [
-        {'type':'header','text':{'type':'plain_text','text':f'📞 On-Call Schedule: {week_label}'}},
+        {'type':'header','text':{'type':'plain_text','text':f' On-Call Schedule: {week_label}'}},
         {'type':'section','text':{'type':'mrkdwn','text':current_line}},
         {'type':'divider'},
         {'type':'section','text':{'type':'mrkdwn','text':'\n'.join(day_lines)}},
@@ -24822,8 +24869,8 @@ def twilio_voice():
         if not in_hours:
             msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
             ts_val = post_to_slack_calls([
-                {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* After hours — voicemail offered'}},
-                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+                {'type':'section','text':{'type':'mrkdwn','text':f' *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* After hours — voicemail offered'}},
+                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
             ], text=f'After hours call from {fmt_phone(caller)}')
             log_call(call_sid, caller, 'After Hours', '', 'after_hours', True, ts_val or '')
             voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
@@ -24863,10 +24910,10 @@ def twilio_voice():
         if forward_to:
             ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':
-                    f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
+                    f' *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:*  Ringing…'}},
                 {'type':'actions','elements':[
-                    {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
-                    {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
+                    {'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
+                    {'type':'button','text':{'type':'plain_text','text':' View Log'},'url':f'{host}/','action_id':'viewlog'}
                 ]}
             ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
             log_call(call_sid, caller, person_name, forward_to, 'ringing', False, ts_val or '')
@@ -24908,8 +24955,8 @@ def twilio_voice():
         else:
             ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':
-                    f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person and no fallback set'}},
-                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+                    f' *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person and no fallback set'}},
+                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
             ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
             log_call(call_sid, caller, 'Nobody', '', 'no_coverage', False, ts_val or '')
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -25155,19 +25202,19 @@ def twilio_call_status():
     if dial_status:
         if dial_status == 'completed':
             status = 'answered'
-            emoji = '✅'
+            emoji = ''
             status_text = f'Answered by {person_name} · Duration: {mins(duration)}'
         elif dial_status in ('no-answer','busy'):
             status = 'missed'
-            emoji = '❌'
+            emoji = ''
             status_text = f'MISSED — {person_name} did not answer'
         elif dial_status == 'failed':
             status = 'failed'
-            emoji = '🔴'
+            emoji = ''
             status_text = f'Failed to connect to {person_name}'
         else:
             status = dial_status
-            emoji = '❓'
+            emoji = ''
             status_text = f'Status: {dial_status}'
         try:
             conn2 = get_db()
@@ -25217,7 +25264,7 @@ def twilio_call_status():
         thread_ts = get_call_thread_ts(call_sid)
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f'📲 *Answered* by {person_name}'}}
+                f' *Answered* by {person_name}'}}
         ], text=f'Answered by {person_name}', thread_ts=thread_ts)
 
     return '', 204
@@ -25378,7 +25425,7 @@ def twilio_sms():
 
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f'↩️ *On-Call Reply Sent*\n*To:* `{fmt_phone(customer_phone)}`\n*Time:* {now_str}\n*Message:* {msg_body}'}}
+                f' *On-Call Reply Sent*\n*To:* `{fmt_phone(customer_phone)}`\n*Time:* {now_str}\n*Message:* {msg_body}'}}
         ], text=f'On-call reply sent to {fmt_phone(customer_phone)}: {msg_body[:100]}')
 
         twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
@@ -25436,7 +25483,7 @@ def twilio_sms():
         conn.close()
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f"💬 *Call-out reply* — {thread.get('guardian_name') or 'Guardian'} replied about {thread.get('youth_name')}\n*Message:* {msg_body}"}}
+                f" *Call-out reply* — {thread.get('guardian_name') or 'Guardian'} replied about {thread.get('youth_name')}\n*Message:* {msg_body}"}}
         ], text=f"Call-out reply from {thread.get('guardian_name') or 'guardian'}: {msg_body[:100]}")
         twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
         return twiml, 200, {'Content-Type': 'text/xml'}
@@ -25453,7 +25500,7 @@ def twilio_sms():
         conn.commit(); conn.close()
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f"⚠️ *Call-out reply couldn't be relayed* — no parent phone on file for {thread.get('youth_name')}\n*Message:* {msg_body}"}}
+                f" *Call-out reply couldn't be relayed* — no parent phone on file for {thread.get('youth_name')}\n*Message:* {msg_body}"}}
         ], text=f"Call-out reply undeliverable (no parent phone) re: {thread.get('youth_name')}: {msg_body[:100]}")
         twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response><Message>There's no phone number on file for {thread.get('youth_name')}'s parent, so this can't be relayed automatically. Please reach out another way — this has been logged for staff.</Message></Response>'''
@@ -25472,7 +25519,7 @@ def twilio_sms():
         conn.close()
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f"↩️ *Call-out reply sent* — re: {thread.get('youth_name')} to {thread.get('guardian_name') or 'guardian'}\n*Message:* {msg_body}"}}
+                f" *Call-out reply sent* — re: {thread.get('youth_name')} to {thread.get('guardian_name') or 'guardian'}\n*Message:* {msg_body}"}}
         ], text=f"Call-out reply to {thread.get('guardian_name') or 'guardian'}: {msg_body[:100]}")
         twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
         return twiml, 200, {'Content-Type': 'text/xml'}
@@ -25505,7 +25552,7 @@ def twilio_sms():
     # Post to Slack
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'💬 *Inbound Text Message*\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
+            f' *Inbound Text Message*\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
     ], text=f'Text from {sender_label}: {body[:100]}')
     # Auto-reply to sender
     auto_reply = "Thanks for texting Horizon West Theater Company! Someone from our team will get back to you shortly."
@@ -25655,11 +25702,11 @@ def twilio_voicemail():
     host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'🎙 *Voicemail* — {duration}s\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}},
+            f' *Voicemail* — {duration}s\n<{host}/twilio/voicemail-play?url={play_url}| Play Recording>'}},
         {'type':'actions','elements':[
-            {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}
+            {'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}
         ]}
-    ], text=f'🎙 Voicemail ({duration}s)', thread_ts=thread_ts)
+    ], text=f' Voicemail ({duration}s)', thread_ts=thread_ts)
     return '', 204
 
 @app.route('/twilio/voicemail-transcript', methods=['POST'])
@@ -25682,7 +25729,7 @@ def twilio_voicemail_transcript():
     host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'📝 *Transcript:* {transcript}\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}}
+            f' *Transcript:* {transcript}\n<{host}/twilio/voicemail-play?url={play_url}| Play Recording>'}}
     ], text=f'Transcript: {transcript[:100]}', thread_ts=thread_ts)
     return '', 204
 
@@ -27864,7 +27911,7 @@ def rental_contract_internal_preview(aid):
 .banner{{background:#fef3c7;color:#92400e;padding:10px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-weight:700;text-align:center}}</style></head>
 <body>
 <div class="contract-wrap">
-<div class="banner">🔒 Internal Preview Only — not the signing link, and not sent to the partner</div>
+<div class="banner"> Internal Preview Only — not the signing link, and not sent to the partner</div>
 {signed_note}
 {contract}
 </div>
@@ -28579,12 +28626,12 @@ def rental_payment_plan_page(token):
             scheduled = not p.get('sent_at')
             label = p.get('installment_label') or ('Deposit' if p.get('payment_type') == 'deposit' else 'Final Payment' if p.get('payment_type') == 'final' else p.get('payment_type'))
             if paid:
-                status_html = '<span style="color:#166534;font-weight:700">✅ Paid</span>'
+                status_html = '<span style="color:#166534;font-weight:700"> Paid</span>'
             elif scheduled:
-                status_html = '<span style="color:#6b7280;font-weight:700">📅 Scheduled</span>'
+                status_html = '<span style="color:#6b7280;font-weight:700"> Scheduled</span>'
             else:
-                status_html = '<span style="color:#92400e;font-weight:700">⏳ Due</span>'
-            link_html = f'<a href="{p.get("public_url")}" style="color:#145466;font-weight:600">Pay / View Invoice ↗</a>' if p.get('public_url') and not paid else ''
+                status_html = '<span style="color:#92400e;font-weight:700"> Due</span>'
+            link_html = f'<a href="{p.get("public_url")}" style="color:#145466;font-weight:600">Pay / View Invoice </a>' if p.get('public_url') and not paid else ''
             rows.append(f'''<tr>
                 <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{label}</td>
                 <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${(p.get("amount_cents") or 0)/100:.2f}</td>

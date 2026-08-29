@@ -655,16 +655,17 @@ async function selectContext(type, id, name, color){
  const conflictsUrl = type==='production' ? '/api/portal/production/'+id+'/conflicts'+(activeChildId?'?youth_id='+activeChildId:''): null
  const teamUrl = type==='production' ? '/api/productions/'+id+'/team': null
  const generalUrl = type==='production' ? '/api/productions/'+id+'/general-content': null
- const auditionSettingsUrl = '/api/auditions/settings/'+type+'/'+id
- const [events, profileData, conflicts, teamMembers, generalContent, auditionSettings] = await Promise.all([
+ const auditionSettingsUrl = type==='production' ? '/api/auditions/settings/production/'+id : null
+ const castListUrl = type==='production' ? '/api/auditions/cast-list/production/'+id : null
+ const [events, profileData, conflicts, teamMembers, generalContent, auditionSettings, castListData] = await Promise.all([
  fetch(endpoint).then(r=>r.json()).catch(()=>[]),
  activeChildId ? fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json()).catch(()=>null): Promise.resolve(null),
  conflictsUrl ? fetch(conflictsUrl).then(r=>r.json()).catch(()=>[]): Promise.resolve([]),
  teamUrl ? fetch(teamUrl).then(r=>r.json()).catch(()=>[]): Promise.resolve([]),
  generalUrl ? fetch(generalUrl).then(r=>r.json()).catch(()=>null): Promise.resolve(null),
- fetch(auditionSettingsUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null)
+ auditionSettingsUrl ? fetch(auditionSettingsUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null): Promise.resolve(null),
+ castListUrl ? fetch(castListUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null): Promise.resolve(null)
  ])
- window._ctxAuditionSettings = auditionSettings
  // Build conflict lookup by event_id
  const conflictByEvent = {}
  ;(conflicts||[]).forEach(c=>{ if(c.event_id){ if(!conflictByEvent[c.event_id]) conflictByEvent[c.event_id]=[]; conflictByEvent[c.event_id].push(c) } })
@@ -815,9 +816,13 @@ async function selectContext(type, id, name, color){
  }
  if(isProduction && teamMembers.length) tabDefs.push({id:'team', label:'Meet the Team'})
  if(isProduction) tabDefs.push({id:'conflicts', label:'Conflicts'+(conflicts.filter(c=>c.is_mine).length?' ('+conflicts.filter(c=>c.is_mine).length+')':'')})
- // Auditions tab only shows if staff have explicitly enabled it for this
- // program/production — most classes and non-audition shows never use it.
- if(auditionSettings && auditionSettings.tab_visible!==false) tabDefs.push({id:'auditions', label:' Auditions'})
+ // Cast List tab — only shown once staff have either set a reveal countdown
+ // or actually published, so productions without auditions never show an
+ // empty tab.
+ const showCastListTab = isProduction && (castListData?.published || auditionSettings?.cast_list_reveal_at)
+ if(showCastListTab) tabDefs.push({id:'castlist', label:'📋 Cast List'})
+ // Add Auditions tab if open (loaded async — add as placeholder, fill when clicked)
+ tabDefs.push({id:'auditions', label:' Auditions'})
  tabDefs.push({id:'messages', label:' Messages'})
  // Profile tab removed — shown at top of page instead
 
@@ -889,6 +894,9 @@ async function selectContext(type, id, name, color){
  // Build Conflicts HTML
  const conflictsHTML = buildPortalConflictsHTML(conflicts, activeChildId, id, events)
 
+ // Build Cast List tab HTML (countdown pre-reveal, actual list once published)
+ const castListHTML = showCastListTab ? buildCastListTabHTML(castListData, auditionSettings) : ''
+
  // Set all tab content at once — overview is default for productions, schedule for programs
  const firstTab = type==='production' ? 'overview': 'schedule'
  const tabHTML =
@@ -899,11 +907,15 @@ async function selectContext(type, id, name, color){
  +(type==='production'?'<div class="tab-content" id="dtab-general" style="padding:20px">'+generalHTML+'</div>':'')
  +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
  +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
+ +(showCastListTab?'<div class="tab-content" id="dtab-castlist" style="padding:20px">'+castListHTML+'</div>':'')
  // profile tab removed
  +'<div class="tab-content" id="dtab-auditions" style="padding:20px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>' +'<div class="tab-content" id="dtab-messages" style="padding:20px">' +'<div id="portal-inline-messages" style="min-height:120px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>' +'</div>'
 
  document.getElementById('detail-tab-contents').innerHTML = tabHTML
  panel.scrollIntoView({behavior:'smooth', block:'nearest'})
+ if(showCastListTab && !castListData?.published && auditionSettings?.cast_list_reveal_at){
+ startPortalCastCountdown(id, auditionSettings.cast_list_reveal_at)
+ }
 
   // Inject "About Your Instructor" section for programs
   if(type==='program' && (window._ctxInstructorBio || window._ctxInstructorPhoto) && window._ctxInstructorName){
@@ -1918,6 +1930,73 @@ function buildCastListHTML(castData){
  </div>`).join('')}
  </div>
  </div>`
+}
+
+// ── CAST LIST TAB (countdown → reveal) ──
+function buildCastListTabHTML(castData, settings){
+ if(castData?.published && castData.cast?.length){
+ return buildCastListHTML(castData)
+ }
+ // Not published yet — show the hype countdown. The tick/poll loop
+ // (startPortalCastCountdown) fills in #cast-countdown-value and, once the
+ // target time passes, starts checking for the real list to appear.
+ const title = settings?.title || 'Cast List'
+ return `<div style="max-width:480px;text-align:center;padding:20px 16px">
+ <div style="font-size:34px;margin-bottom:6px">🎭</div>
+ <div style="font-size:18px;font-weight:800;margin-bottom:2px">${escHtml(title)}</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">The cast list is on its way…</div>
+ <div id="cast-countdown-value" style="font-size:15px;font-weight:700;color:#145466;background:var(--teal-50);border-radius:var(--radius-lg);padding:16px;margin-bottom:6px"> Loading countdown…</div>
+ <div style="font-size:11px;color:var(--text-hint)">This page updates automatically — no need to refresh.</div>
+ </div>`
+}
+
+let _castCountdownState = {}
+function startPortalCastCountdown(prodId, revealAtISO){
+ // Clear any previous timers for this production before starting fresh
+ if(_castCountdownState.tickTimer) clearInterval(_castCountdownState.tickTimer)
+ if(_castCountdownState.pollTimer) clearInterval(_castCountdownState.pollTimer)
+ _castCountdownState = {tickTimer:null, pollTimer:null}
+ const target = new Date(revealAtISO).getTime()
+
+ function tick(){
+ const el = document.getElementById('cast-countdown-value')
+ if(!el){ clearInterval(_castCountdownState.tickTimer); return } // tab navigated away
+ const diff = target - Date.now()
+ if(diff <= 0){
+ el.innerHTML = ' Any moment now — check back shortly!'
+ clearInterval(_castCountdownState.tickTimer)
+ startCastListPolling(prodId)
+ return
+ }
+ const days = Math.floor(diff/86400000)
+ const hours = Math.floor(diff%86400000/3600000)
+ const mins = Math.floor(diff%3600000/60000)
+ const secs = Math.floor(diff%60000/1000)
+ let parts = []
+ if(days) parts.push(days+'d')
+ if(days||hours) parts.push(hours+'h')
+ if(days||hours||mins) parts.push(mins+'m')
+ parts.push(secs+'s')
+ el.innerHTML = parts.join(' ')
+ }
+ tick()
+ _castCountdownState.tickTimer = setInterval(tick, 1000)
+}
+
+function startCastListPolling(prodId){
+ // Once the reveal moment has passed, poll every 20s so the list appears
+ // live the moment staff hit Publish — no refresh needed.
+ _castCountdownState.pollTimer = setInterval(()=>{
+ fetch(`/api/auditions/cast-list/production/${prodId}`,{cache:'no-store'})
+.then(r=>r.json())
+.then(data=>{
+ if(data?.published && data.cast?.length){
+ clearInterval(_castCountdownState.pollTimer)
+ const container = document.getElementById('dtab-castlist')
+ if(container) container.innerHTML = buildCastListHTML(data)
+ }
+ }).catch(()=>{})
+ }, 20000)
 }
 
 

@@ -5984,6 +5984,30 @@ def update_submission_cast_role(sid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/auditions/settings/<context_type>/<context_id>/reveal', methods=['PUT'])
+def set_cast_list_reveal(context_type, context_id):
+    """Partial update — sets only the cast list reveal countdown, without
+    touching any other audition settings. Used by the production's Cast tab,
+    which manages cast via youth_production_members and may never have
+    configured (or even opened) the separate Auditions settings panel."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    reveal_raw = (d.get('cast_list_reveal_at') or '').strip()
+    reveal_at = reveal_raw or None
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    if existing:
+        execute(conn, 'UPDATE audition_settings SET cast_list_reveal_at=%s, updated_at=NOW() WHERE id=%s',
+            (reveal_at, existing['id']))
+    else:
+        execute(conn, '''INSERT INTO audition_settings (id,context_type,context_id,cast_list_reveal_at)
+            VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), context_type, context_id, reveal_at))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'cast_list_reveal_at': reveal_at})
+
+
 @app.route('/api/auditions/settings/<context_type>/<context_id>/publish-cast', methods=['POST'])
 def publish_cast_list(context_type, context_id):
     err = require_auth()
@@ -5992,16 +6016,44 @@ def publish_cast_list(context_type, context_id):
     publish = bool(d.get('publish', True))
     conn = get_db()
     if publish:
-        # Build cast list from all 'cast' submissions that have a cast_role
+        # Build the cast list from every source that actually assigns roles:
+        # audition submissions marked "cast" (the audition-based workflow),
+        # and — for productions — youth_production_members (the Cast tab,
+        # which is how Rising Stars shows are cast day-to-day and doesn't
+        # require an audition process at all). Dedupe by name so a family
+        # that shows up in both isn't listed twice.
         cast = fetchall(conn, """SELECT submitter_name, cast_role, submitter_email
             FROM audition_submissions
             WHERE context_type=%s AND context_id=%s AND status='cast'
             ORDER BY cast_role, submitter_name""", (context_type, context_id))
-        cast_json = json.dumps([dict(c) for c in cast])
-        execute(conn, """UPDATE audition_settings
-            SET cast_list_published=TRUE, cast_list=%s, updated_at=NOW()
-            WHERE context_type=%s AND context_id=%s""",
-            (cast_json, context_type, context_id))
+        cast_list = [dict(c) for c in cast]
+        if context_type == 'production':
+            youth_cast = fetchall(conn, """SELECT y.first_name||' '||y.last_name AS submitter_name,
+                    ypm.role AS cast_role, NULL AS submitter_email
+                FROM youth_production_members ypm
+                JOIN youth_participants y ON ypm.youth_id=y.id
+                WHERE ypm.production_id=%s
+                ORDER BY ypm.role, y.last_name, y.first_name""", (context_id,))
+            seen = {(c['submitter_name'] or '').strip().lower() for c in cast_list}
+            for yc in youth_cast:
+                key = (yc.get('submitter_name') or '').strip().lower()
+                if key and key not in seen:
+                    cast_list.append(dict(yc))
+                    seen.add(key)
+        cast_json = json.dumps(cast_list)
+        existing = fetchone(conn, 'SELECT id FROM audition_settings WHERE context_id=%s AND context_type=%s',
+            (context_id, context_type))
+        if existing:
+            execute(conn, """UPDATE audition_settings
+                SET cast_list_published=TRUE, cast_list=%s, updated_at=NOW()
+                WHERE id=%s""", (cast_json, existing['id']))
+        else:
+            execute(conn, """INSERT INTO audition_settings
+                (id,context_type,context_id,cast_list_published,cast_list)
+                VALUES (%s,%s,%s,TRUE,%s)""", (str(uuid.uuid4()), context_type, context_id, cast_json))
+    else:
+        execute(conn, """UPDATE audition_settings SET cast_list_published=FALSE, updated_at=NOW()
+            WHERE context_type=%s AND context_id=%s""", (context_type, context_id))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

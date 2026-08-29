@@ -12120,9 +12120,14 @@ function openCastRoleModal(sid, contextId){
  <div style="font-size:15px;font-weight:700"> Assign Role</div>
  <div style="font-size:12px;color:var(--text-muted);margin-top:2px">What role is ${escHtml(name)} being cast in?</div>
  </div>
- <div style="padding:16px 20px">
+ <div style="padding:16px 20px;display:flex;flex-direction:column;gap:10px">
  <input type="text" id="cast-role-input" placeholder="e.g. Lead, Ensemble, Narrator…"
  style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>
+ <input type="text" id="cast-section-input" list="cast-section-options" placeholder="Section (e.g. Principal, Ensemble) — optional"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>
+ <input type="text" id="cast-title-input" placeholder="Title (e.g. Dance Captain) — optional"
+ style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;box-sizing:border-box"/>
+ <datalist id="cast-section-options"><option value="Principal"><option value="Featured"><option value="Ensemble"><option value="Crew"><option value="Understudy"></datalist>
  </div>
  <div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
  <button class="btn btn-secondary btn-sm" onclick="document.getElementById('cast-role-modal-overlay').remove()">Cancel</button>
@@ -12136,8 +12141,10 @@ function openCastRoleModal(sid, contextId){
 
 async function confirmCastRole(sid, contextId){
  const castRole = document.getElementById('cast-role-input')?.value.trim()
+ const castSection = document.getElementById('cast-section-input')?.value.trim()||''
+ const castTitle = document.getElementById('cast-title-input')?.value.trim()||''
  if(!castRole){ toast('Please enter a role','error'); return }
- const res = await api(`/api/auditions/submissions/${sid}/cast-role`, 'PUT', {cast_role: castRole})
+ const res = await api(`/api/auditions/submissions/${sid}/cast-role`, 'PUT', {cast_role: castRole, cast_section: castSection, cast_title: castTitle})
  if(res?.error){ toast(res.error,'error'); return }
  document.getElementById('cast-role-modal-overlay')?.remove()
  updateSubmissionBadge(sid, 'cast')
@@ -12146,7 +12153,7 @@ async function confirmCastRole(sid, contextId){
  const roleBadges = container?.querySelector('[style*="teal-50"]')?.parentElement
  if(roleBadges){
  roleBadges.insertAdjacentHTML('afterend',
- `<div style="font-size:12px;font-weight:700;color:var(--green-600);margin-top:4px"> Cast as: ${escHtml(castRole)}</div>`)
+ `<div style="font-size:12px;font-weight:700;color:var(--green-600);margin-top:4px"> Cast as: ${escHtml(castRole)}${castSection?' · '+escHtml(castSection):''}${castTitle?' · ★ '+escHtml(castTitle):''}</div>`)
  }
  toast(`${castRole} assigned!`, 'success')
 }
@@ -26297,7 +26304,10 @@ async function loadCastAnnouncementPanel(pid){
  <div style="background:#fdf4ff;border:1px solid #e9d5ff;border-radius:var(--radius);padding:14px 16px">
  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:${isAdmin?'10px':'0'}">
  <div style="font-size:12px;font-weight:700;color:#7e22ce;text-transform:uppercase;letter-spacing:0.4px"> Cast List Announcement</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="previewCastList('${pid}')">Preview</button>`:''}
  <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;background:${statusBg};color:${statusColor}">${statusLabel}</span>
+ </div>
  </div>
  <div id="cast-countdown-${pid}" style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:${isAdmin?'10px':'0'}"></div>
  ${isAdmin?`
@@ -26367,6 +26377,81 @@ async function toggleCastPublish(pid, publish, force){
  loadCastAnnouncementPanel(pid)
 }
 
+// ── CAST LIST PREVIEW ──
+// Shows exactly what Publish would build right now — same grouping the
+// family portal uses — without publishing or queuing anything. Mirrors
+// portal.html's buildCastListHTML; keep the two in sync if either changes.
+function castListSectionPriority(name){
+ const n = name.toLowerCase()
+ if(['principal','principals','lead','leads','featured'].includes(n)) return 0
+ if(n==='ensemble') return 90
+ if(n==='crew') return 95
+ return 50
+}
+
+function buildCastListPreviewHTML(castData){
+ const cast = castData.cast || []
+ if(!cast.length){
+ return '<div style="text-align:center;padding:32px;color:var(--text-muted)">No one is marked as cast yet — assign roles in the Cast tab or Auditions first.</div>'
+ }
+ const bySection = {}
+ cast.forEach(c=>{
+ const s = (c.cast_section||'').trim() || 'Ensemble'
+ if(!bySection[s]) bySection[s] = []
+ bySection[s].push(c)
+ })
+ const sections = Object.keys(bySection).sort((a,b)=>{
+ const pa = castListSectionPriority(a), pb = castListSectionPriority(b)
+ return pa!==pb ? pa-pb : a.localeCompare(b)
+ })
+ const displayTitle = castData.context_name || castData.title || 'Cast List'
+ return `<div style="max-width:480px;margin:0 auto">
+ <div style="font-size:20px;font-weight:800;margin-bottom:4px"> Cast Announcement</div>
+ <div style="font-size:15px;font-weight:700;color:var(--teal-dark);margin-bottom:16px">${escHtml(displayTitle)}</div>
+ <div style="display:flex;flex-direction:column;gap:12px">
+ ${sections.map(section=>{
+ const people = bySection[section].slice().sort((a,b)=>(a.submitter_name||'').localeCompare(b.submitter_name||''))
+ return `
+ <div style="border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden">
+ <div style="background:#145466;color:#fff;padding:8px 14px;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">${escHtml(section)}</div>
+ <div style="padding:10px 14px;display:flex;flex-direction:column;gap:8px">
+ ${people.map(c=>{
+ const roleText = (c.cast_role && c.cast_role.trim() && c.cast_role.trim().toLowerCase()!==section.toLowerCase()) ? escHtml(c.cast_role) : ''
+ return `<div>
+ <div style="font-size:14px;font-weight:600"> ${escHtml(c.submitter_name||'')}${roleText?` <span style="font-weight:400;color:var(--text-muted)">— ${roleText}</span>`:''}</div>
+ ${c.cast_title?`<div style="font-size:11px;font-weight:700;color:#7e22ce;margin-top:1px">★ ${escHtml(c.cast_title)}</div>`:''}
+ </div>`
+ }).join('')}
+ </div>
+ </div>`
+ }).join('')}
+ </div>
+ </div>`
+}
+
+async function previewCastList(pid){
+ const overlay = document.createElement('div')
+ overlay.id = 'cast-preview-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
+ <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+ <div>
+ <div style="font-size:15px;font-weight:700">Cast List Preview</div>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:2px">This is only visible to you — families can't see this yet</div>
+ </div>
+ <button class="modal-close" onclick="document.getElementById('cast-preview-overlay').remove()">×</button>
+ </div>
+ <div id="cast-preview-body" style="padding:24px 20px;overflow-y:auto;background:var(--bg)"><div style="text-align:center;padding:32px;color:var(--text-muted)">Loading…</div></div>
+ </div>`
+ overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+ const data = await api(`/api/auditions/settings/production/${pid}/preview-cast`)
+ const body = document.getElementById('cast-preview-body')
+ if(!body) return
+ if(data?.error){ body.innerHTML = `<div style="text-align:center;padding:32px;color:var(--red-600)">${escHtml(data.error)}</div>`; return }
+ body.innerHTML = buildCastListPreviewHTML(data)
+}
+
 let _castTabCountdownTimers = {}
 function startCastTabCountdown(pid, revealAtISO, queued){
  if(_castTabCountdownTimers[pid]) clearInterval(_castTabCountdownTimers[pid])
@@ -26411,20 +26496,28 @@ async function loadYouthProdMembers(prodId){
  const prod = allProductions.find(p=>p.id===prodId)
  const totalEl = document.getElementById('prod-total-count-'+prodId)
  if(totalEl) totalEl.textContent = members.length + (prod?.members?.length||0)
- container.innerHTML='<div style="display:flex;flex-direction:column;gap:0">'
+ container.innerHTML=(isAdmin?'<datalist id="cast-section-options"><option value="Principal"><option value="Featured"><option value="Ensemble"><option value="Crew"><option value="Understudy"></datalist>':'')
+ +'<div style="display:flex;flex-direction:column;gap:0">'
  +members.map(m=>{
  const initials = (m.first_name?m.first_name[0]:'')+(m.last_name?m.last_name[0]:'')
- return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
- +'<div style="width:36px;height:36px;border-radius:50%;background:var(--teal-light);color:var(--teal-dark);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">'+initials+'</div>'
- +'<div style="flex:1;min-width:0">'
- +'<div style="font-weight:600;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openYouthProfile(\''+m.youth_id+'\')">'+(m.first_name||'')+' '+(m.last_name||'')+(m.dob?' <span style="font-weight:400;font-size:12px;color:var(--text-muted)">(Age '+(calcAge(m.dob)||'?')+')</span>':'')+'</div>'
- +(m.role?'<div style="font-size:12px;color:var(--text-muted)">'+m.role+'</div>':'<div style="font-size:12px;color:var(--text-hint)">No role assigned</div>')
- +'</div>'
- +(isAdmin
- ? '<input type="text" placeholder="Assign role…" value="'+(m.role||'')+'" style="font-size:12px;padding:4px 8px;border:1px solid var(--border-md);border-radius:6px;font-family:inherit;width:140px;flex-shrink:0" onchange="updateYouthCastRole(\''+prodId+'\',\''+m.id+'\',this.value).then(()=>{ const el=this.previousElementSibling.lastElementChild; el.textContent=this.value||\'No role assigned\'; el.style.color=this.value?\'var(--text-muted)\':\'var(--text-hint)\' })" />'
- +'<button onclick="removeYouthFromProd(\''+prodId+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px;flex-shrink:0">Remove</button>'
-: '')
- +'</div>'
+ let row = '<div class="cast-member-row" data-mid="'+m.id+'" style="display:flex;flex-direction:column;gap:8px;padding:10px 0;border-bottom:1px solid var(--border)">'
+ row += '<div style="display:flex;align-items:center;gap:12px">'
+ row += '<div style="width:36px;height:36px;border-radius:50%;background:var(--teal-light);color:var(--teal-dark);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0">'+initials+'</div>'
+ row += '<div style="flex:1;min-width:0">'
+ row += '<div style="font-weight:600;font-size:14px;cursor:pointer;color:var(--teal-600)" onclick="openYouthProfile(\''+m.youth_id+'\')">'+(m.first_name||'')+' '+(m.last_name||'')+(m.dob?' <span style="font-weight:400;font-size:12px;color:var(--text-muted)">(Age '+(calcAge(m.dob)||'?')+')</span>':'')+'</div>'
+ row += (!isAdmin ? ((m.role?'<span style="font-size:12px;color:var(--text-muted)">'+escHtml(m.role)+'</span>':'')+(m.cast_section?' <span style="font-size:11px;color:var(--text-hint)">· '+escHtml(m.cast_section)+'</span>':'')+(m.cast_title?' <span style="font-size:11px;font-weight:700;color:#7e22ce">★ '+escHtml(m.cast_title)+'</span>':'')) : '')
+ row += '</div>'
+ if(isAdmin) row += '<button onclick="removeYouthFromProd(\''+prodId+'\',\''+m.id+'\')" class="btn btn-danger btn-sm" style="padding:4px 8px;font-size:11px;flex-shrink:0">Remove</button>'
+ row += '</div>'
+ if(isAdmin){
+ row += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;padding-left:48px">'
+ row += '<input type="text" class="cast-role-field" placeholder="Role (e.g. Belle)" value="'+escHtml(m.role||'')+'" style="font-size:12px;padding:4px 8px;border:1px solid var(--border-md);border-radius:6px;font-family:inherit" onchange="saveYouthCastFields(\''+prodId+'\',this)"/>'
+ row += '<input type="text" class="cast-section-field" list="cast-section-options" placeholder="Section (e.g. Ensemble)" value="'+escHtml(m.cast_section||'')+'" style="font-size:12px;padding:4px 8px;border:1px solid var(--border-md);border-radius:6px;font-family:inherit" onchange="saveYouthCastFields(\''+prodId+'\',this)"/>'
+ row += '<input type="text" class="cast-title-field" placeholder="Title (e.g. Dance Captain)" value="'+escHtml(m.cast_title||'')+'" style="font-size:12px;padding:4px 8px;border:1px solid var(--border-md);border-radius:6px;font-family:inherit" onchange="saveYouthCastFields(\''+prodId+'\',this)"/>'
+ row += '</div>'
+ }
+ row += '</div>'
+ return row
  }).join('')
  +'</div>'
  +'<div style="font-size:12px;color:var(--text-muted);margin-top:12px">'+members.length+' cast member'+(members.length!==1?'s':'')+'</div>'
@@ -26441,8 +26534,18 @@ async function removeYouthFromProd(prodId, memberId){
  populateYouthFilters()
 }
 
-async function updateYouthCastRole(prodId, memberId, role){
- await api('/api/productions/'+prodId+'/youth-members/'+memberId,'PUT',{role})
+// Section/Title/Role are saved together (the endpoint updates all three at
+// once), so pull the current value of each sibling field before saving —
+// otherwise editing one would blank out the other two.
+async function saveYouthCastFields(prodId, changedInput){
+ const row = changedInput.closest('.cast-member-row')
+ const mid = row?.dataset.mid
+ if(!mid) return
+ const role = row.querySelector('.cast-role-field')?.value.trim()||''
+ const cast_section = row.querySelector('.cast-section-field')?.value.trim()||''
+ const cast_title = row.querySelector('.cast-title-field')?.value.trim()||''
+ await api('/api/productions/'+prodId+'/youth-members/'+mid,'PUT',{role, cast_section, cast_title})
+ toast('Saved','success')
 }
 
 

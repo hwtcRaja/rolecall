@@ -1941,25 +1941,49 @@ async function submitPortalAudition(contextType, contextId, passphrase, particip
 
 function buildCastListHTML(castData){
  const cast = castData.cast || []
- // Group by role
- const byRole = {}
+ // Group by section (Principals / Ensemble / Crew / any custom section a
+ // staff member typed in) rather than by individual role, so the list reads
+ // like a real playbill instead of one row per unique role name.
+ const bySection = {}
  cast.forEach(c=>{
- const r = c.cast_role || 'Ensemble'
- if(!byRole[r]) byRole[r] = []
- byRole[r].push(c.submitter_name)
+ const s = (c.cast_section||'').trim() || 'Ensemble'
+ if(!bySection[s]) bySection[s] = []
+ bySection[s].push(c)
+ })
+ // Principals/leads first, custom sections next (alphabetical), Ensemble
+ // and Crew last — matches how a printed program is usually ordered.
+ function sectionPriority(name){
+ const n = name.toLowerCase()
+ if(['principal','principals','lead','leads','featured'].includes(n)) return 0
+ if(n==='ensemble') return 90
+ if(n==='crew') return 95
+ return 50
+ }
+ const sections = Object.keys(bySection).sort((a,b)=>{
+ const pa = sectionPriority(a), pb = sectionPriority(b)
+ return pa!==pb ? pa-pb : a.localeCompare(b)
  })
  const displayTitle = castData.context_name || castData.title || 'Cast List'
  return `<div style="max-width:480px">
  <div style="font-size:20px;font-weight:800;margin-bottom:4px"> Cast Announcement</div>
  <div style="font-size:15px;font-weight:700;color:var(--teal-dark);margin-bottom:16px">${escHtml(displayTitle)}</div>
  <div style="display:flex;flex-direction:column;gap:12px">
- ${Object.entries(byRole).map(([role, names])=>`
+ ${sections.map(section=>{
+ const people = bySection[section].slice().sort((a,b)=>(a.submitter_name||'').localeCompare(b.submitter_name||''))
+ return `
  <div style="border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden">
- <div style="background:#145466;color:#fff;padding:8px 14px;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">${escHtml(role)}</div>
- <div style="padding:10px 14px;display:flex;flex-direction:column;gap:6px">
- ${names.map(n=>`<div style="font-size:14px;font-weight:600"> ${escHtml(n)}</div>`).join('')}
+ <div style="background:#145466;color:#fff;padding:8px 14px;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">${escHtml(section)}</div>
+ <div style="padding:10px 14px;display:flex;flex-direction:column;gap:8px">
+ ${people.map(c=>{
+ const roleText = (c.cast_role && c.cast_role.trim() && c.cast_role.trim().toLowerCase()!==section.toLowerCase()) ? escHtml(c.cast_role) : ''
+ return `<div>
+ <div style="font-size:14px;font-weight:600"> ${escHtml(c.submitter_name||'')}${roleText?` <span style="font-weight:400;color:var(--text-muted)">— ${roleText}</span>`:''}</div>
+ ${c.cast_title?`<div style="font-size:11px;font-weight:700;color:#7e22ce;margin-top:1px">★ ${escHtml(c.cast_title)}</div>`:''}
+ </div>`
+ }).join('')}
  </div>
- </div>`).join('')}
+ </div>`
+ }).join('')}
  </div>
  </div>`
 }

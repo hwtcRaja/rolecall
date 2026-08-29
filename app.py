@@ -1161,6 +1161,14 @@ def init_db():
         # cast_list_reveal_at passes, so clicking Publish before the
         # countdown ends doesn't spoil the reveal.
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_queued BOOLEAN DEFAULT FALSE",
+        # Cast list grouping/designations — section groups the published list
+        # into headers like "Principals" / "Ensemble"; title is an optional
+        # badge for things like "Dance Captain" or "Vocal Captain" that sit
+        # alongside (not instead of) a person's role.
+        "ALTER TABLE youth_production_members ADD COLUMN IF NOT EXISTS cast_section TEXT DEFAULT ''",
+        "ALTER TABLE youth_production_members ADD COLUMN IF NOT EXISTS cast_title TEXT DEFAULT ''",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_section TEXT DEFAULT ''",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_title TEXT DEFAULT ''",
         # Family-portal tab order — a JSON array of tab ids, e.g. ["overview",
         # "castlist","schedule",...]. Empty/missing means use the built-in
         # default order. Any tab id not in the saved list (new tabs added
@@ -6007,8 +6015,10 @@ def update_submission_cast_role(sid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE audition_submissions SET cast_role=%s, status=%s, updated_at=NOW() WHERE id=%s',
-        (d.get('cast_role','').strip() or None, 'cast', sid))
+    execute(conn, '''UPDATE audition_submissions SET cast_role=%s, cast_section=%s, cast_title=%s,
+        status=%s, updated_at=NOW() WHERE id=%s''',
+        (d.get('cast_role','').strip() or None, (d.get('cast_section') or '').strip(),
+         (d.get('cast_title') or '').strip(), 'cast', sid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6065,6 +6075,61 @@ def set_portal_tab_order(context_type, context_id):
     return jsonify({'ok': True, 'order': order})
 
 
+def build_cast_list_data(conn, context_type, context_id):
+    """Build the cast list array from every source that assigns roles —
+    audition submissions marked "cast" (the audition-based workflow), and
+    for productions, youth_production_members (the Cast tab, which doesn't
+    require an audition process at all). Dedupes by name so a family that
+    shows up in both isn't listed twice. Shared by publish_cast_list and the
+    read-only preview endpoint so they never drift out of sync."""
+    cast = fetchall(conn, """SELECT submitter_name, cast_role, submitter_email,
+            COALESCE(cast_section,'') AS cast_section, COALESCE(cast_title,'') AS cast_title
+        FROM audition_submissions
+        WHERE context_type=%s AND context_id=%s AND status='cast'
+        ORDER BY cast_role, submitter_name""", (context_type, context_id))
+    cast_list = [dict(c) for c in cast]
+    if context_type == 'production':
+        youth_cast = fetchall(conn, """SELECT y.first_name||' '||y.last_name AS submitter_name,
+                ypm.role AS cast_role, NULL AS submitter_email,
+                COALESCE(ypm.cast_section,'') AS cast_section, COALESCE(ypm.cast_title,'') AS cast_title
+            FROM youth_production_members ypm
+            JOIN youth_participants y ON ypm.youth_id=y.id
+            WHERE ypm.production_id=%s
+            ORDER BY ypm.role, y.last_name, y.first_name""", (context_id,))
+        seen = {(c['submitter_name'] or '').strip().lower() for c in cast_list}
+        for yc in youth_cast:
+            key = (yc.get('submitter_name') or '').strip().lower()
+            if key and key not in seen:
+                cast_list.append(dict(yc))
+                seen.add(key)
+    return cast_list
+
+
+@app.route('/api/auditions/settings/<context_type>/<context_id>/preview-cast', methods=['GET'])
+def preview_cast_list(context_type, context_id):
+    """Staff-only, read-only look at exactly what Publish would show right
+    now — same data, same grouping — without touching cast_list_published
+    or cast_list_queued. Lets staff sanity-check sections/titles before
+    anything goes live."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    cast_list = build_cast_list_data(conn, context_type, context_id)
+    settings_row = fetchone(conn, 'SELECT title FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    ctx_name = ''
+    if context_type == 'production':
+        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    elif context_type == 'program':
+        p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    conn.close()
+    resp = jsonify({'cast': cast_list, 'title': (settings_row or {}).get('title'), 'context_name': ctx_name})
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
 @app.route('/api/auditions/settings/<context_type>/<context_id>/publish-cast', methods=['POST'])
 def publish_cast_list(context_type, context_id):
     err = require_auth()
@@ -6074,30 +6139,7 @@ def publish_cast_list(context_type, context_id):
     force = bool(d.get('force', False))  # skip the countdown gate and publish immediately
     conn = get_db()
     if publish:
-        # Build the cast list from every source that actually assigns roles:
-        # audition submissions marked "cast" (the audition-based workflow),
-        # and — for productions — youth_production_members (the Cast tab,
-        # which is how Rising Stars shows are cast day-to-day and doesn't
-        # require an audition process at all). Dedupe by name so a family
-        # that shows up in both isn't listed twice.
-        cast = fetchall(conn, """SELECT submitter_name, cast_role, submitter_email
-            FROM audition_submissions
-            WHERE context_type=%s AND context_id=%s AND status='cast'
-            ORDER BY cast_role, submitter_name""", (context_type, context_id))
-        cast_list = [dict(c) for c in cast]
-        if context_type == 'production':
-            youth_cast = fetchall(conn, """SELECT y.first_name||' '||y.last_name AS submitter_name,
-                    ypm.role AS cast_role, NULL AS submitter_email
-                FROM youth_production_members ypm
-                JOIN youth_participants y ON ypm.youth_id=y.id
-                WHERE ypm.production_id=%s
-                ORDER BY ypm.role, y.last_name, y.first_name""", (context_id,))
-            seen = {(c['submitter_name'] or '').strip().lower() for c in cast_list}
-            for yc in youth_cast:
-                key = (yc.get('submitter_name') or '').strip().lower()
-                if key and key not in seen:
-                    cast_list.append(dict(yc))
-                    seen.add(key)
+        cast_list = build_cast_list_data(conn, context_type, context_id)
         cast_json = json.dumps(cast_list)
         existing = fetchone(conn, 'SELECT id, cast_list_reveal_at FROM audition_settings WHERE context_id=%s AND context_type=%s',
             (context_id, context_type))
@@ -10498,11 +10540,17 @@ def portal_get_participant(yid):
 
     # Productions
     try:
+        # cast_role is only surfaced once staff have actually published the
+        # cast list for that production — otherwise a family would see their
+        # kid's role (or even just that they're cast at all) before the
+        # reveal, which defeats the whole point of the countdown/hype flow.
         productions = fetchall(conn, '''SELECT p.id, p.name, p.stage, p.status,
             p.description, p.image_url, p.director, p.venue, p.portal_tab_order,
-            ypm.role as cast_role, ypm.id as member_id
+            CASE WHEN aset.cast_list_published THEN ypm.role ELSE NULL END as cast_role,
+            ypm.id as member_id
             FROM youth_production_members ypm
             JOIN productions p ON ypm.production_id=p.id
+            LEFT JOIN audition_settings aset ON aset.context_type='production' AND aset.context_id=p.id
             WHERE ypm.youth_id=%s ORDER BY p.name''', (yid,))
     except Exception as e:
         productions = []; errors.append(f'productions: {e}')
@@ -10842,8 +10890,8 @@ def update_youth_prod_member(pid, mid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE youth_production_members SET role=%s WHERE id=%s AND production_id=%s',
-        (d.get('role',''), mid, pid))
+    execute(conn, 'UPDATE youth_production_members SET role=%s, cast_section=%s, cast_title=%s WHERE id=%s AND production_id=%s',
+        (d.get('role',''), d.get('cast_section',''), d.get('cast_title',''), mid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

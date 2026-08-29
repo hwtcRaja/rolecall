@@ -1153,6 +1153,10 @@ def init_db():
             size_bytes INTEGER DEFAULT 0,
             uploaded_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
+        # Countdown to build hype for the cast list reveal — set independently
+        # of actually publishing, so staff can announce "cast list drops
+        # Friday at 7pm" before casting is even finalized.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_reveal_at TIMESTAMP",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_occurrence_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS show_on_lobby BOOLEAN DEFAULT TRUE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_request_id TEXT",
@@ -5573,7 +5577,8 @@ def get_audition_settings(context_type, context_id):
         resp = jsonify({'context_type': context_type, 'context_id': context_id,
             'is_open': False, 'roles': [], 'allow_video_link': True,
             'allow_resume_link': True, 'allow_headshot_link': True,
-            'allow_slots': False, 'tab_visible': True, 'slots': slots})
+            'allow_slots': False, 'tab_visible': True, 'slots': slots,
+            'cast_list_reveal_at': None})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     try: row['roles'] = json.loads(row.get('roles') or '[]')
@@ -5606,21 +5611,25 @@ def save_audition_settings(context_type, context_id):
     allow_head   = bool(d.get('allow_headshot_link', True))
     allow_slots  = bool(d.get('allow_slots', False))
     tab_visible  = bool(d.get('tab_visible', True))
+    # Cast list reveal countdown — a datetime-local string like
+    # "2026-05-16T19:00", or None/'' to clear it.
+    reveal_raw = d.get('cast_list_reveal_at')
+    reveal_at = (reveal_raw or '').strip() or None
     if existing:
         execute(conn, """UPDATE audition_settings SET is_open=%s,title=%s,description=%s,
             audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
             email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
-            allow_slots=%s, tab_visible=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            allow_slots=%s, tab_visible=%s, cast_list_reveal_at=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
-             email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,context_id,context_type))
+             email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,context_id,context_type))
     else:
         sid = str(uuid.uuid4())
         execute(conn, """INSERT INTO audition_settings
             (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
-             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible,cast_list_reveal_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
-             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible))
+             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6378,14 +6387,20 @@ def download_board_application_file(aid, fid):
 
 @app.route('/api/auditions/cast-list/<context_type>/<context_id>', methods=['GET'])
 def get_cast_list(context_type, context_id):
-    """Public endpoint - returns cast list if published."""
+    """Public endpoint - returns cast list if published. Also returns the
+    reveal_at countdown target (if staff set one) so a public page can show
+    a "cast list drops in..." countdown even before anything is published."""
     conn = get_db()
-    row = fetchone(conn, """SELECT cast_list, cast_list_published, title
+    row = fetchone(conn, """SELECT cast_list, cast_list_published, title, cast_list_reveal_at
         FROM audition_settings WHERE context_type=%s AND context_id=%s""",
         (context_type, context_id))
     if not row or not row.get('cast_list_published'):
         conn.close()
-        resp = jsonify({'published': False, 'cast': []})
+        reveal_at = row.get('cast_list_reveal_at') if row else None
+        resp = jsonify({
+            'published': False, 'cast': [],
+            'reveal_at': reveal_at.isoformat() if reveal_at else None,
+        })
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     # Get the actual production/program name

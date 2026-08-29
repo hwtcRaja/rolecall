@@ -15760,7 +15760,12 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Background Image URL <span style="font-weight:400;text-transform:none">(optional — overrides color)</span></label>'
  s += '<input type="url" id="pinfo-imgurl-'+p.id+'" value="'+((p.portal_image_url||'').replace(/"/g,'&quot;'))+'" placeholder="https://drive.google.com/… or any direct image URL" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none" oninput="previewPortalColor(\''+p.id+'\',document.getElementById(\'pinfo-color-'+p.id+'\').value)"/>'
  s += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Tip: use a direct image link. For Google Drive: open image → Share → Copy link, then change <code>open?id=</code> to <code>uc?id=</code>.</div>'
- s += '</div></div>'
+ s += '</div>'
+ s += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Logo / Crest URL <span style="font-weight:400;text-transform:none">(optional — shown on the hero and the Cast List)</span></label>'
+ s += '<div style="display:flex;align-items:center;gap:10px">'
+ s += '<input type="url" id="pinfo-logourl-'+p.id+'" value="'+((p.portal_logo_url||'').replace(/"/g,'&quot;'))+'" placeholder="https://… direct image URL, ideally square or transparent PNG" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>'
+ s += (p.portal_logo_url?('<img src="'+p.portal_logo_url.replace(/"/g,'&quot;')+'" style="width:40px;height:40px;object-fit:contain;border-radius:6px;border:1px solid var(--border-md);flex-shrink:0" onerror="this.style.display=\'none\'"/>'):'')
+ s += '</div></div></div>'
  s += '<button class="btn btn-primary btn-sm" onclick="saveProductionInfo(\''+p.id+'\')">Save Info</button>'
  s += '<span id="pinfo-saved-'+p.id+'" style="font-size:12px;color:var(--green);margin-left:10px"></span>'
  s += '</div>'
@@ -22776,11 +22781,12 @@ async function saveProductionInfo(pid){
  const description = document.getElementById('pinfo-desc-'+pid)?.value.trim()||''
  const portal_color = document.getElementById('pinfo-color-'+pid)?.value||null
  const portal_image_url = document.getElementById('pinfo-imgurl-'+pid)?.value.trim()||null
+ const portal_logo_url = document.getElementById('pinfo-logourl-'+pid)?.value.trim()||null
  const res = await api('/api/productions/'+pid+'/about','PUT',
- {director, venue, performance_location, description, start_date, end_date, portal_color, portal_image_url})
+ {director, venue, performance_location, description, start_date, end_date, portal_color, portal_image_url, portal_logo_url})
  if(res.error){ toast(res.error,'error'); return }
  const prod = allProductions.find(p=>p.id===pid)
- if(prod){ Object.assign(prod,{director,venue,performance_location,description,start_date,end_date,portal_color,portal_image_url}) }
+ if(prod){ Object.assign(prod,{director,venue,performance_location,description,start_date,end_date,portal_color,portal_image_url,portal_logo_url}) }
  const saved = document.getElementById('pinfo-saved-'+pid)
  if(saved){ saved.textContent=' Saved'; setTimeout(()=>saved.textContent='',2000) }
  toast('Production info saved!')

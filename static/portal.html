@@ -631,6 +631,16 @@ async function loadPortalProfile(){
 }
 
 let _selectLock = false
+// Sets a show's accent color as a CSS variable on the whole detail panel,
+// so any themed element inside it (buttons, badges, headers) can opt in via
+// var(--show-accent, #145466) without every spot needing its own JS wiring.
+// Falls back to the default teal when a show hasn't set a custom color.
+function applyShowAccent(color, logoUrl){
+ const panel = document.getElementById('program-detail')
+ if(panel) panel.style.setProperty('--show-accent', color || '#145466')
+ window._currentShowLogo = logoUrl || ''
+}
+
 async function selectContext(type, id, name, color){
  if(_selectLock) return
  _selectLock = true
@@ -676,8 +686,9 @@ async function selectContext(type, id, name, color){
  const contextFiles = files.filter(f=> type==='program'?f.program_id===id:f.production_id===id)
 
  // Fill hero
- let ctxName=name, instructor='', dateStr='', castRole='', prodVenue='', prodPerfDates='', prodPerfLocation=''
+ let ctxName=name, instructor='', dateStr='', castRole='', prodVenue='', prodPerfDates='', prodPerfLocation='', prodLogoUrl=''
  if(type==='program'){
+ applyShowAccent(null, null) // programs don't carry per-show branding
  const e = activeChildData.enrollments?.find(e=>e.program_id===id)
  if(e){ ctxName=e.program_name; instructor=e.instructor_name||''; dateStr=e.start_date?fmtDate(e.start_date)+(e.end_date&&e.end_date!==e.start_date?' → '+fmtDate(e.end_date):''):''
       // Store instructor details for About section (from cached data)
@@ -757,7 +768,9 @@ async function selectContext(type, id, name, color){
  prodVenue = p.venue||''
  prodPerfLocation = p.performance_location||''
  prodPerfDates = p.start_date ? fmtDate(p.start_date)+(p.end_date&&p.end_date!==p.start_date?' – '+fmtDate(p.end_date):''): ''
- // Apply portal branding to hero
+ // Apply portal branding to hero — a show's accent color/logo carries
+ // through to the Cast List and other themed sections too, via the
+ // --show-accent CSS variable set on the whole detail panel below.
  const hero = document.getElementById('detail-hero')
  if(hero){
  if(p.portal_image_url){
@@ -768,6 +781,10 @@ async function selectContext(type, id, name, color){
  hero.style.background = '' // fallback to CSS class default
  }
  }
+ applyShowAccent(p.portal_color, p.portal_logo_url)
+ prodLogoUrl = p.portal_logo_url || ''
+ } else {
+ applyShowAccent(null, null)
  }
  }
 
@@ -783,7 +800,10 @@ async function selectContext(type, id, name, color){
  '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px">'
  // Left column
  +'<div style="flex:1;min-width:0">'
+ +'<div style="display:flex;align-items:center;gap:10px">'
+ +(prodLogoUrl?'<img src="'+prodLogoUrl+'" style="width:40px;height:40px;object-fit:contain;border-radius:8px;background:rgba(255,255,255,0.15);padding:4px;flex-shrink:0" onerror="this.style.display=\'none\'"/>':'')
  +'<div class="detail-hero-name">'+ctxName+'</div>'
+ +'</div>'
  +(castRole?'<div style="margin-top:5px"><span style="background:rgba(255,255,255,0.18);color:#fff;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700">'+castRole+'</span></div>':'')
  +(heroDetailLine?'<div style="margin-top:8px;font-size:12px;opacity:0.75;line-height:1.5">'+heroDetailLine+'</div>':'')
  +(type==='production'?'<div style="margin-top:6px"><span style="background:rgba(255,255,255,0.12);color:rgba(255,255,255,0.8);padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700;letter-spacing:0.3px"> Rising Stars</span></div>':'')
@@ -1461,8 +1481,13 @@ function buildProductionOverviewHTML(prod, events, announcements, conflicts, chi
  const div = document.createElement('div')
  div.id = 'overview-cast-section-'+prodId
  div.style.cssText = 'margin-bottom:20px;padding:0 20px'
- div.innerHTML = `<div style="background:#145466;color:#fff;border-radius:var(--radius);padding:14px 16px;margin-bottom:4px">
- <div style="font-size:11px;opacity:0.7;margin-bottom:4px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">Cast Announcement</div>
+ const accent = data.portal_color || '#145466'
+ const logo = data.portal_logo_url || ''
+ div.innerHTML = `<div style="background:${accent};color:#fff;border-radius:var(--radius);padding:14px 16px;margin-bottom:4px">
+ <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
+ ${logo?`<img src="${logo}" style="width:20px;height:20px;object-fit:contain;border-radius:4px" onerror="this.style.display='none'"/>`:''}
+ <div style="font-size:11px;opacity:0.7;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">Cast Announcement</div>
+ </div>
  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
  ${data.cast.map(c=>`<span style="background:rgba(255,255,255,0.15);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600">
  ${escHtml(c.submitter_name)}${c.cast_role?' — '+escHtml(c.cast_role):''}
@@ -1941,6 +1966,8 @@ async function submitPortalAudition(contextType, contextId, passphrase, particip
 
 function buildCastListHTML(castData){
  const cast = castData.cast || []
+ const accent = castData.portal_color || '#145466'
+ const logo = castData.portal_logo_url || ''
  // Group by section (Principals / Ensemble / Crew / any custom section a
  // staff member typed in) rather than by individual role, so the list reads
  // like a real playbill instead of one row per unique role name.
@@ -1965,14 +1992,17 @@ function buildCastListHTML(castData){
  })
  const displayTitle = castData.context_name || castData.title || 'Cast List'
  return `<div style="max-width:480px">
- <div style="font-size:20px;font-weight:800;margin-bottom:4px"> Cast Announcement</div>
- <div style="font-size:15px;font-weight:700;color:var(--teal-dark);margin-bottom:16px">${escHtml(displayTitle)}</div>
+ <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
+ ${logo?`<img src="${logo}" style="width:32px;height:32px;object-fit:contain;border-radius:6px;flex-shrink:0" onerror="this.style.display='none'"/>`:''}
+ <div style="font-size:20px;font-weight:800"> Cast Announcement</div>
+ </div>
+ <div style="font-size:15px;font-weight:700;color:${accent};margin-bottom:16px">${escHtml(displayTitle)}</div>
  <div style="display:flex;flex-direction:column;gap:12px">
  ${sections.map(section=>{
  const people = bySection[section].slice().sort((a,b)=>(a.submitter_name||'').localeCompare(b.submitter_name||''))
  return `
  <div style="border:1.5px solid var(--border);border-radius:var(--radius);overflow:hidden">
- <div style="background:#145466;color:#fff;padding:8px 14px;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">${escHtml(section)}</div>
+ <div style="background:${accent};color:#fff;padding:8px 14px;font-size:12px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">${escHtml(section)}</div>
  <div style="padding:10px 14px;display:flex;flex-direction:column;gap:8px">
  ${people.map(c=>{
  const roleText = (c.cast_role && c.cast_role.trim() && c.cast_role.trim().toLowerCase()!==section.toLowerCase()) ? escHtml(c.cast_role) : ''
@@ -1997,11 +2027,13 @@ function buildCastListTabHTML(castData, settings){
  // (startPortalCastCountdown) fills in #cast-countdown-value and, once the
  // target time passes, starts checking for the real list to appear.
  const title = settings?.title || 'Cast List'
+ const accent = castData?.portal_color || '#145466'
+ const logo = castData?.portal_logo_url || ''
  return `<div style="max-width:480px;text-align:center;padding:20px 16px">
- <div style="font-size:34px;margin-bottom:6px"></div>
+ ${logo?`<img src="${logo}" style="width:56px;height:56px;object-fit:contain;border-radius:10px;margin-bottom:10px" onerror="this.style.display='none'"/>`:`<div style="font-size:34px;margin-bottom:6px"></div>`}
  <div style="font-size:18px;font-weight:800;margin-bottom:2px">${escHtml(title)}</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">The cast list is on its way…</div>
- <div id="cast-countdown-value" style="font-size:15px;font-weight:700;color:#145466;background:var(--teal-50);border-radius:var(--radius-lg);padding:16px;margin-bottom:6px"> Loading countdown…</div>
+ <div id="cast-countdown-value" style="font-size:15px;font-weight:700;color:${accent};background:var(--teal-50);border-radius:var(--radius-lg);padding:16px;margin-bottom:6px"> Loading countdown…</div>
  <div style="font-size:11px;color:var(--text-hint)">This page updates automatically — no need to refresh.</div>
  </div>`
 }

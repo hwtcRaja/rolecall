@@ -1157,6 +1157,13 @@ def init_db():
         # of actually publishing, so staff can announce "cast list drops
         # Friday at 7pm" before casting is even finalized.
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_reveal_at TIMESTAMP",
+        # Family-portal tab order — a JSON array of tab ids, e.g. ["overview",
+        # "castlist","schedule",...]. Empty/missing means use the built-in
+        # default order. Any tab id not in the saved list (new tabs added
+        # later, or ones that don't apply to this show) is appended after
+        # the ordered ones, so this never has to be kept exhaustively in sync.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_tab_order TEXT DEFAULT '[]'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS portal_tab_order TEXT DEFAULT '[]'",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_occurrence_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS show_on_lobby BOOLEAN DEFAULT TRUE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_request_id TEXT",
@@ -6008,6 +6015,27 @@ def set_cast_list_reveal(context_type, context_id):
     return jsonify({'ok': True, 'cast_list_reveal_at': reveal_at})
 
 
+@app.route('/api/portal-tab-order/<context_type>/<context_id>', methods=['PUT'])
+def set_portal_tab_order(context_type, context_id):
+    """Save the family-portal tab display order for a production or program.
+    order is a list of tab ids in the order staff want them shown; tabs not
+    present in the list keep falling back to their default position."""
+    err = require_auth()
+    if err: return err
+    if context_type not in ('production', 'program'):
+        return jsonify({'error': 'Invalid context_type'}), 400
+    d = request.json or {}
+    order = d.get('order')
+    if not isinstance(order, list):
+        return jsonify({'error': 'order must be a list of tab ids'}), 400
+    order_json = json.dumps([str(t) for t in order])
+    table = 'productions' if context_type == 'production' else 'youth_programs'
+    conn = get_db()
+    execute(conn, f'UPDATE {table} SET portal_tab_order=%s WHERE id=%s', (order_json, context_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'order': order})
+
+
 @app.route('/api/auditions/settings/<context_type>/<context_id>/publish-cast', methods=['POST'])
 def publish_cast_list(context_type, context_id):
     err = require_auth()
@@ -10411,7 +10439,7 @@ def portal_get_participant(yid):
     # Program enrollments
     try:
         enrollments = fetchall(conn, '''SELECT ype.*, yp.name as program_name, yp.description,
-            yp.status as program_status, yp.instructor_id,
+            yp.status as program_status, yp.instructor_id, yp.portal_tab_order as program_portal_tab_order,
             v.name as instructor_name, v.bio as instructor_bio,
             v.photo_url as instructor_photo
             FROM youth_program_enrollments ype
@@ -10424,7 +10452,7 @@ def portal_get_participant(yid):
     # Productions
     try:
         productions = fetchall(conn, '''SELECT p.id, p.name, p.stage, p.status,
-            p.description, p.image_url, p.director, p.venue,
+            p.description, p.image_url, p.director, p.venue, p.portal_tab_order,
             ypm.role as cast_role, ypm.id as member_id
             FROM youth_production_members ypm
             JOIN productions p ON ypm.production_id=p.id

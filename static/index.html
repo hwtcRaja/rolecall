@@ -3266,7 +3266,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--teal-dark);margin:14px 0 10px;padding-top:14px;border-top:1px solid var(--border)">Portal / Instructor Profile</div>
- <div class="form-group"><label>Photo URL <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label><input type="text" id="vol-photo-url" placeholder="https://..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Direct image URL only. For Google Drive: share the file, then use <code>https://drive.google.com/uc?export=view&amp;id=FILE_ID</code></div></div>
+ <div class="form-group"><label>Photo <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label>
+ <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+ <label for="vol-photo-file" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">Choose Photo</label>
+ <input type="file" id="vol-photo-file" accept="image/*" style="display:none"/>
+ <span id="vol-photo-status" style="font-size:12px;color:var(--text-muted)"></span>
+ </div>
+ <div id="vol-photo-preview" style="margin-top:8px"></div>
+ <input type="hidden" id="vol-photo-url"/>
+ </div>
  <div class="form-group"><label>Bio <span style="font-size:11px;font-weight:400;color:var(--text-muted)">(shown to families on portal)</span></label><textarea id="vol-bio" rows="3" placeholder="A short bio shown to enrolled families..." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box"></textarea></div>
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="closeModal('modal-volunteer')">Cancel</button>
@@ -3816,7 +3824,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  <div class="form-group"><label>Description</label><textarea id="prod-desc" placeholder="Brief description…"></textarea></div>
- <div class="form-group"><label>Production Photo / Poster URL</label><input type="url" id="prod-image-url" placeholder="https://drive.google.com/… or any image URL"/><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Shows on the production card. Use a Google Drive image link or any direct image URL.</div></div>
+ <div class="form-group"><label>Production Photo / Poster</label>
+ <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+ <label for="prod-image-file" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">Choose Photo</label>
+ <input type="file" id="prod-image-file" accept="image/*" style="display:none"/>
+ <span id="prod-image-status" style="font-size:12px;color:var(--text-muted)"></span>
+ </div>
+ <div id="prod-image-preview" style="margin-top:8px"></div>
+ <input type="hidden" id="prod-image-url"/>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Shows on the production card.</div></div>
  </div>
  <div class="modal-footer">
  <button class="btn btn-secondary" onclick="closeModal('modal-production')">Cancel</button>
@@ -9673,6 +9689,11 @@ function openVolModal(){
  if(wrap) wrap.style.display='none'
  const panels=document.getElementById('vol-sub-selections-panels')
  if(panels) panels.innerHTML=''
+ const volPhotoUrl=document.getElementById('vol-photo-url'); if(volPhotoUrl) volPhotoUrl.value=''
+ const volPhotoPreview=document.getElementById('vol-photo-preview'); if(volPhotoPreview) volPhotoPreview.innerHTML=''
+ const volPhotoStatus=document.getElementById('vol-photo-status'); if(volPhotoStatus) volPhotoStatus.textContent=''
+ const volPhotoFile=document.getElementById('vol-photo-file'); if(volPhotoFile) volPhotoFile.value=''
+ bindHeadshotFileUpload('vol-photo-file','vol-photo-url','vol-photo-preview','vol-photo-status')
  openModal('modal-volunteer')
 }
 function openEditVolModal(volId){
@@ -9700,6 +9721,11 @@ function openEditVolModal(volId){
  if(epUnivEl) epUnivEl.checked = epProg.indexOf('universal')>-1
  const bioEl=document.getElementById('vol-bio'); if(bioEl) bioEl.value=v.bio||''
  const photoEl=document.getElementById('vol-photo-url'); if(photoEl) photoEl.value=v.photo_url||''
+ const volPhotoPreview=document.getElementById('vol-photo-preview')
+ if(volPhotoPreview) volPhotoPreview.innerHTML = v.photo_url ? '<img src="'+v.photo_url+'" style="height:80px;width:80px;object-fit:cover;border-radius:var(--radius);border:1.5px solid var(--border-md)"/>' : ''
+ const volPhotoStatus=document.getElementById('vol-photo-status'); if(volPhotoStatus) volPhotoStatus.textContent=''
+ const volPhotoFile=document.getElementById('vol-photo-file'); if(volPhotoFile) volPhotoFile.value=''
+ bindHeadshotFileUpload('vol-photo-file','vol-photo-url','vol-photo-preview','vol-photo-status')
 
  try{ setCheckedInterests(JSON.parse(v.interests||'[]')) }catch(e){ setCheckedInterests([]) }
  try{
@@ -15757,15 +15783,24 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div id="pinfo-color-preview-'+p.id+'" style="border-radius:var(--radius);height:56px;background:'+(p.portal_image_url?'url('+p.portal_image_url+') center/cover':'linear-gradient(135deg,'+(p.portal_color||'#0d3d4d')+','+(p.portal_color ? p.portal_color+'cc': '#1b708d')+')')+';display:flex;align-items:center;padding:10px 14px">'
  s += '<div style="font-size:14px;font-weight:800;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,0.4)">'+p.name+'</div>'
  s += '</div></div>'
- s += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Background Image URL <span style="font-weight:400;text-transform:none">(optional — overrides color)</span></label>'
- s += '<input type="url" id="pinfo-imgurl-'+p.id+'" value="'+((p.portal_image_url||'').replace(/"/g,'&quot;'))+'" placeholder="https://drive.google.com/… or any direct image URL" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none" oninput="previewPortalColor(\''+p.id+'\',document.getElementById(\'pinfo-color-'+p.id+'\').value)"/>'
- s += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Tip: use a direct image link. For Google Drive: open image → Share → Copy link, then change <code>open?id=</code> to <code>uc?id=</code>.</div>'
+ s += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Background Image <span style="font-weight:400;text-transform:none">(optional — overrides color)</span></label>'
+ s += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+ s += '<label for="pinfo-imgfile-'+p.id+'" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">Choose Image</label>'
+ s += '<input type="file" id="pinfo-imgfile-'+p.id+'" accept="image/*" style="display:none"/>'
+ s += (p.portal_image_url?'<button onclick="document.getElementById(\'pinfo-imgurl-'+p.id+'\').value=\'\';previewPortalColor(\''+p.id+'\',document.getElementById(\'pinfo-color-'+p.id+'\').value)" class="btn btn-secondary btn-sm">Remove</button>':'')
+ s += '<span id="pinfo-imgstatus-'+p.id+'" style="font-size:12px;color:var(--text-muted)"></span>'
  s += '</div>'
- s += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Logo / Crest URL <span style="font-weight:400;text-transform:none">(optional — shown on the hero and the Cast List)</span></label>'
- s += '<div style="display:flex;align-items:center;gap:10px">'
- s += '<input type="url" id="pinfo-logourl-'+p.id+'" value="'+((p.portal_logo_url||'').replace(/"/g,'&quot;'))+'" placeholder="https://… direct image URL, ideally square or transparent PNG" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/>'
- s += (p.portal_logo_url?('<img src="'+p.portal_logo_url.replace(/"/g,'&quot;')+'" style="width:40px;height:40px;object-fit:contain;border-radius:6px;border:1px solid var(--border-md);flex-shrink:0" onerror="this.style.display=\'none\'"/>'):'')
- s += '</div></div></div>'
+ s += '<input type="hidden" id="pinfo-imgurl-'+p.id+'" value="'+((p.portal_image_url||'').replace(/"/g,'&quot;'))+'"/>'
+ s += '</div>'
+ s += '<div style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Logo / Crest <span style="font-weight:400;text-transform:none">(optional — shown on the hero and the Cast List)</span></label>'
+ s += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+ s += '<label for="pinfo-logofile-'+p.id+'" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">Choose Logo</label>'
+ s += '<input type="file" id="pinfo-logofile-'+p.id+'" accept="image/*" style="display:none"/>'
+ s += '<span id="pinfo-logostatus-'+p.id+'" style="font-size:12px;color:var(--text-muted)"></span>'
+ s += '</div>'
+ s += '<div id="pinfo-logopreview-'+p.id+'" style="margin-top:8px">'+(p.portal_logo_url?('<img src="'+p.portal_logo_url.replace(/"/g,'&quot;')+'" style="width:40px;height:40px;object-fit:contain;border-radius:6px;border:1px solid var(--border-md)" onerror="this.style.display=\'none\'"/>'):'')+'</div>'
+ s += '<input type="hidden" id="pinfo-logourl-'+p.id+'" value="'+((p.portal_logo_url||'').replace(/"/g,'&quot;'))+'"/>'
+ s += '</div></div>'
  s += '<button class="btn btn-primary btn-sm" onclick="saveProductionInfo(\''+p.id+'\')">Save Info</button>'
  s += '<span id="pinfo-saved-'+p.id+'" style="font-size:12px;color:var(--green);margin-left:10px"></span>'
  s += '</div>'
@@ -15814,6 +15849,13 @@ function openProductionDetail(prodId, fromPage){
 
  document.getElementById('production-detail-content').innerHTML = buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes, canSeePortal)
  loadProductionWaiverStatus(p.id)
+ bindHeadshotFileUpload('pinfo-imgfile-'+p.id, 'pinfo-imgurl-'+p.id, null, 'pinfo-imgstatus-'+p.id, function(){
+ previewPortalColor(p.id, document.getElementById('pinfo-color-'+p.id)?.value)
+ })
+ bindHeadshotFileUpload('pinfo-logofile-'+p.id, 'pinfo-logourl-'+p.id, null, 'pinfo-logostatus-'+p.id, function(url){
+ const el=document.getElementById('pinfo-logopreview-'+p.id)
+ if(el) el.innerHTML = '<img src="'+url+'" style="width:40px;height:40px;object-fit:contain;border-radius:6px;border:1px solid var(--border-md)" onerror="this.style.display=\'none\'"/>'
+ })
 
  window._currentProductionDetailId = p.id
  if(canSeePortal){
@@ -15832,6 +15874,10 @@ function openProductionModal(){
  document.getElementById('prod-edit-id').value=''
  document.getElementById('prod-from-licensing-id').value=''
  ;['prod-name','prod-desc','prod-image-url'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
+ const prodImgPreview=document.getElementById('prod-image-preview'); if(prodImgPreview) prodImgPreview.innerHTML=''
+ const prodImgStatus=document.getElementById('prod-image-status'); if(prodImgStatus) prodImgStatus.textContent=''
+ const prodImgFile=document.getElementById('prod-image-file'); if(prodImgFile) prodImgFile.value=''
+ bindHeadshotFileUpload('prod-image-file','prod-image-url','prod-image-preview','prod-image-status')
  document.getElementById('prod-start').value=''
  document.getElementById('prod-end').value=''
  document.getElementById('prod-type').value='musical'
@@ -15890,6 +15936,11 @@ function openEditProductionModal(pid){
  document.getElementById('prod-name').value=p.name||''
  document.getElementById('prod-desc').value=p.description||''
  const imgEl=document.getElementById('prod-image-url'); if(imgEl) imgEl.value=p.image_url||''
+ const prodImgPreview=document.getElementById('prod-image-preview')
+ if(prodImgPreview) prodImgPreview.innerHTML = p.image_url ? '<img src="'+p.image_url+'" style="height:80px;width:80px;object-fit:cover;border-radius:var(--radius);border:1.5px solid var(--border-md)"/>' : ''
+ const prodImgStatus=document.getElementById('prod-image-status'); if(prodImgStatus) prodImgStatus.textContent=''
+ const prodImgFile=document.getElementById('prod-image-file'); if(prodImgFile) prodImgFile.value=''
+ bindHeadshotFileUpload('prod-image-file','prod-image-url','prod-image-preview','prod-image-status')
  document.getElementById('prod-start').value=p.start_date||''
  document.getElementById('prod-end').value=p.end_date||''
  document.getElementById('prod-type').value=p.production_type||'musical'
@@ -23373,7 +23424,7 @@ async function saveProductionAbout(pid){
 }
 
 // ── Meet the Team ──
-function bindHeadshotFileUpload(fileInputId, hiddenInputId, previewId, statusId){
+function bindHeadshotFileUpload(fileInputId, hiddenInputId, previewId, statusId, onUploaded){
  const fileInput = document.getElementById(fileInputId)
  if(!fileInput) return
  fileInput.onchange = async function(){
@@ -23392,6 +23443,7 @@ function bindHeadshotFileUpload(fileInputId, hiddenInputId, previewId, statusId)
  if(hiddenEl) hiddenEl.value = data.url
  if(previewEl) previewEl.innerHTML = '<img src="'+data.url+'" style="height:80px;width:80px;object-fit:cover;border-radius:var(--radius);border:1.5px solid var(--border-md)"/>'
  if(statusEl) statusEl.textContent = 'Uploaded!'
+ if(typeof onUploaded==='function') onUploaded(data.url)
  } else {
  if(statusEl) statusEl.textContent = data.error || 'Upload failed'
  toast(data.error||'Upload failed','error')

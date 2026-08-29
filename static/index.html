@@ -503,7 +503,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="user-name" id="sidebar-name">—</div>
  <div class="user-role" id="sidebar-role" style="font-size:10px;opacity:0.6">tap to change password</div>
  </div>
- <button class="logout-btn" onclick="handleLogout()" title="Log out">↩</button>
+ <button class="logout-btn" onclick="handleLogout()" title="Log out"></button>
  </div>
  </aside>
 
@@ -521,8 +521,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div class="page-actions">
       <button class="btn btn-secondary" onclick="openPartnershipInterestLinkModal()"> Interest Form Link</button>
       <button class="btn btn-secondary" onclick="openPartnershipPolicyModal()">Edit Partnership Policy</button>
-      <button class="btn btn-secondary" onclick="openContractClauseLibraryModal()">📋 Manage Contract Clauses</button>
-      <button class="btn btn-secondary" onclick="openEquipmentLibraryModal()">🎛️ Manage Equipment List</button>
+      <button class="btn btn-secondary" onclick="openContractClauseLibraryModal()"> Manage Contract Clauses</button>
+      <button class="btn btn-secondary" onclick="openEquipmentLibraryModal()"> Manage Equipment List</button>
       <button class="btn btn-secondary" onclick="openRentalSpacesModal()">Manage Spaces</button>
       <button class="btn btn-secondary" onclick="openComplianceCheckModal()">Compliance Check</button>
       <button class="btn btn-primary" onclick="openNewRentalModal()">+ New Rental Request</button>
@@ -534,7 +534,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-my-time">
   <div class="page-header">
     <div><div class="page-title">My Time &amp; Attendance</div><div class="page-subtitle" id="my-time-subtitle">Your hours and attendance record</div></div>
-    <button class="btn btn-primary" onclick="openRemoteTimer()" style="display:flex;align-items:center;gap:6px"><span>⏱</span> Start Timer</button>
+    <button class="btn btn-primary" onclick="openRemoteTimer()" style="display:flex;align-items:center;gap:6px"><span></span> Start Timer</button>
   </div>
   <div class="page-body" id="my-time-body"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div>
  </section>
@@ -567,7 +567,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- On-Call -->
  <div class="card" style="padding:20px">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-  <div style="font-size:15px;font-weight:700">📞 On-Call</div>
+  <div style="font-size:15px;font-weight:700"> On-Call</div>
   <button class="btn btn-secondary btn-sm" onclick="navTo('oncall')">Manage</button>
  </div>
  <div id="dash-oncall"><div style="font-size:13px;color:var(--text-muted)">Loading…</div></div>
@@ -597,7 +597,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
  <!-- Top volunteers -->
  <div class="card">
- <div class="card-header"><div class="card-title">⭐ Most Active Volunteers</div></div>
+ <div class="card-header"><div class="card-title"> Most Active Volunteers</div></div>
  <table><thead><tr><th>Volunteer</th><th>Hours</th><th>Events</th></tr></thead><tbody id="top-vols-table"></tbody></table>
  </div>
  <!-- Active programs & productions -->
@@ -622,7 +622,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
  <div><div class="page-title">Volunteers</div><div class="page-subtitle" id="vol-count-label">Loading…</div></div>
  <div class="page-actions">
- <button class="btn btn-secondary btn-sm" onclick="exportVolCSV()">⬇ Export CSV</button>
+ <button class="btn btn-secondary btn-sm" onclick="exportVolCSV()"> Export CSV</button>
  <button class="btn btn-secondary btn-sm" onclick="navTo('email')">Email</button>
  <button class="btn btn-primary admin-only" onclick="openVolModal()">+ Add Volunteer</button>
  </div>
@@ -709,7 +709,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <select class="filter-select" id="ev-filter-category" onchange="renderEventsPage()" style="font-size:13px">
  <option value="">All Categories</option>
  <option value="production"> Productions</option>
- <option value="rising_stars">⭐ Rising Stars</option>
+ <option value="rising_stars"> Rising Stars</option>
  <option value="program"> Programs/Classes</option>
  <option value="standalone"> Standalone</option>
  </select>
@@ -787,7 +787,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header" style="flex-shrink:0">
  <div><div class="page-title"> Time Tracking</div><div class="page-subtitle" id="hours-subtitle">Loading…</div></div>
  <div class="page-actions">
- <button class="btn btn-secondary btn-sm" onclick="exportHoursCSV()">⬇ Export CSV</button>
+ <button class="btn btn-secondary btn-sm" onclick="exportHoursCSV()"> Export CSV</button>
  </div>
  </div>
  <div class="page-body" style="display:grid;grid-template-columns:1fr 320px;gap:20px;align-items:start">
@@ -796,7 +796,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">
  <button onclick="switchHoursTab('events')" id="htab-events" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid var(--teal);margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--teal);cursor:pointer">Event Hours</button>
  <button onclick="switchHoursTab('independent')" id="htab-independent" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">Independent Time</button>
- <button onclick="switchHoursTab('instructors')" id="htab-instructors" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer">🎓 Instructor Hours</button>
+ <button onclick="switchHoursTab('instructors')" id="htab-instructors" style="padding:9px 18px;background:none;border:none;border-bottom:2.5px solid transparent;margin-bottom:-2px;font-family:inherit;font-size:13px;font-weight:600;color:var(--text-muted);cursor:pointer"> Instructor Hours</button>
  </div>
  <div id="hours-normal-view">
  <div class="summary-bar" style="margin-bottom:16px">
@@ -1144,14 +1144,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
  <div><div class="page-title">Participant Sign-In</div><div class="page-subtitle">Parent drop-off and pick-up tracking</div></div>
  <div class="page-actions">
- <button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()">⬇ Export</button>
+ <button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()"> Export</button>
  </div>
  </div>
  <div class="page-body">
  <!-- Category tabs -->
  <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:3px;margin-bottom:20px;width:fit-content">
  <button class="ysi-cat-btn active" data-cat="program" onclick="setYsiCategory('program')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:var(--surface);color:var(--teal-600)">Program / Class</button>
- <button class="ysi-cat-btn" data-cat="rising_stars" onclick="setYsiCategory('rising_stars')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--text-muted)">⭐ Rising Stars</button>
+ <button class="ysi-cat-btn" data-cat="rising_stars" onclick="setYsiCategory('rising_stars')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--text-muted)"> Rising Stars</button>
  <button class="ysi-cat-btn" data-cat="standalone" onclick="setYsiCategory('standalone')" style="padding:8px 16px;border:none;border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;background:transparent;color:var(--text-muted)">Standalone Event</button>
  </div>
  <!-- Second-level selector -->
@@ -1180,7 +1180,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
  <div><div class="page-title">Production Sign-In</div><div class="page-subtitle">Cast & crew check-in for productions</div></div>
  <div class="page-actions">
- <button class="btn btn-secondary btn-sm" onclick="exportProdSignInSheet()">⬇ Export</button>
+ <button class="btn btn-secondary btn-sm" onclick="exportProdSignInSheet()"> Export</button>
  </div>
  </div>
  <div class="page-body">
@@ -1270,7 +1270,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
  <div><div class="page-title">Programs &amp; Classes</div><div class="page-subtitle" id="youth-programs-subtitle">Classes, workshops, and summer camps</div></div>
  <div class="page-actions admin-only">
- <button class="btn btn-secondary" onclick="backfillCustomFieldValues()" id="backfill-cfv-btn" title="Custom question answers used to only be saved in the payment record, not on the registration itself — this recovers them for any registration submitted before that was fixed">📋 Recover Custom Answers</button>
+ <button class="btn btn-secondary" onclick="backfillCustomFieldValues()" id="backfill-cfv-btn" title="Custom question answers used to only be saved in the payment record, not on the registration itself — this recovers them for any registration submitted before that was fixed"> Recover Custom Answers</button>
  <button class="btn btn-primary" onclick="openNewProgramModal()">+ New Program</button>
  </div>
  </div>
@@ -1307,7 +1307,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- RISING STARS PAGE -->
  <section class="page" id="page-rising-stars-page">
  <div class="page-header">
- <div><div class="page-title">⭐ Rising Stars</div><div class="page-subtitle" id="rs-page-subtitle">Youth productions</div></div>
+ <div><div class="page-title"> Rising Stars</div><div class="page-subtitle" id="rs-page-subtitle">Youth productions</div></div>
  <div class="page-actions admin-only">
  <button class="btn btn-primary" onclick="openProductionModalForRS()">+ New Production</button>
  </div>
@@ -1331,7 +1331,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
  <div><div class="page-title">Step Up Holds</div><div class="page-subtitle">Cards saved on file, pending confirmation that Step Up (or another subsidy) has paid</div></div>
  <div class="page-actions">
- <a href="/step-up-enroll" target="_blank" class="btn btn-secondary">Open Family Enrollment Page ↗</a>
+ <a href="/step-up-enroll" target="_blank" class="btn btn-secondary">Open Family Enrollment Page </a>
  </div>
  </div>
  <div class="page-body">
@@ -1356,7 +1356,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-youth">
  <div class="page-header">
  <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
- <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()">⬆ Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">Set Default Passphrases</button><button class="btn btn-secondary admin-only" onclick="backfillParticipantDobs()" title="Recover birthdays that were captured at registration but never saved to the participant's profile">Recover Missing Birthdays</button><button class="btn btn-secondary admin-only" onclick="backfillEnrolledDates()" title="Fix enrollment dates showing as Invalid Date">Fix Enrollment Dates</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
+ <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()"> Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">Set Default Passphrases</button><button class="btn btn-secondary admin-only" onclick="backfillParticipantDobs()" title="Recover birthdays that were captured at registration but never saved to the participant's profile">Recover Missing Birthdays</button><button class="btn btn-secondary admin-only" onclick="backfillEnrolledDates()" title="Fix enrollment dates showing as Invalid Date">Fix Enrollment Dates</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
  </div>
  <div class="page-body">
  <div class="search-bar">
@@ -1387,7 +1387,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- DONOR TIERS PAGE -->
  <section class="page" id="page-donor-tiers">
  <div class="page-header">
- <div><div class="page-title">⭐ Tiers &amp; Benefits</div><div class="page-subtitle">Configure giving levels and their benefits</div></div>
+ <div><div class="page-title"> Tiers &amp; Benefits</div><div class="page-subtitle">Configure giving levels and their benefits</div></div>
  <div class="page-actions"><button class="btn btn-primary" onclick="openAddTierForm()">+ New Tier</button></div>
  </div>
  <div class="page-body" id="tiers-page-body"></div>
@@ -1416,7 +1416,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn btn-secondary btn-sm" onclick="openBulkDonationsModal()">Bulk Edit Donations</button>
  <button class="btn btn-secondary btn-sm" onclick="openDonorImportModal()">Import CSV</button>
  <button class="btn btn-secondary btn-sm" onclick="openDonorCampaignsModal()">Campaigns</button>
- <button class="btn btn-secondary btn-sm" onclick="openDonorTiersModal()">⭐ Tiers &amp; Benefits</button>
+ <button class="btn btn-secondary btn-sm" onclick="openDonorTiersModal()"> Tiers &amp; Benefits</button>
  <button class="btn btn-primary" onclick="openAddDonorModal()">+ Add Donor</button>
  </div>
  </div>
@@ -1621,9 +1621,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-header">
  <div><div class="page-title">Inbox</div><div class="page-subtitle" id="inbox-subtitle">Loading…</div></div>
  <div class="page-actions">
- <button class="btn btn-secondary" onclick="openInboxImportModal()">📥 Import Older Mail</button>
+ <button class="btn btn-secondary" onclick="openInboxImportModal()"> Import Older Mail</button>
  <button class="btn btn-secondary" onclick="refreshInboxNow()" id="inbox-refresh-btn">↻ Check for New Mail</button>
- <button class="btn btn-secondary" onclick="backfillInboxAttachments()" id="inbox-backfill-att-btn" title="Some older messages were imported before attachment capture — this re-checks Gmail for any missing ones">📎 Backfill Attachments</button>
+ <button class="btn btn-secondary" onclick="backfillInboxAttachments()" id="inbox-backfill-att-btn" title="Some older messages were imported before attachment capture — this re-checks Gmail for any missing ones"> Backfill Attachments</button>
  </div>
  </div>
  <div class="page-body" id="inbox-content"></div>
@@ -1678,7 +1678,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-subtitle">Manage family access, passphrases, and portal content</div>
  </div>
  <div class="page-actions">
- <a href="/portal" target="_blank" class="btn btn-secondary">Open Portal ↗</a>
+ <a href="/portal" target="_blank" class="btn btn-secondary">Open Portal </a>
  </div>
  </div>
  <div class="page-body">
@@ -1686,7 +1686,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  <!-- Left: Families -->
  <div class="settings-section">
- <div style="font-weight:700;font-size:15px;margin-bottom:6px">‍‍ Family Groups</div>
+ <div style="font-weight:700;font-size:15px;margin-bottom:6px"> Family Groups</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Each family shares one passphrase to access their children's portal. Parents enter it at <strong>/portal</strong>.</div>
  <div id="portal-families-list" style="margin-bottom:16px"></div>
  <div style="border-top:1px solid var(--border);padding-top:14px">
@@ -2128,7 +2128,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Phone & Twilio</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Configure your Twilio phone number, voicemail, and on-call routing</div>
     <div class="settings-section">
- <div style="font-weight:600;font-size:15px;margin-bottom:6px">📞 Twilio — Calling & SMS</div>
+ <div style="font-weight:600;font-size:15px;margin-bottom:6px"> Twilio — Calling & SMS</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Twilio for inbound call/SMS routing and outbound volunteer messaging. Get credentials at <a href="https://console.twilio.com" target="_blank" style="color:var(--teal-600)">console.twilio.com</a>.</div>
  <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:14px;margin-bottom:16px;font-size:13px">
   <div style="font-weight:700;margin-bottom:6px">Webhook URLs — set these in your Twilio number settings:</div>
@@ -2174,7 +2174,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Greeting (before transfer) — use {name} for on-call person's name</label>
    <div style="display:flex;gap:8px;align-items:center">
     <input type="text" id="es-twilio-greeting" placeholder="Thank you for calling Horizon West Theater Company. Please hold while we connect you to {name}." style="flex:1"/>
-    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'greeting')" style="display:none"/></label>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0"> Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'greeting')" style="display:none"/></label>
    </div>
    <div id="twilio-audio-greeting-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
@@ -2183,7 +2183,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Hold Music (plays while ringing the on-call person)</label>
    <div style="display:flex;gap:8px;align-items:center">
     <div style="flex:1;font-size:12px;color:var(--text-hint)">No text option here — audio only. Leave empty for silence.</div>
-    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'hold_music')" style="display:none"/></label>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0"> Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'hold_music')" style="display:none"/></label>
    </div>
    <div id="twilio-audio-hold_music-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
@@ -2192,7 +2192,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">No Answer Message (if on-call doesn't pick up)</label>
    <div style="display:flex;gap:8px;align-items:center">
     <input type="text" id="es-twilio-no-answer" placeholder="We were unable to reach our team right now. Please try again later or send us a text message." style="flex:1"/>
-    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'no_answer')" style="display:none"/></label>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0"> Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'no_answer')" style="display:none"/></label>
    </div>
    <div id="twilio-audio-no_answer-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
@@ -2201,7 +2201,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Unavailable Message (when nobody is on call)</label>
    <div style="display:flex;gap:8px;align-items:center">
     <input type="text" id="es-twilio-unavailable" placeholder="Thank you for calling Horizon West Theater Company. We are unable to take your call right now." style="flex:1"/>
-    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'unavailable')" style="display:none"/></label>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0"> Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'unavailable')" style="display:none"/></label>
    </div>
    <div id="twilio-audio-unavailable-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
@@ -2210,7 +2210,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Voicemail Greeting (played before the beep when no one answers)</label>
    <div style="display:flex;gap:8px;align-items:center">
     <input type="text" id="es-twilio-voicemail" placeholder="No one is available. Please leave a message after the tone." style="flex:1"/>
-    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'voicemail')" style="display:none"/></label>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0"> Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'voicemail')" style="display:none"/></label>
    </div>
    <div id="twilio-audio-voicemail-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
@@ -2219,7 +2219,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">After Hours Message (outside coverage window)</label>
    <div style="display:flex;gap:8px;align-items:center">
     <input type="text" id="es-twilio-after-hours" placeholder="Our team is available 8am–10pm. Please leave a text and we'll get back to you shortly." style="flex:1"/>
-    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0">🎙 Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'after_hours')" style="display:none"/></label>
+    <label class="btn btn-secondary btn-sm" style="cursor:pointer;white-space:nowrap;margin:0"> Upload<input type="file" accept=".mp3,.wav,.ogg,.m4a" onchange="uploadTwilioAudio(this,'after_hours')" style="display:none"/></label>
    </div>
    <div id="twilio-audio-after_hours-status" style="font-size:11px;color:var(--teal-dark);margin-top:3px"></div>
   </div>
@@ -2250,7 +2250,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Get this from api.slack.com/apps → HWTC Calls → Incoming Webhooks. Never share this URL publicly.</div>
  </div>
  <div style="margin-bottom:16px;padding-top:12px;border-top:1px solid var(--border)">
-  <div style="font-size:13px;font-weight:700;margin-bottom:8px">📅 Weekly On-Call Report</div>
+  <div style="font-size:13px;font-weight:700;margin-bottom:8px"> Weekly On-Call Report</div>
   <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Auto-post the week's on-call schedule to Slack. You can also post manually from the On-Call Schedule page.</div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
    <div class="form-group">
@@ -2332,15 +2332,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </div>
       <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Position</div>
       <div class="pos-grid-3x3" style="margin-bottom:12px">
-       <button class="banner-pos-btn" data-pos="0% 0%">↖</button>
+       <button class="banner-pos-btn" data-pos="0% 0%"></button>
        <button class="banner-pos-btn" data-pos="50% 0%">↑</button>
-       <button class="banner-pos-btn" data-pos="100% 0%">↗</button>
+       <button class="banner-pos-btn" data-pos="100% 0%"></button>
        <button class="banner-pos-btn" data-pos="0% 50%">←</button>
        <button class="banner-pos-btn" data-pos="50% 50%">•</button>
        <button class="banner-pos-btn" data-pos="100% 50%">→</button>
-       <button class="banner-pos-btn" data-pos="0% 100%">↙</button>
+       <button class="banner-pos-btn" data-pos="0% 100%"></button>
        <button class="banner-pos-btn" data-pos="50% 100%">↓</button>
-       <button class="banner-pos-btn" data-pos="100% 100%">↘</button>
+       <button class="banner-pos-btn" data-pos="100% 100%"></button>
       </div>
       <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Zoom — <span id="banner-zoom-val">100%</span></div>
       <input type="range" id="lobby-banner-zoom" min="50" max="200" value="100" style="width:100%;max-width:280px"/>
@@ -2369,15 +2369,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       </div>
       <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Position</div>
       <div class="pos-grid-3x3" style="margin-bottom:12px">
-       <button class="sched-bg-pos-btn" data-pos="0% 0%">↖</button>
+       <button class="sched-bg-pos-btn" data-pos="0% 0%"></button>
        <button class="sched-bg-pos-btn" data-pos="50% 0%">↑</button>
-       <button class="sched-bg-pos-btn" data-pos="100% 0%">↗</button>
+       <button class="sched-bg-pos-btn" data-pos="100% 0%"></button>
        <button class="sched-bg-pos-btn" data-pos="0% 50%">←</button>
        <button class="sched-bg-pos-btn" data-pos="50% 50%">•</button>
        <button class="sched-bg-pos-btn" data-pos="100% 50%">→</button>
-       <button class="sched-bg-pos-btn" data-pos="0% 100%">↙</button>
+       <button class="sched-bg-pos-btn" data-pos="0% 100%"></button>
        <button class="sched-bg-pos-btn" data-pos="50% 100%">↓</button>
-       <button class="sched-bg-pos-btn" data-pos="100% 100%">↘</button>
+       <button class="sched-bg-pos-btn" data-pos="100% 100%"></button>
       </div>
       <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px">Zoom — <span id="sched-bg-zoom-val">100%</span></div>
       <input type="range" id="sched-bg-zoom" min="50" max="200" value="100" style="width:100%;max-width:280px"/>
@@ -2490,7 +2490,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-marquee">
- <span style="font-size:16px">🛒</span>
+ <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Marquee</div>
  <div style="display:flex;align-items:center;gap:8px">
@@ -2550,7 +2550,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rising-stars">
- <span style="font-size:16px">⭐</span>
+ <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Rising Stars</div>
  <div style="display:flex;align-items:center;gap:8px">
@@ -2670,7 +2670,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-donor-tiers">
- <span style="font-size:16px">⭐</span>
+ <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Tiers &amp; Benefits</div>
  <div style="display:flex;align-items:center;gap:8px">
@@ -2703,7 +2703,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-inbox">
- <span style="font-size:16px">📥</span>
+ <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Inbox</div>
  <div style="display:flex;align-items:center;gap:8px">
@@ -2747,7 +2747,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-oncall">
- <span style="font-size:16px">📞</span>
+ <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">On-Call Schedule</div>
  <div style="display:flex;align-items:center;gap:8px">
@@ -2758,7 +2758,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-hours-store">
- <span style="font-size:16px">🏪</span>
+ <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Hours Store</div>
  <div style="display:flex;align-items:center;gap:8px">
@@ -2769,7 +2769,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-licensing">
- <span style="font-size:16px">📄</span>
+ <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Licensing Requests</div>
  <div style="display:flex;align-items:center;gap:8px">
@@ -2780,7 +2780,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-responsibility">
- <span style="font-size:16px">🗂️</span>
+ <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Responsibility Grid</div>
  <div style="display:flex;align-items:center;gap:8px">
@@ -2799,11 +2799,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- ON-CALL SCHEDULE -->
  <section class="page" id="page-oncall">
  <div class="page-header">
-  <div><div class="page-title">📞 On-Call Schedule</div><div class="page-subtitle">Who answers calls &amp; texts to your Twilio number</div></div>
+  <div><div class="page-title"> On-Call Schedule</div><div class="page-subtitle">Who answers calls &amp; texts to your Twilio number</div></div>
   <div class="page-actions" style="display:flex;gap:8px;align-items:center">
    <button class="btn btn-secondary" id="oncall-view-week" onclick="setOncallView('week')">Week</button>
    <button class="btn btn-secondary" id="oncall-view-month" onclick="setOncallView('month')">Month</button>
-   <button class="btn btn-secondary" onclick="sendOncallReport(this)">📤 Post to Slack</button>
+   <button class="btn btn-secondary" onclick="sendOncallReport(this)"> Post to Slack</button>
    <button class="btn btn-primary" onclick="openOncallModal()">+ Add Shift</button>
   </div>
  </div>
@@ -2823,7 +2823,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <!-- Call Log -->
   <div class="card" style="margin-top:24px;padding:0;overflow:hidden">
    <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border)">
-    <div style="font-size:14px;font-weight:700">📋 Call Log</div>
+    <div style="font-size:14px;font-weight:700"> Call Log</div>
     <button class="btn btn-secondary btn-sm" onclick="loadCallLog()">Refresh</button>
    </div>
    <div id="call-log-table" style="overflow-x:auto">
@@ -2920,13 +2920,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <!-- BULK IMPORT MODAL -->
 <div class="modal-overlay" id="modal-bulk-import" style="align-items:flex-start;padding:20px">
  <div class="modal" style="width:100%;max-width:900px;max-height:90vh;display:flex;flex-direction:column">
- <div class="modal-header"><div class="modal-title">⬆ Bulk Import Participants</div><button class="modal-close" onclick="closeModal('modal-bulk-import')">×</button></div>
+ <div class="modal-header"><div class="modal-title"> Bulk Import Participants</div><button class="modal-close" onclick="closeModal('modal-bulk-import')">×</button></div>
  <div style="padding:20px 24px;overflow-y:auto;flex:1">
  <div id="bi-step-1">
  <div style="font-size:14px;font-weight:600;margin-bottom:4px">Step 1 — Upload your file</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">CSV file. Download the template to see the expected columns.</div>
  <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
- <button class="btn btn-secondary" onclick="biDownloadTemplate()">⬇ Download Template CSV</button>
+ <button class="btn btn-secondary" onclick="biDownloadTemplate()"> Download Template CSV</button>
  <label class="btn btn-primary" style="cursor:pointer"> Choose File<input type="file" id="bi-file" accept=".csv" style="display:none" onchange="biHandleFile(this)"/></label>
  </div>
  <div style="font-size:13px;color:var(--text-muted);background:var(--bg);border-radius:8px;padding:12px 16px;margin-bottom:20px;line-height:1.8">
@@ -3514,7 +3514,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <label style="display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);cursor:pointer;background:var(--surface);transition:border-color 0.15s" onmouseenter="this.style.borderColor='var(--teal-400)'" onmouseleave="this.style.borderColor='var(--border)'">
  <input type="checkbox" id="edit-event-show-on-lobby" checked style="accent-color:var(--teal-400);margin-top:2px;flex-shrink:0"/>
  <div>
- <div style="font-size:13px;font-weight:600">📺 Show on Lobby TV</div>
+ <div style="font-size:13px;font-weight:600"> Show on Lobby TV</div>
  <div style="font-size:11px;color:var(--text-muted);margin-top:2px">Included in the upcoming events list on the lobby display — turn off for anything internal that shouldn't be public-facing</div>
  </div>
  </label>
@@ -3801,7 +3801,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </label>
  <label style="flex:1;border:2.5px solid var(--border);border-radius:var(--radius);padding:12px 16px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:10px" id="stage-rising-label">
  <input type="radio" name="prod-stage" id="prod-stage-rising" value="rising_stars" style="accent-color:var(--purple-600)" onchange="updateStageUI()"/>
- <div><div style="font-weight:600;font-size:14px">⭐ Rising Stars</div><div style="font-size:11px;color:var(--text-muted)">Youth productions</div></div>
+ <div><div style="font-weight:600;font-size:14px"> Rising Stars</div><div style="font-size:11px;color:var(--text-muted)">Youth productions</div></div>
  </label>
  </div>
  </div>
@@ -4658,7 +4658,7 @@ async function renderDashboardOncall(){
    +'</div></div>'
  } else {
   html += '<div style="padding:8px 12px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#991b1b;margin-bottom:10px;cursor:pointer" onclick="navTo(\'oncall\')">'
-   +'⚠️ <strong>No one on call right now</strong> — calls go to fallback</div>'
+   +' <strong>No one on call right now</strong> — calls go to fallback</div>'
  }
  // Today's schedule list
  if(todayShifts.length){
@@ -5097,7 +5097,7 @@ async function openProfile(volId){
  if(epLower.indexOf('disney')>-1||epLower.indexOf('universal')>-1){
  mkBtn(' Send Giving Reminder', function(){ sendSingleGivingReminder(v.id, v.name, v.employer_program) })
  }
- mkBtn('🪪 ID Card', function(){ printVolIdCard(v.id, safeName) })
+ mkBtn(' ID Card', function(){ printVolIdCard(v.id, safeName) })
  mkBtn(' Link Participant', function(){ openLinkModal('volunteer', v.id, '') })
  mkBtn('Delete', function(){ deleteVol(v.id) }, true)
  if(banner) banner.appendChild(actDiv)
@@ -5218,7 +5218,7 @@ async function openProfile(volId){
  <div class="card" style="padding:14px;text-align:center"><div style="font-size:22px;font-weight:800;color:#92400e">${v.redeemed_hours}h</div><div style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Redeemed / Held</div></div>
  <div class="card" style="padding:14px;text-align:center;background:#f0fdf4"><div style="font-size:22px;font-weight:800;color:#166534">${v.available_hours}h</div><div style="font-size:11px;color:#166534;text-transform:uppercase">Available</div></div>
  </div>
- ${isAdmin?`<div style="display:flex;justify-content:flex-end;margin-bottom:16px"><button class="btn btn-secondary btn-sm" onclick="openBonusCreditModal('${v.id}')">🎁 Add Bonus Credit</button></div>`:''}
+ ${isAdmin?`<div style="display:flex;justify-content:flex-end;margin-bottom:16px"><button class="btn btn-secondary btn-sm" onclick="openBonusCreditModal('${v.id}')"> Add Bonus Credit</button></div>`:''}
  ${v.total_hours > v.store_eligible_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#fffbeb;border-color:#fde68a"><div style="font-size:12px;color:#92400e">${(v.total_hours-v.store_eligible_hours).toFixed(2)}h of their total came from Board Meetings, which count toward overall hours but are excluded from Hours Store credit (${v.store_eligible_hours}h store-eligible).</div></div>` : ''}
  ${v.store_eligible_hours > v.total_hours ? `<div class="card" style="padding:12px 14px;margin-bottom:16px;background:#f0fdf4;border-color:#bbf7d0"><div style="font-size:12px;color:#166534">Includes ${(v.store_eligible_hours-v.total_hours).toFixed(2)}h in Hours Store bonus credit from promotional events (${v.store_eligible_hours}h store-eligible vs ${v.total_hours}h actually logged).</div></div>` : ''}
  <div class="card" style="padding:16px;margin-bottom:16px">
@@ -5261,7 +5261,7 @@ function openBonusCreditModal(volId){
   const overlay = document.createElement('div')
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:420px;padding:24px">
-   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">🎁 Add Bonus Credit</div>
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px"> Add Bonus Credit</div>
    <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">Gives store credit directly — this does not add to their real logged volunteer hours, only what they have to spend in the Hours Store. Use a negative number to correct a credit granted by mistake.</div>
    <div class="form-group" style="margin-bottom:12px">
     <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Hours</label>
@@ -5323,7 +5323,7 @@ function renderContractorPaySection(v, isAdmin){
       + (s.expected_pending>0 ? ' + $'+s.expected_pending.toFixed(2)+' expected from other assignments' : '')
       + ' = <strong style="color:'+barColor+'">$'+s.projected_total.toFixed(2)+'</strong> of $'+s.cap.toFixed(2)+'</div>'
     if(s.over_cap){
-      html += '<div style="font-size:12px;color:#dc2626;font-weight:700;margin-top:4px">⚠ Over the contractor pay cap</div>'
+      html += '<div style="font-size:12px;color:#dc2626;font-weight:700;margin-top:4px"> Over the contractor pay cap</div>'
     } else {
       html += '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">$'+s.remaining.toFixed(2)+' remaining before the cap</div>'
     }
@@ -5532,7 +5532,7 @@ function renderInstructorHours(){
 
  var tbody = document.getElementById('instructor-hours-table-body')
  if(!rows.length){
- tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="empty-icon">🎓</div><p>No paid instruction hours logged yet</p></div></td></tr>'
+ tbody.innerHTML = '<tr><td colspan="5"><div class="empty-state"><div class="empty-icon"></div><p>No paid instruction hours logged yet</p></div></td></tr>'
  return
  }
  tbody.innerHTML = rows.map(function(r){
@@ -6662,7 +6662,7 @@ function renderYouth(){
  <div class="summary-item"><div class="s-value">${withPhoto}</div><div class="s-label">Photo Consent</div></div>
  <div class="summary-item"><div class="s-value">${withMedical}</div><div class="s-label">Medical Consent</div></div>
  ${withAllergies?`<div class="summary-item" style="border-top-color:var(--amber-200)"><div class="s-value" style="color:var(--amber-600)">${withAllergies}</div><div class="s-label">Have Allergies</div></div>`:''}
- <button class="btn btn-secondary btn-sm" style="align-self:center" onclick="exportYouthCSV(${JSON.stringify(fp)})">⬇ Export List</button>
+ <button class="btn btn-secondary btn-sm" style="align-self:center" onclick="exportYouthCSV(${JSON.stringify(fp)})"> Export List</button>
  </div>`
  }
 
@@ -6794,7 +6794,7 @@ async function openYouthProfile(yid){
  <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
  ${y.dob?`<div> ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
  ${y.pronouns?`<div style="color:var(--teal-dark);font-weight:500">${escHtml(y.pronouns)}</div>`:''}
- ${y.grade?`<div>📚 ${escHtml(y.grade)}</div>`:''}
+ ${y.grade?`<div> ${escHtml(y.grade)}</div>`:''}
  ${y.program?`<div> ${escHtml(y.program)}</div>`:''}
  ${y.shirt_size?`<div> ${escHtml(y.shirt_size)}</div>`:''}
  </div>
@@ -6831,7 +6831,7 @@ async function openYouthProfile(yid){
  <div style="margin-bottom:10px">
  <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-bottom:3px">Family: <strong>${escHtml(y.family.name)}</strong></div>
  <div style="display:flex;align-items:center;gap:6px">
- <div style="font-family:monospace;font-size:13px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:5px 10px;border-radius:6px;flex:1">‍‍ ${escHtml(y.family.passphrase)}</div>
+ <div style="font-family:monospace;font-size:13px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:5px 10px;border-radius:6px;flex:1"> ${escHtml(y.family.passphrase)}</div>
  <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 6px" onclick="navTo('portal-families');setTimeout(()=>editFamily('${y.family.id}'),300)"></button>
  </div>
  <div style="font-size:11px;color:var(--text-muted);margin-top:3px">Family passphrase — logs in all linked children</div>
@@ -7815,7 +7815,7 @@ async function renderBoardApplicationsTab(){
  _boardApplications = Array.isArray(applications) ? applications : []
 
  var html = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
-   + '<div style="font-size:13px;color:var(--text-muted)">Public application page: <a href="/board/apply" target="_blank" style="color:var(--teal-dark);font-weight:600">hwtco.org/board/apply ↗</a></div>'
+   + '<div style="font-size:13px;color:var(--text-muted)">Public application page: <a href="/board/apply" target="_blank" style="color:var(--teal-dark);font-weight:600">hwtco.org/board/apply </a></div>'
    + '<button class="btn btn-primary btn-sm" onclick="openBoardPositionModal()">+ New Position</button>'
    + '</div>'
 
@@ -7835,7 +7835,7 @@ async function renderBoardApplicationsTab(){
        + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(p.time_commitment?escHtml(p.time_commitment)+' · ':'')+(p.application_count||0)+' application'+(p.application_count!==1?'s':'')+'</div>'
        + '</div>'
        + '<div style="display:flex;gap:6px;flex-shrink:0">'
-       + '<a class="btn btn-secondary btn-sm" href="/board/apply/'+p.id+'" target="_blank">View Live ↗</a>'
+       + '<a class="btn btn-secondary btn-sm" href="/board/apply/'+p.id+'" target="_blank">View Live </a>'
        + '<button class="btn btn-secondary btn-sm" onclick="openBoardPositionModal(\''+p.id+'\')">Edit</button>'
        + '</div></div>'
    }).join('')
@@ -7865,7 +7865,7 @@ async function renderBoardApplicationsTab(){
        + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
        + '<div>'
        + '<div style="font-weight:700;font-size:14px">'+escHtml(a.full_name)+'</div>'
-       + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+escHtml(a.position_title||'Unknown Position')+' · '+escHtml(a.email)+(a.file_count?' · 📎 '+a.file_count:'')+'</div>'
+       + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+escHtml(a.position_title||'Unknown Position')+' · '+escHtml(a.email)+(a.file_count?' ·  '+a.file_count:'')+'</div>'
        + '</div>'
        + '<div style="text-align:right;flex-shrink:0">'
        + '<span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:10px;background:'+sm.bg+';color:'+sm.color+'">'+sm.label+'</span>'
@@ -8054,7 +8054,7 @@ function inboxStalenessBadge(t){
  if(ageHrs < thresholdHrs) return ''
  var days = Math.floor(ageHrs/24)
  var label = days>=1 ? (days+'d') : (Math.floor(ageHrs)+'h')
- var text = t.status==='open' ? ('⏰ Needs reply · '+label) : ('⏳ Awaiting them · '+label)
+ var text = t.status==='open' ? (' Needs reply · '+label) : (' Awaiting them · '+label)
  var color = t.status==='open' ? '#991b1b' : '#92400e'
  var bg = t.status==='open' ? '#fee2e2' : '#fef3c7'
  return '<div style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:'+bg+';color:'+color+';display:inline-block;margin-top:5px">'+text+'</div>'
@@ -8085,7 +8085,7 @@ async function backfillInboxAttachments(){
  var btn = document.getElementById('inbox-backfill-att-btn')
  if(btn){ btn.disabled=true; btn.textContent='Checking Gmail…' }
  var res = await api('/api/inbox/backfill-attachments','POST',{})
- if(btn){ btn.disabled=false; btn.textContent='📎 Backfill Attachments' }
+ if(btn){ btn.disabled=false; btn.textContent=' Backfill Attachments' }
  if(res&&res.ok){
    if(res.attachments_found){
      toast('Found '+res.attachments_found+' missing attachment'+(res.attachments_found!==1?'s':'')+' across '+res.checked+' message'+(res.checked!==1?'s':'')+' checked', 'success')
@@ -8101,7 +8101,7 @@ async function backfillCustomFieldValues(){
  if(!confirm('This looks back through payment records to recover custom question answers for older registrations that predate this fix. Safe to run — it only fills in blanks, never overwrites an existing answer. Continue?')) return
  if(btn){ btn.disabled=true; btn.textContent='Checking…' }
  var res = await api('/api/admin/backfill-custom-field-values','POST',{})
- if(btn){ btn.disabled=false; btn.textContent='📋 Recover Custom Answers' }
+ if(btn){ btn.disabled=false; btn.textContent=' Recover Custom Answers' }
  if(res&&res.ok){
    toast(res.updated ? 'Recovered answers for '+res.updated+' registration'+(res.updated!==1?'s':'')+' (checked '+res.checked+')' : 'Checked '+res.checked+' — nothing missing', 'success')
  } else toast((res&&res.error)||'Error','error')
@@ -8148,12 +8148,12 @@ async function refreshInboxImportStatus(){
  var btn = document.getElementById('inbox-import-start-btn')
  if(!box) return
  if(status && status.running){
-   box.innerHTML = '⏳ Import in progress ('+(status.months||'?')+' month(s))… this page doesn\'t need to stay open — check back and refresh the Inbox in a bit.'
+   box.innerHTML = ' Import in progress ('+(status.months||'?')+' month(s))… this page doesn\'t need to stay open — check back and refresh the Inbox in a bit.'
    if(btn) btn.disabled = true
    pollInboxImportStatus()
  } else if(status && status.finished_at){
    box.innerHTML = status.error
-     ? '⚠ Last import failed: '+escHtml(status.error)
+     ? ' Last import failed: '+escHtml(status.error)
      : '✓ Last import finished — added '+(status.imported||0)+' message(s).'
    if(btn) btn.disabled = false
  } else {
@@ -8169,12 +8169,12 @@ function pollInboxImportStatus(){
    var box = document.getElementById('inbox-import-status-box')
    var btn = document.getElementById('inbox-import-start-btn')
    if(status && status.running){
-     if(box) box.innerHTML = '⏳ Import in progress ('+(status.months||'?')+' month(s))… this page doesn\'t need to stay open — check back and refresh the Inbox in a bit.'
+     if(box) box.innerHTML = ' Import in progress ('+(status.months||'?')+' month(s))… this page doesn\'t need to stay open — check back and refresh the Inbox in a bit.'
      if(btn) btn.disabled = true
      pollInboxImportStatus()
    } else {
      if(box) box.innerHTML = (status && status.error)
-       ? '⚠ Import failed: '+escHtml(status.error)
+       ? ' Import failed: '+escHtml(status.error)
        : '✓ Import finished — added '+((status&&status.imported)||0)+' message(s).'
      if(btn) btn.disabled = false
      renderInboxThreadList()
@@ -8237,7 +8237,7 @@ async function renderInboxThreadList(){
    + '</div></div>'
 
  var html = '<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">'
-   + '<input type="text" id="inbox-search-input" value="'+escHtml(_inboxFilter.q)+'" placeholder="🔍 Search name, email, subject, or message…" oninput="onInboxSearchInput()" style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
+   + '<input type="text" id="inbox-search-input" value="'+escHtml(_inboxFilter.q)+'" placeholder=" Search name, email, subject, or message…" oninput="onInboxSearchInput()" style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
    + '<select id="inbox-assigned-filter-select" onchange="setInboxFilter(\'assigned\',this.value)" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;color:var(--text-muted)">'
    + '<option value="all"'+(_inboxFilter.assigned==='all'?' selected':'')+'>Everyone</option>'
    + '<option value="unassigned"'+(_inboxFilter.assigned==='unassigned'?' selected':'')+'>Unassigned</option>'
@@ -8258,7 +8258,7 @@ async function renderInboxThreadList(){
        var active = _inboxFilter.status===f.v
        return '<button onclick="setInboxFilter(\'status\',\''+f.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+'</button>'
      }).join('')
-   + (_inboxFilter.tag ? '<button onclick="setInboxFilter(\'tag\',\'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid #6d28d9;background:#ede9fe;color:#6d28d9;cursor:pointer">🏷 '+escHtml(_inboxFilter.tag)+' ×</button>' : '')
+   + (_inboxFilter.tag ? '<button onclick="setInboxFilter(\'tag\',\'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid #6d28d9;background:#ede9fe;color:#6d28d9;cursor:pointer"> '+escHtml(_inboxFilter.tag)+' ×</button>' : '')
    + '</div>'
 
  if(!_inboxThreads.length){
@@ -8284,7 +8284,7 @@ async function renderInboxThreadList(){
        + '</div>'
        + '<div style="text-align:right;flex-shrink:0">'
        + '<span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;background:'+statusMeta.bg+';color:'+statusMeta.c+'">'+t.status.toUpperCase()+'</span>'
-       + (t.assigned_to?'<div style="font-size:11px;color:var(--text-muted);margin-top:5px">👤 '+escHtml(t.assigned_to)+'</div>':'')
+       + (t.assigned_to?'<div style="font-size:11px;color:var(--text-muted);margin-top:5px"> '+escHtml(t.assigned_to)+'</div>':'')
        + '<div style="font-size:10.5px;color:#9ca3af;margin-top:4px">'+(t.last_message_at?t.last_message_at.slice(0,10):'')+'</div>'
        + '</div></div>'
        + quickActions + '</div>'
@@ -8302,7 +8302,7 @@ async function renderInboxThreadList(){
    list.innerHTML = tags.map(function(tag){
      var active = _inboxFilter.tag === tag
      var clickVal = active ? '' : tag.replace(/'/g, "\\'")
-     return '<div onclick="setInboxFilter(\'tag\',\''+clickVal+'\')" style="padding:6px 8px;border-radius:6px;font-size:12.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:'+(active?'#ede9fe':'transparent')+';color:'+(active?'#6d28d9':'var(--text-secondary,#374151)')+';font-weight:'+(active?'700':'400')+'">🏷 '+escHtml(tag)+'</div>'
+     return '<div onclick="setInboxFilter(\'tag\',\''+clickVal+'\')" style="padding:6px 8px;border-radius:6px;font-size:12.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:'+(active?'#ede9fe':'transparent')+';color:'+(active?'#6d28d9':'var(--text-secondary,#374151)')+';font-weight:'+(active?'700':'400')+'"> '+escHtml(tag)+'</div>'
    }).join('')
  })
  api('/api/inbox/team').then(function(names){
@@ -8331,7 +8331,7 @@ async function openInboxThread(tid){
    var out = m.direction==='outbound'
    var attHtml = (m.attachments||[]).length ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'
      + m.attachments.map(function(a){
-         return '<a href="/api/inbox/attachments/'+a.id+'" target="_blank" style="font-size:11px;padding:3px 9px;border-radius:12px;background:var(--surface);border:1px solid var(--border);color:var(--teal-dark);text-decoration:none">📎 '+escHtml(a.filename)+' ('+Math.round((a.size_bytes||0)/1024)+'KB)</a>'
+         return '<a href="/api/inbox/attachments/'+a.id+'" target="_blank" style="font-size:11px;padding:3px 9px;border-radius:12px;background:var(--surface);border:1px solid var(--border);color:var(--teal-dark);text-decoration:none"> '+escHtml(a.filename)+' ('+Math.round((a.size_bytes||0)/1024)+'KB)</a>'
        }).join('') + '</div>' : ''
    var ccHtml = m.cc_emails ? '<div style="font-size:11px;color:var(--text-muted)">Cc: '+escHtml(m.cc_emails)+'</div>' : ''
    return '<div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:'+(out?'#f0f8fa':'var(--bg)')+';border:1px solid '+(out?'#d3e9ee':'var(--border)')+'">'
@@ -8355,7 +8355,7 @@ async function openInboxThread(tid){
  allAttachments.sort(function(a,b){ return (a.created_at||'') < (b.created_at||'') ? 1 : -1 })
  var attachmentsHtml = allAttachments.length ? allAttachments.map(function(a){
      return '<a href="/api/inbox/attachments/'+a.id+'" target="_blank" style="display:flex;align-items:center;gap:6px;padding:6px 8px;border-radius:8px;background:var(--bg);border:1px solid var(--border);text-decoration:none;color:inherit;margin-bottom:5px">'
-       + '<span style="font-size:14px">📎</span>'
+       + '<span style="font-size:14px"></span>'
        + '<div style="min-width:0;flex:1">'
        + '<div style="font-size:12px;color:var(--teal-dark);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(a.filename)+'</div>'
        + '<div style="font-size:10.5px;color:var(--text-muted)">'+escHtml(a.from||'')+' · '+Math.round((a.size_bytes||0)/1024)+'KB'+(a.created_at?' · '+a.created_at.slice(0,10):'')+'</div>'
@@ -8365,7 +8365,7 @@ async function openInboxThread(tid){
    var lr = t.linked_record
    linkedHtml = '<div style="background:#ede9fe;border:1px solid #ddd6fe;border-radius:8px;padding:10px 12px;margin-bottom:12px">'
      + '<div style="display:flex;justify-content:space-between;align-items:center">'
-     + '<div style="font-size:12px;color:#6d28d9;font-weight:700">🔗 '+escHtml(lr.name||'')+'</div>'
+     + '<div style="font-size:12px;color:#6d28d9;font-weight:700"> '+escHtml(lr.name||'')+'</div>'
      + '<span style="font-size:10.5px;color:#6d28d9;cursor:pointer;text-decoration:underline" onclick="unlinkInboxThread(\''+t.id+'\')">Unlink</span></div>'
      + '<div style="font-size:11px;color:#6d28d9;margin-top:1px">'+lr.type.replace('_',' ')+' · '+escHtml(lr.detail||'')+'</div>'
      + (lr.recent&&lr.recent.length?'<div style="font-size:10.5px;color:#7c3aed;margin-top:4px">'+lr.recent.map(escHtml).join('<br>')+'</div>':'')
@@ -8410,7 +8410,7 @@ async function openInboxThread(tid){
    + '</div>'
    + '<div>'
    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
-   + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">✨ AI Summary</div>'
+   + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted)"> AI Summary</div>'
    + '<span id="inbox-summary-refresh" style="font-size:10px;color:var(--teal-dark);cursor:pointer;text-decoration:underline" onclick="requestInboxSummary(\''+t.id+'\')">'+(t.ai_summary?'Refresh':'Generate')+'</span>'
    + '</div>'
    + '<div id="inbox-summary-box" style="font-size:12px;line-height:1.5;color:'+(t.ai_summary?'#374151':'#9ca3af')+';background:'+(t.ai_summary?'#faf5ff':'var(--bg)')+';border:1px solid '+(t.ai_summary?'#e9d5ff':'var(--border)')+';border-radius:8px;padding:9px 11px">'
@@ -8435,7 +8435,7 @@ async function openInboxThread(tid){
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Tags</div>'
    + tagsHtml + '</div>'
    + '<div>'
-   + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">📎 Attachments'+(allAttachments.length?' ('+allAttachments.length+')':'')+'</div>'
+   + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px"> Attachments'+(allAttachments.length?' ('+allAttachments.length+')':'')+'</div>'
    + '<div style="max-height:160px;overflow-y:auto">'+attachmentsHtml+'</div>'
    + '</div>'
    + '<div>'
@@ -8449,7 +8449,7 @@ async function openInboxThread(tid){
    + '</div>'
    + '<div style="display:flex;justify-content:space-between;font-size:10px">'
    + '<span style="color:var(--text-muted);cursor:pointer;text-decoration:underline" onclick="openInboxMergeModal(\''+t.id+'\')">⇄ Merge with another conversation</span>'
-   + '<span style="color:#991b1b;cursor:pointer;text-decoration:underline" onclick="deleteInboxThreadFromDetail(\''+t.id+'\')">🗑 Delete</span>'
+   + '<span style="color:#991b1b;cursor:pointer;text-decoration:underline" onclick="deleteInboxThreadFromDetail(\''+t.id+'\')"> Delete</span>'
    + '</div>'
    + '</div>'
 
@@ -8471,14 +8471,14 @@ async function openInboxThread(tid){
    + '<button type="button" onclick="document.execCommand(\'bold\')" style="width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:4px;cursor:pointer;font-weight:800;font-size:12px">B</button>'
    + '<button type="button" onclick="document.execCommand(\'italic\')" style="width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:4px;cursor:pointer;font-style:italic;font-size:12px">I</button>'
    + '<button type="button" onclick="document.execCommand(\'insertUnorderedList\')" style="width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:4px;cursor:pointer;font-size:12px">•≡</button>'
-   + '<button type="button" onclick="inboxInsertLink()" style="width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:4px;cursor:pointer;font-size:12px">🔗</button>'
+   + '<button type="button" onclick="inboxInsertLink()" style="width:26px;height:26px;border:1px solid var(--border);background:var(--surface);border-radius:4px;cursor:pointer;font-size:12px"></button>'
    + '<span style="flex:1"></span>'
    + '<span style="font-size:11px;color:var(--text-muted);cursor:pointer;align-self:center" onclick="toggleInboxCcBcc()">Cc/Bcc</span>'
    + '</div>'
    + '<div id="inbox-reply-body" contenteditable="true" style="width:100%;min-height:60px;max-height:130px;overflow-y:auto;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13.5px;box-sizing:border-box;margin-bottom:8px" data-placeholder="Write a reply as info@hwtco.org…"></div>'
    + '<div id="inbox-reply-attachments" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>'
    + '<div style="display:flex;justify-content:space-between;align-items:center">'
-   + '<label style="font-size:11px;color:var(--text-muted);cursor:pointer">📎 Attach<input type="file" multiple onchange="onInboxAttachFileChange(event)" style="display:none"/></label>'
+   + '<label style="font-size:11px;color:var(--text-muted);cursor:pointer"> Attach<input type="file" multiple onchange="onInboxAttachFileChange(event)" style="display:none"/></label>'
    + '<button class="btn btn-primary btn-sm" onclick="sendInboxReply(\''+t.id+'\')">Send Reply</button>'
    + '</div></div></div>'
    + sidebarHtml
@@ -8697,7 +8697,7 @@ function onInboxAttachFileChange(event){
 
 function renderInboxPendingAttachments(){
  var chips = _inboxPendingAttachments.map(function(a, i){
-   return '<span style="font-size:11px;padding:3px 9px;border-radius:12px;background:var(--bg);border:1px solid var(--border);display:inline-flex;align-items:center;gap:5px">📎 '+escHtml(a.filename)+'<span style="cursor:pointer;font-weight:700" onclick="removeInboxPendingAttachment('+i+')">×</span></span>'
+   return '<span style="font-size:11px;padding:3px 9px;border-radius:12px;background:var(--bg);border:1px solid var(--border);display:inline-flex;align-items:center;gap:5px"> '+escHtml(a.filename)+'<span style="cursor:pointer;font-weight:700" onclick="removeInboxPendingAttachment('+i+')">×</span></span>'
  }).join('')
  var replyWrap = document.getElementById('inbox-reply-attachments')
  if(replyWrap) replyWrap.innerHTML = chips
@@ -8897,7 +8897,7 @@ function openInboxComposeModal(){
    + '<div id="inbox-compose-body" contenteditable="true" style="width:100%;min-height:120px;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13.5px;box-sizing:border-box"></div></div>'
    + '<div id="inbox-compose-attachments" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px"></div>'
    + '<div style="display:flex;justify-content:space-between;align-items:center">'
-   + '<label style="font-size:11px;color:var(--text-muted);cursor:pointer">📎 Attach<input type="file" multiple onchange="onInboxComposeAttachFileChange(event)" style="display:none"/></label>'
+   + '<label style="font-size:11px;color:var(--text-muted);cursor:pointer"> Attach<input type="file" multiple onchange="onInboxComposeAttachFileChange(event)" style="display:none"/></label>'
    + '<div style="display:flex;gap:8px">'
    + '<button class="btn btn-secondary" onclick="document.getElementById(\'inbox-compose-overlay\').remove()">Cancel</button>'
    + '<button class="btn btn-primary" onclick="submitInboxCompose()">Send</button>'
@@ -9849,8 +9849,8 @@ const NAV_ICON_DEFAULTS = {
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
  board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
- oncall:'📞', 'hours-store':'🏪', responsibility:'🗂️', licensing:'📄', inbox:'📥',
- 'instructor-dashboard':'🎓'
+ oncall:'', 'hours-store':'', responsibility:'', licensing:'', inbox:'',
+ 'instructor-dashboard':''
 }
 
 let _currentNavIcons = {}
@@ -10013,7 +10013,7 @@ function renderSenderIdentities(){
  if(!ids.length){ el.innerHTML = '<div style="font-size:13px;color:var(--text-muted)">No sender identities configured.</div>'; return }
  el.innerHTML = ids.map((s,i)=>`
  <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:var(--radius);background:var(--surface)">
- ${i===0?'<span title="Default" style="font-size:14px;flex-shrink:0">⭐</span>':'<span style="width:18px;flex-shrink:0"></span>'}
+ ${i===0?'<span title="Default" style="font-size:14px;flex-shrink:0"></span>':'<span style="width:18px;flex-shrink:0"></span>'}
  <input type="text" value="${escHtml(s.name||'')}" placeholder="Display name (e.g. HWTC Team)"
  oninput="updateSenderIdentity(${i},'name',this.value)"
  style="flex:1;padding:6px 9px;border:1px solid var(--border-md);border-radius:6px;font-size:13px;font-family:inherit;min-width:0"/>
@@ -10499,7 +10499,7 @@ document.addEventListener('change', async function(e){
  }
  renderLobbyImgGrid()
  if(warnings.length){
-   if(status){ status.textContent = '⚠ '+warnings.length+' photo(s) uploaded but NOT to permanent storage — will be lost on the next deploy. Contact your admin to check GITHUB_TOKEN.'; status.style.color = '#dc2626' }
+   if(status){ status.textContent = ' '+warnings.length+' photo(s) uploaded but NOT to permanent storage — will be lost on the next deploy. Contact your admin to check GITHUB_TOKEN.'; status.style.color = '#dc2626' }
  } else if(status){ status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded — click Save Changes'; status.style.color = '' }
  e.target.value = ''
 })
@@ -10745,7 +10745,7 @@ async function loadCallLog(){
   return
  }
  const statusBadge = function(s){
-  const map = {answered:'✅ Answered',missed:'❌ Missed',ringing:'🔔 Ringing',after_hours:'🌙 After Hours',no_coverage:'⚠️ No Coverage',failed:'🔴 Failed',voicemail:'🎙 Voicemail'}
+  const map = {answered:' Answered',missed:' Missed',ringing:' Ringing',after_hours:' After Hours',no_coverage:' No Coverage',failed:' Failed',voicemail:' Voicemail'}
   const colors = {answered:'#dcfce7;color:#166534',missed:'#fee2e2;color:#991b1b',ringing:'#eff6ff;color:#1e40af',after_hours:'#f3e8ff;color:#6b21a8',no_coverage:'#fef3c7;color:#92400e',failed:'#fee2e2;color:#991b1b',voicemail:'#fef3c7;color:#92400e'}
   return '<span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:'+((colors[s]||'#f3f4f6;color:#374151'))+'">'+(map[s]||s)+'</span>'
  }
@@ -10769,8 +10769,8 @@ async function loadCallLog(){
     +'<td style="padding:10px 8px">'+statusBadge(r.status)+'</td>'
     +'<td style="padding:10px 8px;color:var(--text-muted)">'+dur+'</td>'
     +'<td style="padding:10px 8px;color:var(--text-muted);white-space:nowrap;font-size:12px">'+time+'</td>'
-    +'<td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="initMaskedCallback(\''+escHtml(phone)+'\')">📞 Call Back via HWTC</button>'
-    +(r.status==='voicemail'&&r.notes?'<a href="/twilio/voicemail-play?url='+escHtml(r.notes+'.mp3')+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;text-decoration:none;margin-left:4px">🎙 Play</a>':'')
+    +'<td style="padding:10px 8px"><button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="initMaskedCallback(\''+escHtml(phone)+'\')"> Call Back via HWTC</button>'
+    +(r.status==='voicemail'&&r.notes?'<a href="/twilio/voicemail-play?url='+escHtml(r.notes+'.mp3')+'" target="_blank" class="btn btn-secondary btn-sm" style="font-size:11px;text-decoration:none;margin-left:4px"> Play</a>':'')
     +'</td>'
     +'</tr>'
   }).join('')
@@ -11540,7 +11540,7 @@ function openEmailTemplateEditor(tid){
  if(t.description){
  const descEl = document.createElement('div')
  descEl.style.cssText='background:var(--bg);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--text-muted)'
- descEl.textContent='ℹ '+t.description
+ descEl.textContent=' '+t.description
  body.appendChild(descEl)
  }
 
@@ -12281,7 +12281,7 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  }).join('')}</div>
  <div style="display:flex;gap:6px;margin-bottom:8px">
  <button type="button" class="btn btn-secondary btn-sm" onclick="openAddAudSlotForm('${contextType}','${contextId}')" style="font-size:12px">+ Add Slot</button>
- <button type="button" class="btn btn-secondary btn-sm" id="aud-gen-slots-btn" onclick="toggleAudGenForm()" style="font-size:12px">⚡ Generate Slots</button>
+ <button type="button" class="btn btn-secondary btn-sm" id="aud-gen-slots-btn" onclick="toggleAudGenForm()" style="font-size:12px"> Generate Slots</button>
  </div>
  <div id="aud-gen-form" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
  <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Bulk Slot Generator</div>
@@ -12721,7 +12721,7 @@ function renderDirectorList(rows){
   const el = document.getElementById('directors-list')
   if(!el) return
   if(!rows.length){
-    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)"><div style="font-size:32px;margin-bottom:8px">🎭</div><div>No submissions found</div></div>'
+    el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)"><div style="font-size:32px;margin-bottom:8px"></div><div>No submissions found</div></div>'
     return
   }
   el.innerHTML = rows.map(d=>{
@@ -13506,7 +13506,7 @@ function renderDonorDetailPage(donor){
  <!-- Benefits -->
  ${donor.benefits && donor.benefits.length ? `
  <div class="card" style="padding:20px;margin-bottom:16px">
- <div style="font-size:15px;font-weight:700;margin-bottom:4px">⭐ ${donor.tier_name||'Tier'} Benefits</div>
+ <div style="font-size:15px;font-weight:700;margin-bottom:4px"> ${donor.tier_name||'Tier'} Benefits</div>
  <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">All benefits including inherited from lower tiers</div>
  ${donor.benefits.filter(b=>b.is_trackable).map(b=>{
  const uses = donor.benefit_usage.filter(u=>u.benefit_id===b.id)
@@ -13533,7 +13533,7 @@ function renderDonorDetailPage(donor){
  </div>`: ''}
  </div>`: (donor.tier_name ? `
  <div class="card" style="padding:20px;margin-bottom:16px">
- <div style="font-size:15px;font-weight:700;margin-bottom:4px">⭐ ${escHtml(donor.tier_name)} Benefits</div>
+ <div style="font-size:15px;font-weight:700;margin-bottom:4px"> ${escHtml(donor.tier_name)} Benefits</div>
  <div style="font-size:13px;color:var(--text-muted)">No benefits defined for this tier yet.</div>
  </div>`: '')}
 
@@ -14397,7 +14397,7 @@ function openDonorTiersModal(){
  overlay.innerHTML = `
  <div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:680px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
  <div style="padding:18px 24px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--surface);z-index:1">
- <div style="font-size:16px;font-weight:700">⭐ Tiers &amp; Benefits</div>
+ <div style="font-size:16px;font-weight:700"> Tiers &amp; Benefits</div>
  <button onclick="document.getElementById('tiers-modal').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">×</button>
  </div>
  <div style="padding:20px 24px" id="tiers-modal-body">
@@ -17033,7 +17033,7 @@ function renderChecklistSettings(){
    +'<div style="font-size:11px;margin-top:2px">'
    +'<span style="color:'+(item.required?'var(--red-600)':'var(--text-muted)')+'">'+( item.required?'Required':'Optional')+'</span>'
    +' &middot; '+(typeLabel[item.item_type]||item.item_type)
-   +' &middot; <span style="color:'+(item.studio_only!==false?'var(--purple)':'var(--green)')+'">'+(item.studio_only!==false?'🏠 Studio only':'🌍 All locations')+'</span>'
+   +' &middot; <span style="color:'+(item.studio_only!==false?'var(--purple)':'var(--green)')+'">'+(item.studio_only!==false?' Studio only':' All locations')+'</span>'
    +'</div></div>'
    +'<div style="display:flex;gap:4px;flex-shrink:0">'
    +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px" onclick="openEditChecklistItem(\''+item.id+'\')">Edit</button>'
@@ -17148,7 +17148,7 @@ const REPORT_TYPES = [
  { id:'board_attendance', label:'Board Attendance', icon:'', desc:'Meeting attendance rates and per-member breakdown', hasRange:true },
  { id:'enrollment', label:'Youth Enrollment', icon:'', desc:'Program enrollment counts and new participant roster', hasRange:true },
  { id:'lapsed_volunteers', label:'Lapsed Volunteers', icon:'', desc:'Members with no activity in X days', hasRange:false },
- { id:'payroll_unpaid_hours', label:'Unpaid Payroll', icon:'💰', desc:'Paid-instruction hours logged but not yet paid in BloomBooks, with $ owed per instructor', hasRange:false },
+ { id:'payroll_unpaid_hours', label:'Unpaid Payroll', icon:'', desc:'Paid-instruction hours logged but not yet paid in BloomBooks, with $ owed per instructor', hasRange:false },
 ]
 
 let _currentReportType = 'monthly_recap'
@@ -17393,7 +17393,7 @@ function renderReportResults(res){
  ${rangeLabel?`<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${rangeLabel}</div>`:''}
  </div>
  <div style="display:flex;gap:8px">
- <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()">⬇ CSV</button>
+ <button class="btn btn-secondary btn-sm" onclick="exportReportCSV()"> CSV</button>
  <button class="btn btn-secondary btn-sm" onclick="printReport()">Print</button>
  </div>
  </div>`
@@ -17529,7 +17529,7 @@ function renderReportResults(res){
  html += reportSection(' Unpaid by Instructor', reportTable(
  ['Instructor','Sessions','Owed','Linked in BloomBooks'],
  data.people,
- ['name', r=>(r.lines?.length||0), r=>'$'+(r.total_owed||0).toFixed(2), r=>r.linked_to_bloombooks?'Yes':'⚠ No']
+ ['name', r=>(r.lines?.length||0), r=>'$'+(r.total_owed||0).toFixed(2), r=>r.linked_to_bloombooks?'Yes':' No']
  ))
  } else {
  html += `<div style="color:var(--text-muted);font-size:13px;padding:12px 0">Nothing outstanding right now — every logged paid-instruction hour has already been paid.</div>`
@@ -17812,11 +17812,11 @@ async function testScheduledReportSms(rid, name){
  if(btn){ btn.disabled = false; btn.textContent = 'Test Text' }
  if(res.error){ toast(res.error,'error'); return }
  var lines = []
- if(!res.twilio_configured) lines.push('⚠ Twilio is not configured in Settings — add an Account SID, Auth Token, and From Phone number there first.')
+ if(!res.twilio_configured) lines.push(' Twilio is not configured in Settings — add an Account SID, Auth Token, and From Phone number there first.')
  if(res.note) lines.push(res.note)
  if(res.phones_checked && res.phones_checked.length){
  res.phones_checked.forEach(function(p){
- lines.push((p.ok?'✅ ':'❌ ')+p.phone+(p.ok?' — sent':' — '+(p.error||'failed')))
+ lines.push((p.ok?' ':' ')+p.phone+(p.ok?' — sent':' — '+(p.error||'failed')))
  })
  }
  var overlay = document.createElement('div')
@@ -17840,14 +17840,14 @@ async function viewScheduledReportSendLog(rid, name){
  } else {
  rowsHtml = runs.map(function(run){
  var when = formatDateTime(run.fired_at)
- var statusIcon = run.success ? '✅' : '❌'
+ var statusIcon = run.success ? '' : ''
  var parts = []
- if(run.email_sent_to) parts.push('📧 Sent to: '+escHtml(run.email_sent_to))
- if(run.email_error) parts.push('📧 <span style="color:#b91c1c">Failed: '+escHtml(run.email_error)+'</span>')
- if(run.sms_sent_to) parts.push('📱 Texted: '+escHtml(run.sms_sent_to))
+ if(run.email_sent_to) parts.push(' Sent to: '+escHtml(run.email_sent_to))
+ if(run.email_error) parts.push(' <span style="color:#b91c1c">Failed: '+escHtml(run.email_error)+'</span>')
+ if(run.sms_sent_to) parts.push(' Texted: '+escHtml(run.sms_sent_to))
  if(run.sms_errors && run.sms_errors.length){
  run.sms_errors.forEach(function(e){
- parts.push('📱 <span style="color:#b91c1c">Failed to '+escHtml(e.phone)+': '+escHtml(e.error||'unknown error')+'</span>')
+ parts.push(' <span style="color:#b91c1c">Failed to '+escHtml(e.phone)+': '+escHtml(e.error||'unknown error')+'</span>')
  })
  }
  if(run.note) parts.push('<span style="color:var(--text-muted)">'+escHtml(run.note)+'</span>')
@@ -17904,7 +17904,7 @@ async function loadEventLogs(){
  const isAutoClosed = pair.close && (pair.close.notes||'').includes('Auto-closed')
  const status = isClosed
  ? (isAutoClosed
-   ? '<span style="color:var(--text-muted);font-weight:600">⚙ Auto-closed</span>'
+   ? '<span style="color:var(--text-muted);font-weight:600"> Auto-closed</span>'
    : '<span style="color:var(--teal-600);font-weight:600"> Closed</span>')
  : '<span style="color:var(--green-600);font-weight:600"> Open</span>'
  const byParts = []
@@ -18288,8 +18288,8 @@ function renderEventDetailPage(eid){
  <button class="btn btn-secondary btn-sm" style="color:var(--red-600);border-color:var(--red-200)" onclick="cancelEvent('${e.id}')">Cancel</button>`,
  open: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','closed')">Close Event</button>
  <button class="btn btn-secondary btn-sm" style="color:var(--red-600);border-color:var(--red-200)" onclick="cancelEvent('${e.id}')">Cancel</button>`,
- closed: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','open')">↩ Re-open</button>`,
- cancelled: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','draft')">↩ Restore</button>`,
+ closed: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','open')"> Re-open</button>`,
+ cancelled: `<button class="btn btn-secondary btn-sm" onclick="setEventStatus('${e.id}','draft')"> Restore</button>`,
  }[e.status||'draft'] || '': ''
 
  document.getElementById('event-detail-header').innerHTML=`
@@ -19938,7 +19938,7 @@ function renderEventRsvps(eid, allRsvps, roles){
  ${statusLabel[r.status]||r.status}
  </span>
  ${isAdmin&&r.status==='invited'?`<button title="Mark as confirmed" onclick="markRsvpConfirmed('${eid}','${r.id}',true)" style="background:var(--green-50);border:1.5px solid #86efac;color:var(--green-600);border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Mark Coming</button>`:''}
- ${isAdmin&&(r.status==='confirmed'||r.status==='interested')?`<button title="Remove confirmation" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer">↩</button>`:''}
+ ${isAdmin&&(r.status==='confirmed'||r.status==='interested')?`<button title="Remove confirmation" onclick="markRsvpConfirmed('${eid}','${r.id}',false)" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer"></button>`:''}
  ${isAdmin&&(r.status==='invited'||r.status==='confirmed'||r.status==='interested')?`<button title="Mark as not attending" onclick="setRsvpStatus('${eid}','${r.id}','declined')" style="background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:8px;padding:3px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap">Not Attending</button>`:''}
  ${isAdmin&&r.status==='declined'?`<button title="Undo decline" onclick="setRsvpStatus('${eid}','${r.id}','invited')" style="background:var(--bg);border:1.5px solid var(--border);color:var(--text-muted);border-radius:8px;padding:3px 9px;font-size:11px;cursor:pointer;white-space:nowrap">Undo</button>`:''}
  <button onclick="removeRsvp('${eid}','${r.id}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px">×</button>
@@ -20270,7 +20270,7 @@ function renderOpeningChecklistSettings(){
    +'<div style="font-size:11px;margin-top:2px">'
    +'<span style="color:'+(item.required?'var(--red-600)':'var(--text-muted)')+'">'+( item.required?'Required':'Optional')+'</span>'
    +' &middot; '+(typeLabel[item.item_type]||item.item_type)
-   +' &middot; <span style="color:'+(item.studio_only!==false?'var(--purple)':'var(--green)')+'">'+(item.studio_only!==false?'🏠 Studio only':'🌍 All locations')+'</span>'
+   +' &middot; <span style="color:'+(item.studio_only!==false?'var(--purple)':'var(--green)')+'">'+(item.studio_only!==false?' Studio only':' All locations')+'</span>'
    +'</div></div>'
    +'<div style="display:flex;gap:4px;flex-shrink:0">'
    +'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px" onclick="openEditOpeningChecklistItem(\''+item.id+'\')">Edit</button>'
@@ -20412,9 +20412,9 @@ async function loadYouthSignInTab(yid){
    return `<div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--border);font-size:13px">
     <div><div style="font-weight:700;color:#145466">${inTime}</div>
     <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_in_by?'by '+r.signed_in_by:'—'}</div>
-    ${r.event_name?`<div style="font-size:11px;color:var(--text-muted);margin-top:1px">📅 ${escHtml(r.event_name)}</div>`:''}</div>
+    ${r.event_name?`<div style="font-size:11px;color:var(--text-muted);margin-top:1px"> ${escHtml(r.event_name)}</div>`:''}</div>
     <div>${outTime?`<div style="font-weight:700;color:#166534">${outTime}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${r.signed_out_by?'by '+r.signed_out_by:''}</div>`:'<div style="color:var(--text-muted)">—</div>'}</div>
-    <div style="font-size:12px;color:var(--text-muted)">${durStr?'⏱ '+durStr:''}</div>
+    <div style="font-size:12px;color:var(--text-muted)">${durStr?' '+durStr:''}</div>
     <div>${statusBadge}</div>
    </div>`
   }).join('')
@@ -20665,7 +20665,7 @@ function renderYsiSheet(label, isAdmin, isRisingStars){
  ${modeToggle}
  ${viewToggle}
  ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff(null,'')">+ Sign In</button>`:''}
- <button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()">⬇ Export</button>
+ <button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()"> Export</button>
  </div>
  </div>`
 
@@ -20674,7 +20674,7 @@ function renderYsiSheet(label, isAdmin, isRisingStars){
  // drop off once signed out) — so staff work through one list at a time
  // instead of hunting for the right row in the full roster.
  const visibleRoster = ysiRoster.filter(y => ysiMode==='in' ? !activeSignIn[y.id] : !!activeSignIn[y.id])
- const emptyMsg = ysiMode==='in' ? 'Everyone\'s signed in! 🎉' : 'No one is currently signed in.'
+ const emptyMsg = ysiMode==='in' ? 'Everyone\'s signed in! ' : 'No one is currently signed in.'
 
  if(ysiView==='card'){
  const cards = visibleRoster.map(y=>{
@@ -20756,7 +20756,7 @@ function renderRisingStarsSheet(label, eventId, isAdmin){
  // out). Kids with a conflict still show in whichever list matches their
  // sign-in state, so staff can see why they haven't arrived.
  const visibleRoster = ysiRoster.filter(y => ysiMode==='in' ? !activeSignIn[y.id] : !!activeSignIn[y.id])
- const emptyMsg = ysiMode==='in' ? 'Everyone\'s signed in! 🎉' : 'No one is currently signed in.'
+ const emptyMsg = ysiMode==='in' ? 'Everyone\'s signed in! ' : 'No one is currently signed in.'
 
  // Youth section
  const youthSection = `<div style="margin-bottom:28px">
@@ -20811,7 +20811,7 @@ function renderRisingStarsSheet(label, eventId, isAdmin){
  </tbody></table></div>
  </div>`: ''
 
- content.innerHTML = `<div style="margin-bottom:12px"><div style="font-size:20px;font-weight:800">⭐ ${label}</div></div>` + youthSection + adultSection
+ content.innerHTML = `<div style="margin-bottom:12px"><div style="font-size:20px;font-weight:800"> ${label}</div></div>` + youthSection + adultSection
 }
 
 function exportYouthSignInSheet(){
@@ -21091,7 +21091,7 @@ function _renderGrouped(grid, filtered, isAdmin){
    +'<span style="font-size:12px;color:var(--text-muted);margin-left:10px">'+progs.length+' program'+(progs.length!==1?'s':'')
    +(totalEnrolled?' &middot; '+totalEnrolled+' enrolled':'')
    +(openCount?' &middot; <span style=\"color:#166534;font-weight:700\">'+openCount+' open</span>':'')
-   +(type==='production'?' &middot; <span style=\"color:#B45309;font-weight:700\">⚠ wrong type — edit and change to Class/Workshop/Camp</span>':'')+'</span></div>'
+   +(type==='production'?' &middot; <span style=\"color:#B45309;font-weight:700\"> wrong type — edit and change to Class/Workshop/Camp</span>':'')+'</span></div>'
    +'<span id="yp-chevron-'+type+'" style="font-size:16px;color:var(--text-muted)">\u25be</span></div>'
    +'<div id="yp-group-'+type+'">'
   // sub-group by season
@@ -21238,7 +21238,7 @@ async function updateProgramInstructorPayCheck(){
     + (expectedPay>0 ? ' + $'+expectedPay.toFixed(2)+' for this class' : '')
     + ' = <strong style="color:'+barColor+'">$'+combinedTotal.toFixed(2)+'</strong> of $'+status.cap.toFixed(2)+'</div>'
     + (overCap
-        ? '<div style="font-size:12px;color:#dc2626;font-weight:700;margin-top:4px">⚠ Assigning this class would put them over the contractor pay cap</div>'
+        ? '<div style="font-size:12px;color:#dc2626;font-weight:700;margin-top:4px"> Assigning this class would put them over the contractor pay cap</div>'
         : '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">$'+(status.cap-combinedTotal).toFixed(2)+' would remain before the cap</div>')
     + '</div>'
 }
@@ -21400,7 +21400,7 @@ function openProgramEmailModal(pid){
  <div style="display:flex;flex-direction:column">
  <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">
  Email Preview
- <a href="#" onclick="navToEmailTemplates();return false" style="font-size:11px;font-weight:600;color:var(--teal);margin-left:8px;text-transform:none;letter-spacing:0">Edit template ↗</a>
+ <a href="#" onclick="navToEmailTemplates();return false" style="font-size:11px;font-weight:600;color:var(--teal);margin-left:8px;text-transform:none;letter-spacing:0">Edit template </a>
  </div>
  <iframe id="pem-preview-frame" style="flex:1;min-height:320px;border:1px solid var(--border);border-radius:var(--radius);background:#fff" srcdoc="<p style='padding:20px;color:#999;font-family:sans-serif'>Loading preview…</p>"></iframe>
  </div>
@@ -22005,7 +22005,7 @@ async function loadInstructorDashboard(){
          + '<div style="font-size:13.5px;font-weight:700;margin-bottom:4px">'+escHtml(p.name)+'</div>'
          + '<div style="font-size:11.5px;color:var(--text-muted)">'+(p.registrant_count||0)+' registered'+(p.status?' · '+escHtml(p.status):'')+'</div>'
          + '</div>'
-         + (p.sessions_enabled ? '<button class="btn btn-secondary btn-sm" style="width:100%;font-size:11.5px" onclick="event.stopPropagation();openManageAvailability(\''+p.id+'\',\''+escHtml(p.name).replace(/'/g,"\\'")+'\')">📅 Manage Availability</button>' : '')
+         + (p.sessions_enabled ? '<button class="btn btn-secondary btn-sm" style="width:100%;font-size:11.5px" onclick="event.stopPropagation();openManageAvailability(\''+p.id+'\',\''+escHtml(p.name).replace(/'/g,"\\'")+'\')"> Manage Availability</button>' : '')
          + '</div>'
      }).join('')
    + '</div></div>'
@@ -22335,7 +22335,7 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
 
  <!-- Portal tab order card -->
  <div class="card" style="padding:20px;margin-top:16px">
- <div style="font-size:15px;font-weight:700;margin-bottom:4px">↕ Portal Tab Order</div>
+ <div style="font-size:15px;font-weight:700;margin-bottom:4px"> Portal Tab Order</div>
  <div id="prog-taborder-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
  </div>
  </div>
@@ -22371,7 +22371,7 @@ function renderProductionPortalHTML(pid, stage){
  <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">About</button>
  <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">Meet the Team</button>
  ${isRS?'<button class="portal-sub-btn" data-ptab="messages" onclick="switchProdPortalTab(\'messages\',this)">Messages</button>':''}
- <button class="portal-sub-btn" data-ptab="taborder" onclick="switchProdPortalTab('taborder',this)">↕ Tab Order</button>
+ <button class="portal-sub-btn" data-ptab="taborder" onclick="switchProdPortalTab('taborder',this)"> Tab Order</button>
  </div>
 
  ${isRS?`<div id="pptab-overview-${pid}" style="display:none"><div id="prod-overview-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
@@ -22481,7 +22481,7 @@ function renderProductionPortalHTML(pid, stage){
  <div style="margin-bottom:10px">
  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Headshot Photo</label>
  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
- <label for="team-headshot-file-${pid}" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">📷 Choose Photo</label>
+ <label for="team-headshot-file-${pid}" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0"> Choose Photo</label>
  <input type="file" id="team-headshot-file-${pid}" accept="image/*" style="display:none"/>
  <span id="team-headshot-status-${pid}" style="font-size:12px;color:var(--text-muted)"></span>
  </div>
@@ -22520,7 +22520,7 @@ const PORTAL_TABS_BY_TYPE = {
  {id:'files', label:'Rehearsal Materials'},
  {id:'team', label:'Meet the Team'},
  {id:'conflicts', label:'Conflicts'},
- {id:'castlist', label:'📋 Cast List'},
+ {id:'castlist', label:' Cast List'},
  {id:'auditions', label:'Auditions'},
  {id:'messages', label:'Messages'},
  ],
@@ -22647,12 +22647,12 @@ async function loadProductionRegistrations(pid){
           if(r.status==='waitlisted') actions += '<button class="btn btn-primary btn-sm prod-promote-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Promote</button> '
           if(r.status==='pending_payment') actions += '<button class="btn btn-secondary btn-sm prod-resend-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend</button> '
           if(r.status==='confirmed') actions += '<button class="btn btn-secondary btn-sm" onclick="toggleRegCompedInline(this,\''+r.id+'\',\''+(r.is_comped?'false':'true')+'\',\''+pid+'\',\'production\')" style="padding:2px 8px;font-size:11px">'+(r.is_comped?'Un-comp':'Comp')+'</button> '
-          if(r.status==='confirmed') actions += '<a href="/api/registrations/'+r.id+'/invoice" target="_blank" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px;text-decoration:none;display:inline-block">🧾 Invoice</a> '
+          if(r.status==='confirmed') actions += '<a href="/api/registrations/'+r.id+'/invoice" target="_blank" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px;text-decoration:none;display:inline-block"> Invoice</a> '
           actions += '<button class="btn btn-sm prod-del-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
           return '<tr style="border-bottom:1px solid var(--border)">'
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.is_comped?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fce7f3;color:#9d174d">🎁 Comp\'d</span>':'')+(r.status==="waitlisted"&&r.waitlist_position?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">#'+r.waitlist_position+'</div>':'')+(r.status==="pending_payment"&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.is_comped?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fce7f3;color:#9d174d"> Comp\'d</span>':'')+(r.status==="waitlisted"&&r.waitlist_position?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">#'+r.waitlist_position+'</div>':'')+(r.status==="pending_payment"&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
             + '</tr>'
@@ -22820,7 +22820,7 @@ async function loadProductionScheduleConflicts(pid){
  +'<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Crew members texted at their volunteer profile\'s phone number whenever someone calls out for this production</div>'
  +(alertRecipients.length ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">'
  + alertRecipients.map(m=>'<span style="font-size:12px;background:var(--teal-50);color:var(--teal-700,var(--teal-600));padding:4px 10px;border-radius:20px;display:inline-flex;align-items:center;gap:6px">'
- + m.volunteer_name + (m.volunteer_phone?'':' <span style="color:var(--red-600);font-weight:600" title="No phone on file">⚠ no phone</span>')
+ + m.volunteer_name + (m.volunteer_phone?'':' <span style="color:var(--red-600);font-weight:600" title="No phone on file"> no phone</span>')
  + '<button onclick="removeProdCalloutRecipient(\''+pid+'\',\''+m.volunteer_id+'\')" style="background:none;border:none;cursor:pointer;color:inherit;font-size:13px;line-height:1">×</button></span>').join('')
  + '</div>' : '<div style="font-size:12px;color:var(--text-hint);margin-bottom:8px">No one selected yet — no texts will be sent.</div>')
  + (availableRecipients.length ? '<select onchange="addProdCalloutRecipient(\''+pid+'\',this)" style="font-size:12px;padding:6px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;cursor:pointer;width:100%">'
@@ -23494,7 +23494,7 @@ async function editTeamMember(pid, mid){
  +'<input id="te-role-'+mid+'" value="'+escHtml(m.role||'')+'" placeholder="Role / Title" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none;margin-bottom:6px"/>'
  +'<div style="margin-bottom:8px">'
  +'<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
- +'<label for="te-headshot-file-'+mid+'" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0;font-size:11px">📷 Change Photo</label>'
+ +'<label for="te-headshot-file-'+mid+'" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0;font-size:11px"> Change Photo</label>'
  +'<input type="file" id="te-headshot-file-'+mid+'" accept="image/*" style="display:none"/>'
  +'<span id="te-headshot-status-'+mid+'" style="font-size:11px;color:var(--text-muted)"></span>'
  +'</div>'
@@ -23784,7 +23784,7 @@ async function loadProgramRegistrations(pid){
           if(r.status==='pending_payment') actions += '<button class="btn btn-secondary btn-sm resend-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Resend Link</button> '
           if(r.balance_due>0 && r.status==='confirmed') actions += '<button class="btn btn-secondary btn-sm balance-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px">Pay Balance</button> '
           if(r.status==='confirmed') actions += '<button class="btn btn-secondary btn-sm" onclick="toggleRegCompedInline(this,\''+r.id+'\',\''+(r.is_comped?'false':'true')+'\',\''+pid+'\',\'program\')" style="padding:2px 8px;font-size:11px">'+(r.is_comped?'Un-comp':'Comp')+'</button> '
-          if(r.status==='confirmed') actions += '<a href="/api/registrations/'+r.id+'/invoice" target="_blank" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px;text-decoration:none;display:inline-block">🧾 Invoice</a> '
+          if(r.status==='confirmed') actions += '<a href="/api/registrations/'+r.id+'/invoice" target="_blank" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px;text-decoration:none;display:inline-block"> Invoice</a> '
           actions += '<button class="btn btn-sm delete-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
           if(r.status==='confirmed') actions += ' <button class="btn btn-secondary btn-sm finalize-reg-btn" data-rid="'+r.id+'" style="padding:2px 8px;font-size:11px" title="Create participant profile if missing">Finalize</button>'
           var sibCount = 0
@@ -23814,7 +23814,7 @@ async function loadProgramRegistrations(pid){
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
             + sessionCell
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.is_comped?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fce7f3;color:#9d174d">🎁 Comp\'d</span>':'')+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.is_comped?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fce7f3;color:#9d174d"> Comp\'d</span>':'')+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + amtCell
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
@@ -24103,8 +24103,8 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div id="rs-sessions-list" style="margin-bottom:8px"></div>'
     + '<div style="display:flex;gap:8px;margin-bottom:8px">'
     + '<button type="button" id="rs-add-session-btn" class="btn btn-secondary btn-sm" style="font-size:12px">+ Add Single Session</button>'
-    + '<button type="button" id="rs-generate-slots-btn" class="btn btn-secondary btn-sm" style="font-size:12px">⚡ Generate Slots</button>'
-    + '<button type="button" id="rs-bulk-import-btn" class="btn btn-secondary btn-sm" style="font-size:12px">📅 Import from Calendar</button>'
+    + '<button type="button" id="rs-generate-slots-btn" class="btn btn-secondary btn-sm" style="font-size:12px"> Generate Slots</button>'
+    + '<button type="button" id="rs-bulk-import-btn" class="btn btn-secondary btn-sm" style="font-size:12px"> Import from Calendar</button>'
     + '</div>'
     + '<div id="rs-generate-slots-form" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:8px">'
     + '<div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:10px">Bulk Slot Generator</div>'
@@ -24185,7 +24185,7 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:6px">Cover Image</label>'
     + (images.length ? '<div style="margin-bottom:8px"><img src="'+escHtml(images[0])+'" alt="Cover" style="width:100%;max-height:160px;object-fit:cover;border-radius:8px;border:1px solid var(--border)"/></div>' : '<div style="margin-bottom:8px;padding:20px;background:var(--bg);border:1.5px dashed var(--border-md);border-radius:8px;text-align:center;font-size:12px;color:var(--text-muted)">No cover image yet</div>')
     + '<div style="display:flex;gap:8px;align-items:center">'
-    + '<label for="rs-cover-upload" class="btn btn-secondary" style="padding:8px 14px;font-size:12px;cursor:pointer;margin:0">📷 '+(images.length?'Replace Image':'Upload Image')+'</label>'
+    + '<label for="rs-cover-upload" class="btn btn-secondary" style="padding:8px 14px;font-size:12px;cursor:pointer;margin:0"> '+(images.length?'Replace Image':'Upload Image')+'</label>'
     + '<input type="file" id="rs-cover-upload" accept="image/*" style="display:none"/>'
     + '<span id="rs-cover-status" style="font-size:12px;color:var(--text-muted)"></span>'
     + '</div>'
@@ -25083,7 +25083,7 @@ async function loadSessionsInModal(pid){
       + '<div style="display:flex;gap:6px;align-items:center">'
       + '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:'+( statusColors[s.status]||statusColors.open)+'">'+(s.status||'open')+'</span>'
       + (s.linked_event_id
-          ? '<button class="btn btn-secondary btn-sm sess-view-event-btn" data-eid="'+s.linked_event_id+'" style="font-size:11px;padding:2px 8px" title="This session has a real calendar event — hours can be logged there">📅 View Event</button>'
+          ? '<button class="btn btn-secondary btn-sm sess-view-event-btn" data-eid="'+s.linked_event_id+'" style="font-size:11px;padding:2px 8px" title="This session has a real calendar event — hours can be logged there"> View Event</button>'
           : '<button class="btn btn-secondary btn-sm sess-create-event-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px" title="Creates a real calendar event for this session so hours/ELICs/staff can be tracked">+ Create Event</button>')
       + '<button class="btn btn-secondary btn-sm sess-edit-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px">Edit</button>'
       + '<button class="btn btn-sm sess-del-btn" data-sid="'+s.id+'" style="font-size:11px;padding:2px 8px;background:#fee2e2;color:#991b1b;border:none;border-radius:6px;cursor:pointer">Delete</button>'
@@ -26288,12 +26288,16 @@ async function loadCastAnnouncementPanel(pid){
  const settings = await api(`/api/auditions/settings/production/${pid}`)
  const isAdmin = canEdit('rising_stars')
  const published = !!settings?.cast_list_published
+ const queued = !!settings?.cast_list_queued && !published
  const revealAt = settings?.cast_list_reveal_at ? String(settings.cast_list_reveal_at).slice(0,16) : ''
+ const statusLabel = published ? 'Published to Portal' : queued ? 'Queued — reveals automatically' : 'Not Published'
+ const statusBg = published ? '#dcfce7' : queued ? '#fef3c7' : '#f3f4f6'
+ const statusColor = published ? '#166534' : queued ? '#92400e' : '#6b7280'
  el.innerHTML = `
  <div style="background:#fdf4ff;border:1px solid #e9d5ff;border-radius:var(--radius);padding:14px 16px">
  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:${isAdmin?'10px':'0'}">
  <div style="font-size:12px;font-weight:700;color:#7e22ce;text-transform:uppercase;letter-spacing:0.4px"> Cast List Announcement</div>
- <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;background:${published?'#dcfce7':'#f3f4f6'};color:${published?'#166534':'#6b7280'}">${published?'Published to Portal':'Not Published'}</span>
+ <span style="font-size:11px;font-weight:700;padding:2px 10px;border-radius:20px;background:${statusBg};color:${statusColor}">${statusLabel}</span>
  </div>
  <div id="cast-countdown-${pid}" style="font-size:13px;font-weight:700;color:#7e22ce;margin-bottom:${isAdmin?'10px':'0'}"></div>
  ${isAdmin?`
@@ -26305,12 +26309,21 @@ async function loadCastAnnouncementPanel(pid){
  <button class="btn btn-secondary btn-sm" onclick="saveCastRevealAt('${pid}')">Save Countdown</button>
  ${revealAt?`<button class="btn btn-secondary btn-sm" onclick="clearCastRevealAt('${pid}')">Clear</button>`:''}
  </div>
- <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">The countdown just builds hype on the portal — it never auto-publishes. Publish the list yourself once every role above is final.</div>
+ <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">${queued
+   ? 'This list is built and waiting — it\'ll go live on its own the moment the countdown ends. No need to come back and click anything.'
+   : 'If a countdown is set, Publish will hold the list until it ends instead of showing it right away — so clicking early never spoils the reveal.'}</div>
+ <div style="display:flex;gap:8px;flex-wrap:wrap">
+ ${queued?`
+ <button class="btn btn-primary btn-sm" onclick="toggleCastPublish('${pid}',true,true)">Publish Now (Skip Countdown)</button>
+ <button class="btn btn-secondary btn-sm" onclick="toggleCastPublish('${pid}',false)">Cancel Queue</button>
+ `:`
  <button class="btn ${published?'btn-secondary':'btn-primary'} btn-sm" onclick="toggleCastPublish('${pid}',${!published})">${published?'Unpublish Cast List':'Publish Cast List to Portal'}</button>
+ `}
+ </div>
  `:''}
  </div>`
  if(settings?.cast_list_reveal_at && !published){
- startCastTabCountdown(pid, settings.cast_list_reveal_at)
+ startCastTabCountdown(pid, settings.cast_list_reveal_at, queued)
  }
 }
 
@@ -26329,17 +26342,18 @@ async function clearCastRevealAt(pid){
  loadCastAnnouncementPanel(pid)
 }
 
-async function toggleCastPublish(pid, publish){
- if(publish && !confirm('Publish the cast list to the family portal now? Everyone will be able to see their role.')) return
- if(!publish && !confirm('Unpublish the cast list? Families will no longer see it on the portal.')) return
- const res = await api(`/api/auditions/settings/production/${pid}/publish-cast`, 'POST', {publish})
+async function toggleCastPublish(pid, publish, force){
+ if(publish && force && !confirm('Publish the cast list right now, skipping the rest of the countdown? Everyone will be able to see their role immediately.')) return
+ if(publish && !force && !confirm('Publish the cast list to the family portal now? Everyone will be able to see their role.')) return
+ if(!publish && !confirm('Cancel this and clear the cast list from the portal? Families will no longer see it, and any queued reveal is cancelled.')) return
+ const res = await api(`/api/auditions/settings/production/${pid}/publish-cast`, 'POST', {publish, force: !!force})
  if(res?.error){ toast(res.error,'error'); return }
- toast(publish?'Cast list published!':'Cast list unpublished','success')
+ toast(!publish ? 'Cast list unpublished' : res.queued ? 'Cast list queued — it\'ll go live automatically when the countdown ends' : 'Cast list published!', 'success')
  loadCastAnnouncementPanel(pid)
 }
 
 let _castTabCountdownTimers = {}
-function startCastTabCountdown(pid, revealAtISO){
+function startCastTabCountdown(pid, revealAtISO, queued){
  if(_castTabCountdownTimers[pid]) clearInterval(_castTabCountdownTimers[pid])
  const target = new Date(revealAtISO).getTime()
  function tick(){
@@ -26347,8 +26361,11 @@ function startCastTabCountdown(pid, revealAtISO){
   if(!el){ clearInterval(_castTabCountdownTimers[pid]); delete _castTabCountdownTimers[pid]; return }
   const diff = target - Date.now()
   if(diff <= 0){
-   el.innerHTML = ' Reveal time has arrived — publish when ready!'
+   el.innerHTML = queued ? ' Revealing any moment now…' : ' Reveal time has arrived — publish when ready!'
    clearInterval(_castTabCountdownTimers[pid]); delete _castTabCountdownTimers[pid]
+   // Once the target time passes, re-check the panel shortly after so a
+   // queued list flips to "Published" here too without a manual refresh.
+   if(queued) setTimeout(()=>loadCastAnnouncementPanel(pid), 3000)
    return
   }
   const days = Math.floor(diff/86400000)
@@ -26360,7 +26377,7 @@ function startCastTabCountdown(pid, revealAtISO){
   if(days||hours) parts.push(hours+'h')
   if(days||hours||mins) parts.push(mins+'m')
   parts.push(secs+'s')
-  el.innerHTML = ' Cast list reveals in '+parts.join(' ')
+  el.innerHTML = (queued ? ' Cast list goes live in ' : ' Cast list reveals in ')+parts.join(' ')
  }
  tick()
  _castTabCountdownTimers[pid] = setInterval(tick, 1000)
@@ -26581,7 +26598,7 @@ function renderRisingStarsPage(){
  (allYouth.length?' · '+allYouth.length+' registered youth':'')
 
  if(!filtered.length){
- grid.innerHTML=`<div class="empty-state"><div class="empty-icon">⭐</div>
+ grid.innerHTML=`<div class="empty-state"><div class="empty-icon"></div>
  <p>No Rising Stars productions yet</p>
  ${isAdmin?'<button class="btn btn-primary" onclick="openProductionModalForRS()" style="margin-top:12px">+ New Production</button>':''}
  </div>`
@@ -26693,7 +26710,7 @@ function openProductionModalForRS(){
  const note = document.createElement('div')
  note.id = 'rs-locked-note'
  note.style.cssText='font-size:12px;background:var(--purple-50);color:var(--purple-600);padding:8px 12px;border-radius:8px;margin-bottom:12px;font-weight:500'
- note.textContent='⭐ Creating a Rising Stars youth production'
+ note.textContent=' Creating a Rising Stars youth production'
  stageRow?.closest('.modal-body')?.insertBefore(note, stageRow?.closest('.modal-body')?.firstChild)
  }
  }, 50)
@@ -26770,7 +26787,7 @@ function renderPortalYouthList(){
  <div style="flex:1;min-width:0">
  <div style="font-size:13px;font-weight:600">${y.first_name} ${y.last_name}</div>
  <div style="font-size:11px;color:var(--text-muted)">
- ${y.family_id?'‍‍ '+( allFamilies.find(f=>f.id===y.family_id)?.name||'Family'):'Individual'}
+ ${y.family_id?' '+( allFamilies.find(f=>f.id===y.family_id)?.name||'Family'):'Individual'}
  </div>
  </div>
  <div style="flex-shrink:0;text-align:right">
@@ -27276,19 +27293,19 @@ const RENTAL_STATUS_LABELS = {
 const RENTAL_CATEGORY_META = {
   ticketed_enrollment: {
     label: 'Ticketed / Enrollment — HWTC Owns It',
-    shortLabel: '🎟️ Ticketed/Enrollment',
+    shortLabel: ' Ticketed/Enrollment',
     badge: '#fce7f3;color:#9d174d',
     desc: 'Attendees pay to be there (a class, workshop, ticketed event). HWTC is the official producer/host, handles all advertising and public listing, and collects all revenue — then HWTC and the partner agree on a revenue split afterward. The partner is acting as an instructor/contractor, not a renter.'
   },
   open_partnership: {
     label: 'Open, Free-to-Attend — Partnership Model',
-    shortLabel: '🤝 Open Partnership',
+    shortLabel: ' Open Partnership',
     badge: '#dbeafe;color:#1e40af',
     desc: 'Free for attendees, but HWTC must be listed publicly as a sponsor, producer, or partner. The partner rents the space and runs the logistics — there is no enrollment revenue to split since nothing is charged.'
   },
   closed_rental: {
     label: 'Closed, Free-to-Attend — Rental / Acknowledgment',
-    shortLabel: '🔒 Closed Rental',
+    shortLabel: ' Closed Rental',
     badge: '#f3f4f6;color:#374151',
     desc: 'Private use — rehearsal, practice, a class for the partner\'s own people, a taping, etc. Not a public event. The partner pays the rental fee and just needs to credit HWTC as a thank-you/acknowledgment somewhere in their promotion. Attendees cannot be charged for anything — if they are, this falls back into the Ticketed/Enrollment category.'
   }
@@ -27388,10 +27405,10 @@ function renderRentalsPage(){
   const completedCount = requests.filter(r=>r.status==='completed').length
   const filters = [
     {v:'needs_attention', l:'Needs Attention', c:needsAttentionCount},
-    {v:'ongoing', l:'🤝 Ongoing', c:ongoingCount},
-    {v:'awaiting_feedback', l:'⏳ Awaiting Feedback', c:awaitingFeedbackCount},
-    {v:'tour_scheduled', l:'🚶 Tour Scheduled', c:tourScheduledCount},
-    {v:'completed', l:'✅ Completed', c:completedCount},
+    {v:'ongoing', l:' Ongoing', c:ongoingCount},
+    {v:'awaiting_feedback', l:' Awaiting Feedback', c:awaitingFeedbackCount},
+    {v:'tour_scheduled', l:' Tour Scheduled', c:tourScheduledCount},
+    {v:'completed', l:' Completed', c:completedCount},
     {v:'all', l:'All', c:requests.length},
   ]
   html += '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">'
@@ -27460,8 +27477,8 @@ function renderRentalsPage(){
           <div style="font-size:15px;font-weight:700">${escHtml(r.title||'')}</div>
           <span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${stColor}">${stLabel}</span>
           <span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${rentalCategoryMeta(r.partnership_category).badge}" title="${escHtml(rentalCategoryMeta(r.partnership_category).desc)}">${rentalCategoryMeta(r.partnership_category).shortLabel}</span>
-          ${r.awaiting_feedback?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#dbeafe;color:#1e40af">⏳ Awaiting Feedback</span>':''}
-          ${r.tour_scheduled_date?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ffedd5;color:#9a3412">🚶 Tour: '+r.tour_scheduled_date+(r.tour_scheduled_time?' '+r.tour_scheduled_time:'')+'</span>':''}
+          ${r.awaiting_feedback?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#dbeafe;color:#1e40af"> Awaiting Feedback</span>':''}
+          ${r.tour_scheduled_date?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ffedd5;color:#9a3412"> Tour: '+r.tour_scheduled_date+(r.tour_scheduled_time?' '+r.tour_scheduled_time:'')+'</span>':''}
           ${r.source==='interest_form'?'<span style="padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700;background:#ede9fe;color:#6d28d9"> Interest Form</span>':''}
          </div>
          <div style="font-size:13px;color:var(--text-muted);margin-bottom:4px">
@@ -27494,24 +27511,24 @@ function renderRentalsPage(){
           ${r.agreement_id?'Regenerate Contract':'Generate Contract'}</button>`:''}
          ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="sendRentalAgreement('${r.agreement_id}','${r.id}')">
           ${r.agreement_status==='sent'?'Resend to Partner':'Send to Partner'}</button>`:''}
-         ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="openMarkRentalSignedModal('${r.agreement_id}')" title="Use this if the partner signed a printed or emailed copy instead of the e-sign link">✍️ Mark as Signed</button>`:''}
+         ${r.agreement_id&&!r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="openMarkRentalSignedModal('${r.agreement_id}')" title="Use this if the partner signed a printed or emailed copy instead of the e-sign link"> Mark as Signed</button>`:''}
          ${(r.status==='signed'||r.status==='active')?`<button class="btn btn-secondary btn-sm" onclick="completeRentalRequest('${r.id}')" title="Move this to Completed once the partnership has run its course">✓ Mark Completed</button>`:''}
          ${r.status==='completed'?`<button class="btn btn-secondary btn-sm" onclick="reopenRentalRequest('${r.id}')">↺ Reopen</button>`:''}
 
          ${r.agreement_id?`<div style="font-size:10px;font-weight:700;letter-spacing:0.04em;text-transform:uppercase;color:var(--text-muted);margin:6px 0 -2px;text-align:right">Contract</div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
            <button class="btn btn-secondary btn-sm" onclick="viewRentalContract('${r.agreement_id}')">View</button>
-           ${r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="viewSignedRentalContract('${r.agreement_id}')">✓ Signed Copy</button>`:`<button class="btn btn-secondary btn-sm" onclick="downloadRentalAgreementPdf('${r.agreement_id}')" title="Download a PDF to email or print for partners who can't e-sign">⬇ Download PDF</button>`}
-           ${!r.hwtc_signed_name?`<button class="btn btn-secondary btn-sm" onclick="openSignHwtcModal('${r.agreement_id}')" title="Add HWTC's signature to this agreement">✍️ Add Our Signature</button>`:''}
+           ${r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="viewSignedRentalContract('${r.agreement_id}')">✓ Signed Copy</button>`:`<button class="btn btn-secondary btn-sm" onclick="downloadRentalAgreementPdf('${r.agreement_id}')" title="Download a PDF to email or print for partners who can't e-sign"> Download PDF</button>`}
+           ${!r.hwtc_signed_name?`<button class="btn btn-secondary btn-sm" onclick="openSignHwtcModal('${r.agreement_id}')" title="Add HWTC's signature to this agreement"> Add Our Signature</button>`:''}
            <button class="btn btn-secondary btn-sm" onclick="resyncRentalContractDocument('${r.agreement_id}')" title="Refresh the document with the current dates, total, and installment schedule — e.g. after adding an invoice">↻ Resync Document</button>
-           <button class="btn btn-secondary btn-sm" onclick="copyRentalPreviewLink('${r.agreement_id}')" style="font-size:11px">🔗 Review Link</button>
+           <button class="btn btn-secondary btn-sm" onclick="copyRentalPreviewLink('${r.agreement_id}')" style="font-size:11px"> Review Link</button>
           </div>`:''}
 
          ${renderRentalPaymentButtons(r)?`<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:2px">${renderRentalPaymentButtons(r)}</div>`:''}
 
          <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;margin-top:6px">
           <button class="btn btn-secondary btn-sm" onclick="openRentalMessagesModal('${r.id}')" style="position:relative">
-           💬 Messages${r.unread_message_count?`<span style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:16px;text-align:center">${r.unread_message_count}</span>`:''}
+            Messages${r.unread_message_count?`<span style="position:absolute;top:-6px;right:-6px;background:var(--red);color:#fff;font-size:10px;font-weight:700;border-radius:10px;padding:1px 6px;min-width:16px;text-align:center">${r.unread_message_count}</span>`:''}
           </button>
           <button class="btn btn-secondary btn-sm" onclick="openEditRentalModal('${r.id}')">Edit</button>
          </div>
@@ -27519,10 +27536,10 @@ function renderRentalsPage(){
          <details style="margin-top:4px;text-align:right">
           <summary style="cursor:pointer;font-size:11.5px;font-weight:700;color:var(--text-muted);list-style:none;display:inline-block;padding:4px 2px">⋯ More actions</summary>
           <div style="display:flex;flex-direction:column;gap:6px;align-items:flex-end;margin-top:6px">
-           ${r.agreement_id&&r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="downloadRentalAgreementPdf('${r.agreement_id}')" title="Blank PDF of this contract">⬇ Download Blank PDF</button>`:''}
-           <button class="btn btn-secondary btn-sm" onclick="openRentalInternalNotesModal('${r.id}')">📝 Internal Notes</button>
-           <button class="btn btn-secondary btn-sm" onclick="toggleRentalAwaitingFeedback('${r.id}',${r.awaiting_feedback?'false':'true'})">${r.awaiting_feedback?'✓ Clear Awaiting Feedback':'⏳ Mark Awaiting Feedback'}</button>
-           <button class="btn btn-secondary btn-sm" onclick="openScheduleTourModal('${r.id}')">🚶 ${r.tour_scheduled_date?'Reschedule Tour':'Schedule Tour'}</button>
+           ${r.agreement_id&&r.partner_signed_at?`<button class="btn btn-secondary btn-sm" onclick="downloadRentalAgreementPdf('${r.agreement_id}')" title="Blank PDF of this contract"> Download Blank PDF</button>`:''}
+           <button class="btn btn-secondary btn-sm" onclick="openRentalInternalNotesModal('${r.id}')"> Internal Notes</button>
+           <button class="btn btn-secondary btn-sm" onclick="toggleRentalAwaitingFeedback('${r.id}',${r.awaiting_feedback?'false':'true'})">${r.awaiting_feedback?'✓ Clear Awaiting Feedback':' Mark Awaiting Feedback'}</button>
+           <button class="btn btn-secondary btn-sm" onclick="openScheduleTourModal('${r.id}')"> ${r.tour_scheduled_date?'Reschedule Tour':'Schedule Tour'}</button>
            <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">Compliance Check</button>
            ${r.recurring?`<button class="btn btn-secondary btn-sm" onclick="viewRentalOccurrences('${r.id}')">Occurrences</button>`:''}
            ${!['denied','cancelled','signed','active','completed'].includes(r.status)?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
@@ -27617,7 +27634,7 @@ function renderRentalPaymentStatus(r){
     const color = allPaid ? '#166534' : (isOverdue || needsSending) ? '#991b1b' : '#92400e'
     let html = '<div style="margin-top:8px;padding:8px 12px;background:'+bg+';border-radius:8px;border:1px solid '+border+'">'
     html += '<div style="font-size:12px;font-weight:700;color:'+color+'">'
-      + (allPaid ? '✅ Payment Plan Paid in Full' : needsSending ? '⚠ '+r.installment_unsent_count+' Invoice(s) Need to Be Sent' : (isOverdue ? '⚠ Payment Plan — Payment Overdue' : '📅 Monthly Payment Plan Active')) + '</div>'
+      + (allPaid ? ' Payment Plan Paid in Full' : needsSending ? ' '+r.installment_unsent_count+' Invoice(s) Need to Be Sent' : (isOverdue ? ' Payment Plan — Payment Overdue' : ' Monthly Payment Plan Active')) + '</div>'
     html += '<div style="font-size:11px;color:'+color+';margin-top:2px">'
       + paidCount+' of '+totalCount+' payments paid — $'+(paidCents/100).toFixed(2)+' of $'+(totalCents/100).toFixed(2)
       + (!allPaid && r.installment_next_due_date ? ' · Next due '+r.installment_next_due_date : '')
@@ -27629,13 +27646,13 @@ function renderRentalPaymentStatus(r){
   const depositAmt = '$'+((r.deposit_amount_cents||0)/100).toFixed(2)
   let html = '<div style="margin-top:8px;padding:8px 12px;background:'+(depositPaid?'#f0fdf4':'#fffbeb')+';border-radius:8px;border:1px solid '+(depositPaid?'#86efac':'#fde68a')+'">'
   html += '<div style="font-size:12px;font-weight:700;color:'+(depositPaid?'#166534':'#92400e')+'">'
-    + (depositPaid ? '✅ Deposit Paid — Contract Active' : '⏳ Deposit Invoice Sent — Awaiting Payment') + '</div>'
+    + (depositPaid ? ' Deposit Paid — Contract Active' : ' Deposit Invoice Sent — Awaiting Payment') + '</div>'
   html += '<div style="font-size:11px;color:'+(depositPaid?'#166534':'#92400e')+';margin-top:2px">'
     + depositAmt + (r.deposit_due_date?' · Due '+r.deposit_due_date:'')
     + (depositPaid && r.deposit_paid_at ? ' · Paid '+r.deposit_paid_at.slice(0,10) : '')
     + '</div>'
   if(!depositPaid && r.deposit_public_url){
-    html += '<a href="'+r.deposit_public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice ↗</a>'
+    html += '<a href="'+r.deposit_public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice </a>'
   }
   html += '</div>'
 
@@ -27651,13 +27668,13 @@ function renderRentalPaymentStatus(r){
       const color = finalPaid ? '#166534' : (isOverdue ? '#991b1b' : '#92400e')
       html += '<div style="margin-top:8px;padding:8px 12px;background:'+bg+';border-radius:8px;border:1px solid '+border+'">'
       html += '<div style="font-size:12px;font-weight:700;color:'+color+'">'
-        + (finalPaid ? '✅ Paid in Full' : (isOverdue ? '⚠ Final Payment Overdue' : '📅 Final Payment Due')) + '</div>'
+        + (finalPaid ? ' Paid in Full' : (isOverdue ? ' Final Payment Overdue' : ' Final Payment Due')) + '</div>'
       html += '<div style="font-size:11px;color:'+color+';margin-top:2px">'
         + finalAmt + (r.final_due_date?' · Due '+r.final_due_date:'')
         + (finalPaid && r.final_paid_at ? ' · Paid '+r.final_paid_at.slice(0,10) : '')
         + '</div>'
       if(!finalPaid && r.final_public_url){
-        html += '<a href="'+r.final_public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice ↗</a>'
+        html += '<a href="'+r.final_public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice </a>'
       }
       html += '</div>'
     }
@@ -27673,13 +27690,13 @@ function renderRentalPaymentButtons(r){
   if(hasInstallments){
     const allPaid = r.installment_paid_count === r.installment_count
     if(allPaid){
-      html += '<span style="font-size:12px;color:var(--green-600,#166534);font-weight:700">✅ Payment Plan Fully Paid</span>'
+      html += '<span style="font-size:12px;color:var(--green-600,#166534);font-weight:700"> Payment Plan Fully Paid</span>'
     } else {
       const leadCutoff = new Date(Date.now() + 7*24*60*60*1000).toISOString().slice(0,10)
       const needsSending = (r.installment_unsent_count||0) > 0 && r.installment_next_unsent_due_date && r.installment_next_unsent_due_date <= leadCutoff
       const btnClass = needsSending ? 'btn btn-sm' : 'btn btn-primary btn-sm'
       const btnStyle = needsSending ? ' style="background:#fee2e2;color:#991b1b;border:1px solid #fecaca"' : ''
-      const btnLabel = needsSending ? '⚠ '+r.installment_unsent_count+' Invoice(s) Need Sending' : 'View Payment Plan ('+r.installment_paid_count+'/'+r.installment_count+' paid)'
+      const btnLabel = needsSending ? ' '+r.installment_unsent_count+' Invoice(s) Need Sending' : 'View Payment Plan ('+r.installment_paid_count+'/'+r.installment_count+' paid)'
       html += '<button class="'+btnClass+'"'+btnStyle+' onclick="openRentalPaymentsListModal(\''+r.agreement_id+'\')">'+btnLabel+'</button>'
     }
   } else if(!r.deposit_payment_id){
@@ -27779,7 +27796,7 @@ async function checkRentalPaymentStatus(paymentId){
   toast('Checking with Square...','')
   const res = await api('/api/rental/payments/'+paymentId+'/check-status','POST')
   if(res && res.id){
-    toast(res.square_invoice_status==='PAID' ? 'Paid! ✅' : 'Status: '+(res.square_invoice_status||'unknown'), 'success')
+    toast(res.square_invoice_status==='PAID' ? 'Paid! ' : 'Status: '+(res.square_invoice_status||'unknown'), 'success')
     loadRentalsPage()
   } else {
     toast((res&&res.error)||'Could not check status','error')
@@ -27897,7 +27914,7 @@ async function openRentalPaymentsListModal(agreementId){
     <div style="font-size:16px;font-weight:800;color:var(--teal-dark)">Invoices</div>
     <button onclick="document.getElementById('rental-payments-list-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button>
    </div>
-   <div style="margin-bottom:12px"><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline" onclick="copyRentalPaymentPlanLink('${agreementId}')">🔗 Copy Payment Plan link (for the partner)</span></div>
+   <div style="margin-bottom:12px"><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline" onclick="copyRentalPaymentPlanLink('${agreementId}')"> Copy Payment Plan link (for the partner)</span></div>
    <div id="rp-list-body" style="font-size:13px;color:var(--text-muted)">Loading…</div>
    <div id="rp-add-installment-wrap" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
     <div id="rp-add-installment-form" style="display:none">
@@ -27936,11 +27953,11 @@ async function openRentalPaymentsListModal(agreementId){
     const color = paid ? '#166534' : (needsSending || overdue) ? '#991b1b' : scheduled ? '#4b5563' : '#92400e'
     const label = p.installment_label || (p.payment_type==='deposit'?'Deposit':p.payment_type==='final'?'Final Payment':p.payment_type)
     let statusText
-    if(paid) statusText = '✅ Paid'
-    else if(overdue) statusText = '⚠ Overdue'
-    else if(needsSending) statusText = '⚠ Needs to be sent'
-    else if(scheduled) statusText = '📅 Scheduled'
-    else statusText = '⏳ Awaiting Payment'
+    if(paid) statusText = ' Paid'
+    else if(overdue) statusText = ' Overdue'
+    else if(needsSending) statusText = ' Needs to be sent'
+    else if(scheduled) statusText = ' Scheduled'
+    else statusText = ' Awaiting Payment'
     return '<div style="padding:10px 12px;margin-bottom:8px;background:'+bg+';border:1px solid '+border+';border-radius:8px">'
       + '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">'
       + '<div style="font-weight:700;font-size:13px;color:'+color+'">'+escHtml(label)+'</div>'
@@ -27950,7 +27967,7 @@ async function openRentalPaymentsListModal(agreementId){
       + (p.due_date?' · Due '+p.due_date:'') + (paid && p.paid_at ? ' · Paid '+p.paid_at.slice(0,10) : '')
       + (scheduled ? ' · Not yet invoiced' : '') + '</div>'
       + '<div style="margin-top:6px;display:flex;gap:10px;align-items:center">'
-      + (p.public_url?'<a href="'+p.public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice ↗</a>':'')
+      + (p.public_url?'<a href="'+p.public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice </a>':'')
       + (!paid && !scheduled?'<span style="font-size:11px;color:#145466;font-weight:600;cursor:pointer" onclick="checkRentalPaymentStatus(\''+p.id+'\').then(()=>openRentalPaymentsListModal(\''+agreementId+'\'))">Check Status</span>':'')
       + (scheduled?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendScheduledRentalInvoice(\''+p.id+'\',\''+agreementId+'\')">Send Now</button>':'')
       + (scheduled && p.payment_type==='installment'?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openEditRentalInstallmentModal(\''+p.id+'\',\''+agreementId+'\')">Edit</button>':'')
@@ -28627,7 +28644,7 @@ function openNewRentalModal(rid){
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;padding:24px;max-height:90vh;overflow-y:auto">
    <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:16px">${rid?'Edit':'New'} Partnership Request</div>
    ${(req||{}).source==='interest_form'?`<div style="background:#ede9fe;border:1px solid #ddd6fe;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#6d28d9"> Submitted via the Partnership Interest Form${(req||{}).desired_frequency?' &middot; Wants to use it: <strong>'+escHtml((req||{}).desired_frequency)+'</strong>':''}</div>`:''}
-   ${(req||{}).partner_signed_at?`<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#92400e">⚠ This partnership's contract has already been signed by ${escHtml((req||{}).partner_signed_name||'the partner')}. Saving will correct the contract document's terms in place — the existing signature is kept and nothing needs to be re-sent or re-signed. A short reason is required below for the record.</div>`:''}
+   ${(req||{}).partner_signed_at?`<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#92400e"> This partnership's contract has already been signed by ${escHtml((req||{}).partner_signed_name||'the partner')}. Saving will correct the contract document's terms in place — the existing signature is kept and nothing needs to be re-sent or re-signed. A short reason is required below for the record.</div>`:''}
    <div style="margin-bottom:16px">
     <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:6px">Partnership Category</label>
     <div style="display:flex;flex-direction:column;gap:8px">${categoryOptionsHtml}</div>
@@ -28696,7 +28713,7 @@ function openNewRentalModal(rid){
    <div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Purpose / Notes</label>
    <textarea id="rm-purpose" rows="3" placeholder="What will the space be used for? Any special requirements?" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml((req||{}).purpose||'')}</textarea></div>
    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
-    <button type="button" class="btn btn-secondary btn-sm" onclick="previewRentalAvailability('${rid||''}')">📅 Check Availability</button>
+    <button type="button" class="btn btn-secondary btn-sm" onclick="previewRentalAvailability('${rid||''}')"> Check Availability</button>
     <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">See what these dates would look like against the real calendar — nothing is saved here, and it won't go on the actual calendar until this request is fully approved.</div>
     <div id="rm-preview-results" style="margin-top:12px"></div>
    </div>
@@ -28895,8 +28912,8 @@ async function previewRentalAvailability(rid){
   const results = res.results||[]
   const conflictCount = results.filter(function(r){ return r.conflicts && r.conflicts.length }).length
   let html = '<div style="font-size:12.5px;font-weight:700;margin-bottom:8px">'
-    + (conflictCount ? ('⚠ '+conflictCount+' of '+results.length+' date'+(results.length===1?'':'s')+' conflict in '+escHtml(res.space_name||'this space'))
-       : ('✅ All '+results.length+' date'+(results.length===1?'':'s')+' are clear in '+escHtml(res.space_name||'this space')))
+    + (conflictCount ? (' '+conflictCount+' of '+results.length+' date'+(results.length===1?'':'s')+' conflict in '+escHtml(res.space_name||'this space'))
+       : (' All '+results.length+' date'+(results.length===1?'':'s')+' are clear in '+escHtml(res.space_name||'this space')))
     + '</div>'
   html += '<div style="max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">'
   results.forEach(function(r, i){
@@ -28905,8 +28922,8 @@ async function previewRentalAvailability(rid){
       + '<div style="font-weight:600">'+escHtml(r.date)+'</div>'
       + '<div style="text-align:right;color:'+(hasConflict?'var(--red)':'var(--green)')+'">'
       + (hasConflict
-          ? r.conflicts.map(function(c){ return '⚠ '+escHtml(c.title||(c.type==='event'?'Existing event':'Existing rental'))+(c.start_time?' ('+escHtml(c.start_time)+(c.end_time?'–'+escHtml(c.end_time):'')+')':'') }).join('<br>')
-          : '✅ Clear')
+          ? r.conflicts.map(function(c){ return ' '+escHtml(c.title||(c.type==='event'?'Existing event':'Existing rental'))+(c.start_time?' ('+escHtml(c.start_time)+(c.end_time?'–'+escHtml(c.end_time):'')+')':'') }).join('<br>')
+          : ' Clear')
       + '</div></div>'
   })
   html += '</div>'
@@ -28993,7 +29010,7 @@ async function openRentalInternalNotesModal(rid){
   const overlay = document.createElement('div')
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;max-height:85vh;display:flex;flex-direction:column;padding:20px">
-   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">📝 Internal Notes — ${escHtml(req.title||'')}</div>
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px"> Internal Notes — ${escHtml(req.title||'')}</div>
    <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Staff-only — never sent to the partner or shown on their portal.</div>
    <div id="rin-list" style="flex:1;overflow-y:auto;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:12px;min-height:180px;background:#fffbeb">
     <div style="font-size:12px;color:var(--text-muted);text-align:center">Loading…</div>
@@ -29061,7 +29078,7 @@ function openScheduleTourModal(rid){
   const overlay = document.createElement('div')
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:400px;padding:24px">
-   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">🚶 Schedule Venue Tour</div>
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px"> Schedule Venue Tour</div>
    <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">Shows up on the main calendar as a Venue Tour event, separate from an actual booking.</div>
    <div class="form-group" style="margin-bottom:12px">
     <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Tour Date</label>
@@ -29796,7 +29813,7 @@ function openLicensingDetail(id){
      <input type="date" id="lic-d-expires-date" value="${lr.contract_expires_date||''}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
    </div>
    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-    <label for="lic-d-file" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">📎 ${lr.contract_file_name?'Replace Contract File':'Attach Contract File'}</label>
+    <label for="lic-d-file" class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0"> ${lr.contract_file_name?'Replace Contract File':'Attach Contract File'}</label>
     <input type="file" id="lic-d-file" accept=".pdf,.doc,.docx,image/*" style="display:none"/>
     <span id="lic-d-file-status" style="font-size:12px;color:var(--text-muted)">${lr.contract_file_name?escHtml(lr.contract_file_original_name||'Contract on file'):''}</span>
     ${lr.contract_file_name?`<button class="btn btn-secondary btn-sm" onclick="window.open('/api/licensing-requests/${lr.id}/contract-file','_blank')">Download</button>
@@ -30165,8 +30182,8 @@ function renderMarqueeDashboardBody(el, data){
     + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=orders]\').click()" style="font-size:13px">View All Orders</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=registrations]\').click()" style="font-size:13px">View Registrations</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(window.location.origin+\'/donate\').then(function(){ toast(\'Donation link copied!\',\'success\') })" style="font-size:13px">Copy Donation Link</button>'
-    + '<button class="btn btn-secondary btn-sm" onclick="runMarqueeBackfill()" style="font-size:13px">🔄 Backfill Historical Payment Amounts</button>'
-    + '<button class="btn btn-secondary btn-sm" onclick="runMarqueeResplit()" style="font-size:13px" title="Fixes orders where one Square checkout covered two different programs — those used to misattribute the whole amount to just one of them">🔀 Fix Shared-Order Revenue Split</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="runMarqueeBackfill()" style="font-size:13px"> Backfill Historical Payment Amounts</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="runMarqueeResplit()" style="font-size:13px" title="Fixes orders where one Square checkout covered two different programs — those used to misattribute the whole amount to just one of them"> Fix Shared-Order Revenue Split</button>'
     + '</div>'
   html += '<div id="marquee-resplit-result" style="font-size:12px;color:var(--text-muted);margin-bottom:4px"></div>'
   html += '<div id="marquee-backfill-result" style="font-size:12px;color:var(--text-muted);margin-bottom:16px"></div>'
@@ -30228,10 +30245,10 @@ function renderMarqueeDashboardBody(el, data){
         + '</div>'
         + (p.capacity&&!p.sessions_enabled ? '<div style="margin-top:5px;height:4px;background:#e5e7eb;border-radius:2px;width:min(200px,100%)"><div style="height:100%;background:'+(fillPct>=90?'#d97706':fillPct>=70?'#f59e0b':'#145466')+';border-radius:2px;width:'+Math.min(fillPct||0,100)+'%"></div></div>' : '')
         + ((p.step_up_revenue_cents>0 || p.estimate_revenue_cents>0 || p.step_up_pending_cents>0) ? '<div style="margin-top:4px;font-size:10.5px;color:var(--text-hint)">'
-            + (p.square_revenue_cents>0 ? '🟢 '+fmtMoney(p.square_revenue_cents)+' via Square' : '')
-            + (p.step_up_revenue_cents>0 ? (p.square_revenue_cents>0?' · ':'')+'🔵 '+fmtMoney(p.step_up_revenue_cents)+' via Step Up' : '')
-            + (p.estimate_revenue_cents>0 ? (p.square_revenue_cents>0||p.step_up_revenue_cents>0?' · ':'')+'⚪ '+fmtMoney(p.estimate_revenue_cents)+' not yet confirmed' : '')
-            + (p.step_up_pending_cents>0 ? ' · 🟡 '+fmtMoney(p.step_up_pending_cents)+' pending Step Up (not counted yet)' : '')
+            + (p.square_revenue_cents>0 ? ' '+fmtMoney(p.square_revenue_cents)+' via Square' : '')
+            + (p.step_up_revenue_cents>0 ? (p.square_revenue_cents>0?' · ':'')+' '+fmtMoney(p.step_up_revenue_cents)+' via Step Up' : '')
+            + (p.estimate_revenue_cents>0 ? (p.square_revenue_cents>0||p.step_up_revenue_cents>0?' · ':'')+' '+fmtMoney(p.estimate_revenue_cents)+' not yet confirmed' : '')
+            + (p.step_up_pending_cents>0 ? ' ·  '+fmtMoney(p.step_up_pending_cents)+' pending Step Up (not counted yet)' : '')
             + ' <span title="Square\'s own item-level sales report won\'t include Step Up money \u2014 it has no catalog item or order attached, so compare their report to the Square figure here, not the full total.">ⓘ</span>'
             + '</div>' : '')
         + '</div>'
@@ -30285,7 +30302,7 @@ function renderMarqueeDashboardBody(el, data){
       } else {
         var flatRegs = regsByProgram[p.id] || []
         var badgeColors = {confirmed:'#dcfce7;color:#166534',pending_payment:'#fef3c7;color:#92400e',waitlisted:'#ede9fe;color:#6d28d9'}
-        var sourceDot = {square:'🟢', step_up:'🔵', step_up_pending:'🟡', estimate:'⚪', comped:'🎁'}
+        var sourceDot = {square:'', step_up:'', step_up_pending:'', estimate:'', comped:''}
         var sourceLabel = {square:'Confirmed via Square', step_up:'Confirmed via Step Up', step_up_pending:'Step Up hold — not yet charged', estimate:'Not yet confirmed — showing the estimated price', comped:'Comp\'d (complimentary)'}
         html += '<div style="padding:8px 20px 4px 36px;font-size:12px;color:var(--text-muted)">'
           + p.confirmed_count+' registered'+(p.pending_count>0?', '+p.pending_count+' pending':'')
@@ -30297,7 +30314,7 @@ function renderMarqueeDashboardBody(el, data){
               var name = r.participant_name || ((r.child_first_name||'')+(r.child_last_name?' '+r.child_last_name:'')) || r.guardian_name || '—'
               var bc = badgeColors[r.status]||'#f3f4f6;color:#374151'
               var amt = r.effective_amount_cents!=null ? '$'+(r.effective_amount_cents/100).toFixed(2) : '—'
-              var dot = sourceDot[r.amount_source] || '⚪'
+              var dot = sourceDot[r.amount_source] || ''
               var title = (sourceLabel[r.amount_source]||'')+': '+amt+' — click to '+(r.is_comped?'remove comp\'d status':'mark as comp\'d')
               return '<span title="'+escHtml(title)+'" onclick="toggleRegComped(\''+r.id+'\',\''+(r.is_comped?'false':'true')+'\')" style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;background:'+bc+';cursor:pointer">'+dot+' '+escHtml(name)+'</span>'
             }).join('')
@@ -30525,7 +30542,7 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
           var actions = '<button class="btn btn-secondary btn-sm mq-edit-btn" data-pid="'+actionId+'" data-rid="'+r.id+'" data-type="'+r.context_type+'" style="padding:2px 8px;font-size:11px">Edit</button>'
           if(r.status==='pending_payment') actions += ' <button class="btn btn-secondary btn-sm mq-resend-btn" data-pid="'+actionId+'" data-rid="'+r.id+'" data-type="'+r.context_type+'" style="padding:2px 8px;font-size:11px">Resend</button>'
           if(r.balance_due>0 && r.status==='confirmed') actions += ' <button class="btn btn-secondary btn-sm mq-balance-btn" data-pid="'+actionId+'" data-rid="'+r.id+'" data-type="'+r.context_type+'" style="padding:2px 8px;font-size:11px">Pay Balance</button>'
-          if(r.status==='confirmed') actions += ' <a href="/api/registrations/'+r.id+'/invoice" target="_blank" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px;text-decoration:none;display:inline-block">🧾 Invoice</a>'
+          if(r.status==='confirmed') actions += ' <a href="/api/registrations/'+r.id+'/invoice" target="_blank" class="btn btn-secondary btn-sm" style="padding:2px 8px;font-size:11px;text-decoration:none;display:inline-block"> Invoice</a>'
           return '<tr style="border-bottom:1px solid var(--border)">'
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
@@ -30757,7 +30774,7 @@ async function openOrderModal(type, id, pid){
       html += '<button class="btn btn-secondary btn-sm od-balance-btn" data-pid="'+escHtml(pid||'')+'" data-rid="'+escHtml(id)+'" style="font-size:12px">Send Balance Link</button>'
   }
   if(data.square_order_id)
-    html += '<a href="https://squareup.com/dashboard/sales/transactions" target="_blank" class="btn btn-secondary btn-sm" style="font-size:12px;text-decoration:none">View in Square ↗</a>'
+    html += '<a href="https://squareup.com/dashboard/sales/transactions" target="_blank" class="btn btn-secondary btn-sm" style="font-size:12px;text-decoration:none">View in Square </a>'
   html += '<button class="btn btn-sm od-delete-btn" style="font-size:12px;background:#fee2e2;color:#991b1b;border:none;border-radius:8px;padding:8px 14px;cursor:pointer;font-family:inherit;font-weight:700;margin-left:auto">Delete Order</button>'
   html += '</div>'
 
@@ -30890,7 +30907,7 @@ async function renderMarqueeDiscounts(el){
       html += '<div class="card" style="padding:16px;margin-bottom:10px">'
         + '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:#0d3d4d">'+escHtml(p.name)+'</div>'
         + codes.map(function(c){
-            var label = c.is_sibling_discount ? '🤝 Sibling: ' : ''
+            var label = c.is_sibling_discount ? ' Sibling: ' : ''
             label += c.discount_value+(c.discount_type==='percent'?'% off':'¢ off')
             if(c.min_spend) label += ' (min $'+(c.min_spend/100).toFixed(2)+')'
             var uses = c.max_uses ? (c.uses||0)+'/'+c.max_uses+' uses' : (c.uses||0)+' uses'
@@ -30915,7 +30932,7 @@ async function renderMarqueeDiscounts(el){
       html += '<div class="card" style="padding:16px;margin-bottom:10px">'
         + '<div style="font-weight:700;font-size:13px;margin-bottom:8px;color:#6d28d9">'+escHtml(rp.name)+'</div>'
         + rcodes.map(function(c){
-            var label = c.is_sibling_discount ? '🤝 Sibling: ' : ''
+            var label = c.is_sibling_discount ? ' Sibling: ' : ''
             label += c.discount_value+(c.discount_type==='percent'?'% off':'¢ off')
             if(c.min_spend) label += ' (min $'+(c.min_spend/100).toFixed(2)+')'
             var uses = c.max_uses ? (c.uses||0)+'/'+c.max_uses+' uses' : (c.uses||0)+' uses'
@@ -31067,7 +31084,7 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
 <div class="modal-overlay" id="modal-tk-venues">
   <div class="modal modal-lg">
     <div class="modal-header">
-      <div class="modal-title">🏛️ Venues &amp; Seat Maps</div>
+      <div class="modal-title"> Venues &amp; Seat Maps</div>
       <button class="modal-close" onclick="closeModal('modal-tk-venues')">×</button>
     </div>
     <div class="modal-body" id="tk-venues-body">
@@ -31130,16 +31147,16 @@ async function loadTicketsTab(pid){
   }
   var toolbar =
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">'
-    + '<div style="font-size:15px;font-weight:700">🎟️ Performances</div>'
+    + '<div style="font-size:15px;font-weight:700"> Performances</div>'
     + '<div style="display:flex;gap:8px">'
-    + '<button class="btn btn-secondary btn-sm" onclick="openVenuesModal()">🏛️ Venues</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openVenuesModal()"> Venues</button>'
     + '<button class="btn btn-primary btn-sm" onclick="ticketPerfModal(\''+pid+'\')">+ Add Performance</button>'
     + '</div></div>';
 
   if(!perfs || !perfs.length){
     el.innerHTML = toolbar
       + '<div class="empty-state" style="padding:40px 20px;text-align:center;color:var(--text-muted)">'
-      + '<div style="font-size:34px">🎭</div>'
+      + '<div style="font-size:34px"></div>'
       + '<p style="margin:8px 0 2px;font-weight:600">No performances yet</p>'
       + '<p style="font-size:13px">Add showtimes for this production to start selling tickets.</p>'
       + '</div>';
@@ -31157,9 +31174,9 @@ async function loadTicketsTab(pid){
       +   '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'
       +     '<div style="flex:1;min-width:200px">'
       +       '<div style="font-size:15px;font-weight:700">'+escHtml(p.name||'Performance')+'  '+tkStatusBadge(p.status)+'</div>'
-      +       '<div style="font-size:13px;color:var(--text-muted);margin-top:3px">📅 '+when+'</div>'
-      +       '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">📍 '+escHtml(p.venue_name||'No venue')+'</div>'
-      +       '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">🪑 '+seatInfo+'</div>'
+      +       '<div style="font-size:13px;color:var(--text-muted);margin-top:3px"> '+when+'</div>'
+      +       '<div style="font-size:13px;color:var(--text-muted);margin-top:2px"> '+escHtml(p.venue_name||'No venue')+'</div>'
+      +       '<div style="font-size:13px;color:var(--text-muted);margin-top:2px"> '+seatInfo+'</div>'
       +       '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(p.ticket_type_count||0)+' ticket type(s)</div>'
       +     '</div>'
       +     '<div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:130px">'

@@ -26306,18 +26306,21 @@ async function loadCastAnnouncementPanel(pid){
  <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Reveal countdown targets</label>
  <input type="datetime-local" id="cast-reveal-at-${pid}" value="${revealAt}" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
  </div>
- <button class="btn btn-secondary btn-sm" onclick="saveCastRevealAt('${pid}')">Save Countdown</button>
+ <button class="btn btn-secondary btn-sm" onclick="saveCastRevealAt('${pid}')">Save</button>
  ${revealAt?`<button class="btn btn-secondary btn-sm" onclick="clearCastRevealAt('${pid}')">Clear</button>`:''}
  </div>
  <div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">${queued
    ? 'This list is built and waiting — it\'ll go live on its own the moment the countdown ends. No need to come back and click anything.'
-   : 'If a countdown is set, Publish will hold the list until it ends instead of showing it right away — so clicking early never spoils the reveal.'}</div>
+   : '"Save" just stores the countdown time. "Save & Queue" also builds the cast list now and holds it until that time. "Publish Override" skips the countdown and shows it immediately.'}</div>
  <div style="display:flex;gap:8px;flex-wrap:wrap">
  ${queued?`
- <button class="btn btn-primary btn-sm" onclick="toggleCastPublish('${pid}',true,true)">Publish Now (Skip Countdown)</button>
  <button class="btn btn-secondary btn-sm" onclick="toggleCastPublish('${pid}',false)">Cancel Queue</button>
+ <button class="btn btn-primary btn-sm" onclick="toggleCastPublish('${pid}',true,true)">Publish Override (Force Now)</button>
+ `:published?`
+ <button class="btn btn-secondary btn-sm" onclick="toggleCastPublish('${pid}',false)">Unpublish Cast List</button>
  `:`
- <button class="btn ${published?'btn-secondary':'btn-primary'} btn-sm" onclick="toggleCastPublish('${pid}',${!published})">${published?'Unpublish Cast List':'Publish Cast List to Portal'}</button>
+ <button class="btn btn-secondary btn-sm" onclick="saveAndQueueCastList('${pid}')">Save & Queue Cast List</button>
+ <button class="btn btn-primary btn-sm" onclick="toggleCastPublish('${pid}',true,true)">Publish Override (Force Now)</button>
  `}
  </div>
  `:''}
@@ -26331,7 +26334,19 @@ async function saveCastRevealAt(pid){
  const val = document.getElementById('cast-reveal-at-'+pid)?.value || null
  const res = await api(`/api/auditions/settings/production/${pid}/reveal`, 'PUT', {cast_list_reveal_at: val})
  if(res?.error){ toast(res.error,'error'); return }
- toast(val?'Countdown set!':'Countdown cleared','success')
+ toast(val?'Countdown saved!':'Countdown cleared','success')
+ loadCastAnnouncementPanel(pid)
+}
+
+async function saveAndQueueCastList(pid){
+ const val = document.getElementById('cast-reveal-at-'+pid)?.value || null
+ if(!val){ toast('Set a countdown time first, or use Publish Override to show it right away.','error'); return }
+ if(!confirm('Save this countdown and build the cast list now? It will stay hidden from families until the countdown ends, then go live automatically.')) return
+ const saveRes = await api(`/api/auditions/settings/production/${pid}/reveal`, 'PUT', {cast_list_reveal_at: val})
+ if(saveRes?.error){ toast(saveRes.error,'error'); return }
+ const res = await api(`/api/auditions/settings/production/${pid}/publish-cast`, 'POST', {publish: true, force: false})
+ if(res?.error){ toast(res.error,'error'); return }
+ toast(res.queued ? 'Cast list queued — it\'ll go live automatically when the countdown ends' : 'Countdown had already passed, so it published immediately', 'success')
  loadCastAnnouncementPanel(pid)
 }
 

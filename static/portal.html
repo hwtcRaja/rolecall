@@ -1469,37 +1469,6 @@ function buildProductionOverviewHTML(prod, events, announcements, conflicts, chi
 
 
 
- // ── Cast list published banner ──
- const overviewCastEl = document.getElementById('overview-cast-section-'+prodId)
- if(prodId &&!overviewCastEl){
- fetch(`/api/auditions/cast-list/production/${prodId}`,{cache:'no-store'})
-.then(r=>r.json())
-.then(data=>{
- if(data?.published && data.cast?.length){
- const container = document.getElementById('dtab-overview')
- if(container){
- const div = document.createElement('div')
- div.id = 'overview-cast-section-'+prodId
- div.style.cssText = 'margin-bottom:20px;padding:0 20px'
- const accent = data.portal_color || '#145466'
- const logo = data.portal_logo_url || ''
- div.innerHTML = `<div style="background:${accent};color:#fff;border-radius:var(--radius);padding:14px 16px;margin-bottom:4px">
- <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
- ${logo?`<img src="${logo}" style="width:20px;height:20px;object-fit:contain;border-radius:4px" onerror="this.style.display='none'"/>`:''}
- <div style="font-size:11px;opacity:0.7;font-weight:700;letter-spacing:0.5px;text-transform:uppercase">Cast Announcement</div>
- </div>
- <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px">
- ${data.cast.map(c=>`<span style="background:rgba(255,255,255,0.15);padding:4px 12px;border-radius:20px;font-size:13px;font-weight:600">
- ${escHtml(c.submitter_name)}${c.cast_role?' — '+escHtml(c.cast_role):''}
- </span>`).join('')}
- </div>
- </div>`
- container.insertBefore(div, container.firstChild)
- }
- }
- }).catch(()=>{})
- }
-
  // ── Role banner (if cast) ──
  if(castRole){
  html += '<div style="background:#334155;border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between">'

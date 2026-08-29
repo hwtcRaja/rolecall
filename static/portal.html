@@ -826,6 +826,25 @@ async function selectContext(type, id, name, color){
  tabDefs.push({id:'messages', label:' Messages'})
  // Profile tab removed — shown at top of page instead
 
+ // Apply staff's saved tab order (if any) — tabs not mentioned in the saved
+ // order keep their default relative order and are appended after the ones
+ // that were explicitly placed.
+ let savedTabOrder = []
+ try {
+ const orderSrc = isProduction
+ ? activeChildData.productions?.find(p=>p.id===id)?.portal_tab_order
+ : activeChildData.enrollments?.find(e=>e.program_id===id)?.program_portal_tab_order
+ savedTabOrder = JSON.parse(orderSrc || '[]')
+ } catch(e){ savedTabOrder = [] }
+ if(savedTabOrder.length){
+ const defaultIndex = new Map(tabDefs.map((t,i)=>[t.id,i]))
+ tabDefs.sort((a,b)=>{
+ let ia = savedTabOrder.indexOf(a.id); if(ia===-1) ia = 1000+defaultIndex.get(a.id)
+ let ib = savedTabOrder.indexOf(b.id); if(ib===-1) ib = 1000+defaultIndex.get(b.id)
+ return ia-ib
+ })
+ }
+
  document.getElementById('detail-tabs').innerHTML = ''
  tabDefs.forEach((t,i)=>{
  const btn = document.createElement('button')
@@ -897,13 +916,14 @@ async function selectContext(type, id, name, color){
  // Build Cast List tab HTML (countdown pre-reveal, actual list once published)
  const castListHTML = showCastListTab ? buildCastListTabHTML(castListData, auditionSettings) : ''
 
- // Set all tab content at once — overview is default for productions, schedule for programs
- const firstTab = type==='production' ? 'overview': 'schedule'
+ // Set all tab content at once — whichever tab ends up first (respecting
+ // any saved reorder) is the one shown active, not always overview/schedule.
+ const firstTab = tabDefs[0]?.id || (isProduction ? 'overview' : 'schedule')
  const tabHTML =
- '<div class="tab-content '+(firstTab==='schedule'?'active':'')+'" id="dtab-schedule" style="padding:20px">'+schedHTML+'</div>'
+ '<div class="tab-content" id="dtab-schedule" style="padding:20px">'+schedHTML+'</div>'
  +'<div class="tab-content" id="dtab-announcements" style="padding:20px">'+annHTML+'</div>'
  +'<div class="tab-content" id="dtab-files" style="padding:20px">'+filesHTML+'</div>'
- +(type==='production'?'<div class="tab-content '+(firstTab==='overview'?'active':'')+'" id="dtab-overview" style="padding:20px">'+overviewHTML+'</div>':'')
+ +(type==='production'?'<div class="tab-content" id="dtab-overview" style="padding:20px">'+overviewHTML+'</div>':'')
  +(type==='production'?'<div class="tab-content" id="dtab-general" style="padding:20px">'+generalHTML+'</div>':'')
  +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
  +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
@@ -913,6 +933,18 @@ async function selectContext(type, id, name, color){
 
  document.getElementById('detail-tab-contents').innerHTML = tabHTML
  panel.scrollIntoView({behavior:'smooth', block:'nearest'})
+ // Activate whichever tab is actually first, and replicate switchDetailTab's
+ // lazy-load special-cases for auditions/messages if either lands there.
+ const activeContent = document.getElementById('dtab-'+firstTab)
+ if(activeContent){ activeContent.classList.add('active'); activeContent.style.display = 'block' }
+ if(firstTab === 'messages'){
+ loadInlineMessages(portalSession?.passphrase || '', activeContextType, activeContextId)
+ }
+ if(firstTab === 'auditions'){
+ const participant = activeChildData?.members?.find(m=>String(m.id)===String(activeChildId)) || portalSession?.participant
+ const pName = participant ? (participant.first_name+' '+(participant.last_name||'')).trim(): ''
+ loadPortalAuditionsTab(activeContextType, activeContextId, portalSession?.passphrase || '', activeChildId, pName)
+ }
  if(showCastListTab && !castListData?.published && auditionSettings?.cast_list_reveal_at){
  startPortalCastCountdown(id, auditionSettings.cast_list_reveal_at)
  }

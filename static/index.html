@@ -20436,11 +20436,17 @@ async function loadYouthSignInTab(yid){
 // ═══════════════════════════════════════════════════════════════
 
 let ysiView = 'card'
+let ysiMode = 'in' // 'in' = signing kids in (shows who's not here yet), 'out' = signing kids out (shows who's present)
 let ysiCurrentFilter = {category:'program', parentId:'', eventId:''}
 let ysiData = []
 let ysiRoster = []
 let ysiAdultRoster = [] // for rising stars — adult crew
 let ysiConflicts = {} // youth_id → conflict for today's event
+
+function setYsiMode(mode){
+ ysiMode = mode
+ setYsiView(ysiView) // re-render current sheet with the new mode's filter applied
+}
 
 function initYouthSignIn(){
  setYsiCategory('program')
@@ -20536,6 +20542,7 @@ async function loadYouthSignInSheet(){
  const parentId = document.getElementById('ysi-filter-id').value
  const eventId = document.getElementById('ysi-filter-event')?.value || ''
  ysiCurrentFilter = {...ysiCurrentFilter, parentId, eventId}
+ ysiMode = 'in' // default back to the sign-in queue whenever the roster/context changes
 
  const content = document.getElementById('ysi-content')
  if(!parentId && cat!== 'standalone'){
@@ -20637,10 +20644,16 @@ function renderYsiSheet(label, isAdmin, isRisingStars){
  const activeSignIn = {}
  ysiData.forEach(r=>{ if(!r.signed_out_at) activeSignIn[r.youth_id] = r })
  const present = Object.keys(activeSignIn).length
+ const notYetIn = ysiRoster.length - present
 
  const viewToggle = `<div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
  <button class="btn btn-sm ${ysiView==='card'?'btn-primary':'btn-secondary'}" onclick="setYsiView('card')" style="border-radius:8px;padding:5px 12px">⊞ Cards</button>
  <button class="btn btn-sm ${ysiView==='list'?'btn-primary':'btn-secondary'}" onclick="setYsiView('list')" style="border-radius:8px;padding:5px 12px">List</button>
+ </div>`
+
+ const modeToggle = `<div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
+ <button class="btn btn-sm ${ysiMode==='in'?'btn-primary':'btn-secondary'}" onclick="setYsiMode('in')" style="border-radius:8px;padding:5px 12px">Signing In${notYetIn?' ('+notYetIn+')':''}</button>
+ <button class="btn btn-sm ${ysiMode==='out'?'btn-primary':'btn-secondary'}" onclick="setYsiMode('out')" style="border-radius:8px;padding:5px 12px">Signing Out${present?' ('+present+')':''}</button>
  </div>`
 
  const header = `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:20px">
@@ -20648,22 +20661,30 @@ function renderYsiSheet(label, isAdmin, isRisingStars){
  <div style="font-size:18px;font-weight:700">${label}</div>
  <div style="font-size:13px;color:var(--text-muted)">${ysiRoster.length} participants · <span style="color:var(--green-600);font-weight:600">${present} here now</span></div>
  </div>
- <div style="display:flex;gap:8px;align-items:center">
+ <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+ ${modeToggle}
  ${viewToggle}
  ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff(null,'')">+ Sign In</button>`:''}
  <button class="btn btn-secondary btn-sm" onclick="exportYouthSignInSheet()">⬇ Export</button>
  </div>
  </div>`
 
+ // Signing-in mode shows who hasn't arrived yet (they drop off the list once
+ // signed in); signing-out mode shows only who's currently present (they
+ // drop off once signed out) — so staff work through one list at a time
+ // instead of hunting for the right row in the full roster.
+ const visibleRoster = ysiRoster.filter(y => ysiMode==='in' ? !activeSignIn[y.id] : !!activeSignIn[y.id])
+ const emptyMsg = ysiMode==='in' ? 'Everyone\'s signed in! 🎉' : 'No one is currently signed in.'
+
  if(ysiView==='card'){
- const cards = ysiRoster.map(y=>{
+ const cards = visibleRoster.map(y=>{
  const rec = activeSignIn[y.id]
  const isIn =!!rec
  return buildYsiCard(y, rec, isIn, isAdmin)
  }).join('')
- content.innerHTML = header + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">${cards||'<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--text-muted)">No participants</div>'}</div>`
+ content.innerHTML = header + `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">${cards||`<div style="grid-column:1/-1;text-align:center;padding:32px;color:var(--text-muted)">${emptyMsg}</div>`}</div>`
  } else {
- const rows = ysiRoster.map(y=>{
+ const rows = visibleRoster.map(y=>{
  const rec = activeSignIn[y.id]
  const isIn =!!rec
  return `<tr style="${isIn?'background:var(--teal-50)':''}">
@@ -20680,7 +20701,7 @@ function renderYsiSheet(label, isAdmin, isRisingStars){
  }).join('')
  content.innerHTML = header + `<div class="card"><table><thead><tr>
  <th>Name</th><th>Signed In</th><th>Dropped Off By</th><th>Signed Out</th><th>Picked Up By</th>${isAdmin?'<th></th>':''}
- </tr></thead><tbody>${rows||`<tr><td colspan="${isAdmin?6:5}" style="text-align:center;padding:24px;color:var(--text-muted)">No participants</td></tr>`}</tbody></table></div>`
+ </tr></thead><tbody>${rows||`<tr><td colspan="${isAdmin?6:5}" style="text-align:center;padding:24px;color:var(--text-muted)">${emptyMsg}</td></tr>`}</tbody></table></div>`
  }
 }
 
@@ -20718,11 +20739,24 @@ function renderRisingStarsSheet(label, eventId, isAdmin){
  const activeSignIn = {}
  ysiData.forEach(r=>{ if(!r.signed_out_at) activeSignIn[r.youth_id] = r })
  const present = Object.keys(activeSignIn).length
+ const notYetIn = ysiRoster.length - present
 
  const viewToggle = `<div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
  <button class="btn btn-sm ${ysiView==='card'?'btn-primary':'btn-secondary'}" onclick="setYsiView('card')" style="border-radius:8px;padding:5px 12px">⊞ Cards</button>
  <button class="btn btn-sm ${ysiView==='list'?'btn-primary':'btn-secondary'}" onclick="setYsiView('list')" style="border-radius:8px;padding:5px 12px">List</button>
  </div>`
+
+ const modeToggle = `<div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:2px">
+ <button class="btn btn-sm ${ysiMode==='in'?'btn-primary':'btn-secondary'}" onclick="setYsiMode('in')" style="border-radius:8px;padding:5px 12px">Signing In${notYetIn?' ('+notYetIn+')':''}</button>
+ <button class="btn btn-sm ${ysiMode==='out'?'btn-primary':'btn-secondary'}" onclick="setYsiMode('out')" style="border-radius:8px;padding:5px 12px">Signing Out${present?' ('+present+')':''}</button>
+ </div>`
+
+ // Signing-in mode shows who hasn't arrived (drops off the list once signed
+ // in); signing-out mode shows only who's present (drops off once signed
+ // out). Kids with a conflict still show in whichever list matches their
+ // sign-in state, so staff can see why they haven't arrived.
+ const visibleRoster = ysiRoster.filter(y => ysiMode==='in' ? !activeSignIn[y.id] : !!activeSignIn[y.id])
+ const emptyMsg = ysiMode==='in' ? 'Everyone\'s signed in! 🎉' : 'No one is currently signed in.'
 
  // Youth section
  const youthSection = `<div style="margin-bottom:28px">
@@ -20731,16 +20765,17 @@ function renderRisingStarsSheet(label, eventId, isAdmin){
  <div style="font-size:16px;font-weight:700"> Youth Participants</div>
  <div style="font-size:13px;color:var(--text-muted)">${ysiRoster.length} participants · ${present} here now</div>
  </div>
- <div style="display:flex;gap:8px">
+ <div style="display:flex;gap:8px;flex-wrap:wrap">
+ ${modeToggle}
  ${viewToggle}
  ${isAdmin&&ysiCurrentFilter.parentId?`<button class="btn btn-secondary btn-sm" onclick="loadAndShowYouthProdEnroll('${ysiCurrentFilter.parentId}')">⊕ Manage Roster</button>`:''}
  ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="ysiDropOff(null,'')">+ Drop Off</button>`:''}
  </div>
  </div>
  ${ysiView==='card'
- ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">'+( ysiRoster.map(y=>buildYsiCard(y,activeSignIn[y.id],!!activeSignIn[y.id],isAdmin)).join('')||'<div style="grid-column:1/-1;color:var(--text-muted);font-size:13px;padding:12px">No enrolled participants. Enroll youth from Programs & Classes.</div>' )+'</div>'
+ ? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px">'+( visibleRoster.map(y=>buildYsiCard(y,activeSignIn[y.id],!!activeSignIn[y.id],isAdmin)).join('')||`<div style="grid-column:1/-1;color:var(--text-muted);font-size:13px;padding:12px">${emptyMsg}</div>` )+'</div>'
 : '<div class="card"><table><thead><tr><th>Name</th><th>Status / Conflict</th><th>Signed In</th><th>Dropped Off By</th><th>Signed Out</th>'+(isAdmin?'<th></th>':'')+'</tr></thead><tbody>'
- + (ysiRoster.map(y=>{
+ + (visibleRoster.map(y=>{
  const rec=activeSignIn[y.id]; const isIn=!!rec
  const conflict=ysiConflicts[y.id]
  const conflictLabel={absent:' Absent',sick:' Sick',late:' Late',leaving_early:' Leaving Early'}
@@ -20758,7 +20793,7 @@ function renderRisingStarsSheet(label, eventId, isAdmin){
  +(isAdmin&&conflict?'<td><span style="font-size:11px;color:var(--text-hint)">'+(conflict.source==='portal'?'Self-reported':'Staff')+'</span></td>':'')
  +'</tr>'
  }).join('')
- || '<tr><td colspan="'+(isAdmin?6:5)+'" style="text-align:center;padding:16px;color:var(--text-muted)">No enrolled participants</td></tr>' )
+ || '<tr><td colspan="'+(isAdmin?6:5)+'" style="text-align:center;padding:16px;color:var(--text-muted)">'+emptyMsg+'</td></tr>' )
  +'</tbody></table></div>'}
  </div>`
 
@@ -22297,6 +22332,12 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
  <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Which participants still need to sign required waivers</div>
  <div id="prog-waiver-status-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
  </div>
+
+ <!-- Portal tab order card -->
+ <div class="card" style="padding:20px;margin-top:16px">
+ <div style="font-size:15px;font-weight:700;margin-bottom:4px">↕ Portal Tab Order</div>
+ <div id="prog-taborder-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+ </div>
  </div>
  <div id="pdtab-registrations" style="display:none">
   <div id="prog-registrations-content"><div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div></div>
@@ -22330,6 +22371,7 @@ function renderProductionPortalHTML(pid, stage){
  <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">About</button>
  <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">Meet the Team</button>
  ${isRS?'<button class="portal-sub-btn" data-ptab="messages" onclick="switchProdPortalTab(\'messages\',this)">Messages</button>':''}
+ <button class="portal-sub-btn" data-ptab="taborder" onclick="switchProdPortalTab('taborder',this)">↕ Tab Order</button>
  </div>
 
  ${isRS?`<div id="pptab-overview-${pid}" style="display:none"><div id="prod-overview-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>`:''}
@@ -22460,10 +22502,110 @@ function renderProductionPortalHTML(pid, stage){
  <div id="pptab-messages-${pid}" style="display:none">
    <div id="pptab-messages-inner-${pid}"><div style="text-align:center;padding:30px;color:var(--text-muted)">Loading messages…</div></div>
  </div>`:''}
+
+ <!-- Tab Order -->
+ <div id="pptab-taborder-${pid}" style="display:none">
+ <div id="pptab-taborder-inner-${pid}"><div style="padding:20px;color:var(--text-muted)">Loading…</div></div>
+ </div>
 `
 }
 
+// ── FAMILY PORTAL TAB ORDER ──
+const PORTAL_TABS_BY_TYPE = {
+ production: [
+ {id:'overview', label:'Overview'},
+ {id:'general', label:'Info'},
+ {id:'schedule', label:'Schedule'},
+ {id:'announcements', label:'Announcements'},
+ {id:'files', label:'Rehearsal Materials'},
+ {id:'team', label:'Meet the Team'},
+ {id:'conflicts', label:'Conflicts'},
+ {id:'castlist', label:'📋 Cast List'},
+ {id:'auditions', label:'Auditions'},
+ {id:'messages', label:'Messages'},
+ ],
+ program: [
+ {id:'schedule', label:'Schedule'},
+ {id:'announcements', label:'Announcements'},
+ {id:'files', label:'Files'},
+ {id:'auditions', label:'Auditions'},
+ {id:'messages', label:'Messages'},
+ ],
+}
+window._portalTabOrderState = window._portalTabOrderState || {}
+
+function loadPortalTabOrderEditor(contextType, contextId, containerId){
+ const el = document.getElementById(containerId)
+ if(!el) return
+ const src = contextType==='production' ? allProductions.find(p=>p.id===contextId) : allPrograms.find(p=>p.id===contextId)
+ let saved = []
+ try { saved = JSON.parse(src?.portal_tab_order || '[]') } catch(e){ saved = [] }
+ const candidates = PORTAL_TABS_BY_TYPE[contextType] || []
+ const defaultIndex = new Map(candidates.map((t,i)=>[t.id,i]))
+ const ordered = candidates.slice().sort((a,b)=>{
+ let ia = saved.indexOf(a.id); if(ia===-1) ia = 1000+defaultIndex.get(a.id)
+ let ib = saved.indexOf(b.id); if(ib===-1) ib = 1000+defaultIndex.get(b.id)
+ return ia-ib
+ })
+ window._portalTabOrderState[contextId] = ordered.map(t=>t.id)
+ renderPortalTabOrderEditor(contextType, contextId, containerId)
+}
+
+function renderPortalTabOrderEditor(contextType, contextId, containerId){
+ const el = document.getElementById(containerId)
+ if(!el) return
+ const candidates = PORTAL_TABS_BY_TYPE[contextType] || []
+ const labelById = Object.fromEntries(candidates.map(t=>[t.id,t.label]))
+ const order = window._portalTabOrderState[contextId] || []
+ el.innerHTML = `
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">This is the order families see these tabs in on the portal. Tabs that don't apply to a given show (like Cast List before a countdown is set) are simply skipped — no need to remove them here.</div>
+ <div style="display:flex;flex-direction:column;gap:6px;max-width:420px">
+ ${order.map((tid,i)=>`
+ <div style="display:flex;align-items:center;gap:10px;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+ <span style="font-size:13px;font-weight:600;flex:1">${labelById[tid]||tid}</span>
+ <button class="btn btn-secondary btn-sm" style="padding:3px 8px" ${i===0?'disabled':''} onclick="movePortalTabOrder('${contextType}','${contextId}',${i},-1)">↑</button>
+ <button class="btn btn-secondary btn-sm" style="padding:3px 8px" ${i===order.length-1?'disabled':''} onclick="movePortalTabOrder('${contextType}','${contextId}',${i},1)">↓</button>
+ </div>`).join('')}
+ </div>
+ <div style="display:flex;gap:8px;margin-top:14px">
+ <button class="btn btn-primary btn-sm" onclick="savePortalTabOrder('${contextType}','${contextId}')">Save Order</button>
+ <button class="btn btn-secondary btn-sm" onclick="resetPortalTabOrder('${contextType}','${contextId}','${containerId}')">Reset to Default</button>
+ </div>`
+}
+
+function portalTabOrderContainerId(contextType, contextId){
+ return contextType==='production' ? 'pptab-taborder-inner-'+contextId : 'prog-taborder-current'
+}
+
+function movePortalTabOrder(contextType, contextId, idx, dir){
+ const order = window._portalTabOrderState[contextId]
+ const j = idx+dir
+ if(!order || j<0 || j>=order.length) return
+ ;[order[idx], order[j]] = [order[j], order[idx]]
+ renderPortalTabOrderEditor(contextType, contextId, portalTabOrderContainerId(contextType, contextId))
+}
+
+async function savePortalTabOrder(contextType, contextId){
+ const order = window._portalTabOrderState[contextId] || []
+ const res = await api(`/api/portal-tab-order/${contextType}/${contextId}`, 'PUT', {order})
+ if(res?.error){ toast(res.error,'error'); return }
+ // Keep the cached production/program object in sync so re-opening this
+ // editor (or anything else reading portal_tab_order) sees the new value.
+ const list = contextType==='production' ? allProductions : allPrograms
+ const obj = list.find(p=>p.id===contextId)
+ if(obj) obj.portal_tab_order = JSON.stringify(order)
+ toast('Portal tab order saved!','success')
+}
+
+async function resetPortalTabOrder(contextType, contextId, containerId){
+ window._portalTabOrderState[contextId] = (PORTAL_TABS_BY_TYPE[contextType]||[]).map(t=>t.id)
+ renderPortalTabOrderEditor(contextType, contextId, containerId)
+ await savePortalTabOrder(contextType, contextId)
+}
+
 async function loadProductionRegistrations(pid){
+
+
   const el = document.getElementById('prodtab-registrations-inner-'+pid)
   if(!el) return
   const prod = allProductions.find(p=>p.id===pid)
@@ -22828,7 +22970,7 @@ async function removeProdCalloutRecipient(pid, vid){
 function switchProdPortalTab(tab, btn){
  const pid = window._currentProductionDetailId
  if(!pid) return
- ;['announcements','files','about','team','conflicts','overview','general','messages'].forEach(t=>{
+ ;['announcements','files','about','team','conflicts','overview','general','messages','taborder'].forEach(t=>{
  const el = document.getElementById('pptab-'+t+'-'+pid)
  if(el) el.style.display = t===tab?'':'none'
  })
@@ -22856,6 +22998,7 @@ function switchProdPortalTab(tab, btn){
  if(tab==='conflicts') loadProductionConflicts(pid)
  if(tab==='overview') loadProductionOverview(pid)
  if(tab==='general') loadProductionGeneralInfo(pid)
+ if(tab==='taborder') loadPortalTabOrderEditor('production', pid, 'pptab-taborder-inner-'+pid)
 }
 
 async function loadProductionOverview(pid){
@@ -25186,6 +25329,8 @@ async function loadProgramPortalContent(pid){
  catch(e){ console.error('renderWaiverStatus error:',e); const el=document.getElementById('prog-waiver-status-current'); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load waiver status.</div>' }
  try { renderProgramRequiredWaivers(pid, Array.isArray(requiredWaivers)?requiredWaivers:(requiredWaivers||[])) }
  catch(e){ console.error('renderProgramRequiredWaivers error:',e); const el=document.getElementById('prog-required-waivers-current'); if(el) el.innerHTML='<div style="color:var(--text-muted);font-size:13px">Could not load required waivers.</div>' }
+ try { loadPortalTabOrderEditor('program', pid, 'prog-taborder-current') }
+ catch(e){ console.error('loadPortalTabOrderEditor error:',e) }
  } catch(e) {
  console.error('loadProgramPortalContent error:', e)
  }
@@ -25923,8 +26068,12 @@ async function deleteAuthorizedPickup(yid, pid){
 // ═══════════════════════════════════════════════════════════════
 
 async function ysiDropOff(youthId, name){
- // If youthId is null, show a youth selector first
+ // If youthId is null, show a youth selector first — scoped to only those
+ // not already signed in, so staff can't accidentally "sign in" someone present.
  if(!youthId){
+ const activeSignIn = {}
+ ysiData.forEach(r=>{ if(!r.signed_out_at) activeSignIn[r.youth_id] = true })
+ const absentRoster = ysiRoster.filter(y=>!activeSignIn[y.id])
  const modal=document.createElement('div')
  modal.className='modal-overlay open'
  modal.id='modal-ysi-select'
@@ -25934,8 +26083,9 @@ async function ysiDropOff(youthId, name){
  <div class="form-group"><label>Participant *</label>
  <select id="ysi-select-youth" style="width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none">
  <option value="">— Select participant —</option>
- ${ysiRoster.map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')}
+ ${absentRoster.map(y=>`<option value="${y.id}">${y.first_name} ${y.last_name}</option>`).join('')}
  </select>
+ ${!absentRoster.length?'<div style="font-size:12px;color:var(--text-muted);margin-top:6px">Everyone on the roster is already signed in.</div>':''}
  </div>
  </div>
  <div class="modal-footer">

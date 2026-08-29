@@ -1662,6 +1662,7 @@ function renderEysRoster(){
   const signedOut=eysRoster.filter(r=>r.signed_out_at)
   document.getElementById('eys-stats').textContent=`${signedIn.length} present · ${signedOut.length} signed out`
   document.getElementById('eys-search').value=''
+  eysSignMode='in' // default back to the sign-in queue whenever the roster is freshly loaded
   filterEysRoster()
 }
 
@@ -1752,6 +1753,11 @@ async function eysSignOutCarpool(carpoolId, carpoolName){
 }
 
 let eysView='card'
+let eysSignMode='in' // 'in' = signing kids in (shows who hasn't arrived), 'out' = signing kids out (shows who's present)
+function setEysSignMode(mode){
+  eysSignMode=mode
+  filterEysRoster()
+}
 function setEysView(v){
   eysView=v
   filterEysRoster()
@@ -1770,9 +1776,29 @@ function filterEysRoster(){
   })
   if(q) roster=roster.filter(y=>(y.first_name+' '+y.last_name).toLowerCase().includes(q))
 
-  const stats=document.getElementById('eys-stats')
   const present=Object.keys(activeSignIn).length
+  const notYetIn=roster.length-roster.filter(y=>activeSignIn[y.id]).length
+  const stats=document.getElementById('eys-stats')
   if(stats) stats.textContent=roster.length+' participants · '+present+' currently here'
+
+  // Update the Signing In / Signing Out toggle buttons' styling
+  const inBtn=document.getElementById('eys-mode-in')
+  const outBtn=document.getElementById('eys-mode-out')
+  if(inBtn && outBtn){
+    inBtn.style.background = eysSignMode==='in' ? 'var(--teal)' : 'transparent'
+    inBtn.style.color = eysSignMode==='in' ? '#fff' : 'var(--muted)'
+    outBtn.style.background = eysSignMode==='out' ? 'var(--teal)' : 'transparent'
+    outBtn.style.color = eysSignMode==='out' ? '#fff' : 'var(--muted)'
+    inBtn.textContent = 'Signing In'+(notYetIn?' ('+notYetIn+')':'')
+    outBtn.textContent = 'Signing Out'+(present?' ('+present+')':'')
+  }
+
+  // Signing-in mode shows who hasn't arrived (they drop off this list the
+  // moment they're signed in); signing-out mode shows only who's present
+  // (they drop off once signed out) — one queue at a time instead of
+  // hunting through the full roster.
+  roster = roster.filter(y => eysSignMode==='in' ? !activeSignIn[y.id] : !!activeSignIn[y.id])
+  const emptyMsg = eysSignMode==='in' ? 'Everyone\'s signed in! 🎉' : 'No one is currently signed in.'
 
   if(eysView==='card'){
     const cards=roster.map(y=>{
@@ -1796,7 +1822,7 @@ function filterEysRoster(){
       card+='</div></div>'
       return card
     }).join('')
-    container.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+(cards||'<div style="grid-column:1/-1;text-align:center;padding:24px;color:var(--muted)">No participants</div>')+'</div>'
+    container.innerHTML='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'+(cards||`<div style="grid-column:1/-1;text-align:center;padding:24px;color:var(--muted)">${emptyMsg}</div>`)+'</div>'
   } else {
     const rows=roster.map(y=>{
       const rec=activeSignIn[y.id]
@@ -1812,7 +1838,7 @@ function filterEysRoster(){
       row+='</div>'
       return row
     }).join('')
-    container.innerHTML='<div>'+rows+'</div>'
+    container.innerHTML='<div>'+(rows||`<div style="text-align:center;padding:24px;color:var(--muted)">${emptyMsg}</div>`)+'</div>'
   }
 }
 
@@ -2169,6 +2195,10 @@ function showConfirm(icon,title,sub,note,onBack){
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:10px">
         <div id="eys-stats" style="font-size:14px;color:var(--muted)"></div>
         <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div style="display:flex;gap:2px;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:2px">
+            <button id="eys-mode-in" onclick="setEysSignMode('in')" style="padding:8px 14px;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Signing In</button>
+            <button id="eys-mode-out" onclick="setEysSignMode('out')" style="padding:8px 14px;border:none;border-radius:10px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer">Signing Out</button>
+          </div>
           <input type="text" id="eys-search" placeholder="Search…" oninput="filterEysRoster()"
             style="padding:10px 14px;border:2px solid var(--border);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none;width:160px;background:var(--surface);color:var(--text)"/>
           <div style="display:flex;gap:2px;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:2px">

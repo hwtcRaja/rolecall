@@ -2398,6 +2398,12 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS performances (\n        id            TEXT PRIMARY KEY,\n        production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,\n        venue_id      TEXT REFERENCES venues(id) ON DELETE SET NULL,\n        seat_map_id   TEXT REFERENCES seat_maps(id) ON DELETE SET NULL,\n        name          TEXT DEFAULT '',\n        performance_date TEXT NOT NULL,\n        performance_time TEXT DEFAULT '',\n        doors_time    TEXT DEFAULT '',\n        reserved_seating BOOLEAN DEFAULT TRUE,\n        ga_capacity   INTEGER,\n        sales_open_at  TEXT DEFAULT '',\n        sales_close_at TEXT DEFAULT '',\n        status        TEXT DEFAULT 'draft',\n        notes         TEXT DEFAULT '',\n        created_at    TIMESTAMP DEFAULT NOW(),\n        updated_at    TIMESTAMP DEFAULT NOW())",
         "CREATE TABLE IF NOT EXISTS ticket_types (\n        id             TEXT PRIMARY KEY,\n        performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,\n        name           TEXT NOT NULL,\n        price_cents    INTEGER NOT NULL DEFAULT 0,\n        description    TEXT DEFAULT '',\n        quantity_limit INTEGER,\n        sort_order     INTEGER DEFAULT 0,\n        active         BOOLEAN DEFAULT TRUE,\n        created_at     TIMESTAMP DEFAULT NOW())",
         'CREATE INDEX IF NOT EXISTS ix_seat_map_seats_map ON seat_map_seats(seat_map_id)',
+        # x/y started as INTEGER, which silently truncates the fractional
+        # coordinates that angled/rotated seat layouts need (sin/cos math),
+        # collapsing rotated seats onto whole-number positions and mangling
+        # the shape. NUMERIC keeps the precision.
+        'ALTER TABLE seat_map_seats ALTER COLUMN x TYPE NUMERIC USING x::numeric',
+        'ALTER TABLE seat_map_seats ALTER COLUMN y TYPE NUMERIC USING y::numeric',
         # Ticket sales: an order (one checkout, possibly several seats),
         # the individual tickets it produces once paid, and short-lived
         # holds so two people can't buy the same seat while one of them
@@ -31634,9 +31640,12 @@ def update_seat(sid):
     for f in ['section', 'row_name', 'seat_label', 'seat_type']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append((d[f] or '').strip())
-    for f in ['seat_number', 'x', 'y']:
+    for f in ['seat_number']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append(int(d[f] or 0))
+    for f in ['x', 'y']:
+        if f in d:
+            fields.append(f'{f}=%s'); vals.append(float(d[f] or 0))
     for f in ['accessible', 'house_seat', 'active']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append(bool(d[f]))
@@ -31655,9 +31664,64 @@ def delete_seat(sid):
     err = _require_ticketing()
     if err: return err
     conn = get_db()
+    row = fetchone(conn, 'SELECT seat_map_id FROM seat_map_seats WHERE id=%s', (sid,))
     execute(conn, 'DELETE FROM seat_map_seats WHERE id=%s', (sid,))
+    if row:
+        cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (row['seat_map_id'],))
+        execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else 0, row['seat_map_id']))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+@app.route('/api/seat-maps/<mid>/seats', methods=['POST'])
+def create_single_seat(mid):
+    """Add one seat at a specific position — used by the click-to-place
+    tool in the visual editor, for filling gaps or fixing counts by hand
+    rather than regenerating a whole block."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+    row_name = (d.get('row_name') or '').strip().upper()
+    seat_number = int(d.get('seat_number') or 0)
+    seat_label = (d.get('seat_label') or '').strip() or (f'{row_name}{seat_number}' if row_name and seat_number else '')
+    sid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO seat_map_seats
+        (id,seat_map_id,section,row_name,seat_number,seat_label,x,y,seat_type,accessible)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (sid, mid, (d.get('section') or '').strip(), row_name, seat_number or None, seat_label,
+         float(d.get('x') or 0), float(d.get('y') or 0), (d.get('seat_type') or 'standard').strip(),
+         bool(d.get('accessible', False))))
+    cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else 0, mid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_map_seats WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/seat-maps/<mid>/seats/bulk-position', methods=['PUT'])
+def bulk_update_seat_positions(mid):
+    """Save every seat's position in one call — used after a drag that
+    moves a multi-seat selection (a whole row/block) together, so that
+    doesn't turn into one request per seat."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    updates = d.get('updates') or []
+    if not updates:
+        return jsonify({'error': 'No updates provided'}), 400
+    conn = get_db()
+    for u in updates:
+        sid = u.get('id')
+        if not sid: continue
+        execute(conn, 'UPDATE seat_map_seats SET x=%s, y=%s WHERE id=%s AND seat_map_id=%s',
+            (float(u.get('x') or 0), float(u.get('y') or 0), sid, mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'updated': len(updates)})
 
 
 @app.route('/api/seat-maps/<mid>/seats', methods=['DELETE'])

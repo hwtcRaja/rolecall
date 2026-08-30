@@ -2414,6 +2414,25 @@ def init_db():
         "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_width NUMERIC DEFAULT 8",
         "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_depth NUMERIC DEFAULT 2",
         "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_rotation NUMERIC DEFAULT 0",
+        # Ticket types move from "one set per performance" to "one catalog
+        # per production, toggled on per performance" — so staff create
+        # "Adult $20 / Student $15" once and just pick which apply to each
+        # date, instead of re-typing them for every performance.
+        "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+        "ALTER TABLE ticket_types ALTER COLUMN performance_id DROP NOT NULL",
+        """UPDATE ticket_types SET production_id = (
+            SELECT pf.production_id FROM performances pf WHERE pf.id = ticket_types.performance_id
+        ) WHERE production_id IS NULL AND performance_id IS NOT NULL""",
+        """CREATE TABLE IF NOT EXISTS performance_ticket_types (
+        performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
+        ticket_type_id TEXT NOT NULL REFERENCES ticket_types(id) ON DELETE CASCADE,
+        PRIMARY KEY (performance_id, ticket_type_id))""",
+        # Any ticket type that already belonged to a performance (the old
+        # model) starts out enabled there, so nothing that was on sale
+        # disappears when this migration runs.
+        """INSERT INTO performance_ticket_types (performance_id, ticket_type_id)
+            SELECT performance_id, id FROM ticket_types WHERE performance_id IS NOT NULL
+            ON CONFLICT DO NOTHING""",
         # Ticket sales: an order (one checkout, possibly several seats),
         # the individual tickets it produces once paid, and short-lived
         # holds so two people can't buy the same seat while one of them
@@ -31786,7 +31805,9 @@ def get_performances(pid):
                v.name AS venue_name,
                sm.name AS seat_map_name,
                sm.capacity AS seat_map_capacity,
-               (SELECT COUNT(*) FROM ticket_types tt WHERE tt.performance_id=pf.id AND tt.active=TRUE) AS ticket_type_count
+               (SELECT COUNT(*) FROM performance_ticket_types ptt
+                JOIN ticket_types tt ON tt.id=ptt.ticket_type_id
+                WHERE ptt.performance_id=pf.id AND tt.active=TRUE) AS ticket_type_count
         FROM performances pf
         LEFT JOIN venues v ON pf.venue_id=v.id
         LEFT JOIN seat_maps sm ON pf.seat_map_id=sm.id
@@ -31824,6 +31845,12 @@ def create_performance(pid):
              reserved, (None if reserved else int(d.get('ga_capacity') or 0)),
              (d.get('sales_open_at') or '').strip(), (d.get('sales_close_at') or '').strip(),
              d.get('status', 'draft'), (d.get('notes') or '').strip()))
+    # Every ticket type already in this production's catalog defaults to
+    # enabled on the new performance — the common case is "same pricing as
+    # every other date," and staff can uncheck ones that don't apply.
+    for tt in fetchall(conn, 'SELECT id FROM ticket_types WHERE production_id=%s', (pid,)):
+        execute(conn, 'INSERT INTO performance_ticket_types (performance_id, ticket_type_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
+            (fid, tt['id']))
     conn.commit()
     row = fetchone(conn, '''SELECT pf.*, v.name AS venue_name, sm.name AS seat_map_name
                             FROM performances pf
@@ -31877,26 +31904,31 @@ def delete_performance(fid):
     err = _require_ticketing()
     if err: return err
     conn = get_db()
-    execute(conn, 'DELETE FROM ticket_types WHERE performance_id=%s', (fid,))
+    # Ticket types are a reusable production-level catalog now, not owned by
+    # a single performance — deleting a performance just drops its enabled
+    # set (performance_ticket_types cascades on its own FK) and leaves the
+    # catalog itself untouched for the production's other performances.
     execute(conn, 'DELETE FROM performances WHERE id=%s', (fid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
 
 # ── TICKET TYPES (price tiers) ──────────────────────────────────────────
-@app.route('/api/performances/<fid>/ticket-types', methods=['GET'])
-def get_ticket_types(fid):
+@app.route('/api/productions/<pid>/ticket-types', methods=['GET'])
+def get_production_ticket_types(pid):
+    """The reusable catalog for this show — created once, then toggled on
+    per performance instead of re-created every time."""
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT * FROM ticket_types WHERE performance_id=%s
-                             ORDER BY sort_order, name''', (fid,))
+    rows = fetchall(conn, '''SELECT * FROM ticket_types WHERE production_id=%s
+                             ORDER BY sort_order, name''', (pid,))
     conn.close()
     return jsonify(rows or [])
 
 
-@app.route('/api/performances/<fid>/ticket-types', methods=['POST'])
-def create_ticket_type(fid):
+@app.route('/api/productions/<pid>/ticket-types', methods=['POST'])
+def create_production_ticket_type(pid):
     err = _require_ticketing()
     if err: return err
     d = request.json or {}
@@ -31904,16 +31936,23 @@ def create_ticket_type(fid):
         return jsonify({'error': 'Ticket type name is required'}), 400
     tid = str(uuid.uuid4())
     conn = get_db()
-    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) AS m FROM ticket_types WHERE performance_id=%s', (fid,))
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) AS m FROM ticket_types WHERE production_id=%s', (pid,))
     execute(conn, '''INSERT INTO ticket_types
-                     (id,performance_id,name,price_cents,description,quantity_limit,sort_order,active)
+                     (id,production_id,name,price_cents,description,quantity_limit,sort_order,active)
                      VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
-            (tid, fid, d['name'].strip(),
+            (tid, pid, d['name'].strip(),
              int(round(float(d.get('price_dollars') or 0) * 100)) if d.get('price_dollars') is not None
                  else int(d.get('price_cents') or 0),
              (d.get('description') or '').strip(),
              d.get('quantity_limit') or None,
              (max_sort['m'] or 0) + 1, bool(d.get('active', True))))
+    # New ticket types default to enabled on every existing on-sale/draft
+    # performance of this production, so they're immediately usable instead
+    # of silently applying to nothing until someone remembers to toggle it.
+    perf_ids = [r['id'] for r in fetchall(conn, "SELECT id FROM performances WHERE production_id=%s AND status != 'cancelled'", (pid,))]
+    for fid in perf_ids:
+        execute(conn, '''INSERT INTO performance_ticket_types (performance_id, ticket_type_id) VALUES (%s,%s)
+                         ON CONFLICT DO NOTHING''', (fid, tid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM ticket_types WHERE id=%s', (tid,))
     conn.close()
@@ -31946,6 +31985,45 @@ def delete_ticket_type(tid):
     execute(conn, 'DELETE FROM ticket_types WHERE id=%s', (tid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+@app.route('/api/performances/<fid>/ticket-types', methods=['GET'])
+def get_performance_ticket_types(fid):
+    """The production's whole catalog, each marked whether it's enabled for
+    this specific performance — what the admin checklist renders from."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    perf = fetchone(conn, 'SELECT production_id FROM performances WHERE id=%s', (fid,))
+    if not perf:
+        conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    rows = fetchall(conn, '''SELECT tt.*, (ptt.ticket_type_id IS NOT NULL) AS enabled
+        FROM ticket_types tt
+        LEFT JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id AND ptt.performance_id=%s
+        WHERE tt.production_id=%s
+        ORDER BY tt.sort_order, tt.name''', (fid, perf['production_id']))
+    conn.close()
+    return jsonify(rows or [])
+
+
+@app.route('/api/performances/<fid>/ticket-types', methods=['PUT'])
+def set_performance_ticket_types(fid):
+    """Replaces the enabled set for this performance with exactly the ids
+    given — the admin checklist just sends whatever's checked."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    ids = d.get('ticket_type_ids') or []
+    conn = get_db()
+    perf = fetchone(conn, 'SELECT id FROM performances WHERE id=%s', (fid,))
+    if not perf:
+        conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    execute(conn, 'DELETE FROM performance_ticket_types WHERE performance_id=%s', (fid,))
+    for tid in ids:
+        execute(conn, 'INSERT INTO performance_ticket_types (performance_id, ticket_type_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
+            (fid, tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'enabled': len(ids)})
 
 
 # ─────────────────────────────────────────────────────────────
@@ -32012,7 +32090,9 @@ def public_seat_status(fid):
                 s['status'] = 'mine' if (session_token and held_map[s['id']] == session_token) else 'held'
             else:
                 s['status'] = 'available'
-    ticket_types = fetchall(conn, 'SELECT * FROM ticket_types WHERE performance_id=%s AND active=TRUE ORDER BY sort_order', (fid,))
+    ticket_types = fetchall(conn, '''SELECT tt.* FROM ticket_types tt
+        JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
+        WHERE ptt.performance_id=%s AND tt.active=TRUE ORDER BY tt.sort_order''', (fid,))
     ga_sold = 0
     if not perf.get('reserved_seating'):
         ga_sold = (fetchone(conn, "SELECT COUNT(*) AS c FROM tickets WHERE performance_id=%s AND seat_id IS NULL", (fid,)) or {}).get('c', 0)
@@ -32098,7 +32178,9 @@ def public_ticket_checkout():
     if not perf:
         conn.close(); return jsonify({'error': 'Performance not found'}), 404
     prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],))
-    ticket_type_rows = {t['id']: t for t in fetchall(conn, 'SELECT * FROM ticket_types WHERE performance_id=%s', (fid,))}
+    ticket_type_rows = {t['id']: t for t in fetchall(conn, '''SELECT tt.* FROM ticket_types tt
+        JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
+        WHERE ptt.performance_id=%s AND tt.active=TRUE''', (fid,))}
 
     line_items = []  # each: seat_id (nullable), ticket_type_id, seat_label, price_cents
     if perf.get('reserved_seating'):

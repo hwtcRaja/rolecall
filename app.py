@@ -4863,7 +4863,18 @@ def get_youth_programs():
         (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='confirmed') AS reg_confirmed,
         (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='pending_payment') AS reg_pending,
         (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='waitlisted') AS reg_waitlisted,
-        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status NOT IN (\'cancelled\',\'waitlisted\')) AS reg_enrolled
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status NOT IN (\'cancelled\',\'waitlisted\')) AS reg_enrolled,
+        (SELECT COALESCE(SUM(
+            CASE WHEN pr.is_comped THEN 0
+                WHEN su.hold_status = 'charged' THEN su.amount
+                WHEN su.hold_status = 'pending' THEN 0
+                ELSE COALESCE(pr.amount_paid_cents,
+                    COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+                    - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
+            END), 0)
+         FROM program_registrations pr
+         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
+         WHERE pr.program_id=yp.id AND pr.status='confirmed') AS confirmed_revenue_cents
         FROM youth_programs yp
         LEFT JOIN elics el ON yp.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
@@ -22426,8 +22437,11 @@ def lobby2_page():
 
 @app.route('/api/public/lobby-data', methods=['GET'])
 def public_lobby_data():
-    import datetime as _dtl
-    today = _dtl.date.today().isoformat()
+    # Was using the server's own clock (UTC on Railway), which rolls over to
+    # the next calendar day hours before it's actually midnight in Florida —
+    # during that window "today" here would already be tomorrow, silently
+    # shifting every relative date downstream by a day.
+    today = today_eastern().isoformat()
     upcoming_events = []
     announcements = []
     lobby_images = []

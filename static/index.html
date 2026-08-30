@@ -31616,8 +31616,272 @@ async function tkTogglePreview(mapId){
   var detail = await api('/api/seat-maps/'+mapId);
   if(detail && detail.error){ el.innerHTML = '<div style="color:var(--red,#b91c1c)">'+escHtml(detail.error)+'</div>'; return; }
   _tkSeatMapDetailCache[mapId] = detail;
-  el.innerHTML = renderSeatMapSVG(detail.seats||[], {showLabels:true});
+  el.innerHTML = renderSeatMapSVG(detail.seats||[], {showLabels:true})
+    + '<button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="tkOpenSeatEditor(\''+mapId+'\')">✎ Open Editor (drag to fix positions)</button>';
 }
+
+/* ── Drag-and-drop seat map editor ──────────────────────────────────────
+   The photo-based generator can only ever be a rough starting guess —
+   this is the real fix: drag seats (individually or as a group) to match
+   the actual venue, add/remove seats to correct counts, and edit each
+   seat's row/number/section/accessible flag directly. ── */
+var _ed = null; // editor state, reset each time the editor opens
+
+function tkOpenSeatEditor(mapId){
+  _ed = {
+    mapId: mapId, seats: [], selected: {}, mode: 'select', gridSnap: true,
+    zoom: 1, dragging: false, dragStart: null, dragOrigins: null, moved: false,
+    rubberBand: null,
+  };
+  var overlay = document.createElement('div');
+  overlay.id = 'seat-editor-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px';
+  overlay.innerHTML =
+    '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:1000px;max-height:92vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
+    + '<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'
+    +   '<div><div style="font-weight:700;font-size:15px">Seat Map Editor</div>'
+    +   '<div style="font-size:11px;color:var(--text-muted)">Drag to move · Shift-click or drag-select for multiple · Click a seat to edit it</div></div>'
+    +   '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
+    +     '<button class="btn btn-secondary btn-sm" id="ed-mode-add" onclick="edToggleAddMode()">+ Add Seat</button>'
+    +     '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted)"><input type="checkbox" id="ed-snap" checked onchange="_ed.gridSnap=this.checked" style="width:auto"/> Snap to grid</label>'
+    +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(1.25)">＋</button>'
+    +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(0.8)">－</button>'
+    +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(0)">Reset</button>'
+    +     '<button class="modal-close" onclick="document.getElementById(\'seat-editor-overlay\').remove()">×</button>'
+    +   '</div>'
+    + '</div>'
+    + '<div style="flex:1;overflow:auto;padding:14px 18px;display:flex;gap:14px;flex-wrap:wrap">'
+    +   '<div id="ed-canvas-wrap" style="flex:2;min-width:320px"><div style="color:var(--text-muted);padding:20px">Loading…</div></div>'
+    +   '<div id="ed-side-panel" style="flex:1;min-width:220px"></div>'
+    + '</div>'
+    + '</div>';
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() });
+  edLoad();
+}
+
+async function edLoad(){
+  var detail = await api('/api/seat-maps/'+_ed.mapId);
+  if(detail && detail.error){ document.getElementById('ed-canvas-wrap').innerHTML = '<div style="color:var(--red)">'+escHtml(detail.error)+'</div>'; return; }
+  _ed.seats = (detail.seats||[]).map(function(s){ return Object.assign({}, s, {x:parseFloat(s.x), y:parseFloat(s.y)}) });
+  edRenderCanvas();
+  edRenderSidePanel();
+}
+
+function edToggleAddMode(){
+  _ed.mode = _ed.mode==='add' ? 'select' : 'add';
+  document.getElementById('ed-mode-add').className = 'btn btn-sm '+(_ed.mode==='add'?'btn-primary':'btn-secondary');
+  edRenderSidePanel();
+}
+
+function edZoom(factor){
+  if(factor===0) _ed.zoom = 1; else _ed.zoom = Math.max(0.3, Math.min(4, _ed.zoom*factor));
+  edRenderCanvas();
+}
+
+function edSnap(v){ return _ed.gridSnap ? Math.round(v*2)/2 : Math.round(v*100)/100; }
+
+function edRenderCanvas(){
+  var wrap = document.getElementById('ed-canvas-wrap');
+  if(!wrap) return;
+  var seats = _ed.seats;
+  if(!seats.length){
+    wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center">No seats yet. Use "+ Add Seat" to place the first one, or go back and generate a block.</div>';
+    return;
+  }
+  var pad = 1.5;
+  var xs = seats.map(function(s){return s.x}), ys = seats.map(function(s){return s.y});
+  var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad;
+  var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad;
+  var w = (maxX-minX)/_ed.zoom, h = (maxY-minY)/_ed.zoom;
+  var cx = minX+(maxX-minX)/2, cy = minY+(maxY-minY)/2;
+  var vbx = cx-w/2, vby = cy-h/2;
+  var seatR = 0.38;
+  var sections = {};
+  seats.forEach(function(s){ if(!(s.section in sections)) sections[s.section||''] = SEAT_SECTION_COLORS[Object.keys(sections).length % SEAT_SECTION_COLORS.length] });
+  var svg = '<svg id="ed-svg" viewBox="'+vbx+' '+vby+' '+w+' '+h+'" style="width:100%;height:520px;background:var(--bg,#f7f7f5);border-radius:8px;border:1px solid var(--border);touch-action:none;cursor:'+(_ed.mode==='add'?'crosshair':'default')+'">';
+  svg += '<text x="'+cx+'" y="'+(maxY-0.3)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>';
+  seats.forEach(function(s){
+    var sel = !!_ed.selected[s.id];
+    var fill = sel ? '#facc15' : (sections[s.section||'']||'#999');
+    svg += '<circle data-id="'+s.id+'" class="ed-seat" cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="'+(sel?'#111':'#fff')+'" stroke-width="'+(sel?0.09:0.05)+'" style="cursor:grab"><title>'+escHtml(s.seat_label||'')+'</title></circle>';
+    if(s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff" style="pointer-events:none">♿</text>';
+  });
+  svg += '<rect id="ed-rubber" x="0" y="0" width="0" height="0" fill="rgba(20,84,102,0.15)" stroke="#145466" stroke-width="0.04" style="display:none"/>';
+  svg += '</svg>';
+  wrap.innerHTML = svg;
+  edWireCanvasEvents();
+}
+
+function edToSvgPoint(evt, svg){
+  var pt = svg.createSVGPoint();
+  pt.x = evt.clientX; pt.y = evt.clientY;
+  var ctm = svg.getScreenCTM().inverse();
+  return pt.matrixTransform(ctm);
+}
+
+function edWireCanvasEvents(){
+  var svg = document.getElementById('ed-svg');
+  if(!svg) return;
+  svg.addEventListener('pointerdown', function(evt){
+    var p = edToSvgPoint(evt, svg);
+    var seatEl = evt.target.closest && evt.target.closest('.ed-seat');
+    _ed.moved = false;
+    if(_ed.mode==='add' && !seatEl){
+      var x = edSnap(p.x), y = edSnap(p.y);
+      edCreateSeatAt(x,y);
+      return;
+    }
+    try{ svg.setPointerCapture(evt.pointerId) }catch(e){}
+    if(seatEl){
+      var id = seatEl.getAttribute('data-id');
+      if(!evt.shiftKey && !_ed.selected[id]){ _ed.selected = {}; _ed.selected[id]=true; }
+      else if(evt.shiftKey){ if(_ed.selected[id]) delete _ed.selected[id]; else _ed.selected[id]=true; }
+      _ed.dragging = true;
+      _ed.dragStart = p;
+      _ed.dragOrigins = {};
+      Object.keys(_ed.selected).forEach(function(sid){
+        var s = _ed.seats.find(function(x){return x.id===sid});
+        if(s) _ed.dragOrigins[sid] = {x:s.x, y:s.y};
+      });
+      edRenderCanvas(); edRenderSidePanel();
+    } else {
+      // Start a rubber-band multi-select
+      _ed.rubberBand = {x0:p.x, y0:p.y};
+    }
+  });
+  svg.addEventListener('pointermove', function(evt){
+    var p = edToSvgPoint(evt, svg);
+    if(_ed.dragging && _ed.dragStart){
+      _ed.moved = true;
+      var dx = p.x - _ed.dragStart.x, dy = p.y - _ed.dragStart.y;
+      Object.keys(_ed.dragOrigins).forEach(function(sid){
+        var s = _ed.seats.find(function(x){return x.id===sid});
+        if(!s) return;
+        s.x = edSnap(_ed.dragOrigins[sid].x + dx);
+        s.y = edSnap(_ed.dragOrigins[sid].y + dy);
+        var circ = svg.querySelector('.ed-seat[data-id="'+sid+'"]');
+        if(circ){ circ.setAttribute('cx', s.x); circ.setAttribute('cy', s.y); }
+      });
+    } else if(_ed.rubberBand){
+      var rb = document.getElementById('ed-rubber');
+      var x = Math.min(p.x,_ed.rubberBand.x0), y = Math.min(p.y,_ed.rubberBand.y0);
+      var w = Math.abs(p.x-_ed.rubberBand.x0), h = Math.abs(p.y-_ed.rubberBand.y0);
+      rb.setAttribute('x',x); rb.setAttribute('y',y); rb.setAttribute('width',w); rb.setAttribute('height',h);
+      rb.style.display = '';
+      _ed.rubberBand.rect = {x:x,y:y,w:w,h:h};
+    }
+  });
+  svg.addEventListener('pointerup', function(evt){
+    if(_ed.dragging){
+      _ed.dragging = false;
+      if(_ed.moved){
+        edSavePositions(Object.keys(_ed.dragOrigins));
+      } else {
+        // A click, not a drag — open the edit panel for just this seat
+        var seatEl = evt.target.closest && evt.target.closest('.ed-seat');
+        if(seatEl && !evt.shiftKey){ _ed.selected = {}; _ed.selected[seatEl.getAttribute('data-id')] = true; }
+      }
+      _ed.dragOrigins = null; _ed.dragStart = null;
+      edRenderCanvas(); edRenderSidePanel();
+    } else if(_ed.rubberBand){
+      var r = _ed.rubberBand.rect;
+      if(r && (r.w>0.2 || r.h>0.2)){
+        if(!evt.shiftKey) _ed.selected = {};
+        _ed.seats.forEach(function(s){
+          if(s.x>=r.x && s.x<=r.x+r.w && s.y>=r.y && s.y<=r.y+r.h) _ed.selected[s.id]=true;
+        });
+      }
+      _ed.rubberBand = null;
+      edRenderCanvas(); edRenderSidePanel();
+    }
+  });
+}
+
+async function edSavePositions(seatIds){
+  var updates = seatIds.map(function(sid){
+    var s = _ed.seats.find(function(x){return x.id===sid});
+    return {id:sid, x:s.x, y:s.y};
+  });
+  await api('/api/seat-maps/'+_ed.mapId+'/seats/bulk-position','PUT',{updates:updates});
+}
+
+function edRenderSidePanel(){
+  var panel = document.getElementById('ed-side-panel');
+  if(!panel) return;
+  var ids = Object.keys(_ed.selected);
+  if(_ed.mode==='add'){
+    panel.innerHTML = '<div class="card" style="padding:14px"><div style="font-weight:700;font-size:13px;margin-bottom:6px">Add Seat mode</div><div style="font-size:12px;color:var(--text-muted)">Click anywhere on the map to drop a new seat there. Click "+ Add Seat" again to turn this off.</div></div>';
+    return;
+  }
+  if(!ids.length){
+    panel.innerHTML = '<div class="card" style="padding:14px;color:var(--text-muted);font-size:13px">Click a seat to edit it, or drag-select several to move them together.</div>';
+    return;
+  }
+  if(ids.length > 1){
+    panel.innerHTML = '<div class="card" style="padding:14px">'
+      + '<div style="font-weight:700;font-size:13px;margin-bottom:10px">'+ids.length+' seats selected</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Drag any of them to move the whole group together.</div>'
+      + '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c);width:100%" onclick="edDeleteSelected()">Delete '+ids.length+' seats</button>'
+      + '</div>';
+    return;
+  }
+  var s = _ed.seats.find(function(x){return x.id===ids[0]});
+  if(!s){ panel.innerHTML=''; return; }
+  panel.innerHTML = '<div class="card" style="padding:14px">'
+    + '<div style="font-weight:700;font-size:13px;margin-bottom:10px">Edit Seat</div>'
+    + '<div class="form-group"><label>Section</label><input type="text" id="ed-f-section" value="'+escHtml(s.section||'')+'"/></div>'
+    + '<div class="form-row"><div class="form-group"><label>Row</label><input type="text" id="ed-f-row" value="'+escHtml(s.row_name||'')+'" maxlength="3"/></div>'
+    + '<div class="form-group"><label>Seat #</label><input type="number" id="ed-f-num" value="'+(s.seat_number||'')+'"/></div></div>'
+    + '<div class="form-group"><label>Label (shown to buyers)</label><input type="text" id="ed-f-label" value="'+escHtml(s.seat_label||'')+'"/></div>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="ed-f-access" '+(s.accessible?'checked':'')+' style="width:auto"/> Wheelchair accessible</label>'
+    + '<div style="display:flex;gap:8px">'
+    + '<button class="btn btn-primary btn-sm" style="flex:1" onclick="edSaveSeatDetails(\''+s.id+'\')">Save</button>'
+    + '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c)" onclick="edDeleteSelected()">Delete</button>'
+    + '</div></div>';
+}
+
+async function edSaveSeatDetails(sid){
+  var section = document.getElementById('ed-f-section').value.trim();
+  var row = document.getElementById('ed-f-row').value.trim().toUpperCase();
+  var num = parseInt(document.getElementById('ed-f-num').value||'0');
+  var label = document.getElementById('ed-f-label').value.trim() || (row+num);
+  var accessible = document.getElementById('ed-f-access').checked;
+  var res = await api('/api/seats/'+sid,'PUT',{section:section, row_name:row, seat_number:num, seat_label:label, accessible:accessible});
+  if(res && res.error){ toast(res.error,'error'); return; }
+  var s = _ed.seats.find(function(x){return x.id===sid});
+  if(s) Object.assign(s, {section:section, row_name:row, seat_number:num, seat_label:label, accessible:accessible});
+  toast('Saved','success');
+  edRenderCanvas(); edRenderSidePanel();
+}
+
+async function edDeleteSelected(){
+  var ids = Object.keys(_ed.selected);
+  if(!ids.length) return;
+  if(!confirm('Delete '+ids.length+' seat(s)?')) return;
+  for(var i=0;i<ids.length;i++){ await api('/api/seats/'+ids[i],'DELETE'); }
+  _ed.seats = _ed.seats.filter(function(s){ return !_ed.selected[s.id] });
+  _ed.selected = {};
+  edRenderCanvas(); edRenderSidePanel();
+  toast('Deleted','success');
+}
+
+async function edCreateSeatAt(x,y){
+  var row = prompt('Row letter for this seat:', '');
+  if(row===null) return;
+  var num = prompt('Seat number:', '1');
+  if(num===null) return;
+  var res = await api('/api/seat-maps/'+_ed.mapId+'/seats','POST',{
+    row_name: row.trim().toUpperCase(), seat_number: parseInt(num)||1, x:x, y:y,
+    section: (_ed.seats[0]&&_ed.seats[0].section)||''
+  });
+  if(res && res.error){ toast(res.error,'error'); return; }
+  _ed.seats.push(Object.assign({}, res, {x:parseFloat(res.x), y:parseFloat(res.y)}));
+  edRenderCanvas();
+  toast('Seat added','success');
+}
+
+
 
 function renderSeatMapSVG(seats, opts){
   opts = opts || {};

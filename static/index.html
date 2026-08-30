@@ -31616,7 +31616,9 @@ async function tkTogglePreview(mapId){
   var detail = await api('/api/seat-maps/'+mapId);
   if(detail && detail.error){ el.innerHTML = '<div style="color:var(--red,#b91c1c)">'+escHtml(detail.error)+'</div>'; return; }
   _tkSeatMapDetailCache[mapId] = detail;
-  el.innerHTML = renderSeatMapSVG(detail.seats||[], {showLabels:true})
+  var stageOpt = detail.stage_x!=null ? {x:parseFloat(detail.stage_x), y:parseFloat(detail.stage_y),
+    width:parseFloat(detail.stage_width||8), depth:parseFloat(detail.stage_depth||2), rotation:parseFloat(detail.stage_rotation||0)} : null;
+  el.innerHTML = renderSeatMapSVG(detail.seats||[], {showLabels:true, stage:stageOpt})
     + '<button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="tkOpenSeatEditor(\''+mapId+'\')">✎ Open Editor (drag to fix positions)</button>';
 }
 
@@ -31631,7 +31633,8 @@ function tkOpenSeatEditor(mapId){
   _ed = {
     mapId: mapId, seats: [], selected: {}, mode: 'select', gridSnap: true,
     zoom: 1, dragging: false, dragStart: null, dragOrigins: null, moved: false,
-    rubberBand: null,
+    rubberBand: null, panning: null, viewCenter: null, viewBase: null,
+    stage: null, stageSelected: false, stageDragging: false, stageOrigin: null,
   };
   var overlay = document.createElement('div');
   overlay.id = 'seat-editor-overlay';
@@ -31640,13 +31643,13 @@ function tkOpenSeatEditor(mapId){
     '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:1000px;max-height:92vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">'
     + '<div style="padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">'
     +   '<div><div style="font-weight:700;font-size:15px">Seat Map Editor</div>'
-    +   '<div style="font-size:11px;color:var(--text-muted)">Drag to move · Shift-click or drag-select for multiple · Click a seat to edit it</div></div>'
+    +   '<div style="font-size:11px;color:var(--text-muted)">Drag a seat to move it (select 3+ and use Straighten &amp; Space Evenly to line them up) · Drag empty space to pan · Scroll to zoom · Shift-drag empty space to select multiple · Click the stage to move/resize/rotate it</div></div>'
     +   '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
     +     '<button class="btn btn-secondary btn-sm" id="ed-mode-add" onclick="edToggleAddMode()">+ Add Seat</button>'
     +     '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted)"><input type="checkbox" id="ed-snap" checked onchange="_ed.gridSnap=this.checked" style="width:auto"/> Snap to grid</label>'
     +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(1.25)">＋</button>'
     +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(0.8)">－</button>'
-    +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(0)">Reset</button>'
+    +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(0)">Reset View</button>'
     +     '<button class="modal-close" onclick="document.getElementById(\'seat-editor-overlay\').remove()">×</button>'
     +   '</div>'
     + '</div>'
@@ -31664,8 +31667,39 @@ async function edLoad(){
   var detail = await api('/api/seat-maps/'+_ed.mapId);
   if(detail && detail.error){ document.getElementById('ed-canvas-wrap').innerHTML = '<div style="color:var(--red)">'+escHtml(detail.error)+'</div>'; return; }
   _ed.seats = (detail.seats||[]).map(function(s){ return Object.assign({}, s, {x:parseFloat(s.x), y:parseFloat(s.y)}) });
+  // stage_x/y are null until someone places it once — fall back to the old
+  // auto-position (centered, just below the seats) so there's always
+  // something sensible to show and drag from.
+  var autoX = 0, autoY = 2;
+  if(_ed.seats.length){
+    var xs = _ed.seats.map(function(s){return s.x}), ys = _ed.seats.map(function(s){return s.y});
+    autoX = Math.min.apply(null,xs) + (Math.max.apply(null,xs)-Math.min.apply(null,xs))/2;
+    autoY = Math.max.apply(null,ys) + 2;
+  }
+  _ed.stage = {
+    x: detail.stage_x!=null ? parseFloat(detail.stage_x) : autoX,
+    y: detail.stage_y!=null ? parseFloat(detail.stage_y) : autoY,
+    width: detail.stage_width!=null ? parseFloat(detail.stage_width) : 8,
+    depth: detail.stage_depth!=null ? parseFloat(detail.stage_depth) : 2,
+    rotation: detail.stage_rotation!=null ? parseFloat(detail.stage_rotation) : 0,
+  };
+  edFitView();
   edRenderCanvas();
   edRenderSidePanel();
+}
+
+// Computes the natural (zoom=1) view center/size from the current seats.
+// Only called on load and "Reset" — everyday renders reuse the existing
+// viewCenter/viewBase so panning and zoom don't get stomped on every redraw.
+function edFitView(){
+  var pad = 1.5;
+  var xs = _ed.seats.map(function(s){return s.x}), ys = _ed.seats.map(function(s){return s.y});
+  if(_ed.stage){ xs.push(_ed.stage.x - _ed.stage.width/2, _ed.stage.x + _ed.stage.width/2); ys.push(_ed.stage.y - _ed.stage.depth/2, _ed.stage.y + _ed.stage.depth/2); }
+  if(!xs.length){ _ed.viewCenter = {x:0,y:0}; _ed.viewBase = {w:20,h:20}; return; }
+  var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad;
+  var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad;
+  _ed.viewCenter = {x: minX+(maxX-minX)/2, y: minY+(maxY-minY)/2};
+  _ed.viewBase = {w: maxX-minX, h: maxY-minY};
 }
 
 function edToggleAddMode(){
@@ -31675,11 +31709,16 @@ function edToggleAddMode(){
 }
 
 function edZoom(factor){
-  if(factor===0) _ed.zoom = 1; else _ed.zoom = Math.max(0.3, Math.min(4, _ed.zoom*factor));
+  if(factor===0){ _ed.zoom = 1; edFitView(); } else { _ed.zoom = Math.max(0.3, Math.min(8, _ed.zoom*factor)); }
   edRenderCanvas();
 }
 
 function edSnap(v){ return _ed.gridSnap ? Math.round(v*2)/2 : Math.round(v*100)/100; }
+
+function edCurrentViewBox(){
+  var w = _ed.viewBase.w/_ed.zoom, h = _ed.viewBase.h/_ed.zoom;
+  return {vbx: _ed.viewCenter.x-w/2, vby: _ed.viewCenter.y-h/2, w:w, h:h};
+}
 
 function edRenderCanvas(){
   var wrap = document.getElementById('ed-canvas-wrap');
@@ -31689,18 +31728,19 @@ function edRenderCanvas(){
     wrap.innerHTML = '<div style="color:var(--text-muted);padding:20px;text-align:center">No seats yet. Use "+ Add Seat" to place the first one, or go back and generate a block.</div>';
     return;
   }
-  var pad = 1.5;
-  var xs = seats.map(function(s){return s.x}), ys = seats.map(function(s){return s.y});
-  var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad;
-  var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad;
-  var w = (maxX-minX)/_ed.zoom, h = (maxY-minY)/_ed.zoom;
-  var cx = minX+(maxX-minX)/2, cy = minY+(maxY-minY)/2;
-  var vbx = cx-w/2, vby = cy-h/2;
+  if(!_ed.viewCenter) edFitView();
+  var vb = edCurrentViewBox();
   var seatR = 0.38;
   var sections = {};
   seats.forEach(function(s){ if(!(s.section in sections)) sections[s.section||''] = SEAT_SECTION_COLORS[Object.keys(sections).length % SEAT_SECTION_COLORS.length] });
-  var svg = '<svg id="ed-svg" viewBox="'+vbx+' '+vby+' '+w+' '+h+'" style="width:100%;height:520px;background:var(--bg,#f7f7f5);border-radius:8px;border:1px solid var(--border);touch-action:none;cursor:'+(_ed.mode==='add'?'crosshair':'default')+'">';
-  svg += '<text x="'+cx+'" y="'+(maxY-0.3)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>';
+  var svg = '<svg id="ed-svg" viewBox="'+vb.vbx+' '+vb.vby+' '+vb.w+' '+vb.h+'" style="width:100%;height:520px;background:var(--bg,#f7f7f5);border-radius:8px;border:1px solid var(--border);touch-action:none;cursor:'+(_ed.mode==='add'?'crosshair':'grab')+'">';
+  if(_ed.stage){
+    var st = _ed.stage;
+    svg += '<g class="ed-stage" data-role="stage" style="cursor:grab" transform="translate('+st.x+','+st.y+') rotate('+st.rotation+')">'
+      + '<rect x="'+(-st.width/2)+'" y="'+(-st.depth/2)+'" width="'+st.width+'" height="'+st.depth+'" rx="0.15" fill="#334155" stroke="#1e293b" stroke-width="0.05"/>'
+      + '<text x="0" y="0.15" font-size="0.6" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">STAGE</text>'
+      + '</g>';
+  }
   seats.forEach(function(s){
     var sel = !!_ed.selected[s.id];
     var fill = sel ? '#facc15' : (sections[s.section||'']||'#999');
@@ -31726,14 +31766,23 @@ function edWireCanvasEvents(){
   svg.addEventListener('pointerdown', function(evt){
     var p = edToSvgPoint(evt, svg);
     var seatEl = evt.target.closest && evt.target.closest('.ed-seat');
+    var stageEl = evt.target.closest && evt.target.closest('.ed-stage');
     _ed.moved = false;
-    if(_ed.mode==='add' && !seatEl){
+    if(_ed.mode==='add' && !seatEl && !stageEl){
       var x = edSnap(p.x), y = edSnap(p.y);
       edCreateSeatAt(x,y);
       return;
     }
     try{ svg.setPointerCapture(evt.pointerId) }catch(e){}
-    if(seatEl){
+    if(stageEl && !seatEl){
+      _ed.selected = {};
+      _ed.stageSelected = true;
+      _ed.stageDragging = true;
+      _ed.dragStart = p;
+      _ed.stageOrigin = {x:_ed.stage.x, y:_ed.stage.y};
+      edRenderSidePanel();
+    } else if(seatEl){
+      _ed.stageSelected = false;
       var id = seatEl.getAttribute('data-id');
       if(!evt.shiftKey && !_ed.selected[id]){ _ed.selected = {}; _ed.selected[id]=true; }
       else if(evt.shiftKey){ if(_ed.selected[id]) delete _ed.selected[id]; else _ed.selected[id]=true; }
@@ -31745,14 +31794,32 @@ function edWireCanvasEvents(){
         if(s) _ed.dragOrigins[sid] = {x:s.x, y:s.y};
       });
       edRenderCanvas(); edRenderSidePanel();
-    } else {
-      // Start a rubber-band multi-select
+    } else if(evt.shiftKey){
+      // Shift + drag on empty space = rubber-band multi-select
+      _ed.stageSelected = false;
       _ed.rubberBand = {x0:p.x, y0:p.y};
+    } else {
+      // Plain drag on empty space = pan the view (grab-and-drag, like a map)
+      _ed.stageSelected = false;
+      var rect = svg.getBoundingClientRect();
+      _ed.panning = {
+        startClientX: evt.clientX, startClientY: evt.clientY,
+        startCenter: {x:_ed.viewCenter.x, y:_ed.viewCenter.y},
+        scale: edCurrentViewBox().w / rect.width
+      };
+      svg.style.cursor = 'grabbing';
     }
   });
   svg.addEventListener('pointermove', function(evt){
     var p = edToSvgPoint(evt, svg);
-    if(_ed.dragging && _ed.dragStart){
+    if(_ed.stageDragging && _ed.dragStart){
+      _ed.moved = true;
+      var dx = p.x - _ed.dragStart.x, dy = p.y - _ed.dragStart.y;
+      _ed.stage.x = edSnap(_ed.stageOrigin.x + dx);
+      _ed.stage.y = edSnap(_ed.stageOrigin.y + dy);
+      var g = svg.querySelector('.ed-stage');
+      if(g) g.setAttribute('transform', 'translate('+_ed.stage.x+','+_ed.stage.y+') rotate('+_ed.stage.rotation+')');
+    } else if(_ed.dragging && _ed.dragStart){
       _ed.moved = true;
       var dx = p.x - _ed.dragStart.x, dy = p.y - _ed.dragStart.y;
       Object.keys(_ed.dragOrigins).forEach(function(sid){
@@ -31763,6 +31830,14 @@ function edWireCanvasEvents(){
         var circ = svg.querySelector('.ed-seat[data-id="'+sid+'"]');
         if(circ){ circ.setAttribute('cx', s.x); circ.setAttribute('cy', s.y); }
       });
+    } else if(_ed.panning){
+      var dxScreen = evt.clientX - _ed.panning.startClientX, dyScreen = evt.clientY - _ed.panning.startClientY;
+      _ed.viewCenter = {
+        x: _ed.panning.startCenter.x - dxScreen*_ed.panning.scale,
+        y: _ed.panning.startCenter.y - dyScreen*_ed.panning.scale
+      };
+      var vb = edCurrentViewBox();
+      svg.setAttribute('viewBox', vb.vbx+' '+vb.vby+' '+vb.w+' '+vb.h);
     } else if(_ed.rubberBand){
       var rb = document.getElementById('ed-rubber');
       var x = Math.min(p.x,_ed.rubberBand.x0), y = Math.min(p.y,_ed.rubberBand.y0);
@@ -31773,7 +31848,12 @@ function edWireCanvasEvents(){
     }
   });
   svg.addEventListener('pointerup', function(evt){
-    if(_ed.dragging){
+    if(_ed.stageDragging){
+      _ed.stageDragging = false;
+      if(_ed.moved) edSaveStage();
+      _ed.dragStart = null; _ed.stageOrigin = null;
+      edRenderCanvas(); edRenderSidePanel();
+    } else if(_ed.dragging){
       _ed.dragging = false;
       if(_ed.moved){
         edSavePositions(Object.keys(_ed.dragOrigins));
@@ -31784,6 +31864,9 @@ function edWireCanvasEvents(){
       }
       _ed.dragOrigins = null; _ed.dragStart = null;
       edRenderCanvas(); edRenderSidePanel();
+    } else if(_ed.panning){
+      _ed.panning = null;
+      svg.style.cursor = _ed.mode==='add' ? 'crosshair' : 'grab';
     } else if(_ed.rubberBand){
       var r = _ed.rubberBand.rect;
       if(r && (r.w>0.2 || r.h>0.2)){
@@ -31796,6 +31879,10 @@ function edWireCanvasEvents(){
       edRenderCanvas(); edRenderSidePanel();
     }
   });
+  svg.addEventListener('wheel', function(evt){
+    evt.preventDefault();
+    edZoom(evt.deltaY < 0 ? 1.15 : 0.87);
+  }, {passive:false});
 }
 
 async function edSavePositions(seatIds){
@@ -31806,22 +31893,77 @@ async function edSavePositions(seatIds){
   await api('/api/seat-maps/'+_ed.mapId+'/seats/bulk-position','PUT',{updates:updates});
 }
 
+async function edSaveStage(){
+  await api('/api/seat-maps/'+_ed.mapId+'/stage','PUT', _ed.stage);
+}
+
+function edRotateStage(delta){
+  _ed.stage.rotation = (_ed.stage.rotation + delta + 360) % 360;
+  edSaveStage();
+  edRenderCanvas(); edRenderSidePanel();
+}
+
+async function edResizeStage(field, value){
+  _ed.stage[field] = Math.max(0.5, parseFloat(value)||0.5);
+  await edSaveStage();
+  edRenderCanvas();
+}
+
+// Straightens a row and spaces every selected seat evenly between the two
+// endpoints — the real fix for "dragging by hand never lines up." Order is
+// taken from seat_number so the row stays in the right left-to-right order
+// even though the endpoints are just whichever seats are furthest apart.
+async function edAlignSelected(){
+  var ids = Object.keys(_ed.selected);
+  if(ids.length < 3){ toast('Select at least 3 seats to align (2 just sets the endpoints)','error'); return; }
+  var sel = ids.map(function(id){ return _ed.seats.find(function(s){return s.id===id}) }).filter(Boolean);
+  sel.sort(function(a,b){ return (a.seat_number||0) - (b.seat_number||0) });
+  var first = sel[0], last = sel[sel.length-1];
+  var n = sel.length;
+  for(var i=0;i<n;i++){
+    var t = i/(n-1);
+    sel[i].x = edSnap(first.x + (last.x-first.x)*t);
+    sel[i].y = edSnap(first.y + (last.y-first.y)*t);
+  }
+  edRenderCanvas(); edRenderSidePanel();
+  await edSavePositions(sel.map(function(s){return s.id}));
+  toast('Row straightened and evenly spaced','success');
+}
+
 function edRenderSidePanel(){
   var panel = document.getElementById('ed-side-panel');
   if(!panel) return;
+  if(_ed.stageSelected && _ed.stage){
+    var st = _ed.stage;
+    panel.innerHTML = '<div class="card" style="padding:14px">'
+      + '<div style="font-weight:700;font-size:13px;margin-bottom:10px">Stage</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Drag it on the map to reposition. Use these to resize or turn it to match how the room actually faces.</div>'
+      + '<div class="form-row"><div class="form-group"><label>Width</label><input type="number" step="0.5" value="'+st.width+'" onchange="edResizeStage(\'width\',this.value)"/></div>'
+      + '<div class="form-group"><label>Depth</label><input type="number" step="0.5" value="'+st.depth+'" onchange="edResizeStage(\'depth\',this.value)"/></div></div>'
+      + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">'
+      + '<button class="btn btn-secondary btn-sm" onclick="edRotateStage(-15)">↺ Rotate</button>'
+      + '<button class="btn btn-secondary btn-sm" onclick="edRotateStage(15)">↻ Rotate</button>'
+      + '<span style="font-size:12px;color:var(--text-muted)">'+Math.round(st.rotation)+'°</span>'
+      + '</div>'
+      + '</div>';
+    return;
+  }
   var ids = Object.keys(_ed.selected);
   if(_ed.mode==='add'){
     panel.innerHTML = '<div class="card" style="padding:14px"><div style="font-weight:700;font-size:13px;margin-bottom:6px">Add Seat mode</div><div style="font-size:12px;color:var(--text-muted)">Click anywhere on the map to drop a new seat there. Click "+ Add Seat" again to turn this off.</div></div>';
     return;
   }
   if(!ids.length){
-    panel.innerHTML = '<div class="card" style="padding:14px;color:var(--text-muted);font-size:13px">Click a seat to edit it, or drag-select several to move them together.</div>';
+    panel.innerHTML = '<div class="card" style="padding:14px;color:var(--text-muted);font-size:13px">Click a seat to edit it, drag-select several to move them together, or click the stage to reposition it.</div>';
     return;
   }
   if(ids.length > 1){
     panel.innerHTML = '<div class="card" style="padding:14px">'
       + '<div style="font-weight:700;font-size:13px;margin-bottom:10px">'+ids.length+' seats selected</div>'
       + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Drag any of them to move the whole group together.</div>'
+      + (ids.length>=3
+          ? '<button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:8px" onclick="edAlignSelected()">↔ Straighten &amp; Space Evenly</button>'
+          : '<div style="font-size:11px;color:var(--text-hint);margin-bottom:8px">Select the whole row (3+) to straighten and evenly space it.</div>')
       + '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c);width:100%" onclick="edDeleteSelected()">Delete '+ids.length+' seats</button>'
       + '</div>';
     return;
@@ -31888,6 +32030,8 @@ function renderSeatMapSVG(seats, opts){
   if(!seats.length) return '<div style="color:var(--text-muted);font-size:13px;padding:12px">No seats yet.</div>';
   var pad = 1.2;
   var xs = seats.map(function(s){ return s.x }), ys = seats.map(function(s){ return s.y });
+  var stage = opts.stage;
+  if(stage){ xs = xs.concat([stage.x-stage.width/2, stage.x+stage.width/2]); ys = ys.concat([stage.y-stage.depth/2, stage.y+stage.depth/2]); }
   var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad;
   var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad;
   var w = maxX-minX, h = maxY-minY;
@@ -31895,7 +32039,13 @@ function renderSeatMapSVG(seats, opts){
   seats.forEach(function(s){ if(!sections[s.section||'']) sections[s.section||''] = SEAT_SECTION_COLORS[Object.keys(sections).length % SEAT_SECTION_COLORS.length]; });
   var seatR = 0.38;
   var svg = '<svg viewBox="'+minX+' '+minY+' '+w+' '+h+'" style="width:100%;max-width:640px;height:auto;background:var(--bg,#f7f7f5);border-radius:8px;border:1px solid var(--border)" preserveAspectRatio="xMidYMid meet">';
-  svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-muted,#888)" font-weight="700">STAGE</text>';
+  if(stage){
+    svg += '<g transform="translate('+stage.x+','+stage.y+') rotate('+stage.rotation+')">'
+      + '<rect x="'+(-stage.width/2)+'" y="'+(-stage.depth/2)+'" width="'+stage.width+'" height="'+stage.depth+'" rx="0.15" fill="#334155"/>'
+      + '<text x="0" y="0.15" font-size="0.6" text-anchor="middle" fill="#fff" font-weight="700">STAGE</text></g>';
+  } else {
+    svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-muted,#888)" font-weight="700">STAGE</text>';
+  }
   seats.forEach(function(s){
     var fill = opts.statusColors && s.status ? (opts.statusColors[s.status]||'#ccc') : (sections[s.section||'']||'#999');
     var titleTxt = (s.seat_label||'')+(s.section?' · '+s.section:'');

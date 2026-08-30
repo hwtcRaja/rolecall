@@ -64,6 +64,7 @@ var seats = []
 var ticketTypes = []
 var selectedSeats = {}   // seat_id -> ticket_type_id
 var gaQuantities = {}    // ticket_type_id -> quantity
+var stageInfo = null
 var holdTimer = null
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
@@ -169,6 +170,7 @@ async function loadPerformance(fid){
   currentPerformance = data.performance
   seats = data.seats || []
   ticketTypes = data.ticket_types || []
+  stageInfo = data.stage || null
   setHero(currentPerformance.production_name, currentPerformance.portal_color, currentPerformance.portal_logo_url,
     fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time) + (currentPerformance.venue_name?' · '+currentPerformance.venue_name:''))
   renderPurchaseScreen()
@@ -226,12 +228,19 @@ function renderPickerSVG(){
   if(!seats.length) return '<div style="color:var(--text-muted);padding:20px;text-align:center">No seat map configured for this performance yet.</div>'
   var pad = 1.2
   var xs = seats.map(function(s){return s.x}), ys = seats.map(function(s){return s.y})
+  if(stageInfo){ xs = xs.concat([stageInfo.x-stageInfo.width/2, stageInfo.x+stageInfo.width/2]); ys = ys.concat([stageInfo.y-stageInfo.depth/2, stageInfo.y+stageInfo.depth/2]) }
   var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad
   var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad
   var w = maxX-minX, h = maxY-minY
   var seatR = 0.4
   var svg = '<svg viewBox="'+minX+' '+minY+' '+w+' '+h+'" style="width:100%;height:auto;max-height:70vh;background:var(--bg);border-radius:8px;border:1px solid var(--border)" preserveAspectRatio="xMidYMid meet">'
-  svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
+  if(stageInfo){
+    svg += '<g transform="translate('+stageInfo.x+','+stageInfo.y+') rotate('+stageInfo.rotation+')">'
+      + '<rect x="'+(-stageInfo.width/2)+'" y="'+(-stageInfo.depth/2)+'" width="'+stageInfo.width+'" height="'+stageInfo.depth+'" rx="0.15" fill="#334155"/>'
+      + '<text x="0" y="0.15" font-size="0.6" text-anchor="middle" fill="#fff" font-weight="700">STAGE</text></g>'
+  } else {
+    svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
+  }
   seats.forEach(function(s){
     var status = selectedSeats[s.id] ? 'mine' : (s.status==='mine' ? 'mine' : s.status)
     var fill = SEAT_STATUS_COLORS[status] || SEAT_STATUS_COLORS.available

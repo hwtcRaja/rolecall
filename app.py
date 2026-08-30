@@ -2398,6 +2398,44 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS performances (\n        id            TEXT PRIMARY KEY,\n        production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,\n        venue_id      TEXT REFERENCES venues(id) ON DELETE SET NULL,\n        seat_map_id   TEXT REFERENCES seat_maps(id) ON DELETE SET NULL,\n        name          TEXT DEFAULT '',\n        performance_date TEXT NOT NULL,\n        performance_time TEXT DEFAULT '',\n        doors_time    TEXT DEFAULT '',\n        reserved_seating BOOLEAN DEFAULT TRUE,\n        ga_capacity   INTEGER,\n        sales_open_at  TEXT DEFAULT '',\n        sales_close_at TEXT DEFAULT '',\n        status        TEXT DEFAULT 'draft',\n        notes         TEXT DEFAULT '',\n        created_at    TIMESTAMP DEFAULT NOW(),\n        updated_at    TIMESTAMP DEFAULT NOW())",
         "CREATE TABLE IF NOT EXISTS ticket_types (\n        id             TEXT PRIMARY KEY,\n        performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,\n        name           TEXT NOT NULL,\n        price_cents    INTEGER NOT NULL DEFAULT 0,\n        description    TEXT DEFAULT '',\n        quantity_limit INTEGER,\n        sort_order     INTEGER DEFAULT 0,\n        active         BOOLEAN DEFAULT TRUE,\n        created_at     TIMESTAMP DEFAULT NOW())",
         'CREATE INDEX IF NOT EXISTS ix_seat_map_seats_map ON seat_map_seats(seat_map_id)',
+        # Ticket sales: an order (one checkout, possibly several seats),
+        # the individual tickets it produces once paid, and short-lived
+        # holds so two people can't buy the same seat while one of them
+        # is mid-checkout.
+        """CREATE TABLE IF NOT EXISTS ticket_orders (
+        id              TEXT PRIMARY KEY,
+        performance_id  TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
+        guardian_name   TEXT DEFAULT '',
+        guardian_email  TEXT DEFAULT '',
+        guardian_phone  TEXT DEFAULT '',
+        seats_json      TEXT DEFAULT '[]',
+        total_cents     INTEGER DEFAULT 0,
+        status          TEXT DEFAULT 'pending',
+        square_order_id TEXT,
+        square_checkout_id TEXT,
+        created_at      TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS tickets (
+        id                TEXT PRIMARY KEY,
+        ticket_order_id   TEXT NOT NULL REFERENCES ticket_orders(id) ON DELETE CASCADE,
+        performance_id    TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
+        seat_id           TEXT REFERENCES seat_map_seats(id) ON DELETE SET NULL,
+        ticket_type_id    TEXT REFERENCES ticket_types(id) ON DELETE SET NULL,
+        seat_label        TEXT DEFAULT '',
+        price_cents       INTEGER DEFAULT 0,
+        confirmation_code TEXT,
+        checked_in_at     TIMESTAMP,
+        created_at        TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS seat_holds (
+        id             TEXT PRIMARY KEY,
+        performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
+        seat_id        TEXT NOT NULL REFERENCES seat_map_seats(id) ON DELETE CASCADE,
+        session_token  TEXT NOT NULL,
+        expires_at     TIMESTAMP NOT NULL,
+        created_at     TIMESTAMP DEFAULT NOW(),
+        UNIQUE(performance_id, seat_id))""",
+        'CREATE INDEX IF NOT EXISTS ix_tickets_order ON tickets(ticket_order_id)',
+        'CREATE INDEX IF NOT EXISTS ix_tickets_perf ON tickets(performance_id)',
+        'CREATE INDEX IF NOT EXISTS ix_seat_holds_perf ON seat_holds(performance_id)',
         'CREATE INDEX IF NOT EXISTS ix_performances_production ON performances(production_id)',
         'CREATE INDEX IF NOT EXISTS ix_ticket_types_perf ON ticket_types(performance_id)',
 
@@ -20777,11 +20815,17 @@ def square_webhook():
                                         finalize_registration(conn, rid, payment_id, order_id)
                             conn.commit()
                         else:
-                            # Check pending donations
-                            don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                            # Check ticket orders
+                            tord = fetchone(conn, "SELECT * FROM ticket_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
                                 (order_id, order_id))
-                            if don:
-                                finalize_donation(conn, don['id'], payment_id, amount_cents)
+                            if tord:
+                                _finalize_ticket_order(conn, tord['id'], payment_id, order_id)
+                            else:
+                                # Check pending donations
+                                don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                                    (order_id, order_id))
+                                if don:
+                                    finalize_donation(conn, don['id'], payment_id, amount_cents)
                 conn.close()
             elif status in ('FAILED', 'CANCELED') and order_id:
                 conn = get_db()
@@ -31399,6 +31443,186 @@ def generate_seat_section(mid):
     return jsonify({'ok': True, 'created': created})
 
 
+@app.route('/api/seat-maps/<mid>/generate-fan-section', methods=['POST'])
+def generate_fan_seat_section(mid):
+    """
+    Lay out a block where each row can have a different seat count and the
+    whole block can be rotated — the shape real venues actually have (angled
+    orchestra sections, curved rows), which generate-section's uniform grid
+    can't represent.
+      section: "House Left"
+      rows: [{"label":"J","count":3}, {"label":"H","count":5}, ...] — first
+            row in the list is the back/top row.
+      angle: rotation in degrees, applied around the block's own center
+             (0 = rows run left-to-right, unrotated)
+      number_from: seat numbering start per row (default 1)
+      anchor_x/anchor_y: top-left-ish placement before rotation (default 0,0)
+    Each row is centered on the block's width so unequal row lengths still
+    fan out symmetrically, matching a typical orchestra-seating taper.
+    """
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    section = (d.get('section') or '').strip()
+    seat_type = (d.get('seat_type') or 'standard').strip()
+    rows = d.get('rows') or []
+    angle_deg = float(d.get('angle') or 0)
+    number_from_default = int(d.get('number_from') or 1)
+    anchor_x = float(d.get('anchor_x') or 0)
+    anchor_y = float(d.get('anchor_y') or 0)
+    row_spacing = float(d.get('row_spacing') or 1)
+    seat_spacing = float(d.get('seat_spacing') or 1)
+
+    if not rows:
+        return jsonify({'error': 'rows is required — a list of {label, count}'}), 400
+
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+
+    max_y = fetchone(conn, 'SELECT COALESCE(MAX(y),0) AS m FROM seat_map_seats WHERE seat_map_id=%s', (mid,))
+    y_offset = (max_y['m'] or 0) + (2 if (max_y['m'] or 0) else 0)
+
+    max_count = max((int(r.get('count') or 0) for r in rows), default=0)
+    if max_count <= 0:
+        conn.close(); return jsonify({'error': 'Every row needs a count > 0'}), 400
+
+    import math
+    rad = math.radians(angle_deg)
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+    # Rotate around the center of the widest row so the block pivots in place
+    # rather than swinging out from a corner.
+    pivot_x = (max_count - 1) * seat_spacing / 2
+    pivot_y = (len(rows) - 1) * row_spacing / 2
+
+    created = 0
+    for r_i, row in enumerate(rows):
+        label = (row.get('label') or '').strip().upper() or chr(65 + r_i)
+        count = int(row.get('count') or 0)
+        if count <= 0:
+            continue
+        number_from = int(row.get('number_from') or number_from_default)
+        # Center this row within the widest row so shorter rows (the fan tip)
+        # sit centered rather than flush to one edge.
+        row_offset = (max_count - count) * seat_spacing / 2
+        for s_i in range(count):
+            seat_no = number_from + s_i
+            local_x = row_offset + s_i * seat_spacing
+            local_y = r_i * row_spacing
+            # Rotate (local_x, local_y) around the pivot, then place at anchor.
+            dx, dy = local_x - pivot_x, local_y - pivot_y
+            rx = dx * cos_a - dy * sin_a + pivot_x
+            ry = dx * sin_a + dy * cos_a + pivot_y
+            final_x = round(anchor_x + rx, 2)
+            final_y = round(anchor_y + y_offset + ry, 2)
+            seat_label = f'{label}{seat_no}'
+            execute(conn, '''INSERT INTO seat_map_seats
+                             (id,seat_map_id,section,row_name,seat_number,seat_label,x,y,seat_type)
+                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    (str(uuid.uuid4()), mid, section, label, seat_no, seat_label,
+                     final_x, final_y, seat_type))
+            created += 1
+
+    cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else created, mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
+@app.route('/api/seat-maps/<mid>/seed-bbt-chart', methods=['POST'])
+def seed_bbt_chart(mid):
+    """One-time helper: lays out a best-effort digitization of the BBT house
+    chart (4 angled blocks + accessible spots) using generate-fan-section,
+    so there's a real starting layout to look at and correct visually
+    instead of building 192 seats by hand. This is read off a photo of the
+    chart, not verified against the physical venue — treat row/seat counts
+    as a draft to check (and fix via drag-adjust or regenerate) before
+    seats go on sale, not as a guaranteed-accurate final chart."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+    conn.close()
+
+    blocks = [
+        # House Left — big angled fan, back-to-front J→A
+        dict(section='House Left', angle=28, anchor_x=0, anchor_y=0, rows=[
+            {'label':'J','count':3}, {'label':'H','count':5}, {'label':'G','count':7},
+            {'label':'F','count':8}, {'label':'E','count':7}, {'label':'D','count':7},
+            {'label':'C','count':6}, {'label':'B','count':3}, {'label':'A','count':3},
+        ]),
+        # Small inner block between House Left and center
+        dict(section='House Left Center', angle=12, anchor_x=10, anchor_y=-2, rows=[
+            {'label':'J','count':9,'number_from':4}, {'label':'G','count':5,'number_from':8},
+            {'label':'F','count':4,'number_from':9}, {'label':'E','count':4,'number_from':10},
+            {'label':'D','count':3,'number_from':8}, {'label':'C','count':2,'number_from':6},
+            {'label':'B','count':2,'number_from':3},
+        ]),
+        # House Right — big angled fan, mirrored
+        dict(section='House Right', angle=-28, anchor_x=24, anchor_y=0, rows=[
+            {'label':'G','count':9}, {'label':'F','count':11}, {'label':'E','count':13},
+            {'label':'D','count':14}, {'label':'C','count':16}, {'label':'B','count':3,'number_from':8},
+        ]),
+        # Rear block, bottom-left — vertical columns (rotated 90°)
+        dict(section='Rear', angle=90, anchor_x=0, anchor_y=20, rows=[
+            {'label':'D','count':10}, {'label':'C','count':10},
+            {'label':'B','count':8}, {'label':'A','count':1},
+        ]),
+    ]
+    total_created = 0
+    errors = []
+    for b in blocks:
+        conn = get_db()
+        sm2 = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+        if not sm2:
+            conn.close(); continue
+        max_y = fetchone(conn, 'SELECT COALESCE(MAX(y),0) AS m FROM seat_map_seats WHERE seat_map_id=%s', (mid,))
+        y_offset = (max_y['m'] or 0) + (2 if (max_y['m'] or 0) else 0)
+        rows = b['rows']
+        max_count = max((int(r.get('count') or 0) for r in rows), default=0)
+        if max_count <= 0:
+            conn.close(); continue
+        import math
+        rad = math.radians(b['angle'])
+        cos_a, sin_a = math.cos(rad), math.sin(rad)
+        pivot_x = (max_count - 1) / 2
+        pivot_y = (len(rows) - 1) / 2
+        created = 0
+        for r_i, row in enumerate(rows):
+            label = (row.get('label') or '').strip().upper() or chr(65 + r_i)
+            count = int(row.get('count') or 0)
+            if count <= 0: continue
+            number_from = int(row.get('number_from') or 1)
+            row_offset = (max_count - count) / 2
+            for s_i in range(count):
+                seat_no = number_from + s_i
+                local_x, local_y = row_offset + s_i, r_i
+                dx, dy = local_x - pivot_x, local_y - pivot_y
+                rx = dx*cos_a - dy*sin_a + pivot_x
+                ry = dx*sin_a + dy*cos_a + pivot_y
+                final_x = round(b['anchor_x'] + rx, 2)
+                final_y = round(b['anchor_y'] + y_offset + ry, 2)
+                seat_label = f"{label}{seat_no}"
+                execute(conn, '''INSERT INTO seat_map_seats
+                                 (id,seat_map_id,section,row_name,seat_number,seat_label,x,y,seat_type)
+                                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                        (str(uuid.uuid4()), mid, b['section'], label, seat_no, seat_label,
+                         final_x, final_y, 'standard'))
+                created += 1
+        conn.commit(); conn.close()
+        total_created += created
+
+    conn = get_db()
+    cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else total_created, mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': total_created,
+        'note': 'Draft layout from a photo of the chart — verify row/seat counts and accessible spots against the real venue before selling tickets.'})
+
+
 @app.route('/api/seats/<sid>', methods=['PUT'])
 def update_seat(sid):
     """Edit a single seat (mark accessible, house seat, rename, deactivate)."""
@@ -31619,5 +31843,287 @@ def delete_ticket_type(tid):
     execute(conn, 'DELETE FROM ticket_types WHERE id=%s', (tid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────────────────────
+#  PUBLIC TICKET PURCHASE — seat status, holds, checkout
+# ─────────────────────────────────────────────────────────────
+
+def _clear_expired_holds(conn, performance_id):
+    execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND expires_at < NOW()', (performance_id,))
+
+
+@app.route('/api/public/production/<slug>/performances', methods=['GET'])
+def public_production_performances(slug):
+    """Lists on-sale performances for a production's ticket page, so the
+    page can show a date picker when there's more than one."""
+    conn = get_db()
+    prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url,
+        venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+    if not prod:
+        conn.close(); return jsonify({'error': 'Production not found'}), 404
+    perfs = fetchall(conn, '''SELECT pf.*, v.name AS venue_name, v.address AS venue_address
+        FROM performances pf LEFT JOIN venues v ON pf.venue_id=v.id
+        WHERE pf.production_id=%s AND pf.status IN ('on_sale','sold_out')
+        ORDER BY pf.performance_date, pf.performance_time''', (prod['id'],))
+    conn.close()
+    return jsonify({'production': prod, 'performances': perfs})
+
+
+@app.route('/api/public/performances/<fid>/seat-status', methods=['GET'])
+def public_seat_status(fid):
+    """Everything the ticket picker needs: the seat map (with x/y so it can
+    be drawn), which seats are sold, which are held by someone else right
+    now, and which are free. session_token (if provided as a query param)
+    lets a returning buyer see their own held seats as 'mine' rather than
+    'held by someone else' — e.g. after a page refresh mid-checkout."""
+    session_token = request.args.get('session_token', '')
+    conn = get_db()
+    perf = fetchone(conn, '''SELECT pf.*, p.name AS production_name, p.portal_color, p.portal_logo_url,
+        v.name AS venue_name
+        FROM performances pf
+        JOIN productions p ON pf.production_id=p.id
+        LEFT JOIN venues v ON pf.venue_id=v.id
+        WHERE pf.id=%s''', (fid,))
+    if not perf:
+        conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    _clear_expired_holds(conn, fid)
+    seats = []
+    if perf.get('reserved_seating') and perf.get('seat_map_id'):
+        seats = fetchall(conn, 'SELECT * FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE ORDER BY y, x',
+            (perf['seat_map_id'],))
+        sold_ids = {r['seat_id'] for r in fetchall(conn,
+            'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,))}
+        held_rows = fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))
+        held_map = {r['seat_id']: r['session_token'] for r in held_rows}
+        for s in seats:
+            if s['id'] in sold_ids:
+                s['status'] = 'sold'
+            elif s['id'] in held_map:
+                s['status'] = 'mine' if (session_token and held_map[s['id']] == session_token) else 'held'
+            else:
+                s['status'] = 'available'
+    ticket_types = fetchall(conn, 'SELECT * FROM ticket_types WHERE performance_id=%s AND active=TRUE ORDER BY sort_order', (fid,))
+    ga_sold = 0
+    if not perf.get('reserved_seating'):
+        ga_sold = (fetchone(conn, "SELECT COUNT(*) AS c FROM tickets WHERE performance_id=%s AND seat_id IS NULL", (fid,)) or {}).get('c', 0)
+    conn.close()
+    return jsonify({'performance': perf, 'seats': seats, 'ticket_types': ticket_types, 'ga_sold': ga_sold})
+
+
+@app.route('/api/public/performances/<fid>/hold-seats', methods=['POST'])
+def public_hold_seats(fid):
+    """Puts a short hold on the requested seats so this buyer has a window
+    to finish checkout without someone else grabbing the same seat. Holds
+    expire on their own (15 min) — nothing needs to explicitly release them
+    for the seat to free back up, though the picker does that too when a
+    buyer deselects a seat."""
+    d = request.json or {}
+    seat_ids = d.get('seat_ids') or []
+    session_token = (d.get('session_token') or '').strip()
+    if not session_token or not seat_ids:
+        return jsonify({'error': 'session_token and seat_ids are required'}), 400
+    conn = get_db()
+    perf = fetchone(conn, 'SELECT id FROM performances WHERE id=%s', (fid,))
+    if not perf:
+        conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    _clear_expired_holds(conn, fid)
+    sold_ids = {r['seat_id'] for r in fetchall(conn,
+        'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,))}
+    taken = []
+    held_by_others = {r['seat_id']: r['session_token'] for r in
+        fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))}
+    for sid in seat_ids:
+        if sid in sold_ids or (sid in held_by_others and held_by_others[sid] != session_token):
+            taken.append(sid)
+    if taken:
+        conn.close()
+        return jsonify({'error': 'Some seats were just taken by another buyer', 'taken': taken}), 409
+    for sid in seat_ids:
+        execute(conn, '''INSERT INTO seat_holds (id, performance_id, seat_id, session_token, expires_at)
+            VALUES (%s,%s,%s,%s, NOW() + INTERVAL '15 minutes')
+            ON CONFLICT (performance_id, seat_id) DO UPDATE SET
+                session_token=EXCLUDED.session_token, expires_at=EXCLUDED.expires_at''',
+            (str(uuid.uuid4()), fid, sid, session_token))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'expires_in_seconds': 900})
+
+
+@app.route('/api/public/performances/<fid>/release-hold', methods=['POST'])
+def public_release_hold(fid):
+    d = request.json or {}
+    seat_ids = d.get('seat_ids') or []
+    session_token = (d.get('session_token') or '').strip()
+    conn = get_db()
+    if seat_ids:
+        execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND session_token=%s AND seat_id = ANY(%s)',
+            (fid, session_token, seat_ids))
+    else:
+        execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND session_token=%s', (fid, session_token))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/public/ticket-checkout', methods=['POST'])
+def public_ticket_checkout():
+    """Mirrors cart_checkout's shape: validate, total it up, and either
+    auto-confirm a free order or hand back a Square payment link. Seats
+    only convert from 'held' to 'sold' once the webhook confirms payment
+    (see the payment.completed handler) — checkout itself just locks in
+    the price and creates the pending order."""
+    d = request.json or {}
+    fid = d.get('performance_id')
+    session_token = (d.get('session_token') or '').strip()
+    guardian_name = (d.get('guardian_name') or '').strip()
+    guardian_email = (d.get('guardian_email') or '').strip().lower()
+    guardian_phone = (d.get('guardian_phone') or '').strip()
+    seat_selections = d.get('seats') or []  # [{seat_id, ticket_type_id}] for reserved, or [{ticket_type_id, quantity}] for GA
+
+    if not fid or not guardian_name or not guardian_email:
+        return jsonify({'error': 'Name, email, and performance are required'}), 400
+    if not seat_selections:
+        return jsonify({'error': 'No tickets selected'}), 400
+
+    conn = get_db()
+    perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+    if not perf:
+        conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],))
+    ticket_type_rows = {t['id']: t for t in fetchall(conn, 'SELECT * FROM ticket_types WHERE performance_id=%s', (fid,))}
+
+    line_items = []  # each: seat_id (nullable), ticket_type_id, seat_label, price_cents
+    if perf.get('reserved_seating'):
+        _clear_expired_holds(conn, fid)
+        held = {r['seat_id']: r['session_token'] for r in
+            fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))}
+        seat_rows = {s['id']: s for s in fetchall(conn,
+            'SELECT * FROM seat_map_seats WHERE id = ANY(%s)', ([sel.get('seat_id') for sel in seat_selections],))}
+        for sel in seat_selections:
+            sid = sel.get('seat_id')
+            seat = seat_rows.get(sid)
+            if not seat:
+                conn.close(); return jsonify({'error': 'A selected seat no longer exists'}), 400
+            if held.get(sid) != session_token:
+                conn.close(); return jsonify({'error': f"Your hold on seat {seat['seat_label']} expired — please reselect."}), 409
+            tt = ticket_type_rows.get(sel.get('ticket_type_id'))
+            price = tt['price_cents'] if tt else 0
+            line_items.append({'seat_id': sid, 'ticket_type_id': tt['id'] if tt else None,
+                'seat_label': seat['seat_label'], 'price_cents': price})
+    else:
+        for sel in seat_selections:
+            tt = ticket_type_rows.get(sel.get('ticket_type_id'))
+            if not tt:
+                conn.close(); return jsonify({'error': 'Invalid ticket type'}), 400
+            qty = max(1, int(sel.get('quantity') or 1))
+            for _ in range(qty):
+                line_items.append({'seat_id': None, 'ticket_type_id': tt['id'],
+                    'seat_label': tt['name'], 'price_cents': tt['price_cents']})
+
+    total_cents = sum(li['price_cents'] for li in line_items)
+    order_id = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO ticket_orders
+        (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json, total_cents, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,'pending')''',
+        (order_id, fid, guardian_name, guardian_email, guardian_phone, json.dumps(line_items), total_cents))
+    conn.commit()
+
+    if total_cents == 0:
+        _finalize_ticket_order(conn, order_id, None, None)
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free', 'ticket_order_id': order_id})
+
+    sq_line_items = [{
+        'name': (li['seat_label'] or 'Ticket')[:191],
+        'quantity': '1',
+        'base_price_money': {'amount': li['price_cents'], 'currency': 'USD'},
+    } for li in line_items]
+    redirect_url = f'{APP_BASE_URL}/tickets/confirmation?order={order_id}'
+    payload = {
+        'idempotency_key': uuid.uuid4().hex,
+        'order': {'location_id': SQUARE_LOCATION_ID, 'line_items': sq_line_items, 'reference_id': order_id[:40]},
+        'checkout_options': {'redirect_url': redirect_url, 'ask_for_shipping_address': False},
+        'pre_populated_data': {'buyer_email': guardian_email},
+        'description': f"Tickets — {(prod or {}).get('name','')}"[:191],
+    }
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
+            json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment_link'):
+            lnk = data['payment_link']
+            execute(conn, 'UPDATE ticket_orders SET square_order_id=%s, square_checkout_id=%s WHERE id=%s',
+                (lnk.get('order_id'), lnk.get('id'), order_id))
+            conn.commit(); conn.close()
+            return jsonify({'ok': True, 'type': 'payment_required', 'payment_url': lnk.get('url'), 'ticket_order_id': order_id})
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'Ticket checkout Square error: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
+    """Turns a paid (or free) order into real tickets, releases the seat
+    holds that produced them, and marks the order completed."""
+    order = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (order_id,))
+    if not order or order['status'] == 'completed':
+        return
+    try:
+        line_items = json.loads(order.get('seats_json') or '[]')
+    except Exception:
+        line_items = []
+    for li in line_items:
+        execute(conn, '''INSERT INTO tickets
+            (id, ticket_order_id, performance_id, seat_id, ticket_type_id, seat_label, price_cents, confirmation_code)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), order_id, order['performance_id'], li.get('seat_id'),
+             li.get('ticket_type_id'), li.get('seat_label') or '', li.get('price_cents') or 0,
+             uuid.uuid4().hex[:8].upper()))
+    execute(conn, "UPDATE ticket_orders SET status='completed' WHERE id=%s", (order_id,))
+    execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND seat_id = ANY(%s)',
+        (order['performance_id'], [li['seat_id'] for li in line_items if li.get('seat_id')]))
+    conn.commit()
+    if order.get('guardian_email'):
+        try:
+            perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))
+            prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) if perf else None
+            seat_list = ', '.join(li.get('seat_label','') for li in line_items) or f'{len(line_items)} ticket(s)'
+            send_email([order['guardian_email']], f"Your tickets — {(prod or {}).get('name','')}",
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<h2 style="color:#145466">You\'re all set!</h2>'
+                f'<p>Hi {order.get("guardian_name","")},</p>'
+                f'<p>Thanks for your order for <strong>{(prod or {}).get("name","")}</strong>'
+                f'{" on "+perf.get("performance_date","") if perf and perf.get("performance_date") else ""}.</p>'
+                f'<p><strong>Seats/Tickets:</strong> {seat_list}</p>'
+                f'<p>See you at the show!</p></div>')
+        except Exception as e:
+            app.logger.warning(f'Ticket confirmation email failed: {e}')
+
+
+@app.route('/api/public/ticket-order/<oid>', methods=['GET'])
+def public_ticket_order_status(oid):
+    conn = get_db()
+    order = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (oid,))
+    if not order:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))
+    prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) if perf else None
+    tickets = fetchall(conn, 'SELECT * FROM tickets WHERE ticket_order_id=%s', (oid,))
+    conn.close()
+    try:
+        order['seats'] = json.loads(order.get('seats_json') or '[]')
+    except Exception:
+        order['seats'] = []
+    return jsonify({'order': order, 'performance': perf, 'production_name': (prod or {}).get('name',''), 'tickets': tickets})
+
+
+@app.route('/tickets/<slug>')
+def public_tickets_page(slug):
+    return send_from_directory('static', 'tickets.html')
+
+@app.route('/tickets/confirmation')
+def public_tickets_confirmation_page():
+    return send_from_directory('static', 'tickets.html')
 
 

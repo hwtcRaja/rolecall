@@ -522,6 +522,18 @@ var _slideTimer = null
 var _adminImages = []     // working copy in admin panel
 var _isAdmin = window.location.search.includes('manage')
 
+// Local YYYY-MM-DD, N days from today — uses the device's own local date
+// components (never toISOString(), which is always UTC) so this always
+// matches what the clock below is showing.
+function localDateStr(offsetDays){
+  var d = new Date()
+  d.setDate(d.getDate() + (offsetDays||0))
+  var y = d.getFullYear()
+  var m = String(d.getMonth()+1).padStart(2,'0')
+  var day = String(d.getDate()).padStart(2,'0')
+  return y+'-'+m+'-'+day
+}
+
 // ── Clock ──────────────────────────────────────────────────────────────────
 function updateClock(){
   var now = new Date()
@@ -741,8 +753,13 @@ function renderEvents(events){
     }
     return
   }
-  var today = new Date().toISOString().slice(0,10)
-  var tomorrow = new Date(Date.now()+86400000).toISOString().slice(0,10)
+  // Build today/tomorrow from the device's local date components, not
+  // toISOString() — toISOString() always renders in UTC regardless of the
+  // browser's timezone, so in the evening (once UTC has already rolled to
+  // the next calendar day) events would get mislabeled TOMORROW a day too
+  // early. This matches how the clock above already trusts local time.
+  var today = localDateStr(0)
+  var tomorrow = localDateStr(1)
 
   if(_currentTheme === 'jungle'){
     var planks = events.map(function(ev, i){

@@ -31321,13 +31321,22 @@ async function loadTicketsTab(pid){
     el.innerHTML = '<div style="padding:20px;color:var(--red,#b91c1c)">'+escHtml(perfs.error)+'</div>';
     return;
   }
+  var prod = (typeof allProductions!=='undefined' ? allProductions : []).find(function(p){ return p.id===pid });
+  var ticketUrl = prod && prod.slug ? '/tickets/'+prod.slug : '';
   var toolbar =
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px">'
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">'
     + '<div style="font-size:15px;font-weight:700"> Performances</div>'
     + '<div style="display:flex;gap:8px">'
     + '<button class="btn btn-secondary btn-sm" onclick="openVenuesModal()"> Venues</button>'
     + '<button class="btn btn-primary btn-sm" onclick="ticketPerfModal(\''+pid+'\')">+ Add Performance</button>'
-    + '</div></div>';
+    + '</div></div>'
+    + (ticketUrl
+        ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 14px;background:var(--teal-light,#e0f2fe);border-radius:var(--radius);font-size:13px">'
+          + '<span style="flex:1">Public ticket page: <a href="'+ticketUrl+'" target="_blank" style="color:var(--teal-dark);font-weight:700">'+ticketUrl+'</a>'
+          + ' <span style="color:var(--text-muted)">— only performances marked "On Sale" below show up here.</span></span>'
+          + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(location.origin+\''+ticketUrl+'\');toast(\'Link copied!\',\'success\')">Copy Link</button>'
+          + '</div>'
+        : '<div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Set a URL slug on this production (Info tab) to get a public ticket link.</div>');
 
   if(!perfs || !perfs.length){
     el.innerHTML = toolbar
@@ -31569,11 +31578,16 @@ async function openSeatMaps(venueId, venueName){
       +   '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">'
       +     '<div><div style="font-weight:700">'+escHtml(m.name)+(m.is_default?' <span style="font-size:11px;color:var(--teal-400,#0d9488)">★ default</span>':'')+'</div>'
       +       '<div style="font-size:12px;color:var(--text-muted)">'+(m.seat_count||0)+' seats</div></div>'
-      +     '<div style="display:flex;gap:6px">'
-      +       '<button class="btn btn-secondary btn-sm" onclick="tkGenerateSectionForm(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">+ Add Section</button>'
+      +     '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+      +       '<button class="btn btn-secondary btn-sm" onclick="tkTogglePreview(\''+m.id+'\')">👁 Preview</button>'
+      +       '<button class="btn btn-secondary btn-sm" onclick="tkGenerateSectionForm(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">+ Add Rectangular Block</button>'
+      +       '<button class="btn btn-secondary btn-sm" onclick="tkGenerateFanSectionForm(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">+ Add Angled/Fan Block</button>'
+ +       (!m.seat_count ? '<button class="btn btn-secondary btn-sm" onclick="tkSeedBBTChart(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">Seed BBT Chart (draft)</button>' : '')
+      +       (m.seat_count ? '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c)" onclick="tkClearSeatMapSeats(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">Clear Seats</button>' : '')
       +       '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c)" onclick="tkDeleteSeatMap(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">Delete</button>'
       +     '</div>'
       +   '</div>'
+      +   '<div id="tk-sm-preview-'+m.id+'" style="display:none;margin-top:10px"></div>'
       +   '<div id="tk-sm-section-'+m.id+'"></div>'
       + '</div>';
   }).join('');
@@ -31586,6 +31600,74 @@ async function openSeatMaps(venueId, venueName){
     + (list || '<div style="color:var(--text-muted);text-align:center;padding:20px">No seat maps yet.</div>')
     + '<div id="tk-seatmap-form-slot"></div>';
 }
+
+/* ── Visual seat map preview (SVG) — lets staff actually see what a
+   generated layout looks like and check it against the real venue,
+   instead of trusting a table of row/seat counts. ── */
+var _tkSeatMapDetailCache = {};
+var SEAT_SECTION_COLORS = ['#0d9488','#7c3aed','#dc2626','#d97706','#2563eb','#db2777','#059669','#4f46e5'];
+
+async function tkTogglePreview(mapId){
+  var el = document.getElementById('tk-sm-preview-'+mapId);
+  if(!el) return;
+  if(el.style.display !== 'none'){ el.style.display='none'; return; }
+  el.style.display='';
+  el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading…</div>';
+  var detail = await api('/api/seat-maps/'+mapId);
+  if(detail && detail.error){ el.innerHTML = '<div style="color:var(--red,#b91c1c)">'+escHtml(detail.error)+'</div>'; return; }
+  _tkSeatMapDetailCache[mapId] = detail;
+  el.innerHTML = renderSeatMapSVG(detail.seats||[], {showLabels:true});
+}
+
+function renderSeatMapSVG(seats, opts){
+  opts = opts || {};
+  if(!seats.length) return '<div style="color:var(--text-muted);font-size:13px;padding:12px">No seats yet.</div>';
+  var pad = 1.2;
+  var xs = seats.map(function(s){ return s.x }), ys = seats.map(function(s){ return s.y });
+  var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad;
+  var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad;
+  var w = maxX-minX, h = maxY-minY;
+  var sections = {};
+  seats.forEach(function(s){ if(!sections[s.section||'']) sections[s.section||''] = SEAT_SECTION_COLORS[Object.keys(sections).length % SEAT_SECTION_COLORS.length]; });
+  var seatR = 0.38;
+  var svg = '<svg viewBox="'+minX+' '+minY+' '+w+' '+h+'" style="width:100%;max-width:640px;height:auto;background:var(--bg,#f7f7f5);border-radius:8px;border:1px solid var(--border)" preserveAspectRatio="xMidYMid meet">';
+  svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-muted,#888)" font-weight="700">STAGE</text>';
+  seats.forEach(function(s){
+    var fill = opts.statusColors && s.status ? (opts.statusColors[s.status]||'#ccc') : (sections[s.section||'']||'#999');
+    var titleTxt = (s.seat_label||'')+(s.section?' · '+s.section:'');
+    svg += '<g'+(opts.clickable?' style="cursor:pointer" data-seat-id="'+s.id+'" class="seat-dot" onclick="tkSeatClicked && tkSeatClicked(\''+s.id+'\')"':'')+'>'
+    svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="#fff" stroke-width="0.05">'
+    svg += '<title>'+titleTxt+'</title></circle>';
+    if(s.accessible){ svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff">♿</text>'; }
+    svg += '</g>';
+  });
+  svg += '</svg>';
+  var legend = Object.keys(sections).map(function(sec){
+    return '<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted);margin-right:12px"><span style="width:9px;height:9px;border-radius:50%;background:'+sections[sec]+';display:inline-block"></span>'+escHtml(sec||'(no section)')+'</span>';
+  }).join('');
+  return svg + '<div style="margin-top:6px">'+legend+'</div>';
+}
+
+async function tkClearSeatMapSeats(venueId, mapId, venueName){
+  if(!confirm('Remove every seat from this map? This does not delete the map itself, just its seats — use this before regenerating a corrected layout.')) return;
+  var res = await api('/api/seat-maps/'+mapId+'/seats','DELETE');
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Seats cleared','info');
+  delete _tkSeatMapCache[venueId];
+  openSeatMaps(venueId, venueName);
+}
+
+async function tkSeedBBTChart(venueId, mapId, venueName){
+  if(!confirm('Lay out a draft BBT chart (4 angled blocks, ~192 seats) based on a photo of the chart? This is a starting point to review and correct visually — not guaranteed accurate to the real venue.')) return;
+  var res = await api('/api/seat-maps/'+mapId+'/seed-bbt-chart','POST',{});
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Created '+res.created+' seats — review the preview and adjust before selling tickets','success');
+  delete _tkSeatMapCache[venueId];
+  openSeatMaps(venueId, venueName);
+  setTimeout(function(){ tkTogglePreview(mapId) }, 300);
+}
+
+
 
 function tkSeatMapForm(venueId, venueName){
   var slot = document.getElementById('tk-seatmap-form-slot');
@@ -31651,6 +31733,54 @@ async function tkGenerateSection(venueId, mapId, venueName){
   };
   if(!body.row_count || !body.seats_per_row){ toast('Enter rows and seats per row','error'); return; }
   var res = await api('/api/seat-maps/'+mapId+'/generate-section','POST',body);
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Created '+res.created+' seats','success');
+  delete _tkSeatMapCache[venueId];
+  openSeatMaps(venueId, venueName);
+}
+
+function tkGenerateFanSectionForm(venueId, mapId, venueName){
+  var slot = document.getElementById('tk-sm-section-'+mapId);
+  if(slot.innerHTML.trim()){ slot.innerHTML=''; return; }
+  slot.innerHTML =
+    '<div style="background:var(--bg,#f7f7f5);border-radius:8px;padding:12px;margin-top:10px">'
+    + '<div style="font-size:12px;font-weight:700;color:var(--text-muted);margin-bottom:4px">Generate an angled block with uneven row lengths</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">One row per line: <code>LABEL:COUNT</code> or <code>LABEL:COUNT:FIRST_SEAT_NUMBER</code>. First line = back row.</div>'
+    + '<div class="form-row">'
+    +   '<div class="form-group"><label>Section name</label><input type="text" id="tk-fsec-name-'+mapId+'" placeholder="e.g. House Left"/></div>'
+    +   '<div class="form-group"><label>Rotation (degrees)</label><input type="number" id="tk-fsec-angle-'+mapId+'" value="0" step="1"/></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Rows</label><textarea id="tk-fsec-rows-'+mapId+'" rows="6" placeholder="J:3&#10;H:5&#10;G:7&#10;F:8&#10;E:7&#10;D:7&#10;C:6&#10;B:3&#10;A:3" style="width:100%;font-family:monospace;padding:8px;border:1.5px solid var(--border-md);border-radius:var(--radius);box-sizing:border-box"></textarea></div>'
+    + '<div class="form-row">'
+    +   '<div class="form-group"><label>Anchor X</label><input type="number" id="tk-fsec-ax-'+mapId+'" value="0" step="0.5"/></div>'
+    +   '<div class="form-group"><label>Anchor Y</label><input type="number" id="tk-fsec-ay-'+mapId+'" value="0" step="0.5"/></div>'
+    + '</div>'
+    + '<div style="display:flex;gap:8px">'
+    +   '<button class="btn btn-primary btn-sm" onclick="tkGenerateFanSection(\''+venueId+'\',\''+mapId+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">Generate Seats</button>'
+    +   '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'tk-sm-section-'+mapId+'\').innerHTML=\'\'">Cancel</button>'
+    + '</div></div>';
+}
+
+function tkParseFanRows(text){
+  return text.split('\n').map(function(line){ return line.trim() }).filter(Boolean).map(function(line){
+    var parts = line.split(':');
+    var row = {label: (parts[0]||'').trim(), count: parseInt(parts[1]||'0')};
+    if(parts[2]) row.number_from = parseInt(parts[2]);
+    return row;
+  }).filter(function(r){ return r.label && r.count>0 });
+}
+
+async function tkGenerateFanSection(venueId, mapId, venueName){
+  var rows = tkParseFanRows(document.getElementById('tk-fsec-rows-'+mapId).value||'');
+  if(!rows.length){ toast('Add at least one row like J:3','error'); return; }
+  var body = {
+    section: document.getElementById('tk-fsec-name-'+mapId).value.trim(),
+    angle: parseFloat(document.getElementById('tk-fsec-angle-'+mapId).value||'0'),
+    anchor_x: parseFloat(document.getElementById('tk-fsec-ax-'+mapId).value||'0'),
+    anchor_y: parseFloat(document.getElementById('tk-fsec-ay-'+mapId).value||'0'),
+    rows: rows
+  };
+  var res = await api('/api/seat-maps/'+mapId+'/generate-fan-section','POST',body);
   if(res && res.error){ toast(res.error,'error'); return; }
   toast('Created '+res.created+' seats','success');
   delete _tkSeatMapCache[venueId];

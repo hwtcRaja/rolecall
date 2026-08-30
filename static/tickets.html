@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1"/>
+<title>Tickets</title>
+<style>
+:root{
+  --show-accent:#145466;
+  --teal:#0d9488; --teal-dark:#0f766e; --teal-light:#ccfbf1;
+  --bg:#f7f7f5; --surface:#ffffff; --border:#e5e5e0; --border-md:#d4d4cc;
+  --text:#1f2937; --text-muted:#6b7280; --text-hint:#9ca3af;
+  --green:#16a34a; --green-light:#dcfce7;
+  --amber:#d97706; --amber-light:#fef3c7;
+  --red:#dc2626; --red-light:#fee2e2;
+  --radius:10px; --radius-lg:16px;
+  --shadow-lg:0 10px 40px rgba(0,0,0,0.12);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text)}
+.wrap{max-width:900px;margin:0 auto;padding:0 16px 60px}
+.hero{background:linear-gradient(135deg,var(--show-accent),var(--show-accent)cc);color:#fff;padding:32px 20px;margin-bottom:24px}
+.hero-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:14px}
+.hero-logo{width:52px;height:52px;object-fit:contain;border-radius:10px;background:rgba(255,255,255,0.15);padding:6px;flex-shrink:0}
+.hero h1{margin:0 0 4px;font-size:26px}
+.hero .sub{opacity:0.85;font-size:14px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 20px;border-radius:var(--radius);border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn-primary{background:var(--show-accent);color:#fff}
+.btn-primary:disabled{opacity:0.45;cursor:not-allowed}
+.btn-secondary{background:var(--bg);color:var(--text);border:1.5px solid var(--border-md)}
+.perf-option{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius);margin-bottom:10px;cursor:pointer}
+.perf-option:hover{border-color:var(--show-accent)}
+.perf-option.selected{border-color:var(--show-accent);background:var(--teal-light)}
+input,select{font-family:inherit;font-size:14px;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box}
+label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px}
+.form-group{margin-bottom:14px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:520px){.form-row{grid-template-columns:1fr}}
+.seat-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-muted);margin-top:10px}
+.legend-dot{width:11px;height:11px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle}
+.cart-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
+.cart-row:last-child{border-bottom:none}
+.total-row{display:flex;justify-content:space-between;font-size:18px;font-weight:800;padding-top:12px;margin-top:6px;border-top:2px solid var(--border)}
+.loading{text-align:center;padding:60px 20px;color:var(--text-muted)}
+.error-box{background:var(--red-light);color:#991b1b;padding:14px 16px;border-radius:var(--radius);font-size:14px}
+.qty-stepper{display:flex;align-items:center;gap:10px}
+.qty-btn{width:32px;height:32px;border-radius:50%;border:1.5px solid var(--border-md);background:var(--surface);font-size:16px;font-weight:700;cursor:pointer}
+.confirm-code{font-family:monospace;font-size:16px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:6px 12px;border-radius:8px;display:inline-block}
+</style>
+</head>
+<body>
+
+<div id="hero-slot"></div>
+<div class="wrap" id="app">
+  <div class="loading">Loading…</div>
+</div>
+
+<script>
+var API = ''
+var sessionToken = null
+var currentPerformance = null
+var seats = []
+var ticketTypes = []
+var selectedSeats = {}   // seat_id -> ticket_type_id
+var gaQuantities = {}    // ticket_type_id -> quantity
+var holdTimer = null
+
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+function fmtMoney(c){ return '$'+((c||0)/100).toFixed(2) }
+function getSessionToken(){
+  if(sessionToken) return sessionToken
+  try{
+    sessionToken = sessionStorage.getItem('ticket_session_token')
+    if(!sessionToken){
+      sessionToken = 'tk_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10)
+      sessionStorage.setItem('ticket_session_token', sessionToken)
+    }
+  } catch(e){
+    sessionToken = 'tk_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10)
+  }
+  return sessionToken
+}
+
+async function api(path, method, body){
+  var opts = {method: method||'GET', headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  var res = await fetch(API+path, opts)
+  var data = null
+  try{ data = await res.json() }catch(e){}
+  if(!res.ok && data && !data.error) data.error = 'Something went wrong — please try again.'
+  return data || {error:'Something went wrong — please try again.'}
+}
+
+function setHero(name, color, logo, sub){
+  document.documentElement.style.setProperty('--show-accent', color || '#145466')
+  document.getElementById('hero-slot').innerHTML =
+    '<div class="hero"><div class="hero-inner">'
+    + (logo?'<img class="hero-logo" src="'+logo+'" onerror="this.style.display=\'none\'"/>':'')
+    + '<div><h1>'+escH(name||'Tickets')+'</h1>'+(sub?'<div class="sub">'+escH(sub)+'</div>':'')+'</div>'
+    + '</div></div>'
+}
+
+async function init(){
+  var path = window.location.pathname
+  if(path === '/tickets/confirmation'){
+    var params = new URLSearchParams(window.location.search)
+    return renderConfirmation(params.get('order'))
+  }
+  var slug = path.replace(/^\/tickets\//,'').replace(/\/$/,'')
+  if(!slug){
+    document.getElementById('app').innerHTML = '<div class="error-box">No production specified.</div>'
+    return
+  }
+  var data = await api('/api/public/production/'+encodeURIComponent(slug)+'/performances')
+  if(data.error){
+    document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
+    return
+  }
+  var prod = data.production
+  setHero(prod.name, prod.portal_color, prod.portal_logo_url, 'Tickets')
+  var perfs = data.performances || []
+  if(!perfs.length){
+    document.getElementById('app').innerHTML = '<div class="card">Tickets aren\'t on sale for this production yet — check back soon.</div>'
+    return
+  }
+  if(perfs.length === 1){
+    return loadPerformance(perfs[0].id)
+  }
+  renderPerformancePicker(prod, perfs)
+}
+
+function fmtPerfDate(d, t){
+  if(!d) return ''
+  var dt
+  try{ dt = new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) }catch(e){ dt = d }
+  if(t){
+    try{
+      var p = t.split(':'), h = parseInt(p[0]), m = p[1], ap = h>=12?'PM':'AM'
+      h = h%12||12
+      dt += ' at '+h+(m&&m!=='00'?':'+m:'')+' '+ap
+    }catch(e){}
+  }
+  return dt
+}
+
+function renderPerformancePicker(prod, perfs){
+  document.getElementById('app').innerHTML =
+    '<div class="card"><div style="font-weight:700;font-size:16px;margin-bottom:14px">Select a performance</div>'
+    + perfs.map(function(p){
+        var full = p.status === 'sold_out'
+        return '<div class="perf-option" style="'+(full?'opacity:0.6;cursor:default':'')+'" '+(full?'':'onclick="loadPerformance(\''+p.id+'\')"')+'>'
+          + '<div><div style="font-weight:700">'+escH(fmtPerfDate(p.performance_date, p.performance_time))+'</div>'
+          + '<div style="font-size:12px;color:var(--text-muted)">'+escH(p.venue_name||'')+'</div></div>'
+          + (full?'<span style="font-size:12px;font-weight:700;color:var(--red)">SOLD OUT</span>':'<span style="font-size:13px;font-weight:700;color:var(--show-accent)">Select →</span>')
+          + '</div>'
+      }).join('')
+    + '</div>'
+}
+
+async function loadPerformance(fid){
+  document.getElementById('app').innerHTML = '<div class="loading">Loading seats…</div>'
+  selectedSeats = {}; gaQuantities = {}
+  var data = await api('/api/public/performances/'+fid+'/seat-status?session_token='+encodeURIComponent(getSessionToken()))
+  if(data.error){
+    document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
+    return
+  }
+  currentPerformance = data.performance
+  seats = data.seats || []
+  ticketTypes = data.ticket_types || []
+  setHero(currentPerformance.production_name, currentPerformance.portal_color, currentPerformance.portal_logo_url,
+    fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time) + (currentPerformance.venue_name?' · '+currentPerformance.venue_name:''))
+  renderPurchaseScreen()
+}
+
+function renderPurchaseScreen(){
+  var reserved = currentPerformance.reserved_seating
+  var html = '<div class="card">'
+  if(reserved){
+    html += '<div style="font-weight:700;font-size:15px;margin-bottom:8px">Pick your seats</div>'
+    html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Tap an available seat to select it. Selected seats are held for you for 15 minutes.</div>'
+    html += '<div id="seat-map-holder">'+renderPickerSVG()+'</div>'
+    html += '<div class="seat-legend">'
+      + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.available+'"></span>Available</span>'
+      + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.mine+'"></span>Selected</span>'
+      + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.held+'"></span>Held by another buyer</span>'
+      + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.sold+'"></span>Sold</span>'
+      + '</div>'
+  } else {
+    html += '<div style="font-weight:700;font-size:15px;margin-bottom:12px">Select your tickets</div>'
+    html += ticketTypes.map(function(tt){
+      var qty = gaQuantities[tt.id] || 0
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">'
+        + '<div><div style="font-weight:700">'+escH(tt.name)+'</div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">'+fmtMoney(tt.price_cents)+(tt.description?' · '+escH(tt.description):'')+'</div></div>'
+        + '<div class="qty-stepper">'
+        + '<button class="qty-btn" onclick="changeGaQty(\''+tt.id+'\',-1)">−</button>'
+        + '<span style="min-width:20px;text-align:center;font-weight:700">'+qty+'</span>'
+        + '<button class="qty-btn" onclick="changeGaQty(\''+tt.id+'\',1)">+</button>'
+        + '</div></div>'
+    }).join('')
+  }
+  html += '</div>'
+
+  html += '<div class="card" id="cart-card">'+renderCart()+'</div>'
+
+  html += '<div class="card">'
+    + '<div style="font-weight:700;font-size:15px;margin-bottom:12px">Your info</div>'
+    + '<div class="form-group"><label>Name *</label><input type="text" id="tk-name"/></div>'
+    + '<div class="form-row">'
+    + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
+    + '<div class="form-group"><label>Phone</label><input type="tel" id="tk-phone"/></div>'
+    + '</div>'
+    + '<div id="checkout-error"></div>'
+    + '<button class="btn btn-primary" style="width:100%" id="checkout-btn" onclick="doCheckout()" disabled>Checkout</button>'
+    + '</div>'
+
+  document.getElementById('app').innerHTML = html
+  updateCheckoutButtonState()
+}
+
+var SEAT_STATUS_COLORS = {available:'#0d9488', mine:'#145466', held:'#d97706', sold:'#d1d5db'}
+
+function renderPickerSVG(){
+  if(!seats.length) return '<div style="color:var(--text-muted);padding:20px;text-align:center">No seat map configured for this performance yet.</div>'
+  var pad = 1.2
+  var xs = seats.map(function(s){return s.x}), ys = seats.map(function(s){return s.y})
+  var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad
+  var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad
+  var w = maxX-minX, h = maxY-minY
+  var seatR = 0.4
+  var svg = '<svg viewBox="'+minX+' '+minY+' '+w+' '+h+'" style="width:100%;height:auto;max-height:70vh;background:var(--bg);border-radius:8px;border:1px solid var(--border)" preserveAspectRatio="xMidYMid meet">'
+  svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
+  seats.forEach(function(s){
+    var status = selectedSeats[s.id] ? 'mine' : (s.status==='mine' ? 'mine' : s.status)
+    var fill = SEAT_STATUS_COLORS[status] || SEAT_STATUS_COLORS.available
+    var clickable = (status === 'available' || status === 'mine')
+    svg += '<g'+(clickable?' style="cursor:pointer" onclick="toggleSeat(\''+s.id+'\')"':' style="cursor:not-allowed"')+'>'
+    svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="#fff" stroke-width="0.05"><title>'+escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+'</title></circle>'
+    if(s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.34" text-anchor="middle" fill="#fff">♿</text>'
+    svg += '</g>'
+  })
+  svg += '</svg>'
+  return svg
+}
+
+async function toggleSeat(seatId){
+  var seat = seats.find(function(s){ return s.id===seatId })
+  if(!seat) return
+  if(selectedSeats[seatId]){
+    delete selectedSeats[seatId]
+    await api('/api/public/performances/'+currentPerformance.id+'/release-hold','POST',
+      {seat_ids:[seatId], session_token:getSessionToken()})
+    seat.status = 'available'
+    refreshPickerAndCart()
+    return
+  }
+  // Optimistically select, then confirm the hold with the server
+  var defaultType = ticketTypes[0]
+  selectedSeats[seatId] = defaultType ? defaultType.id : null
+  refreshPickerAndCart()
+  var res = await api('/api/public/performances/'+currentPerformance.id+'/hold-seats','POST',
+    {seat_ids:[seatId], session_token:getSessionToken()})
+  if(res.error){
+    delete selectedSeats[seatId]
+    seat.status = 'held'
+    refreshPickerAndCart()
+    alert(res.error)
+    return
+  }
+  armHoldExpiry()
+}
+
+function armHoldExpiry(){
+  if(holdTimer) clearTimeout(holdTimer)
+  holdTimer = setTimeout(function(){
+    alert('Your seat hold has expired. Please reselect your seats.')
+    loadPerformance(currentPerformance.id)
+  }, 15*60*1000)
+}
+
+function changeGaQty(ticketTypeId, delta){
+  var tt = ticketTypes.find(function(t){ return t.id===ticketTypeId })
+  var cur = gaQuantities[ticketTypeId] || 0
+  var next = Math.max(0, cur+delta)
+  if(tt && tt.quantity_limit) next = Math.min(next, tt.quantity_limit)
+  gaQuantities[ticketTypeId] = next
+  renderPurchaseScreen()
+}
+
+function seatTicketTypeSelect(seatId){
+  var current = selectedSeats[seatId]
+  return '<select onchange="selectedSeats[\''+seatId+'\']=this.value;refreshCartOnly()" style="width:auto;padding:4px 8px;font-size:12px">'
+    + ticketTypes.map(function(tt){ return '<option value="'+tt.id+'"'+(tt.id===current?' selected':'')+'>'+escH(tt.name)+' — '+fmtMoney(tt.price_cents)+'</option>' }).join('')
+    + '</select>'
+}
+
+function computeTotalCents(){
+  var total = 0
+  if(currentPerformance.reserved_seating){
+    Object.keys(selectedSeats).forEach(function(sid){
+      var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
+      total += tt ? tt.price_cents : 0
+    })
+  } else {
+    ticketTypes.forEach(function(tt){ total += (gaQuantities[tt.id]||0) * tt.price_cents })
+  }
+  return total
+}
+
+function renderCart(){
+  var rows = ''
+  var count = 0
+  if(currentPerformance.reserved_seating){
+    Object.keys(selectedSeats).forEach(function(sid){
+      var seat = seats.find(function(s){ return s.id===sid })
+      var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
+      count++
+      rows += '<div class="cart-row"><span>'+escH(seat?seat.seat_label:'')+(ticketTypes.length>1?' — '+seatTicketTypeSelect(sid):' '+escH(tt?tt.name:'')) +'</span><span>'+fmtMoney(tt?tt.price_cents:0)+'</span></div>'
+    })
+  } else {
+    ticketTypes.forEach(function(tt){
+      var qty = gaQuantities[tt.id]||0
+      if(qty>0){ count += qty; rows += '<div class="cart-row"><span>'+qty+' × '+escH(tt.name)+'</span><span>'+fmtMoney(qty*tt.price_cents)+'</span></div>' }
+    })
+  }
+  if(!count) return '<div style="color:var(--text-muted);font-size:13px">No tickets selected yet.</div>'
+  return rows + '<div class="total-row"><span>Total</span><span>'+fmtMoney(computeTotalCents())+'</span></div>'
+}
+
+function refreshPickerAndCart(){
+  var holder = document.getElementById('seat-map-holder')
+  if(holder) holder.innerHTML = renderPickerSVG()
+  refreshCartOnly()
+}
+function refreshCartOnly(){
+  var cartCard = document.getElementById('cart-card')
+  if(cartCard) cartCard.innerHTML = renderCart()
+  updateCheckoutButtonState()
+}
+
+function updateCheckoutButtonState(){
+  var btn = document.getElementById('checkout-btn')
+  if(!btn) return
+  var hasItems = currentPerformance.reserved_seating ? Object.keys(selectedSeats).length>0
+    : Object.values(gaQuantities).some(function(q){ return q>0 })
+  btn.disabled = !hasItems
+  btn.textContent = hasItems ? 'Checkout — '+fmtMoney(computeTotalCents()) : 'Select tickets to continue'
+}
+
+async function doCheckout(){
+  var name = (document.getElementById('tk-name').value||'').trim()
+  var email = (document.getElementById('tk-email').value||'').trim()
+  var phone = (document.getElementById('tk-phone').value||'').trim()
+  var errEl = document.getElementById('checkout-error')
+  errEl.innerHTML = ''
+  if(!name || !email){ errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">Name and email are required.</div>'; return }
+
+  var seatsPayload
+  if(currentPerformance.reserved_seating){
+    seatsPayload = Object.keys(selectedSeats).map(function(sid){ return {seat_id: sid, ticket_type_id: selectedSeats[sid]} })
+  } else {
+    seatsPayload = Object.keys(gaQuantities).filter(function(id){ return gaQuantities[id]>0 })
+      .map(function(id){ return {ticket_type_id: id, quantity: gaQuantities[id]} })
+  }
+  var btn = document.getElementById('checkout-btn')
+  btn.disabled = true; btn.textContent = 'Processing…'
+  var res = await api('/api/public/ticket-checkout','POST',{
+    performance_id: currentPerformance.id, session_token: getSessionToken(),
+    guardian_name: name, guardian_email: email, guardian_phone: phone, seats: seatsPayload
+  })
+  if(res.error){
+    errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">'+escH(res.error)+'</div>'
+    btn.disabled = false; updateCheckoutButtonState()
+    return
+  }
+  if(res.type === 'payment_required' && res.payment_url){
+    window.location.href = res.payment_url
+    return
+  }
+  window.location.href = '/tickets/confirmation?order='+res.ticket_order_id
+}
+
+async function renderConfirmation(orderId){
+  if(!orderId){
+    document.getElementById('app').innerHTML = '<div class="error-box">No order specified.</div>'
+    return
+  }
+  document.getElementById('app').innerHTML = '<div class="loading">Loading your order…</div>'
+  var data = await api('/api/public/ticket-order/'+orderId)
+  if(data.error){
+    document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
+    return
+  }
+  var order = data.order, perf = data.performance, tickets = data.tickets||[]
+  setHero(data.production_name, perf?perf.portal_color:null, perf?perf.portal_logo_url:null, 'Order Confirmation')
+  var pending = order.status !== 'completed'
+  var html = '<div class="card">'
+  if(pending){
+    html += '<div style="font-weight:700;font-size:16px;margin-bottom:6px">Finishing up your order…</div>'
+    html += '<div style="color:var(--text-muted);font-size:14px">If you just paid, this should update in a few seconds. Feel free to refresh.</div>'
+    html += '<button class="btn btn-secondary" style="margin-top:14px" onclick="renderConfirmation(\''+orderId+'\')">Refresh</button>'
+  } else {
+    html += '<div style="font-weight:700;font-size:20px;margin-bottom:4px">🎉 You\'re all set!</div>'
+    html += '<div style="color:var(--text-muted);font-size:14px;margin-bottom:16px">'+escH(fmtPerfDate(perf?perf.performance_date:'', perf?perf.performance_time:''))+(perf&&perf.venue_id?'':'')+'</div>'
+    html += tickets.map(function(t){
+      return '<div class="cart-row"><span>'+escH(t.seat_label||'Ticket')+'</span><span class="confirm-code">'+escH(t.confirmation_code||'')+'</span></div>'
+    }).join('')
+    html += '<div class="total-row"><span>Total Paid</span><span>'+fmtMoney(order.total_cents)+'</span></div>'
+    html += '<div style="font-size:13px;color:var(--text-muted);margin-top:14px">A confirmation has been sent to '+escH(order.guardian_email||'')+'. Bring this confirmation (or your email) to the show.</div>'
+  }
+  html += '</div>'
+  document.getElementById('app').innerHTML = html
+}
+
+init()
+</script>
+</body>
+</html>

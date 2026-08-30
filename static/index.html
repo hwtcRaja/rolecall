@@ -22218,8 +22218,8 @@ async function openProgramDetail(programId){
  <div style="font-size:11px;color:var(--text-muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Waitlisted</div>
  </div>
  <div class="card" style="padding:16px;text-align:center;background:#f0fdf4">
- <div style="font-size:22px;font-weight:800;color:#166534">${(function(){ var r=(p.reg_confirmed||0)*(p.price||0); return r>0?'$'+(r/100).toFixed(2):'—' })()}</div>
- <div style="font-size:11px;color:#166534;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Est. Revenue</div>
+ <div style="font-size:22px;font-weight:800;color:#166534">${(function(){ var r=p.confirmed_revenue_cents||0; return r>0?'$'+(r/100).toFixed(2):'—' })()}</div>
+ <div style="font-size:11px;color:#166534;font-weight:600;text-transform:uppercase;letter-spacing:0.4px;margin-top:2px">Confirmed Revenue</div>
  </div>
  <div class="card" style="padding:16px;text-align:center">
  <div style="font-size:26px;font-weight:800;color:var(--teal-dark)">${enrolled.length}</div>

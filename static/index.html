@@ -31281,6 +31281,18 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
   </div>
 </div>
 
+<div class="modal-overlay" id="modal-tk-perf-types">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title" id="tk-perf-types-title">Ticket Types for this Performance</div>
+      <button class="modal-close" onclick="closeModal('modal-tk-perf-types')">×</button>
+    </div>
+    <div class="modal-body" id="tk-perf-types-body">
+      <div style="color:var(--text-muted)">Loading…</div>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ═══════════════════ TICKETING (Phase 1) front-end logic ═══════════════════ */
 var _tkVenues = [];                // cached venue list
@@ -31328,6 +31340,7 @@ async function loadTicketsTab(pid){
     + '<div style="font-size:15px;font-weight:700"> Performances</div>'
     + '<div style="display:flex;gap:8px">'
     + '<button class="btn btn-secondary btn-sm" onclick="openVenuesModal()"> Venues</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openProductionTicketTypes(\''+pid+'\',\''+(prod?escHtml(prod.name).replace(/\'/g,"\\\\'"):'')+'\')">🎟 Manage Ticket Types</button>'
     + '<button class="btn btn-primary btn-sm" onclick="ticketPerfModal(\''+pid+'\')">+ Add Performance</button>'
     + '</div></div>'
     + (ticketUrl
@@ -31365,7 +31378,7 @@ async function loadTicketsTab(pid){
       +       '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(p.ticket_type_count||0)+' ticket type(s)</div>'
       +     '</div>'
       +     '<div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;min-width:130px">'
-      +       '<button class="btn btn-secondary btn-sm" onclick="openTicketTypes(\''+p.id+'\',\''+escHtml((p.name||tkFmtDate(p.performance_date))).replace(/'/g,"\\'")+'\')">Ticket Types</button>'
+      +       '<button class="btn btn-secondary btn-sm" onclick="openPerfTicketTypesToggle(\''+p.id+'\',\''+escHtml((p.name||tkFmtDate(p.performance_date))).replace(/'/g,"\\'")+'\')">Ticket Types</button>'
       +       '<button class="btn btn-secondary btn-sm" onclick="ticketPerfModal(\''+pid+'\',\''+p.id+'\')">Edit</button>'
       +       (p.status==='on_sale'
                 ? '<button class="btn btn-secondary btn-sm" onclick="tkSetStatus(\''+p.id+'\',\'closed\',\''+pid+'\')">Close Sales</button>'
@@ -32205,10 +32218,10 @@ async function tkGenerateFanSection(venueId, mapId, venueName){
 }
 
 /* ── Ticket types for a performance ─────────────────────────────────────── */
-var _tkTypesPerfId = null;
-async function openTicketTypes(perfId, label){
-  _tkTypesPerfId = perfId;
-  document.getElementById('tk-types-title').textContent = 'Ticket Types — ' + (label||'');
+var _tkTypesPid = null;
+async function openProductionTicketTypes(pid, label){
+  _tkTypesPid = pid;
+  document.getElementById('tk-types-title').textContent = 'Ticket Types — ' + (label||'') + ' (all performances)';
   openModal('modal-tk-types');
   await renderTicketTypes();
 }
@@ -32216,7 +32229,7 @@ async function openTicketTypes(perfId, label){
 async function renderTicketTypes(){
   var body = document.getElementById('tk-types-body');
   body.innerHTML = '<div style="color:var(--text-muted)">Loading…</div>';
-  var types = await api('/api/performances/'+_tkTypesPerfId+'/ticket-types');
+  var types = await api('/api/productions/'+_tkTypesPid+'/ticket-types');
   types = Array.isArray(types)? types : [];
   var rows = types.map(function(t){
     return ''
@@ -32233,7 +32246,8 @@ async function renderTicketTypes(){
   }).join('');
   window._tkTypes = types;
   body.innerHTML =
-    '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Create your price tiers once here — each performance below has its own checklist of which of these are actually on sale for that date.</div>'
+    + '<div style="display:flex;justify-content:flex-end;margin-bottom:12px">'
     + '<button class="btn btn-primary btn-sm" onclick="tkTypeForm()">+ Add Ticket Type</button></div>'
     + (rows || '<div style="color:var(--text-muted);text-align:center;padding:16px">No ticket types yet. Add tiers like Adult, Student, Senior.</div>')
     + '<div id="tk-type-form-slot"></div>';
@@ -32252,6 +32266,7 @@ function tkTypeForm(tid){
     + '<div class="form-group"><label>Description</label><input type="text" id="tk-t-desc" value="'+escHtml(t.description||'')+'"/></div>'
     + '<div class="form-group"><label>Quantity limit (optional)</label><input type="number" id="tk-t-limit" min="0" value="'+(t.quantity_limit||'')+'"/></div>'
     + (tid?'<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="tk-t-active" '+(t.active===false?'':'checked')+' style="width:auto"/> Active</label>':'')
+    + (tid?'':'<div style="font-size:11px;color:var(--text-muted);margin-bottom:10px">New types are enabled on every current performance automatically — untoggle any that shouldn\'t have it from that performance\'s "Ticket Types" checklist.</div>')
     + '<div style="display:flex;gap:8px">'
     +   '<button class="btn btn-primary btn-sm" onclick="tkSaveType(\''+(tid||'')+'\')">Save</button>'
     +   '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'tk-type-form-slot\').innerHTML=\'\'">Cancel</button>'
@@ -32269,7 +32284,7 @@ async function tkSaveType(tid){
   if(!body.name){ toast('Ticket type name is required','error'); return; }
   var res = tid
     ? await api('/api/ticket-types/'+tid,'PUT',body)
-    : await api('/api/performances/'+_tkTypesPerfId+'/ticket-types','POST',body);
+    : await api('/api/productions/'+_tkTypesPid+'/ticket-types','POST',body);
   if(res && res.error){ toast(res.error,'error'); return; }
   toast('Ticket type saved','success');
   renderTicketTypes();
@@ -32278,13 +32293,48 @@ async function tkSaveType(tid){
 }
 
 async function tkDeleteType(tid){
-  if(!confirm('Delete this ticket type?')) return;
+  if(!confirm('Delete this ticket type? It will be removed from every performance it\'s enabled on.')) return;
   var res = await api('/api/ticket-types/'+tid,'DELETE');
   if(res && res.error){ toast(res.error,'error'); return; }
   toast('Ticket type deleted','info');
   renderTicketTypes();
   if(window._currentProductionDetailId) loadTicketsTab(window._currentProductionDetailId);
 }
+
+/* ── Per-performance: which of the production's ticket types are on sale ── */
+var _tkPerfTypesFid = null;
+async function openPerfTicketTypesToggle(perfId, label){
+  _tkPerfTypesFid = perfId;
+  document.getElementById('tk-perf-types-title').textContent = 'Ticket Types — ' + (label||'');
+  openModal('modal-tk-perf-types');
+  var body = document.getElementById('tk-perf-types-body');
+  body.innerHTML = '<div style="color:var(--text-muted)">Loading…</div>';
+  var types = await api('/api/performances/'+perfId+'/ticket-types');
+  types = Array.isArray(types)? types : [];
+  if(!types.length){
+    body.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">This production has no ticket types in its catalog yet — add some from the "Manage Ticket Types" button on the Tickets tab first.</div>';
+    return;
+  }
+  body.innerHTML =
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Check off which of the production\'s ticket types are on sale for this specific performance.</div>'
+    + types.map(function(t){
+        return '<label style="display:flex;align-items:center;gap:10px;padding:10px 4px;border-bottom:1px solid var(--border);cursor:pointer">'
+          + '<input type="checkbox" class="tk-perf-type-cb" value="'+t.id+'" '+(t.enabled?'checked':'')+' style="width:auto"/>'
+          + '<span style="flex:1"><strong>'+escHtml(t.name)+'</strong> — '+tkMoney(t.price_cents)+(t.active===false?' <span style="font-size:11px;color:var(--text-muted)">(inactive)</span>':'')+'</span>'
+          + '</label>';
+      }).join('')
+    + '<button class="btn btn-primary btn-sm" style="margin-top:14px;width:100%" onclick="tkSavePerfTicketTypes()">Save</button>';
+}
+
+async function tkSavePerfTicketTypes(){
+  var ids = Array.prototype.map.call(document.querySelectorAll('.tk-perf-type-cb:checked'), function(cb){ return cb.value });
+  var res = await api('/api/performances/'+_tkPerfTypesFid+'/ticket-types','PUT',{ticket_type_ids: ids});
+  if(res && res.error){ toast(res.error,'error'); return; }
+  toast('Saved','success');
+  closeModal('modal-tk-perf-types');
+  if(window._currentProductionDetailId) loadTicketsTab(window._currentProductionDetailId);
+}
+
 </script>
 <!-- ═══════════════ END TICKETING UI ═══════════════ -->
 

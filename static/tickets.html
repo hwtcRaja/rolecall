@@ -171,6 +171,14 @@ async function loadPerformance(fid){
   seats = data.seats || []
   ticketTypes = data.ticket_types || []
   stageInfo = data.stage || null
+  // Restore any seats already held under this session (e.g. a page refresh
+  // mid-checkout) into the cart, defaulting to the first ticket type — so
+  // the picker and the cart agree on what's actually selected.
+  seats.forEach(function(s){
+    if(s.status==='mine' && !selectedSeats[s.id]){
+      selectedSeats[s.id] = ticketTypes[0] ? ticketTypes[0].id : null
+    }
+  })
   setHero(currentPerformance.production_name, currentPerformance.portal_color, currentPerformance.portal_logo_url,
     fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time) + (currentPerformance.venue_name?' · '+currentPerformance.venue_name:''))
   renderPurchaseScreen()
@@ -242,12 +250,23 @@ function renderPickerSVG(){
     svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
   }
   seats.forEach(function(s){
-    var status = selectedSeats[s.id] ? 'mine' : (s.status==='mine' ? 'mine' : s.status)
+    var picking = !!selectedSeats[s.id]
+    var status = picking ? 'mine' : (s.status==='mine' ? 'mine' : s.status)
     var fill = SEAT_STATUS_COLORS[status] || SEAT_STATUS_COLORS.available
     var clickable = (status === 'available' || status === 'mine')
+    var r = picking ? seatR*1.25 : seatR
     svg += '<g'+(clickable?' style="cursor:pointer" onclick="toggleSeat(\''+s.id+'\')"':' style="cursor:not-allowed"')+'>'
-    svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="#fff" stroke-width="0.05"><title>'+escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+'</title></circle>'
-    if(s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.34" text-anchor="middle" fill="#fff">♿</text>'
+    if(picking){
+      // A bright ring around anything you've actually picked, so your
+      // selection is obvious at a glance among dozens of other dots.
+      svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+(r+0.13)+'" fill="none" stroke="#facc15" stroke-width="0.11"/>'
+    }
+    svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+r+'" fill="'+fill+'" stroke="#fff" stroke-width="0.05"><title>'+escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+'</title></circle>'
+    if(picking){
+      svg += '<text x="'+s.x+'" y="'+(s.y+0.16)+'" font-size="0.42" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">✓</text>'
+    } else if(s.accessible){
+      svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.34" text-anchor="middle" fill="#fff">♿</text>'
+    }
     svg += '</g>'
   })
   svg += '</svg>'

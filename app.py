@@ -2405,6 +2405,15 @@ def init_db():
         # the shape. NUMERIC keeps the precision.
         'ALTER TABLE seat_map_seats ALTER COLUMN x TYPE NUMERIC USING x::numeric',
         'ALTER TABLE seat_map_seats ALTER COLUMN y TYPE NUMERIC USING y::numeric',
+        # Stage position/orientation — was always auto-drawn below whatever
+        # seats existed, with no way to place it where it actually sits in
+        # the room. NULL means "not set yet", so the editor still falls back
+        # to the old auto-position until someone drags it once.
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_x NUMERIC",
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_y NUMERIC",
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_width NUMERIC DEFAULT 8",
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_depth NUMERIC DEFAULT 2",
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_rotation NUMERIC DEFAULT 0",
         # Ticket sales: an order (one checkout, possibly several seats),
         # the individual tickets it produces once paid, and short-lived
         # holds so two people can't buy the same seat while one of them
@@ -31377,6 +31386,29 @@ def update_seat_map(mid):
     return jsonify(row or {'ok': True})
 
 
+@app.route('/api/seat-maps/<mid>/stage', methods=['PUT'])
+def update_seat_map_stage(mid):
+    """Sets where the stage actually sits/faces for this room, so the
+    editor and every seat picker can draw it in the right spot instead of
+    always guessing 'below all the seats'."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    execute(conn, '''UPDATE seat_maps SET stage_x=%s, stage_y=%s, stage_width=%s, stage_depth=%s, stage_rotation=%s
+        WHERE id=%s''',
+        (float(d.get('stage_x') or 0), float(d.get('stage_y') or 0),
+         float(d.get('stage_width') or 8), float(d.get('stage_depth') or 2),
+         float(d.get('stage_rotation') or 0), mid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_maps WHERE id=%s', (mid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
 @app.route('/api/seat-maps/<mid>', methods=['DELETE'])
 def delete_seat_map(mid):
     err = _require_ticketing()
@@ -31960,9 +31992,15 @@ def public_seat_status(fid):
         conn.close(); return jsonify({'error': 'Performance not found'}), 404
     _clear_expired_holds(conn, fid)
     seats = []
+    stage = None
     if perf.get('reserved_seating') and perf.get('seat_map_id'):
         seats = fetchall(conn, 'SELECT * FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE ORDER BY y, x',
             (perf['seat_map_id'],))
+        sm = fetchone(conn, 'SELECT stage_x, stage_y, stage_width, stage_depth, stage_rotation FROM seat_maps WHERE id=%s',
+            (perf['seat_map_id'],))
+        if sm and sm.get('stage_x') is not None:
+            stage = {'x': sm['stage_x'], 'y': sm['stage_y'], 'width': sm.get('stage_width') or 8,
+                'depth': sm.get('stage_depth') or 2, 'rotation': sm.get('stage_rotation') or 0}
         sold_ids = {r['seat_id'] for r in fetchall(conn,
             'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,))}
         held_rows = fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))
@@ -31979,7 +32017,7 @@ def public_seat_status(fid):
     if not perf.get('reserved_seating'):
         ga_sold = (fetchone(conn, "SELECT COUNT(*) AS c FROM tickets WHERE performance_id=%s AND seat_id IS NULL", (fid,)) or {}).get('c', 0)
     conn.close()
-    return jsonify({'performance': perf, 'seats': seats, 'ticket_types': ticket_types, 'ga_sold': ga_sold})
+    return jsonify({'performance': perf, 'seats': seats, 'ticket_types': ticket_types, 'ga_sold': ga_sold, 'stage': stage})
 
 
 @app.route('/api/public/performances/<fid>/hold-seats', methods=['POST'])

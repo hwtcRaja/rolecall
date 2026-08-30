@@ -311,12 +311,12 @@ body.theme-jungle #schedule-area{ background:var(--sched-bg) }
 .jungle-plank:nth-child(odd){ transform:rotate(-2deg); border-radius:20px 6px 6px 20px; }
 .jungle-plank:nth-child(even){ transform:rotate(1.5deg); }
 .jungle-plank::before{
-  content:'🌿';position:absolute;
+  content:'';position:absolute;
   right:-10px;top:50%;transform:translateY(-50%);
   font-size:20px;
 }
 .jungle-plank:nth-child(odd)::before{
-  content:'🌿';left:-10px;right:auto;transform:translateY(-50%) scaleX(-1);
+  content:'';left:-10px;right:auto;transform:translateY(-50%) scaleX(-1);
 }
 .jungle-plank.today{
   box-shadow:3px 4px 0 rgba(0,0,0,0.3), 0 0 0 3px #fbbf24, 0 0 20px 4px rgba(251,191,36,0.4);
@@ -769,7 +769,7 @@ function renderEvents(events){
       var timeStr = ev.start_time ? fmt12(ev.start_time) + (ev.end_time ? ' \u2013 ' + fmt12(ev.end_time) : '') : ''
       var color = JUNGLE_PLANK_COLORS[i % JUNGLE_PLANK_COLORS.length]
       return '<div class="jungle-plank'+(isToday?' today':'')+'" style="background:'+color+'">'
-        + (isToday ? '<span class="jungle-today-star">🌟</span>' : '')
+        + (isToday ? '<span class="jungle-today-star"></span>' : '')
         + '<div class="ei-day">'+dayLabel+'</div>'
         + '<div class="ei-name">'+escH(ev.name||'')+'</div>'
         + '<div class="ei-meta">'
@@ -991,7 +991,7 @@ document.getElementById('img-file-input').addEventListener('change', async funct
   }
   renderAdminGrid()
   if(warnings){
-    status.textContent = '⚠ '+warnings+' photo(s) NOT saved to permanent storage — will vanish on the next deploy. Tell your admin GITHUB_TOKEN needs checking.'
+    status.textContent = ' '+warnings+' photo(s) NOT saved to permanent storage — will vanish on the next deploy. Tell your admin GITHUB_TOKEN needs checking.'
     status.style.color = '#f87171'
   } else {
     status.textContent = uploaded+' image'+(uploaded!==1?'s':'')+' uploaded'+(uploaded<files.length?' ('+(files.length-uploaded)+' failed)':'')
@@ -1023,7 +1023,7 @@ uploadZone.addEventListener('drop', async function(e){
   }
   renderAdminGrid()
   if(warnings){
-    status.textContent = '⚠ '+warnings+' photo(s) NOT saved to permanent storage — will vanish on the next deploy.'
+    status.textContent = ' '+warnings+' photo(s) NOT saved to permanent storage — will vanish on the next deploy.'
     status.style.color = '#f87171'
   } else {
     status.textContent = 'Uploaded!'

@@ -265,7 +265,7 @@ function renderPickerSVG(){
     if(picking){
       svg += '<text x="'+s.x+'" y="'+(s.y+0.16)+'" font-size="0.42" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">✓</text>'
     } else if(s.accessible){
-      svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.34" text-anchor="middle" fill="#fff">♿</text>'
+      svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.34" text-anchor="middle" fill="#fff"></text>'
     }
     svg += '</g>'
   })
@@ -430,7 +430,7 @@ async function renderConfirmation(orderId){
     html += '<div style="color:var(--text-muted);font-size:14px">If you just paid, this should update in a few seconds. Feel free to refresh.</div>'
     html += '<button class="btn btn-secondary" style="margin-top:14px" onclick="renderConfirmation(\''+orderId+'\')">Refresh</button>'
   } else {
-    html += '<div style="font-weight:700;font-size:20px;margin-bottom:4px">🎉 You\'re all set!</div>'
+    html += '<div style="font-weight:700;font-size:20px;margin-bottom:4px"> You\'re all set!</div>'
     html += '<div style="color:var(--text-muted);font-size:14px;margin-bottom:16px">'+escH(fmtPerfDate(perf?perf.performance_date:'', perf?perf.performance_time:''))+(perf&&perf.venue_id?'':'')+'</div>'
     html += tickets.map(function(t){
       return '<div class="cart-row"><span>'+escH(t.seat_label||'Ticket')+'</span><span class="confirm-code">'+escH(t.confirmation_code||'')+'</span></div>'

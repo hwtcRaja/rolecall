@@ -31340,7 +31340,7 @@ async function loadTicketsTab(pid){
     + '<div style="font-size:15px;font-weight:700"> Performances</div>'
     + '<div style="display:flex;gap:8px">'
     + '<button class="btn btn-secondary btn-sm" onclick="openVenuesModal()"> Venues</button>'
-    + '<button class="btn btn-secondary btn-sm" onclick="openProductionTicketTypes(\''+pid+'\',\''+(prod?escHtml(prod.name).replace(/\'/g,"\\\\'"):'')+'\')">🎟 Manage Ticket Types</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openProductionTicketTypes(\''+pid+'\',\''+(prod?escHtml(prod.name).replace(/'/g,"\\'"):'')+'\')">Manage Ticket Types</button>'
     + '<button class="btn btn-primary btn-sm" onclick="ticketPerfModal(\''+pid+'\')">+ Add Performance</button>'
     + '</div></div>'
     + (ticketUrl
@@ -31592,7 +31592,7 @@ async function openSeatMaps(venueId, venueName){
       +     '<div><div style="font-weight:700">'+escHtml(m.name)+(m.is_default?' <span style="font-size:11px;color:var(--teal-400,#0d9488)">★ default</span>':'')+'</div>'
       +       '<div style="font-size:12px;color:var(--text-muted)">'+(m.seat_count||0)+' seats</div></div>'
       +     '<div style="display:flex;gap:6px;flex-wrap:wrap">'
-      +       '<button class="btn btn-secondary btn-sm" onclick="tkTogglePreview(\''+m.id+'\')">👁 Preview</button>'
+      +       '<button class="btn btn-secondary btn-sm" onclick="tkTogglePreview(\''+m.id+'\')"> Preview</button>'
       +       '<button class="btn btn-secondary btn-sm" onclick="tkGenerateSectionForm(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">+ Add Rectangular Block</button>'
       +       '<button class="btn btn-secondary btn-sm" onclick="tkGenerateFanSectionForm(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">+ Add Angled/Fan Block</button>'
  +       (!m.seat_count ? '<button class="btn btn-secondary btn-sm" onclick="tkSeedBBTChart(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">Seed BBT Chart (draft)</button>' : '')
@@ -31758,7 +31758,7 @@ function edRenderCanvas(){
     var sel = !!_ed.selected[s.id];
     var fill = sel ? '#facc15' : (sections[s.section||'']||'#999');
     svg += '<circle data-id="'+s.id+'" class="ed-seat" cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="'+(sel?'#111':'#fff')+'" stroke-width="'+(sel?0.09:0.05)+'" style="cursor:grab"><title>'+escHtml(s.seat_label||'')+'</title></circle>';
-    if(s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff" style="pointer-events:none">♿</text>';
+    if(s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff" style="pointer-events:none"></text>';
   });
   svg += '<rect id="ed-rubber" x="0" y="0" width="0" height="0" fill="rgba(20,84,102,0.15)" stroke="#145466" stroke-width="0.04" style="display:none"/>';
   svg += '</svg>';
@@ -31978,7 +31978,7 @@ function edRenderSidePanel(){
       + '<div style="font-weight:700;font-size:13px;margin-bottom:10px">'+ids.length+' seats selected</div>'
       + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Drag any of them to move the whole group together.</div>'
       + (ids.length>=3
-          ? '<button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:8px" onclick="edAlignSelected()">↔ Straighten &amp; Space Evenly</button>'
+          ? '<button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:8px" onclick="edAlignSelected()"> Straighten &amp; Space Evenly</button>'
           : '<div style="font-size:11px;color:var(--text-hint);margin-bottom:8px">Select the whole row (3+) to straighten and evenly space it.</div>')
       + '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c);width:100%" onclick="edDeleteSelected()">Delete '+ids.length+' seats</button>'
       + '</div>';
@@ -32068,7 +32068,7 @@ function renderSeatMapSVG(seats, opts){
     svg += '<g'+(opts.clickable?' style="cursor:pointer" data-seat-id="'+s.id+'" class="seat-dot" onclick="tkSeatClicked && tkSeatClicked(\''+s.id+'\')"':'')+'>'
     svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="#fff" stroke-width="0.05">'
     svg += '<title>'+titleTxt+'</title></circle>';
-    if(s.accessible){ svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff">♿</text>'; }
+    if(s.accessible){ svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff"></text>'; }
     svg += '</g>';
   });
   svg += '</svg>';

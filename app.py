@@ -10,6 +10,7 @@ import uuid
 import json
 import secrets
 from datetime import datetime, date, timedelta
+from decimal import Decimal
 from werkzeug.utils import secure_filename
 import requests
 import re
@@ -3091,6 +3092,12 @@ def serialize_row(r):
     for k, v in r.items():
         if isinstance(v, (datetime, date)):
             out[k] = v.isoformat()
+        elif isinstance(v, Decimal):
+            # Postgres NUMERIC columns (e.g. seat x/y) come back as Decimal,
+            # which can't be JSON-serialized and can't be mixed with plain
+            # floats in arithmetic (TypeError). Normalize once here so every
+            # caller just gets an ordinary Python number.
+            out[k] = float(v)
         else:
             out[k] = v
     return out

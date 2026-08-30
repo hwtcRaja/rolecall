@@ -31894,7 +31894,10 @@ async function edSavePositions(seatIds){
 }
 
 async function edSaveStage(){
-  await api('/api/seat-maps/'+_ed.mapId+'/stage','PUT', _ed.stage);
+  var st = _ed.stage;
+  await api('/api/seat-maps/'+_ed.mapId+'/stage','PUT', {
+    stage_x: st.x, stage_y: st.y, stage_width: st.width, stage_depth: st.depth, stage_rotation: st.rotation
+  });
 }
 
 function edRotateStage(delta){

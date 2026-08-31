@@ -1022,7 +1022,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <option value="all_volunteers">All Active Volunteers</option>
  <option value="production">Production Cast &amp; Crew</option>
  <option value="program">Program / Class (Volunteers)</option>
- <option value="guardian_programs">Program Participants (Guardians)</option>
+ <option value="guardian_programs">Program Participants (Contact Emails)</option>
  <option value="rising_stars">Rising Stars Production</option>
  <option value="interest">Interest / Skill Group</option>
  <option value="event">Event Attendees</option>
@@ -3703,6 +3703,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>Programs / Classes</label><div id="youth-programs-checkboxes" class="checkbox-group" style="max-height:120px;overflow-y:auto;padding:4px 0"></div><div class="form-hint">Select all that apply.</div></div>
  </div>
  <div class="form-group"><label>Status</label><select id="youth-status"><option value="active">Active</option><option value="inactive">Inactive</option></select></div>
+ <div class="form-group"><label>Email <span style="font-weight:400;color:var(--text-muted)">(their own — for adult participants, or a teen with their own address)</span></label><input type="email" id="youth-email" placeholder="participant@example.com"/></div>
  <div class="form-row">
  <div class="form-group"><label>T-Shirt Size</label><select id="youth-shirt-size">
  <option value="">— Not set —</option>
@@ -3931,7 +3932,7 @@ let currentVolId = null
 let currentYouthId = null
 let punchSessions = {}
 let selectedVolIds = new Set()
-let emailGuardianMode = false          // true when recipients came from "Program Participants (Guardians)"
+let emailGuardianMode = false          // true when recipients came from "Program Participants (Contact Emails)"
 let selectedGuardianRecipients = []    // [{id,name,email}] — id is just the email, since that's the dedupe key
 let selectedGuardianIds = new Set()
 let onlineSignVolId = null
@@ -6268,7 +6269,7 @@ function renderGuardianEmailList(){
  if(!list) return
  const q=(document.getElementById('email-vol-search')?.value||'').toLowerCase()
  const shown=selectedGuardianRecipients.filter(g=>!q||(g.name+' '+g.email).toLowerCase().includes(q))
- list.innerHTML=(shown.length?'':'<div style="color:var(--text-muted);font-size:13px;padding:8px">No guardians match your search.</div>')
+ list.innerHTML=(shown.length?'':'<div style="color:var(--text-muted);font-size:13px;padding:8px">No contacts match your search.</div>')
  + shown.map(g=>`
  <div class="vol-checkbox-item">
  <input type="checkbox" id="ecb-${g.id}" ${selectedGuardianIds.has(g.id)?'checked':''} onchange="toggleGuardianEmail('${g.id}',this.checked)"/>
@@ -6326,7 +6327,7 @@ function updateEmailSummary(){
  if(emailGuardianMode){
  const count=selectedGuardianIds.size
  if(count===0){
- el.innerHTML='<span style="color:var(--amber-600)"> No guardians selected — uncheck this group or pick at least one</span>'
+ el.innerHTML='<span style="color:var(--amber-600)"> No contacts selected — uncheck this group or pick at least one</span>'
  } else {
  const emails=[...selectedGuardianIds]
  el.innerHTML=`<span style="color:var(--teal-600);font-weight:600"> ${count} guardian${count!==1?'s':''} selected</span>`+
@@ -6362,7 +6363,7 @@ function renderEmailGroupOptions(){
  // dropdown the other group types use. Reuses .vol-checkbox-item so it
  // matches the look of the recipient list right below it instead of
  // reading as a separate, oddly-styled component.
- detail.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Check every program whose participants\' guardians should get this email:</div>'
+ detail.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Check every program to email — goes to the guardian on file for kids, or the participant directly for adult programs:</div>'
  + '<div style="max-height:260px;overflow-y:auto">'
  + (allPrograms.length ? allPrograms.map(p=>`
  <label class="vol-checkbox-item" style="cursor:pointer">
@@ -6447,7 +6448,7 @@ async function applyEmailGroup(){
  selectedGuardianIds=new Set(selectedGuardianRecipients.map(r=>r.id))
  const progNames=progIds.map(id=>allPrograms.find(p=>p.id===id)?.name).filter(Boolean)
  renderEmailVolList()
- toast(`${selectedGuardianRecipients.length} guardian${selectedGuardianRecipients.length!==1?'s':''} selected: ${progNames.join(', ')}`,'success')
+ toast(`${selectedGuardianRecipients.length} contact${selectedGuardianRecipients.length!==1?'s':''} selected: ${progNames.join(', ')}`,'success')
  return
  }
 
@@ -6913,6 +6914,7 @@ async function openYouthProfile(yid){
  <hr class="divider"/>
  <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
  ${y.dob?`<div> ${formatDate(y.dob)}${age?' (Age '+age+')':''}</div>`:''}
+ ${y.email?`<div> ${escHtml(y.email)}</div>`:''}
  ${y.pronouns?`<div style="color:var(--teal-dark);font-weight:500">${escHtml(y.pronouns)}</div>`:''}
  ${y.grade?`<div> ${escHtml(y.grade)}</div>`:''}
  ${y.program?`<div> ${escHtml(y.program)}</div>`:''}
@@ -9432,7 +9434,7 @@ async function backfillPassphrases(){
 function openYouthModal(){
  document.getElementById('youth-modal-title').textContent='Add Participant'
  document.getElementById('youth-edit-id').value=''
- ;['youth-first-name','youth-last-name','youth-medical','youth-allergies',
+ ;['youth-first-name','youth-last-name','youth-medical','youth-allergies','youth-email',
  'youth-guardian-name','youth-guardian-rel','youth-guardian-phone','youth-guardian-email',
  'youth-emergency-name','youth-emergency-rel','youth-emergency-phone'].forEach(id=>{
  const el=document.getElementById(id); if(el) el.value=''
@@ -9456,6 +9458,7 @@ async function openEditYouthModal(yid){
  document.getElementById('youth-last-name').value=y.last_name||''
  document.getElementById('youth-dob').value=y.dob||''
  document.getElementById('youth-status').value=y.status||'active'
+ const emailEl=document.getElementById('youth-email'); if(emailEl) emailEl.value=y.email||''
  document.getElementById('youth-medical').value=y.medical_notes||''
  document.getElementById('youth-allergies').value=y.allergies||''
  document.getElementById('youth-shirt-size').value=y.shirt_size||''
@@ -9504,6 +9507,7 @@ async function saveYouth(){
  first_name:first, last_name:last,
  dob:document.getElementById('youth-dob').value,
  status:document.getElementById('youth-status').value,
+ email:document.getElementById('youth-email')?.value.trim()||'',
  medical_notes:document.getElementById('youth-medical').value.trim(),
  allergies:document.getElementById('youth-allergies').value.trim()||'None',
  shirt_size:document.getElementById('youth-shirt-size').value||'',

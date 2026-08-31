@@ -6350,14 +6350,19 @@ function renderEmailGroupOptions(){
  if(type==='guardian_programs'){
  // Multi-select checklist (any status — active shows should stay
  // reachable just as easily as archived ones) instead of the single
- // dropdown the other group types use.
- detail.innerHTML = '<div style="max-height:220px;overflow-y:auto;border:1.5px solid var(--border-md);border-radius:var(--radius);padding:8px">'
+ // dropdown the other group types use. Reuses .vol-checkbox-item so it
+ // matches the look of the recipient list right below it instead of
+ // reading as a separate, oddly-styled component.
+ detail.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Check every program whose participants\' guardians should get this email:</div>'
+ + '<div style="max-height:260px;overflow-y:auto">'
  + (allPrograms.length ? allPrograms.map(p=>`
- <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;font-size:13px">
- <input type="checkbox" class="email-guardian-prog-cb" value="${p.id}" style="width:auto"/>
- <span style="flex:1">${escHtml(p.name)}</span>
- <span style="font-size:11px;color:var(--text-muted)">${escHtml(p.status||'')}</span>
- </label>`).join('') : '<div style="color:var(--text-muted);font-size:13px;padding:8px">No programs found.</div>')
+ <label class="vol-checkbox-item" style="cursor:pointer">
+ <input type="checkbox" class="email-guardian-prog-cb" value="${p.id}"/>
+ <div style="flex:1;min-width:0">
+ <div style="font-weight:500;font-size:13px">${escHtml(p.name)}</div>
+ <div style="font-size:11px;color:var(--text-muted);text-transform:capitalize">${escHtml(p.status||'')}</div>
+ </div>
+ </label>`).join('') : '<div style="color:var(--text-muted);font-size:13px;padding:8px 12px">No programs found.</div>')
  + '</div>'
  return
  }

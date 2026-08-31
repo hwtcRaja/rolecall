@@ -458,7 +458,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Mainstage</div>
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions</div>
         <div class="nav-item" onclick="navTo('daily-overview',this)" style="padding-left:28px"><span class="nav-icon" id="ni-daily-overview"></span>Daily Overview</div>
-        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-cast-signin"></span>Cast Sign-In</div>
+        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-production-signin"></span>Cast Sign-In</div>
         <div class="nav-item" onclick="navTo('show-contracts',this)" style="padding-left:28px"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
         <div class="nav-item" onclick="navTo('licensing',this)" style="padding-left:28px"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
 
@@ -469,8 +469,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- YOUTH EDUCATION -->
         <div class="nav-section">Education &amp; Programming</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon" id="ni-youth"></span>Participants</div>
-        <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-programs"></span>Programs &amp; Classes<span class="nav-badge" id="msg-unread-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars"></span>Rising Stars</div>
+        <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-youth-programs-page"></span>Programs &amp; Classes<span class="nav-badge" id="msg-unread-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars-page"></span>Rising Stars</div>
         <div class="nav-item" onclick="navTo('step-up-holds',this)"><span class="nav-icon" id="ni-step-up-holds"></span>Step Up Holds<span class="nav-badge" id="step-up-pending-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin"></span>Participant Portal</div>
         <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin"></span>Participant Sign-In</div>
@@ -4244,11 +4244,13 @@ const NAV_PERM_MAP = {
  'waivers': 'volunteers',
  'hours': 'hours',
  'email': 'email',
+ 'email-log': 'email',
  'email-templates-page': 'email',
  'events': 'events',
  'marquee': 'marquee',
  'productions': 'productions',
  'production-signin':'productions',
+ 'daily-overview': 'productions',
  'show-contracts': 'productions',
  'licensing': 'licensing',
  'youth': 'youth',

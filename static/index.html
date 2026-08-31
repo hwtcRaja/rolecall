@@ -449,6 +449,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
+        <div class="nav-item" onclick="navTo('email-log',this)"><span class="nav-icon" id="ni-email-log"></span>Email Log</div>
         <div class="nav-item" onclick="navTo('inbox',this)"><span class="nav-icon" id="ni-inbox"></span>Inbox<span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
         <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee"></span>Marquee</div>
@@ -1055,10 +1056,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
 
- <!-- Email Delivery Log -->
- <div class="card" style="margin-top:24px;padding:0;overflow:hidden">
+ </section>
+
+ <!-- EMAIL DELIVERY LOG -->
+ <section class="page" id="page-email-log">
+ <div class="page-header">
+ <div><div class="page-title">Email Delivery Log</div><div class="page-subtitle">Every email sent from RoleCall, with delivery status</div></div>
+ </div>
+ <div class="page-body">
+ <div class="card" style="padding:0;overflow:hidden">
   <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border)">
-   <div style="font-size:14px;font-weight:700">Email Delivery Log</div>
+   <div style="font-size:14px;font-weight:700">Delivery Log</div>
    <div style="display:flex;gap:8px;align-items:center">
     <select id="email-log-filter" onchange="loadEmailLog()" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--surface)">
      <option value="">All</option>
@@ -1072,7 +1080,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Loading delivery log…</div>
   </div>
  </div>
-
+ </div>
  </section>
 
  <!-- PRODUCTIONS -->
@@ -4343,7 +4351,8 @@ function navTo(page,el){
  if(page==='hours') switchHoursTab(_hoursTab)
  if(page==='hours-store') renderHoursStorePage()
  if(page==='waivers') renderWaivers()
- if(page==='email'){ renderEmailPage(); loadEmailLog() }
+ if(page==='email') renderEmailPage()
+ if(page==='email-log') loadEmailLog()
  if(page==='oncall') loadOncallPage()
  if(page==='productions') renderProductions()
  if(page==='daily-overview') loadDailyOverviewPage()

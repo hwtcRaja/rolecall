@@ -1771,6 +1771,12 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS grade TEXT DEFAULT ''""",
+        # A participant's own email — separate from youth_guardians, which
+        # is about a parent/guardian contact. Adults registering themselves
+        # for adult programs have their own email captured directly here
+        # instead of only living in a "guardian" record that never really
+        # applied to them.
+        """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS email TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS grade TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS is_minor BOOLEAN DEFAULT TRUE""",
         """ALTER TABLE events ADD COLUMN IF NOT EXISTS is_external BOOLEAN DEFAULT FALSE""",
@@ -7494,10 +7500,19 @@ def square_create_discount(name, discount_type, value):
 
 @app.route('/api/email/program-guardian-recipients', methods=['POST'])
 def get_program_guardian_recipients():
-    """Guardian emails for everyone enrolled (any status except cancelled)
-    in one or more programs — active or archived, since a program's status
-    doesn't change who was actually part of it. Deduped by email so a
-    guardian with kids in several selected programs only gets counted once."""
+    """Contact emails for everyone tied to one or more programs — active or
+    archived, since a program's status doesn't change who was actually part
+    of it. Three sources, unioned and deduped by email:
+      1) youth_participants.email directly — a participant's own email
+         (used for adult self-registrants, or anyone with it entered
+         directly on their profile rather than via a guardian record).
+      2) youth_guardians, for kids on the roster (youth_program_enrollments
+         has no status column — removing someone deletes the row rather
+         than marking it cancelled, so every matching row counts).
+      3) program_registrations.guardian_email directly, which also covers
+         adult participants whose registration hasn't been synced into a
+         youth_participants/youth_guardians record for some reason.
+    """
     err = require_auth()
     if err: return err
     d = request.json or {}
@@ -7506,14 +7521,27 @@ def get_program_guardian_recipients():
         return jsonify({'error': 'No programs selected'}), 400
     conn = get_db()
     rows = fetchall(conn, '''
-        SELECT DISTINCT ON (LOWER(g.email)) g.email, g.name
-        FROM youth_program_enrollments e
-        JOIN youth_participants y ON e.youth_id = y.id
-        JOIN youth_guardians g ON g.youth_id = y.id
-        WHERE e.program_id = ANY(%s) AND e.status != 'cancelled'
-          AND g.email IS NOT NULL AND g.email != ''
-        ORDER BY LOWER(g.email)
-    ''', (program_ids,))
+        SELECT DISTINCT ON (LOWER(email)) email, name FROM (
+            SELECT y.email AS email, (y.first_name||' '||y.last_name) AS name
+            FROM youth_program_enrollments e
+            JOIN youth_participants y ON e.youth_id = y.id
+            WHERE e.program_id = ANY(%s)
+              AND y.email IS NOT NULL AND y.email != ''
+            UNION ALL
+            SELECT g.email AS email, g.name AS name
+            FROM youth_program_enrollments e
+            JOIN youth_participants y ON e.youth_id = y.id
+            JOIN youth_guardians g ON g.youth_id = y.id
+            WHERE e.program_id = ANY(%s)
+              AND g.email IS NOT NULL AND g.email != ''
+            UNION ALL
+            SELECT r.guardian_email AS email, r.guardian_name AS name
+            FROM program_registrations r
+            WHERE r.program_id = ANY(%s) AND r.status != 'cancelled'
+              AND r.guardian_email IS NOT NULL AND r.guardian_email != ''
+        ) combined
+        ORDER BY LOWER(email)
+    ''', (program_ids, program_ids, program_ids))
     conn.close()
     return jsonify(rows)
 
@@ -7928,9 +7956,10 @@ def create_youth():
     pp = default_passphrase(d.get('first_name',''), d.get('last_name',''))
     conn = get_db()
     execute(conn,
-        'INSERT INTO youth_participants (id,first_name,last_name,dob,program,status,medical_notes,allergies,photo_consent,medical_consent,passphrase) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        'INSERT INTO youth_participants (id,first_name,last_name,dob,program,status,medical_notes,allergies,photo_consent,medical_consent,passphrase,email) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
         (yid, d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
-         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0, pp))
+         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0, pp,
+         d.get('email','')))
     for g in d.get('guardians', []):
         execute(conn, 'INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                 (str(uuid.uuid4()), yid, g['name'], g.get('relationship',''), g.get('phone',''), g.get('email',''), 1 if g.get('is_primary') else 0))
@@ -7952,10 +7981,10 @@ def update_youth(yid):
     d = request.json or {}
     conn = get_db()
     execute(conn,
-        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s,pronouns=%s WHERE id=%s',
+        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s,pronouns=%s,email=%s WHERE id=%s',
         (d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
          d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0,
-         d.get('shirt_size',''), d.get('pronouns',''), yid))
+         d.get('shirt_size',''), d.get('pronouns',''), d.get('email',''), yid))
     conn.commit()
     y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
     conn.close()
@@ -19285,8 +19314,11 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         square_payment_id=%s, square_order_id=%s, updated_at=NOW() WHERE id=%s''',
         (payment_id or reg.get('square_payment_id'), order_id or reg.get('square_order_id'), reg_id))
 
-    def get_or_create_participant(first, last, dob, shirt):
-        """Find existing participant by guardian email + name, or create new one."""
+    def get_or_create_participant(first, last, dob, shirt, own_email=None):
+        """Find existing participant by guardian email + name, or create new one.
+        own_email, when given, is the *participant's own* email (used for
+        adult self-registrants) — stored directly on youth_participants,
+        separate from any youth_guardians record."""
         if not first:
             return None
         existing = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
@@ -19310,9 +19342,11 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     medical_notes=COALESCE(NULLIF(%s,''), medical_notes),
                     allergies=COALESCE(NULLIF(%s,''), allergies),
                     pronouns=COALESCE(NULLIF(%s,''), pronouns),
-                    photo_consent=GREATEST(photo_consent, %s)
+                    photo_consent=GREATEST(photo_consent, %s),
+                    email=COALESCE(NULLIF(%s,''), email)
                     WHERE id=%s''',
-                    (shirt or '', dob or None, medical_notes, allergies, pronouns, photo_consent, existing['id']))
+                    (shirt or '', dob or None, medical_notes, allergies, pronouns, photo_consent,
+                     own_email or '', existing['id']))
             except Exception as eu:
                 app.logger.warning(f'Participant update from reg: {eu}')
             # Add emergency contact if not already present
@@ -19341,10 +19375,10 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         passphrase = default_passphrase(first, last)
         try:
             execute(conn, '''INSERT INTO youth_participants
-                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, photo_consent, passphrase)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, photo_consent, passphrase, email)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                 (yid, first, last or '', dob or None, shirt or '',
-                 medical_notes, allergies, pronouns, photo_consent, passphrase))
+                 medical_notes, allergies, pronouns, photo_consent, passphrase, own_email or ''))
         except Exception:
             # Fallback if columns don't exist yet
             execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size, passphrase)
@@ -19370,12 +19404,17 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             (youth_id, reg['guardian_email']))
         if not existing and reg.get('guardian_name'):
             import uuid as _ug
+            # Programs that don't require a guardian are adults registering
+            # themselves — the "guardian_email" field just holds their own
+            # contact info in that case, so label it as such rather than
+            # calling them their own "Parent/Guardian".
+            relationship = 'Self' if (prog and not prog.get('requires_guardian')) else 'Parent/Guardian'
             execute(conn, '''INSERT INTO youth_guardians
                 (id, youth_id, name, relationship, email, phone, is_primary)
                 VALUES (%s,%s,%s,%s,%s,%s,1) ON CONFLICT DO NOTHING''',
                 (str(_ug.uuid4()), youth_id,
                  reg.get('guardian_name') or '',
-                 'Parent/Guardian',
+                 relationship,
                  reg['guardian_email'], reg.get('guardian_phone') or ''))
 
     def enroll(youth_id):
@@ -19407,11 +19446,17 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             app.logger.warning(f'Enrollment insert: {e}')
 
     # Primary participant
+    is_adult_registrant = bool(prog and not prog.get('requires_guardian'))
     youth = get_or_create_participant(
         reg.get('child_first_name'), reg.get('child_last_name'),
-        reg.get('child_dob'), reg.get('shirt_size'))
+        reg.get('child_dob'), reg.get('shirt_size'),
+        own_email=reg.get('guardian_email') if is_adult_registrant else None)
     if youth:
-        ensure_guardian(youth['id'])
+        # For adult self-registrants, their email now lives directly on their
+        # own profile (above) — a "guardian" record calling them their own
+        # parent/guardian never made sense, so skip creating one.
+        if not is_adult_registrant:
+            ensure_guardian(youth['id'])
         enroll(youth['id'])
         try:
             execute(conn, 'UPDATE program_registrations SET youth_id=%s WHERE id=%s', (youth['id'], reg_id))

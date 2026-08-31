@@ -1315,6 +1315,16 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS nav_icons (
             key TEXT PRIMARY KEY,
             lucide_name TEXT NOT NULL)""",
+        # A few nav items were renamed in the sidebar over time but the
+        # Settings icon picker rows kept the old key, silently orphaning
+        # any icon already saved there. Carry a saved icon over to the
+        # current key the one time it's needed; harmless no-op after that.
+        """UPDATE nav_icons SET key='production-signin' WHERE key='cast-signin'
+           AND NOT EXISTS (SELECT 1 FROM nav_icons WHERE key='production-signin')""",
+        """UPDATE nav_icons SET key='youth-programs-page' WHERE key='programs'
+           AND NOT EXISTS (SELECT 1 FROM nav_icons WHERE key='youth-programs-page')""",
+        """UPDATE nav_icons SET key='rising-stars-page' WHERE key='rising-stars'
+           AND NOT EXISTS (SELECT 1 FROM nav_icons WHERE key='rising-stars-page')""",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS performance_location TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_color TEXT",

@@ -2448,6 +2448,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  oninput="previewNavIcon('dashboard',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-daily-overview">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Daily Overview</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-daily-overview" placeholder="calendar-check" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('daily-overview',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-volunteers">
  <span style="font-size:16px"></span>
  </div>
@@ -2488,6 +2498,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  oninput="previewNavIcon('email',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-email-log">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Email Log</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-email-log" placeholder="list-checks" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('email-log',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-events">
  <span style="font-size:16px"></span>
  </div>
@@ -2518,14 +2538,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  oninput="previewNavIcon('productions',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
- <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-cast-signin">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-production-signin">
  <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Cast Sign-In</div>
  <div style="display:flex;align-items:center;gap:8px">
- <input type="text" id="ni-input-cast-signin" placeholder="clipboard-list" value=""
+ <input type="text" id="ni-input-production-signin" placeholder="clipboard-list" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
- oninput="previewNavIcon('cast-signin',this.value)"/>
+ oninput="previewNavIcon('production-signin',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-show-contracts">
@@ -2548,24 +2568,34 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  oninput="previewNavIcon('youth',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
- <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-programs">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-youth-programs-page">
  <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Programs & Classes</div>
  <div style="display:flex;align-items:center;gap:8px">
- <input type="text" id="ni-input-programs" placeholder="book-open" value=""
+ <input type="text" id="ni-input-youth-programs-page" placeholder="book-open" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
- oninput="previewNavIcon('programs',this.value)"/>
+ oninput="previewNavIcon('youth-programs-page',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
- <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rising-stars">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-instructor-dashboard">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">My Programs <span style="font-weight:400;color:var(--text-muted)">(instructor view)</span></div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-instructor-dashboard" placeholder="graduation-cap" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('instructor-dashboard',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rising-stars-page">
  <span style="font-size:16px"></span>
  </div>
  <div style="flex:1;font-size:13px;font-weight:600">Rising Stars</div>
  <div style="display:flex;align-items:center;gap:8px">
- <input type="text" id="ni-input-rising-stars" placeholder="star" value=""
+ <input type="text" id="ni-input-rising-stars-page" placeholder="star" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
- oninput="previewNavIcon('rising-stars',this.value)"/>
+ oninput="previewNavIcon('rising-stars-page',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-step-up-holds">
@@ -9976,9 +10006,9 @@ async function loadSettings(){
 
 // ── NAV ICON DEFAULTS (emoji fallbacks) ──
 const NAV_ICON_DEFAULTS = {
- dashboard:'', volunteers:'', waivers:'', hours:'', email:'',
- events:'', marquee:'', productions:'', 'cast-signin':'', youth:'', programs:'',
- 'rising-stars':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
+ dashboard:'', 'daily-overview':'', volunteers:'', waivers:'', hours:'', email:'', 'email-log':'',
+ events:'', marquee:'', productions:'', 'production-signin':'', youth:'', 'youth-programs-page':'',
+ 'rising-stars-page':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
  board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',

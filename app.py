@@ -7492,8 +7492,35 @@ def square_create_discount(name, discount_type, value):
 #  EMAIL TEMPLATES
 # ─────────────────────────────────────────────
 
+@app.route('/api/email/program-guardian-recipients', methods=['POST'])
+def get_program_guardian_recipients():
+    """Guardian emails for everyone enrolled (any status except cancelled)
+    in one or more programs — active or archived, since a program's status
+    doesn't change who was actually part of it. Deduped by email so a
+    guardian with kids in several selected programs only gets counted once."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    program_ids = d.get('program_ids') or []
+    if not program_ids:
+        return jsonify({'error': 'No programs selected'}), 400
+    conn = get_db()
+    rows = fetchall(conn, '''
+        SELECT DISTINCT ON (LOWER(g.email)) g.email, g.name
+        FROM youth_program_enrollments e
+        JOIN youth_participants y ON e.youth_id = y.id
+        JOIN youth_guardians g ON g.youth_id = y.id
+        WHERE e.program_id = ANY(%s) AND e.status != 'cancelled'
+          AND g.email IS NOT NULL AND g.email != ''
+        ORDER BY LOWER(g.email)
+    ''', (program_ids,))
+    conn.close()
+    return jsonify(rows)
+
+
 @app.route('/api/email/bulk', methods=['POST'])
 def send_bulk_email():
+
     err = require_auth()
     if err: return err
     d = request.get_json(silent=True) or {}

@@ -1325,6 +1325,13 @@ def init_db():
            AND NOT EXISTS (SELECT 1 FROM nav_icons WHERE key='youth-programs-page')""",
         """UPDATE nav_icons SET key='rising-stars-page' WHERE key='rising-stars'
            AND NOT EXISTS (SELECT 1 FROM nav_icons WHERE key='rising-stars-page')""",
+        # The rename above only helps if someone had actually managed to
+        # save an icon under the old (broken) key — since that row never
+        # worked, nobody could. Seed a real default for these three so
+        # they show something instead of staying blank forever.
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('production-signin', 'clipboard-list') ON CONFLICT (key) DO NOTHING",
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('youth-programs-page', 'book-open') ON CONFLICT (key) DO NOTHING",
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('rising-stars-page', 'star') ON CONFLICT (key) DO NOTHING",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS performance_location TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_color TEXT",

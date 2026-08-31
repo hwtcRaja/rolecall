@@ -1020,7 +1020,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <option value="">— Select group type —</option>
  <option value="all_volunteers">All Active Volunteers</option>
  <option value="production">Production Cast &amp; Crew</option>
- <option value="program">Program / Class</option>
+ <option value="program">Program / Class (Volunteers)</option>
+ <option value="guardian_programs">Program Participants (Guardians)</option>
  <option value="rising_stars">Rising Stars Production</option>
  <option value="interest">Interest / Skill Group</option>
  <option value="event">Event Attendees</option>
@@ -3922,6 +3923,9 @@ let currentVolId = null
 let currentYouthId = null
 let punchSessions = {}
 let selectedVolIds = new Set()
+let emailGuardianMode = false          // true when recipients came from "Program Participants (Guardians)"
+let selectedGuardianRecipients = []    // [{id,name,email}] — id is just the email, since that's the dedupe key
+let selectedGuardianIds = new Set()
 let onlineSignVolId = null
 let onlineSignWaiverTypeId = null
 
@@ -6235,6 +6239,7 @@ function renderEmailPage(){
 function renderEmailVolList(){
  const list=document.getElementById('email-vol-list')
  if(!list) return
+ if(emailGuardianMode) return renderGuardianEmailList()
  const q=(document.getElementById('email-vol-search')?.value||'').toLowerCase()
  const shown=volunteers.filter(v=>!q||(v.name+' '+v.email).toLowerCase().includes(q))
  list.innerHTML=shown.map(v=>`
@@ -6246,6 +6251,30 @@ function renderEmailVolList(){
  <div style="font-size:11px;color:var(--text-muted)">${v.email}</div>
  </label>
  </div>`).join('')
+ updateEmailSummary()
+}
+
+function renderGuardianEmailList(){
+ const list=document.getElementById('email-vol-list')
+ if(!list) return
+ const q=(document.getElementById('email-vol-search')?.value||'').toLowerCase()
+ const shown=selectedGuardianRecipients.filter(g=>!q||(g.name+' '+g.email).toLowerCase().includes(q))
+ list.innerHTML=(shown.length?'':'<div style="color:var(--text-muted);font-size:13px;padding:8px">No guardians match your search.</div>')
+ + shown.map(g=>`
+ <div class="vol-checkbox-item">
+ <input type="checkbox" id="ecb-${g.id}" ${selectedGuardianIds.has(g.id)?'checked':''} onchange="toggleGuardianEmail('${g.id}',this.checked)"/>
+ <div>${avatarHTML(g.name||g.email,28)}</div>
+ <label for="ecb-${g.id}" style="cursor:pointer;flex:1">
+ <div style="font-weight:500;font-size:13px">${escHtml(g.name||'(no name on file)')}</div>
+ <div style="font-size:11px;color:var(--text-muted)">${escHtml(g.email)}</div>
+ </label>
+ </div>`).join('')
+ updateEmailSummary()
+}
+
+function toggleGuardianEmail(id,checked){
+ if(checked) selectedGuardianIds.add(id)
+ else selectedGuardianIds.delete(id)
  updateEmailSummary()
 }
 
@@ -6261,6 +6290,17 @@ function toggleEmailVol(id,checked){
 
 function selectAllEmailVols(checked){
  const q=(document.getElementById('email-vol-search')?.value||'').toLowerCase()
+ if(emailGuardianMode){
+ const shown=selectedGuardianRecipients.filter(g=>!q||(g.name+' '+g.email).toLowerCase().includes(q))
+ shown.forEach(g=>{
+ if(checked) selectedGuardianIds.add(g.id)
+ else selectedGuardianIds.delete(g.id)
+ const cb=document.getElementById('ecb-'+g.id)
+ if(cb) cb.checked=checked
+ })
+ updateEmailSummary()
+ return
+ }
  const shown=volunteers.filter(v=>!q||(v.name+' '+v.email).toLowerCase().includes(q))
  shown.forEach(v=>{
  if(checked) selectedVolIds.add(v.id)
@@ -6272,9 +6312,20 @@ function selectAllEmailVols(checked){
 }
 
 function updateEmailSummary(){
- const count=selectedVolIds.size
  const el=document.getElementById('email-recipients-summary')
  if(!el) return
+ if(emailGuardianMode){
+ const count=selectedGuardianIds.size
+ if(count===0){
+ el.innerHTML='<span style="color:var(--amber-600)"> No guardians selected — uncheck this group or pick at least one</span>'
+ } else {
+ const emails=[...selectedGuardianIds]
+ el.innerHTML=`<span style="color:var(--teal-600);font-weight:600"> ${count} guardian${count!==1?'s':''} selected</span>`+
+ (count<=5?'<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'+emails.join(', ')+'</div>':'')
+ }
+ return
+ }
+ const count=selectedVolIds.size
  if(count===0){
  el.innerHTML='<span style="color:var(--amber-600)"> No recipients selected — all volunteers will receive this email</span>'
  } else {
@@ -6287,7 +6338,6 @@ function updateEmailSummary(){
 function renderEmailGroupOptions(){
  const type=document.getElementById('email-group-type').value
  const detail=document.getElementById('email-group-detail')
- const sel=document.getElementById('email-group-value')
  if(!type){detail.style.display='none';return}
 
  if(type==='all_volunteers'){
@@ -6296,6 +6346,28 @@ function renderEmailGroupOptions(){
  }
 
  detail.style.display=''
+
+ if(type==='guardian_programs'){
+ // Multi-select checklist (any status — active shows should stay
+ // reachable just as easily as archived ones) instead of the single
+ // dropdown the other group types use.
+ detail.innerHTML = '<div style="max-height:220px;overflow-y:auto;border:1.5px solid var(--border-md);border-radius:var(--radius);padding:8px">'
+ + (allPrograms.length ? allPrograms.map(p=>`
+ <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;font-size:13px">
+ <input type="checkbox" class="email-guardian-prog-cb" value="${p.id}" style="width:auto"/>
+ <span style="flex:1">${escHtml(p.name)}</span>
+ <span style="font-size:11px;color:var(--text-muted)">${escHtml(p.status||'')}</span>
+ </label>`).join('') : '<div style="color:var(--text-muted);font-size:13px;padding:8px">No programs found.</div>')
+ + '</div>'
+ return
+ }
+
+ // Restore the plain dropdown markup in case guardian_programs' checklist
+ // is what's currently sitting in this container.
+ if(!document.getElementById('email-group-value')){
+ detail.innerHTML = '<select id="email-group-value" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"><option value="">— Select —</option></select>'
+ }
+ const sel=document.getElementById('email-group-value')
  sel.innerHTML='<option value="">— Select —</option>'
 
  if(type==='production'){
@@ -6349,6 +6421,23 @@ async function applyEmailGroup(){
  const val=document.getElementById('email-group-value')?.value
  if(!type){toast('Select a group type first','error');return}
 
+ if(type==='guardian_programs'){
+ const progIds=[...document.querySelectorAll('.email-guardian-prog-cb:checked')].map(cb=>cb.value)
+ if(!progIds.length){toast('Select at least one program','error');return}
+ const res=await api('/api/email/program-guardian-recipients','POST',{program_ids:progIds})
+ if(res&&res.error){toast(res.error,'error');return}
+ if(!Array.isArray(res)||!res.length){toast('No guardian emails found for the selected program(s)','error');return}
+ emailGuardianMode=true
+ selectedVolIds.clear()
+ selectedGuardianRecipients=res.map(r=>({id:r.email,name:r.name||'',email:r.email}))
+ selectedGuardianIds=new Set(selectedGuardianRecipients.map(r=>r.id))
+ const progNames=progIds.map(id=>allPrograms.find(p=>p.id===id)?.name).filter(Boolean)
+ renderEmailVolList()
+ toast(`${selectedGuardianRecipients.length} guardian${selectedGuardianRecipients.length!==1?'s':''} selected: ${progNames.join(', ')}`,'success')
+ return
+ }
+
+ emailGuardianMode=false
  selectedVolIds.clear()
  let matched=[]
  let label=''
@@ -6446,6 +6535,7 @@ function applyEmailTemplate(){
 }
 
 function getEmailRecipients(){
+ if(emailGuardianMode) return selectedGuardianRecipients.filter(g=>selectedGuardianIds.has(g.id))
  if(selectedVolIds.size>0) return [...selectedVolIds].map(id=>volunteers.find(v=>v.id===id)).filter(Boolean)
  return volunteers.filter(v=>v.status==='active')
 }

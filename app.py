@@ -2819,6 +2819,7 @@ def notify_board_refund_signoff_needed(conn, refund_request_id):
         if not rr:
             return
         amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'amount not yet set'
+        reviewer = rr.get('reviewed_by') or 'A staff member'
         for role_keyword in ('president', 'treasurer'):
             officer = find_board_officer(conn, role_keyword)
             if not officer or not officer.get('email'):
@@ -2826,7 +2827,7 @@ def notify_board_refund_signoff_needed(conn, refund_request_id):
             send_email(officer['email'], f"Refund request needs your sign-off — {rr.get('ref_number','')}",
                 f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
                 f'<p>Hi {officer.get("name","")},</p>'
-                f'<p>A refund request needs sign-off from both the President and Treasurer before it can be processed:</p>'
+                f'<p>{reviewer} began the approval process on a refund request — it needs sign-off from both the President and Treasurer before it can be processed:</p>'
                 f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
                 f'{amount} · {rr.get("ref_number","")}</p>'
                 f'<p><a href="{APP_BASE_URL}/#refund-requests">Review in RoleCall</a></p></div>',
@@ -20178,6 +20179,10 @@ def update_refund_request(rid):
     conn = get_db()
     new_status = d.get('status','')
     admin_notes = d.get('admin_notes','')
+    # The frontend never actually sent its own reviewed_by value — resolve
+    # it server-side from whoever's logged in, same as the rest of the app
+    # does for "who did this" fields, so it's never silently blank.
+    reviewer_name = d.get('reviewed_by') or session.get('user_name', 'Staff')
 
     # Get current request before updating
     rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
@@ -20187,7 +20192,7 @@ def update_refund_request(rid):
 
     execute(conn, '''UPDATE refund_requests SET status=%s, admin_notes=%s,
         reviewed_by=%s, reviewed_at=NOW() WHERE id=%s''',
-        (new_status, admin_notes, d.get('reviewed_by',''), rid))
+        (new_status, admin_notes, reviewer_name, rid))
     conn.commit()
 
     # This is the actual trigger for notifying the board — not creation,
@@ -20197,42 +20202,18 @@ def update_refund_request(rid):
     if new_status == 'approved' and rr.get('status') != 'approved':
         notify_board_refund_signoff_needed(conn, rid)
 
-    # Send email to requester on approval or denial
+    # Notify the requester on denial only — "approved" now just means staff
+    # began the review/board sign-off process, not that anything has
+    # actually happened yet, so telling the family "your refund is being
+    # processed" at this point would be premature and misleading. The real
+    # "good news" email fires from process_square_refund once a cash
+    # refund has actually gone through; see the note there for credit/
+    # transfer/find_replacement requests, which don't go through Square.
     try:
         type_labels = {'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
         req_type = type_labels.get(rr.get('request_type',''), rr.get('request_type',''))
 
-        if new_status == 'approved':
-            subject = f'Your Refund Request Has Been Approved — {rr["ref_number"]}'
-            if rr.get('request_type') == 'refund':
-                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">Your refund will be processed to your original payment method within <strong>10 business days</strong>.</p>'
-            elif rr.get('request_type') == 'credit':
-                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">An account credit has been approved and will be applied to your account. Credits are valid for <strong>12 months</strong> from the date of issuance.</p>'
-            elif rr.get('request_type') in ('transfer','find_replacement'):
-                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">Your spot transfer request has been approved. We will be in touch regarding next steps for completing the transfer.</p>'
-            else:
-                next_steps = ''
-
-            notes_block = f'<div style="background:#f3f4f6;border-radius:8px;padding:14px 16px;margin:16px 0;font-size:14px;color:#374151"><strong>Note from HWTC:</strong> {admin_notes}</div>' if admin_notes else ''
-
-            html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-                <div style="background:#145466;padding:20px 24px">
-                  <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
-                </div>
-                <div style="padding:28px 24px">
-                  <div style="background:#dcfce7;border:1.5px solid #86efac;border-radius:8px;padding:14px 16px;margin-bottom:20px">
-                    <div style="font-size:16px;font-weight:700;color:#166534">Your request has been approved</div>
-                  </div>
-                  <p style="color:#374151;font-size:15px;line-height:1.6">Dear {rr.get('requester_name','')},</p>
-                  <p style="color:#374151;font-size:14px;line-height:1.6">We have reviewed your {req_type} request (Ref: <strong>{rr["ref_number"]}</strong>) for <strong>{rr.get('participant_name','')}</strong> in <strong>{rr.get('program_name','')}</strong> and it has been <strong>approved</strong>.</p>
-                  {next_steps}
-                  {notes_block}
-                  <p style="color:#374151;font-size:14px;line-height:1.6">If you have any questions, please contact us at <a href="mailto:info@hwtco.org">info@hwtco.org</a> and reference your request number <strong>{rr["ref_number"]}</strong>.</p>
-                  <p style="color:#374151;font-size:14px">Thank you,<br><strong>Horizon West Theater Company</strong></p>
-                </div>
-              </div>'''
-
-        elif new_status == 'denied':
+        if new_status == 'denied':
             subject = f'Update on Your Refund Request — {rr["ref_number"]}'
             notes_block = f'<div style="background:#f3f4f6;border-radius:8px;padding:14px 16px;margin:16px 0;font-size:14px;color:#374151"><strong>Reason:</strong> {admin_notes}</div>' if admin_notes else ''
 
@@ -20362,6 +20343,29 @@ def process_square_refund(rid):
                     execute(conn, "UPDATE program_registrations SET status='cancelled' WHERE id=%s", (rr['registration_id'],))
                     conn.commit()
                 except Exception: pass
+            # This is the real "good news" moment — the refund has actually
+            # happened, not just been reviewed — so this is where the
+            # requester email belongs now, not at "Begin Approval Process".
+            try:
+                if rr.get('requester_email'):
+                    send_email(rr['requester_email'], f'Your Refund Has Been Processed — {rr["ref_number"]}',
+                        f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                        <div style="background:#145466;padding:20px 24px">
+                          <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
+                        </div>
+                        <div style="padding:28px 24px">
+                          <div style="background:#dcfce7;border:1.5px solid #86efac;border-radius:8px;padding:14px 16px;margin-bottom:20px">
+                            <div style="font-size:16px;font-weight:700;color:#166534">Your refund has been processed</div>
+                          </div>
+                          <p style="color:#374151;font-size:15px;line-height:1.6">Dear {rr.get('requester_name','')},</p>
+                          <p style="color:#374151;font-size:14px;line-height:1.6">Your refund (Ref: <strong>{rr["ref_number"]}</strong>) for <strong>{rr.get('participant_name','')}</strong> in <strong>{rr.get('program_name','')}</strong> has been issued to your original payment method.</p>
+                          <p style="color:#374151;font-size:14px;line-height:1.6">Please allow <strong>5–10 business days</strong> for it to appear, depending on your bank or card issuer.</p>
+                          <p style="color:#374151;font-size:14px;line-height:1.6">If you have any questions, please contact us at <a href="mailto:info@hwtco.org">info@hwtco.org</a> and reference your request number <strong>{rr["ref_number"]}</strong>.</p>
+                          <p style="color:#374151;font-size:14px">Thank you,<br><strong>Horizon West Theater Company</strong></p>
+                        </div>
+                      </div>''', source='refund_status')
+            except Exception as e:
+                app.logger.warning(f'Refund processed email failed: {e}')
             conn.close()
             return jsonify({'ok': True, 'refund_id': sq_refund_id, 'amount_cents': amount_cents})
         else:

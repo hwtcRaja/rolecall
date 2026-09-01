@@ -1347,12 +1347,15 @@ def init_db():
         "INSERT INTO nav_icons (key, lucide_name) VALUES ('rising-stars-page', 'star') ON CONFLICT (key) DO NOTHING",
         "INSERT INTO nav_icons (key, lucide_name) VALUES ('refund-requests', 'rotate-ccw') ON CONFLICT (key) DO NOTHING",
         # One-time backfill: registrations paid for as part of a multi-item
-        # cart never got their own amount_paid set (only the cart_orders
-        # row carried the real total), so they've been sitting at $0 ever
-        # since even though they were genuinely paid for. Fill in each
-        # registration's actual share from the per-item price the cart
-        # already computed at checkout time.
-        """UPDATE program_registrations pr SET amount_paid = sub.charge_now
+        # cart never got their own amount_paid_cents set (only the
+        # cart_orders row carried the real total), so they've been sitting
+        # at $0 ever since even though they were genuinely paid for. Fill
+        # in each registration's actual share from the per-item price the
+        # cart already computed at checkout time. (A prior version of this
+        # migration wrote to the wrong column — amount_paid instead of
+        # amount_paid_cents, which is what the rest of the app actually
+        # reads — this corrects that.)
+        """UPDATE program_registrations pr SET amount_paid_cents = sub.charge_now
            FROM (
                SELECT (item->>'registration_id') AS registration_id,
                       (item->>'charge_now')::int AS charge_now
@@ -1360,7 +1363,7 @@ def init_db():
                WHERE item->>'charge_now' IS NOT NULL
            ) sub
            WHERE sub.registration_id = pr.id
-             AND (pr.amount_paid IS NULL OR pr.amount_paid = 0)
+             AND (pr.amount_paid_cents IS NULL OR pr.amount_paid_cents = 0)
              AND sub.charge_now > 0
              AND pr.status = 'confirmed'""",
         # Dual sign-off required before any refund can actually be processed
@@ -20083,7 +20086,7 @@ def search_orders_for_refund():
     results = []
 
     for r in fetchall(conn, """SELECT pr.id, pr.guardian_name, pr.guardian_email,
-            pr.child_first_name, pr.child_last_name, pr.square_order_id, pr.amount_paid,
+            pr.child_first_name, pr.child_last_name, pr.square_order_id, pr.amount_paid_cents,
             pr.status, pr.created_at, yp.name AS program_name
         FROM program_registrations pr
         LEFT JOIN youth_programs yp ON yp.id=pr.program_id
@@ -20096,7 +20099,7 @@ def search_orders_for_refund():
             'label': (label + (' — ' + r['program_name'] if r.get('program_name') else '')) or 'Program registration',
             'participant_name': label, 'program_name': r.get('program_name') or '',
             'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
-            'amount_cents': r.get('amount_paid') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
+            'amount_cents': r.get('amount_paid_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
 
     # cart_orders is deliberately not searched here — its total spans every
     # program in the cart, so linking a refund to it directly makes it easy
@@ -21354,16 +21357,12 @@ def square_webhook():
                                     reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
                                     if reg2 and reg2['status'] == 'pending_payment':
                                         finalize_registration(conn, rid, payment_id, order_id)
-                                        # finalize_registration doesn't touch amount_paid — it has no
-                                        # idea what this item's actual share of the cart total was.
-                                        # Backfill it from the per-item price already computed at
-                                        # checkout time, so this registration doesn't sit at $0
-                                        # forever even though it was genuinely paid for.
-                                        paid_share = it.get('charge_now')
-                                        if paid_share is None:
-                                            paid_share = it.get('effective_price') or 0
-                                        execute(conn, 'UPDATE program_registrations SET amount_paid=%s WHERE id=%s',
-                                            (paid_share, rid))
+                            # finalize_registration doesn't touch amount_paid_cents — split it
+                            # proportionally across every registration sharing this cart's
+                            # order (same helper the direct/single-registration path uses),
+                            # so a multi-program cart doesn't leave each item at $0 even
+                            # though the cart total was genuinely charged.
+                            split_order_amount_across_registrations(conn, order_id, cart.get('total_cents'))
                             conn.commit()
                         else:
                             # Check ticket orders

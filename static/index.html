@@ -30632,6 +30632,60 @@ function pickRrOrder(idx, resultsId){
 }
 
 // ── New Refund Request modal ────────────────────────────────────────────
+// Shared refund-amount control: Full / Partial ($, capped) / Percentage —
+// capCents is the linked order's total, so Partial and Percentage can't
+// exceed what was actually charged. Falls back to an uncapped $ entry when
+// no order is linked yet (rare — staff should generally link one first).
+function rrAmountControlHtml(prefix, capCents){
+ return '<div class="form-group"><label>Refund Type</label>'
+   + '<select id="'+prefix+'-refund-mode" onchange="updateRrAmountUI(\''+prefix+'\','+(capCents||0)+')">'
+   + '<option value="full">Full Refund'+(capCents?' ('+rrMoney(capCents)+')':'')+'</option>'
+   + '<option value="partial">Partial Refund ($)</option>'
+   + '<option value="percent">Percentage Refund (%)</option>'
+   + '</select></div>'
+   + '<div id="'+prefix+'-amount-wrap"></div>'
+}
+
+function updateRrAmountUI(prefix, capCents){
+ var modeEl = document.getElementById(prefix+'-refund-mode')
+ var wrap = document.getElementById(prefix+'-amount-wrap')
+ if(!modeEl || !wrap) return
+ var mode = modeEl.value
+ var capDollars = (capCents||0)/100
+ if(mode==='full'){
+   wrap.innerHTML = '<div class="form-group"><label>Refund Amount</label>'
+     + '<input type="text" id="'+prefix+'-amount" value="'+capDollars.toFixed(2)+'" readonly style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;background:var(--bg)"/>'
+     + (capCents?'':'<div style="font-size:11px;color:#b45309;margin-top:4px">Link an order first to know the full amount.</div>')
+     + '</div>'
+ } else if(mode==='partial'){
+   wrap.innerHTML = '<div class="form-group"><label>Refund Amount ($)'+(capCents?' <span style="font-weight:400;color:var(--text-muted)">— up to '+rrMoney(capCents)+'</span>':'')+'</label>'
+     + '<input type="number" step="0.01" min="0" '+(capCents?'max="'+capDollars.toFixed(2)+'"':'')+' id="'+prefix+'-amount" oninput="clampRrAmount(this,'+(capCents||0)+')" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
+ } else {
+   wrap.innerHTML = '<div class="form-group"><label>Percentage (%)</label>'
+     + '<input type="number" step="1" min="1" max="100" id="'+prefix+'-percent" oninput="updateRrPercentAmount(\''+prefix+'\','+(capCents||0)+')" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;margin-bottom:6px"/>'
+     + '<div id="'+prefix+'-percent-result" style="font-size:12.5px;color:var(--text-muted)">'+(capCents?'= '+rrMoney(0)+' of '+rrMoney(capCents):'Link an order first to compute an amount')+'</div>'
+     + '<input type="hidden" id="'+prefix+'-amount" value="0"/></div>'
+ }
+}
+
+function clampRrAmount(el, capCents){
+ if(!capCents) return
+ var capDollars = capCents/100
+ var v = parseFloat(el.value||'0')
+ if(v > capDollars) el.value = capDollars.toFixed(2)
+ if(v < 0) el.value = '0'
+}
+
+function updateRrPercentAmount(prefix, capCents){
+ var pctEl = document.getElementById(prefix+'-percent')
+ var pct = Math.max(0, Math.min(100, parseFloat(pctEl.value||'0')))
+ var cents = Math.round((capCents||0) * pct / 100)
+ var amtEl = document.getElementById(prefix+'-amount')
+ if(amtEl) amtEl.value = (cents/100).toFixed(2)
+ var resultEl = document.getElementById(prefix+'-percent-result')
+ if(resultEl) resultEl.textContent = '= '+rrMoney(cents)+(capCents?' of '+rrMoney(capCents):'')
+}
+
 function openNewRefundRequestModal(){
  _rrSelectedOrder = null
  var overlay = document.createElement('div')
@@ -30651,11 +30705,11 @@ function openNewRefundRequestModal(){
    + '<div class="form-group"><label>Participant Name</label><input type="text" id="rr-new-participant-name"/></div>'
    + '<div class="form-group"><label>Program / Show</label><input type="text" id="rr-new-program-name"/></div>'
    + '</div>'
-   + '<div class="form-row">'
    + '<div class="form-group"><label>Request Type</label><select id="rr-new-type">'
    + Object.keys(RR_TYPE_LABELS).map(function(k){ return '<option value="'+k+'">'+RR_TYPE_LABELS[k]+'</option>' }).join('')
    + '</select></div>'
-   + '<div class="form-group"><label>Refund Amount ($)</label><input type="number" step="0.01" min="0" id="rr-new-amount"/></div>'
+   + '<div class="form-row">'
+   + rrAmountControlHtml('rr-new', 0)
    + '</div>'
    + '<div class="form-group"><label>Reason</label><textarea id="rr-new-reason" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea></div>'
    + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">'
@@ -30664,29 +30718,34 @@ function openNewRefundRequestModal(){
    + '</div></div>'
  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
  document.body.appendChild(overlay)
+ updateRrAmountUI('rr-new', 0)
 }
 
 function renderRrNewOrderSelection(){
  var el = document.getElementById('rr-new-order-selected')
  var o = _rrSelectedOrder
- if(!o){ el.innerHTML = ''; return }
+ if(!o){ el.innerHTML = ''; updateRrAmountUI('rr-new', 0); return }
  el.innerHTML = '<div style="margin-top:8px;padding:10px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:8px">'
    + '<span> Linked: '+escHtml(o.label)+' — '+escHtml(o.payer_name||'')+' · '+rrMoney(o.amount_cents)+'</span>'
    + '<button class="btn btn-secondary btn-sm" onclick="_rrSelectedOrder=null;renderRrNewOrderSelection()">Remove</button></div>'
- // Prefill fields from the order if they're still empty
+ // Prefill fields from the order if they're still empty — never overwrite
+ // something staff already typed in.
  var reqName = document.getElementById('rr-new-requester-name')
  var reqEmail = document.getElementById('rr-new-requester-email')
- var amt = document.getElementById('rr-new-amount')
+ var partName = document.getElementById('rr-new-participant-name')
+ var progName = document.getElementById('rr-new-program-name')
  if(reqName && !reqName.value) reqName.value = o.payer_name||''
  if(reqEmail && !reqEmail.value) reqEmail.value = o.payer_email||''
- if(amt && !amt.value) amt.value = ((o.amount_cents||0)/100).toFixed(2)
+ if(partName && !partName.value) partName.value = o.participant_name||''
+ if(progName && !progName.value) progName.value = o.program_name||''
+ updateRrAmountUI('rr-new', o.amount_cents||0)
 }
 
 async function submitNewRefundRequest(){
  var participant = document.getElementById('rr-new-participant-name').value.trim()
  var program = document.getElementById('rr-new-program-name').value.trim()
  if(!participant && !program){ toast('Enter a participant or program name','error'); return }
- var amountDollars = parseFloat(document.getElementById('rr-new-amount').value||'0')
+ var amountDollars = parseFloat((document.getElementById('rr-new-amount')||{}).value||'0')
  var btn = document.getElementById('rr-new-create-btn')
  var btnHTML = btn.innerHTML
  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creating…'
@@ -30740,7 +30799,7 @@ async function openRefundRequestDetail(rid){
    + (rr.request_type==='find_replacement' && (rr.replacement_name||rr.replacement_email)?'<div style="margin-bottom:14px;font-size:13px"><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:700">Suggested Replacement</div>'+escHtml(rr.replacement_name||'')+' '+escHtml(rr.replacement_email||'')+'</div>':'')
    + (rr.requires_board_approval?'<div style="margin-bottom:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e;font-weight:600"> Over $1,000 — board approval expected before processing.</div>':'')
    + '<div id="rr-detail-order-section" style="margin-bottom:14px"></div>'
-   + '<div class="form-group"><label>Amount</label><input type="number" step="0.01" min="0" id="rr-detail-amount" value="'+(rr.refund_amount_cents!=null?(rr.refund_amount_cents/100).toFixed(2):'')+'"/></div>'
+   + '<div class="form-row">' + rrAmountControlHtml('rr-detail', rrParseAmountPaid(rr.amount_paid)) + '</div>'
    + '<div class="form-group"><label>Internal Notes</label><textarea id="rr-detail-notes" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">'+escHtml(rr.admin_notes||'')+'</textarea></div>'
    + '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:10px">'
    + '<button class="btn btn-secondary" onclick="document.getElementById(\'rr-detail-overlay\').remove()">Close</button>'
@@ -30751,6 +30810,24 @@ async function openRefundRequestDetail(rid){
  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
  document.body.appendChild(overlay)
  renderRrDetailOrderSection(rr)
+ var capCents = rrParseAmountPaid(rr.amount_paid)
+ if(rr.refund_amount_cents!=null && capCents && rr.refund_amount_cents < capCents){
+   // A specific (non-full) amount was already set on this request —
+   // default to Partial with that amount instead of resetting to the
+   // full order total.
+   document.getElementById('rr-detail-refund-mode').value = 'partial'
+   updateRrAmountUI('rr-detail', capCents)
+   var amtEl = document.getElementById('rr-detail-amount')
+   if(amtEl) amtEl.value = (rr.refund_amount_cents/100).toFixed(2)
+ } else {
+   updateRrAmountUI('rr-detail', capCents)
+ }
+}
+
+function rrParseAmountPaid(amountPaidStr){
+ if(!amountPaidStr) return 0
+ var n = parseFloat(String(amountPaidStr).replace(/[^0-9.]/g,''))
+ return isNaN(n) ? 0 : Math.round(n*100)
 }
 
 function renderRrDetailOrderSection(rr){

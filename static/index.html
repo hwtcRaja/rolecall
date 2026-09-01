@@ -4193,7 +4193,15 @@ async function loginSuccess(user){
  clearTimeout(loadTimeout)
  const overlay = document.getElementById('app-loading-overlay')
  if(overlay) overlay.remove()
- navTo(user.role==='instructor' ? 'instructor-dashboard' : 'dashboard', user.role==='instructor' ? document.getElementById('nav-instructor-dashboard') : null)
+ // Deep-link support — a link like #refund-requests (used in email
+ // notifications) should actually land there instead of always dumping
+ // everyone on the dashboard regardless of what URL they followed.
+ var hashPage = (window.location.hash || '').replace('#','').trim()
+ if(hashPage && document.getElementById('page-'+hashPage)){
+  navTo(hashPage)
+ } else {
+  navTo(user.role==='instructor' ? 'instructor-dashboard' : 'dashboard', user.role==='instructor' ? document.getElementById('nav-instructor-dashboard') : null)
+ }
  pollPendingCount()
  setInterval(pollPendingCount, 60000)
  // Keep Railway dyno warm — ping every 10 minutes

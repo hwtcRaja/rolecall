@@ -2826,6 +2826,64 @@ def find_board_officer(conn, role_keyword):
     return bm if bm else None
 
 
+def _refund_request_email_details_html(rr):
+    """Shared 'whole request' block for the board notification emails —
+    everything a President/Treasurer would want to see without having to
+    open RoleCall first."""
+    type_labels = {'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
+    req_type = type_labels.get(rr.get('request_type',''), rr.get('request_type',''))
+    amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'Not yet set'
+    start_row = f'<tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Program Starts</td><td style="padding:4px 0">{rr["program_start_date"]}</td></tr>' if rr.get('program_start_date') else ''
+    rows = f'''<table style="width:100%;border-collapse:collapse;font-size:13.5px;color:#374151;margin:14px 0">
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Participant</td><td style="padding:4px 0"><strong>{rr.get('participant_name','') or '—'}</strong></td></tr>
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Program</td><td style="padding:4px 0">{rr.get('program_name','') or '—'}</td></tr>
+        {start_row}
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Request Type</td><td style="padding:4px 0">{req_type}</td></tr>
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Amount</td><td style="padding:4px 0"><strong>{amount}</strong></td></tr>
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap;vertical-align:top">Requester</td><td style="padding:4px 0">{rr.get('requester_name','')}<br>{rr.get('requester_email','')}{'<br>'+rr['requester_phone'] if rr.get('requester_phone') else ''}</td></tr>
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Reference #</td><td style="padding:4px 0">{rr.get('ref_number','')}</td></tr>
+        </table>'''
+    reason_block = ''
+    if rr.get('reason_category') or rr.get('reason_detail'):
+        cat = rr.get('reason_category') or ''
+        cat_label = f' — {cat}' if cat and cat != 'staff_initiated' else ''
+        reason_block = (f'<div style="background:#f9fafb;border-radius:8px;padding:12px 14px;margin:0 0 14px;font-size:13.5px;color:#374151">'
+            f'<div style="font-weight:700;margin-bottom:4px">Reason{cat_label}</div>'
+            f'<div>{rr.get("reason_detail") or "(no additional detail provided)"}</div></div>')
+    replacement_block = ''
+    if rr.get('request_type') == 'find_replacement' and (rr.get('replacement_name') or rr.get('replacement_email')):
+        replacement_block = (f'<div style="font-size:13.5px;color:#374151;margin:0 0 14px">'
+            f'<strong>Suggested Replacement:</strong> {rr.get("replacement_name","")} {rr.get("replacement_email","")}</div>')
+    return rows + reason_block + replacement_block
+
+
+def notify_reviewer_ready_to_process(conn, refund_request_id):
+    """Tells whoever began the approval process (reviewed_by) once BOTH
+    officers have signed off — that's the actual 'go ahead' signal for
+    them to open RoleCall and hit Process Refund via Square. Safe to call
+    after any single sign-off; it only actually sends once both are in."""
+    try:
+        rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (refund_request_id,))
+        if not rr or not rr.get('president_approved_by') or not rr.get('treasurer_approved_by'):
+            return
+        if not rr.get('reviewed_by'):
+            return
+        user = fetchone(conn, "SELECT email FROM users WHERE name=%s AND email IS NOT NULL AND email!=''", (rr['reviewed_by'],))
+        if not user:
+            return
+        amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'amount not yet set'
+        send_email(user['email'], f"Ready to process — {rr.get('ref_number','')}",
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<p>Hi {rr.get("reviewed_by","")},</p>'
+            f'<p>Both the President ({rr.get("president_approved_by","")}) and Treasurer ({rr.get("treasurer_approved_by","")}) have signed off on this refund request — it\'s ready to process:</p>'
+            f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
+            f'{amount} · {rr.get("ref_number","")}</p>'
+            f'<p><a href="{APP_BASE_URL}/#refund-requests">Open in RoleCall to process it</a></p></div>',
+            source='refund_signoff_needed')
+    except Exception as e:
+        app.logger.warning(f'Refund ready-to-process notification failed: {e}')
+
+
 def create_refund_approval_token(conn, refund_request_id, role, officer_email):
     """One-click sign-off link for the notification email — long random
     token, single-use, expires in 14 days (long enough to be useful, short
@@ -2835,6 +2893,14 @@ def create_refund_approval_token(conn, refund_request_id, role, officer_email):
     execute(conn, '''INSERT INTO refund_approval_tokens (token, refund_request_id, role, officer_email, expires_at)
         VALUES (%s,%s,%s,%s, NOW() + INTERVAL '14 days')''',
         (token, refund_request_id, role, officer_email))
+    # Committed immediately, not left for the caller — the email that
+    # includes this token gets sent right after this returns, and the
+    # calling functions (notify_board_refund_signoff_needed etc.) don't
+    # always commit again before their connection closes. Without this,
+    # the INSERT was getting silently rolled back on close, so the token
+    # in the email never actually existed in the database — exactly what
+    # produced "Invalid Link" on a link that looked completely correct.
+    conn.commit()
     return token
 
 
@@ -2846,8 +2912,8 @@ def notify_board_refund_signoff_needed(conn, refund_request_id):
         rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (refund_request_id,))
         if not rr:
             return
-        amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'amount not yet set'
         reviewer = rr.get('reviewed_by') or 'A staff member'
+        details_html = _refund_request_email_details_html(rr)
         for role_keyword in ('president', 'treasurer'):
             officer = find_board_officer(conn, role_keyword)
             if not officer or not officer.get('email'):
@@ -2858,8 +2924,7 @@ def notify_board_refund_signoff_needed(conn, refund_request_id):
                 f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
                 f'<p>Hi {officer.get("name","")},</p>'
                 f'<p>{reviewer} began the approval process on a refund request — it needs sign-off from both the President and Treasurer before it can be processed:</p>'
-                f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
-                f'{amount} · {rr.get("ref_number","")}</p>'
+                f'{details_html}'
                 f'<p style="margin:20px 0"><a href="{approve_url}" style="background:#145466;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Approve as {role_keyword.capitalize()}</a></p>'
                 f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first — the button above signs off immediately, without opening the app.</p></div>',
                 source='refund_signoff_needed')
@@ -2882,15 +2947,14 @@ def notify_other_officer_signoff_pending(conn, refund_request_id, just_signed_ro
         if not officer or not officer.get('email'):
             return
         signer_name = rr.get(f'{just_signed_role}_approved_by', '')
-        amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'amount not yet set'
+        details_html = _refund_request_email_details_html(rr)
         token = create_refund_approval_token(conn, refund_request_id, other_role, officer['email'])
         approve_url = f'{APP_BASE_URL}/api/public/refund-approve?token={token}'
         send_email(officer['email'], f"Your sign-off still needed — {rr.get('ref_number','')}",
             f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
             f'<p>Hi {officer.get("name","")},</p>'
             f'<p>{signer_name} ({just_signed_role.capitalize()}) has signed off on a refund request — it still needs your sign-off as {other_role.capitalize()} before it can be processed:</p>'
-            f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
-            f'{amount} · {rr.get("ref_number","")}</p>'
+            f'{details_html}'
             f'<p style="margin:20px 0"><a href="{approve_url}" style="background:#145466;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Approve as {other_role.capitalize()}</a></p>'
             f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first.</p></div>',
             source='refund_signoff_needed')
@@ -20331,6 +20395,7 @@ def public_refund_approve_via_token():
     execute(conn, 'UPDATE refund_approval_tokens SET used_at=NOW() WHERE token=%s', (token,))
     conn.commit()
     notify_other_officer_signoff_pending(conn, rr['id'], role)
+    notify_reviewer_ready_to_process(conn, rr['id'])
     conn.close()
     return _refund_approve_result_page('Signed Off', f'Thanks, {officer_name} — your sign-off as {role.capitalize()} has been recorded for {rr.get("ref_number","")}.', ok=True)
 
@@ -20363,6 +20428,7 @@ def board_approve_refund_request(rid):
     execute(conn, f'UPDATE refund_requests SET {col_by}=%s, {col_at}=NOW() WHERE id=%s', (name, rid))
     conn.commit()
     notify_other_officer_signoff_pending(conn, rid, role)
+    notify_reviewer_ready_to_process(conn, rid)
     row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
     conn.close()
     return jsonify(row)

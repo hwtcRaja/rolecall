@@ -91,6 +91,13 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .btn-danger{background:var(--red-50);color:var(--red-600);border:1px solid var(--red-200)}.btn-danger:hover{background:var(--red-200)}
 .btn-purple{background:var(--purple-50);color:var(--purple-600);border:1px solid #C4B5FD}.btn-purple:hover{background:#EDE9FE}
 .btn-sm{padding:6px 12px;font-size:13px}.btn-full{width:100%}
+.btn:disabled{opacity:0.6;cursor:not-allowed}
+.spinner{width:14px;height:14px;border:2px solid rgba(0,0,0,0.15);border-top-color:currentColor;border-radius:50%;display:inline-block;animation:spin 0.7s linear infinite;flex-shrink:0}
+.btn .spinner{border-color:rgba(255,255,255,0.35);border-top-color:#fff}
+.btn-secondary .spinner,.btn-danger .spinner{border-color:rgba(0,0,0,0.15);border-top-color:currentColor}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:30px;color:var(--text-muted);font-size:13px}
+.loading .spinner{border-color:rgba(0,0,0,0.12);border-top-color:var(--teal-400)}
 
 /* FORMS */
 .form-group{margin-bottom:16px}
@@ -997,7 +1004,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Tip: use {name} for personalization — e.g. "Hi {name},"</div>
  </div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
- <button class="btn btn-primary" onclick="sendEmailDirect()">Send Email</button>
+ <button class="btn btn-primary" id="send-email-btn" onclick="sendEmailDirect()">Send Email</button>
  <button class="btn btn-secondary" onclick="openGmailCompose()">Open in Gmail</button>
  <button class="btn btn-secondary" onclick="copyEmailList()">Copy Addresses</button>
  <button class="btn btn-secondary admin-only" onclick="openSaveTemplateModal()">Save Template</button>
@@ -6595,8 +6602,12 @@ async function sendEmailDirect(){
  if(!subject){ toast('Please enter a subject','error'); return }
  if(!body){ toast('Please enter a message','error'); return }
  const _fi = await new Promise(r=>pickSender(r)); if(_fi===null) return
+ const btn = document.getElementById('send-email-btn')
+ const btnOriginalHTML = btn ? btn.innerHTML : ''
+ if(btn){ btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Sending…' }
  const status = document.getElementById('email-send-status')
- if(status) status.textContent = 'Sending to '+sel.length+' recipient'+(sel.length!==1?'s':'')+'...'
+ if(status) status.innerHTML = '<span class="spinner"></span> Sending to '+sel.length+' recipient'+(sel.length!==1?'s':'')+'…'
+ try{
  const res = await api('/api/email/bulk','POST',{
   recipients: sel.map(function(v){ return {name:v.name||'', email:v.email} }),
   subject: subject, body: body, from_identity: _fi
@@ -6616,6 +6627,9 @@ async function sendEmailDirect(){
   if(status) status.textContent = msg
   toast(msg,'error')
   setTimeout(function(){ if(status) status.textContent='' }, 8000)
+ }
+ } finally {
+ if(btn){ btn.disabled = false; btn.innerHTML = btnOriginalHTML }
  }
 }
 
@@ -8431,7 +8445,7 @@ async function renderInboxThreadList(){
    + '</div>'
 
  if(_inboxSelectedIds.size){
-   html += '<div class="card" style="padding:10px 14px;margin-bottom:12px;background:#f0fdfa;border-color:#99f6e4;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+   html += '<div class="card" id="inbox-bulk-bar" style="padding:10px 14px;margin-bottom:12px;background:#f0fdfa;border-color:#99f6e4;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
      + '<span style="font-size:12.5px;font-weight:700;color:#0f766e">'+_inboxSelectedIds.size+' selected:</span>'
      + '<button class="btn btn-secondary btn-sm" onclick="bulkSetInboxStatus(\'open\')">Reopen</button>'
      + '<button class="btn btn-secondary btn-sm" onclick="bulkSetInboxStatus(\'pending\')">Pending</button>'
@@ -8677,7 +8691,7 @@ async function openInboxThread(tid){
    + '<div id="inbox-reply-attachments" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px"></div>'
    + '<div style="display:flex;justify-content:space-between;align-items:center">'
    + '<label style="font-size:11px;color:var(--text-muted);cursor:pointer"> Attach<input type="file" multiple onchange="onInboxAttachFileChange(event)" style="display:none"/></label>'
-   + '<button class="btn btn-primary btn-sm" onclick="sendInboxReply(\''+t.id+'\')">Send Reply</button>'
+   + '<button class="btn btn-primary btn-sm" id="inbox-reply-send-btn" onclick="sendInboxReply(\''+t.id+'\')">Send Reply</button>'
    + '</div></div></div>'
    + sidebarHtml
    + '</div></div>'
@@ -9075,9 +9089,19 @@ function clearInboxSelection(){
  renderInboxThreadList()
 }
 
+// Swaps the bulk action bar for a spinner + status line while a bulk call
+// is in flight — the bar's buttons kick off an await and otherwise just
+// sit there unchanged until it resolves, which reads as the page having
+// frozen on anything more than a couple of conversations.
+function showInboxBulkBusy(text){
+ var bar = document.getElementById('inbox-bulk-bar')
+ if(bar) bar.innerHTML = '<span class="spinner"></span><span style="font-size:12.5px;color:#0f766e;font-weight:600">'+text+'</span>'
+}
+
 async function bulkSetInboxStatus(status){
  var ids = [..._inboxSelectedIds]
  if(!ids.length) return
+ showInboxBulkBusy('Updating '+ids.length+' conversation'+(ids.length!==1?'s':'')+'…')
  var res = await api('/api/inbox/threads/bulk-update','POST',{thread_ids:ids, status:status})
  if(res&&res.ok){
    toast(res.updated+' conversation'+(res.updated!==1?'s':'')+' updated'+(res.errors&&res.errors.length?' ('+res.errors.length+' failed)':''), res.errors&&res.errors.length?'error':'success')
@@ -9092,6 +9116,7 @@ async function bulkAssignInboxThreads(value){
  var assigned_to = value==='__unassign__' ? '' : value
  var body = {thread_ids:ids}
  if(value==='__me__'){
+   showInboxBulkBusy('Assigning '+ids.length+' conversation'+(ids.length!==1?'s':'')+' to you…')
    // Reuse the single-thread "assign to me" endpoint per id, same as
    // bulk-update does for status — resolves the current user server-side
    // rather than the frontend needing to know its own display name.
@@ -9106,6 +9131,7 @@ async function bulkAssignInboxThreads(value){
    return
  }
  body.assigned_to = assigned_to
+ showInboxBulkBusy((assigned_to?'Assigning ':'Unassigning ')+ids.length+' conversation'+(ids.length!==1?'s':'')+'…')
  var res = await api('/api/inbox/threads/bulk-update','POST',body)
  if(res&&res.ok){
    toast(res.updated+' conversation'+(res.updated!==1?'s':'')+(assigned_to?' assigned to '+assigned_to:' unassigned')+(res.errors&&res.errors.length?' ('+res.errors.length+' failed)':''), res.errors&&res.errors.length?'error':'success')
@@ -9118,6 +9144,7 @@ async function bulkDeleteInboxThreads(){
  var ids = [..._inboxSelectedIds]
  if(!ids.length) return
  if(!confirm('Delete '+ids.length+' conversation'+(ids.length!==1?'s':'')+' permanently? This can\'t be undone.')) return
+ showInboxBulkBusy('Deleting '+ids.length+' conversation'+(ids.length!==1?'s':'')+'…')
  var res = await api('/api/inbox/threads/bulk-delete','POST',{thread_ids:ids})
  if(res&&res.ok){
    toast(res.deleted+' deleted'+(res.errors&&res.errors.length?' ('+res.errors.length+' failed)':''), res.errors&&res.errors.length?'error':'success')
@@ -9133,7 +9160,15 @@ async function sendInboxReply(tid){
  if(!plainCheck){ toast('Write a reply first','error'); return }
  var cc = (document.getElementById('inbox-reply-cc')||{}).value||''
  var bcc = (document.getElementById('inbox-reply-bcc')||{}).value||''
- var res = await api('/api/inbox/threads/'+tid+'/reply','POST',{body_html:html, cc_emails:cc, bcc_emails:bcc, attachments:_inboxPendingAttachments})
+ var btn = document.getElementById('inbox-reply-send-btn')
+ var btnOriginalHTML = btn ? btn.innerHTML : ''
+ if(btn){ btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Sending…' }
+ var res
+ try{
+   res = await api('/api/inbox/threads/'+tid+'/reply','POST',{body_html:html, cc_emails:cc, bcc_emails:bcc, attachments:_inboxPendingAttachments})
+ } finally {
+   if(btn){ btn.disabled = false; btn.innerHTML = btnOriginalHTML }
+ }
  if(res&&res.ok){
    toast('Reply sent','success')
    _inboxPendingAttachments = []
@@ -9169,7 +9204,7 @@ function openInboxComposeModal(){
    + '<label style="font-size:11px;color:var(--text-muted);cursor:pointer"> Attach<input type="file" multiple onchange="onInboxComposeAttachFileChange(event)" style="display:none"/></label>'
    + '<div style="display:flex;gap:8px">'
    + '<button class="btn btn-secondary" onclick="document.getElementById(\'inbox-compose-overlay\').remove()">Cancel</button>'
-   + '<button class="btn btn-primary" onclick="submitInboxCompose()">Send</button>'
+   + '<button class="btn btn-primary" id="inbox-compose-send-btn" onclick="submitInboxCompose()">Send</button>'
    + '</div></div></div>'
  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
  document.body.appendChild(overlay)
@@ -9201,7 +9236,15 @@ async function submitInboxCompose(){
  if(!to_email || !to_email.includes('@')){ toast('Enter a valid recipient email','error'); return }
  if(!subject){ toast('Subject is required','error'); return }
  if(!plainCheck){ toast('Write a message first','error'); return }
- var res = await api('/api/inbox/compose','POST',{to_email:to_email, to_name:to_name, subject:subject, body_html:html, cc_emails:cc, bcc_emails:bcc, attachments:_inboxPendingAttachments})
+ var btn = document.getElementById('inbox-compose-send-btn')
+ var btnOriginalHTML = btn ? btn.innerHTML : ''
+ if(btn){ btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Sending…' }
+ var res
+ try{
+   res = await api('/api/inbox/compose','POST',{to_email:to_email, to_name:to_name, subject:subject, body_html:html, cc_emails:cc, bcc_emails:bcc, attachments:_inboxPendingAttachments})
+ } finally {
+   if(btn){ btn.disabled = false; btn.innerHTML = btnOriginalHTML }
+ }
  if(res&&res.ok){
    toast('Message sent','success')
    _inboxPendingAttachments = []

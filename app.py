@@ -1332,6 +1332,7 @@ def init_db():
         "INSERT INTO nav_icons (key, lucide_name) VALUES ('production-signin', 'clipboard-list') ON CONFLICT (key) DO NOTHING",
         "INSERT INTO nav_icons (key, lucide_name) VALUES ('youth-programs-page', 'book-open') ON CONFLICT (key) DO NOTHING",
         "INSERT INTO nav_icons (key, lucide_name) VALUES ('rising-stars-page', 'star') ON CONFLICT (key) DO NOTHING",
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('refund-requests', 'rotate-ccw') ON CONFLICT (key) DO NOTHING",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS performance_location TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_color TEXT",
@@ -19909,7 +19910,7 @@ def debug_email_test():
 
 @app.route('/api/refund-requests')
 def get_refund_requests():
-    err = require_auth()
+    err = require_permission('refund_requests', 'view')
     if err: return err
     conn = get_db()
     status = request.args.get('status','')
@@ -19920,9 +19921,139 @@ def get_refund_requests():
     conn.close()
     return jsonify(rows)
 
+@app.route('/api/orders/search', methods=['GET'])
+def search_orders_for_refund():
+    """Unified search across everywhere a Square payment could have come
+    from — cart checkout, program registrations, ticket orders, and
+    donations — so a refund request can be linked to the real order
+    instead of staff having to hunt down a Square order id by hand."""
+    err = require_permission('refund_requests', 'view')
+    if err: return err
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    like = f'%{q}%'
+    conn = get_db()
+    results = []
+
+    for r in fetchall(conn, """SELECT pr.id, pr.guardian_name, pr.guardian_email,
+            pr.child_first_name, pr.child_last_name, pr.square_order_id, pr.amount_paid,
+            pr.status, pr.created_at, yp.name AS program_name
+        FROM program_registrations pr
+        LEFT JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE (pr.guardian_name ILIKE %s OR pr.guardian_email ILIKE %s
+               OR pr.child_first_name ILIKE %s OR pr.child_last_name ILIKE %s)
+          AND pr.square_order_id IS NOT NULL AND pr.square_order_id != ''
+        ORDER BY pr.created_at DESC LIMIT 15""", (like, like, like, like)):
+        label = f"{(r.get('child_first_name') or '').strip()} {(r.get('child_last_name') or '').strip()}".strip()
+        results.append({'source': 'program_registration', 'id': r['id'], 'square_order_id': r['square_order_id'],
+            'label': (label + (' — ' + r['program_name'] if r.get('program_name') else '')) or 'Program registration',
+            'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
+            'amount_cents': r.get('amount_paid') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
+
+    for r in fetchall(conn, """SELECT id, guardian_name, guardian_email, total_cents, square_order_id, status, created_at
+        FROM cart_orders
+        WHERE (guardian_name ILIKE %s OR guardian_email ILIKE %s)
+          AND square_order_id IS NOT NULL AND square_order_id != ''
+        ORDER BY created_at DESC LIMIT 15""", (like, like)):
+        results.append({'source': 'cart_order', 'id': r['id'], 'square_order_id': r['square_order_id'],
+            'label': 'Cart order', 'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
+            'amount_cents': r.get('total_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
+
+    for r in fetchall(conn, """SELECT t.id, t.guardian_name, t.guardian_email, t.total_cents,
+            t.square_order_id, t.status, t.created_at, p.name AS production_name
+        FROM ticket_orders t
+        LEFT JOIN performances pf ON pf.id=t.performance_id
+        LEFT JOIN productions p ON p.id=pf.production_id
+        WHERE (t.guardian_name ILIKE %s OR t.guardian_email ILIKE %s)
+          AND t.square_order_id IS NOT NULL AND t.square_order_id != ''
+        ORDER BY t.created_at DESC LIMIT 15""", (like, like)):
+        results.append({'source': 'ticket_order', 'id': r['id'], 'square_order_id': r['square_order_id'],
+            'label': 'Tickets' + (' — ' + r['production_name'] if r.get('production_name') else ''),
+            'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
+            'amount_cents': r.get('total_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
+
+    for r in fetchall(conn, """SELECT id, name, email, amount_cents, square_order_id, status, created_at
+        FROM pending_donations
+        WHERE (name ILIKE %s OR email ILIKE %s)
+          AND square_order_id IS NOT NULL AND square_order_id != ''
+        ORDER BY created_at DESC LIMIT 15""", (like, like)):
+        results.append({'source': 'donation', 'id': r['id'], 'square_order_id': r['square_order_id'],
+            'label': 'Donation', 'payer_name': r.get('name'), 'payer_email': r.get('email'),
+            'amount_cents': r.get('amount_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
+
+    conn.close()
+    results.sort(key=lambda x: x.get('date') or '', reverse=True)
+    return jsonify(results[:25])
+
+
+@app.route('/api/refund-requests', methods=['POST'])
+def create_refund_request_admin():
+    """Staff-initiated refund request — same record shape as the public
+    form, just created directly (e.g. a family called instead of using
+    the form). Skips the 'we received your request' email since staff
+    already know; the approve/deny/processed emails still fire normally."""
+    err = require_permission('refund_requests')
+    if err: return err
+    d = request.json or {}
+    if not (d.get('participant_name') or '').strip() and not (d.get('program_name') or '').strip():
+        return jsonify({'error': 'Participant or program is required'}), 400
+    conn = get_db()
+    import random, string
+    ref_number = 'RFD-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    rid = str(uuid.uuid4())
+    amount_cents = d.get('refund_amount_cents')
+    requires_board = bool(amount_cents and amount_cents > 100000)  # over $1000
+    execute(conn, '''INSERT INTO refund_requests
+        (id, ref_number, requester_name, requester_email, requester_phone,
+         participant_name, program_name, square_order_id, amount_paid,
+         program_start_date, request_type, refund_amount_cents,
+         reason_category, reason_detail, status, admin_notes,
+         requires_board_approval, registration_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (rid, ref_number,
+         d.get('requester_name',''), d.get('requester_email',''), d.get('requester_phone',''),
+         d.get('participant_name',''), d.get('program_name',''), d.get('square_order_id',''),
+         d.get('amount_paid',''), d.get('program_start_date',''),
+         d.get('request_type','refund'), amount_cents,
+         d.get('reason_category','staff_initiated'), d.get('reason_detail',''),
+         d.get('status','pending'), d.get('admin_notes',''),
+         requires_board, d.get('registration_id') or None))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/refund-requests/<rid>/link-order', methods=['PUT'])
+def link_refund_request_order(rid):
+    """Attaches (or replaces) which real order a request refers to — for
+    requests that came in through the public form without a valid Square
+    order id, or where staff want to double-check/correct it."""
+    err = require_permission('refund_requests')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    rr = fetchone(conn, 'SELECT id FROM refund_requests WHERE id=%s', (rid,))
+    if not rr:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    fields, params = ['square_order_id=%s'], [d.get('square_order_id','')]
+    if d.get('amount_paid') is not None:
+        fields.append('amount_paid=%s'); params.append(d.get('amount_paid'))
+    if d.get('registration_id') is not None:
+        fields.append('registration_id=%s'); params.append(d.get('registration_id') or None)
+    params.append(rid)
+    execute(conn, f"UPDATE refund_requests SET {', '.join(fields)} WHERE id=%s", tuple(params))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+
+
 @app.route('/api/refund-requests/<rid>', methods=['PUT'])
 def update_refund_request(rid):
-    err = require_auth()
+    err = require_permission('refund_requests')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -20007,7 +20138,7 @@ def update_refund_request(rid):
 
 @app.route('/api/refund-requests/<rid>/process-square', methods=['POST'])
 def process_square_refund(rid):
-    err = require_auth()
+    err = require_permission('refund_requests')
     if err: return err
     conn = get_db()
     rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))

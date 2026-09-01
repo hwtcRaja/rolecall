@@ -732,6 +732,19 @@ def init_db():
         registration_id TEXT,
         created_at TIMESTAMP DEFAULT NOW())""")
 
+    # One-click sign-off links for the President/Treasurer notification
+    # email — the token itself (long, random, delivered only to that
+    # officer's inbox) is the credential, so this doesn't need a login
+    # session the way the in-app button does. Single-use and expiring.
+    c.execute("""CREATE TABLE IF NOT EXISTS refund_approval_tokens (
+        token TEXT PRIMARY KEY,
+        refund_request_id TEXT NOT NULL REFERENCES refund_requests(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        officer_email TEXT NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
     # event types (customizable)
     c.execute("""CREATE TABLE IF NOT EXISTS event_types (
         id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
@@ -2810,6 +2823,18 @@ def find_board_officer(conn, role_keyword):
     return bm if bm else None
 
 
+def create_refund_approval_token(conn, refund_request_id, role, officer_email):
+    """One-click sign-off link for the notification email — long random
+    token, single-use, expires in 14 days (long enough to be useful, short
+    enough that an old email lying around isn't a standing risk)."""
+    import secrets
+    token = secrets.token_urlsafe(32)
+    execute(conn, '''INSERT INTO refund_approval_tokens (token, refund_request_id, role, officer_email, expires_at)
+        VALUES (%s,%s,%s,%s, NOW() + INTERVAL '14 days')''',
+        (token, refund_request_id, role, officer_email))
+    return token
+
+
 def notify_board_refund_signoff_needed(conn, refund_request_id):
     """New refund request notification — tells the President and Treasurer
     a request is waiting on their sign-off. Best-effort: a missing/failed
@@ -2824,13 +2849,16 @@ def notify_board_refund_signoff_needed(conn, refund_request_id):
             officer = find_board_officer(conn, role_keyword)
             if not officer or not officer.get('email'):
                 continue
+            token = create_refund_approval_token(conn, refund_request_id, role_keyword, officer['email'])
+            approve_url = f'{APP_BASE_URL}/api/public/refund-approve?token={token}'
             send_email(officer['email'], f"Refund request needs your sign-off — {rr.get('ref_number','')}",
                 f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
                 f'<p>Hi {officer.get("name","")},</p>'
                 f'<p>{reviewer} began the approval process on a refund request — it needs sign-off from both the President and Treasurer before it can be processed:</p>'
                 f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
                 f'{amount} · {rr.get("ref_number","")}</p>'
-                f'<p><a href="{APP_BASE_URL}/#refund-requests">Review in RoleCall</a></p></div>',
+                f'<p style="margin:20px 0"><a href="{approve_url}" style="background:#145466;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Approve as {role_keyword.capitalize()}</a></p>'
+                f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first — the button above signs off immediately, without opening the app.</p></div>',
                 source='refund_signoff_needed')
     except Exception as e:
         app.logger.warning(f'Refund sign-off notification failed: {e}')
@@ -2852,13 +2880,16 @@ def notify_other_officer_signoff_pending(conn, refund_request_id, just_signed_ro
             return
         signer_name = rr.get(f'{just_signed_role}_approved_by', '')
         amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'amount not yet set'
+        token = create_refund_approval_token(conn, refund_request_id, other_role, officer['email'])
+        approve_url = f'{APP_BASE_URL}/api/public/refund-approve?token={token}'
         send_email(officer['email'], f"Your sign-off still needed — {rr.get('ref_number','')}",
             f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
             f'<p>Hi {officer.get("name","")},</p>'
             f'<p>{signer_name} ({just_signed_role.capitalize()}) has signed off on a refund request — it still needs your sign-off as {other_role.capitalize()} before it can be processed:</p>'
             f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
             f'{amount} · {rr.get("ref_number","")}</p>'
-            f'<p><a href="{APP_BASE_URL}/#refund-requests">Review in RoleCall</a></p></div>',
+            f'<p style="margin:20px 0"><a href="{approve_url}" style="background:#145466;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Approve as {other_role.capitalize()}</a></p>'
+            f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first.</p></div>',
             source='refund_signoff_needed')
     except Exception as e:
         app.logger.warning(f'Refund sign-off nudge failed: {e}')
@@ -20242,6 +20273,64 @@ def update_refund_request(rid):
 
     conn.close()
     return jsonify({'ok': True})
+
+def _refund_approve_result_page(title, message, ok=True):
+    color = '#145466' if ok else '#991b1b'
+    bg = '#f0fdfa' if ok else '#fef2f2'
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>{title}</title></head>
+    <body style="font-family:-apple-system,sans-serif;background:#f7f7f5;margin:0;padding:40px 20px;display:flex;justify-content:center">
+    <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:32px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.08)">
+    <div style="width:56px;height:56px;border-radius:50%;background:{bg};display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;color:{color}">{"OK" if ok else "!"}</div>
+    <div style="font-size:18px;font-weight:800;color:{color};margin-bottom:8px">{title}</div>
+    <div style="font-size:14px;color:#374151;line-height:1.6">{message}</div>
+    <a href="{APP_BASE_URL}/#refund-requests" style="display:inline-block;margin-top:20px;color:#145466;font-weight:600;text-decoration:none">Open RoleCall →</a>
+    </div></body></html>'''
+
+
+@app.route('/api/public/refund-approve', methods=['GET'])
+def public_refund_approve_via_token():
+    """One-click sign-off from the notification email — the token is the
+    credential (long, random, delivered only to that officer's inbox,
+    single-use, expires in 14 days), so this deliberately doesn't require
+    a login session the way the in-app button does."""
+    token = (request.args.get('token') or '').strip()
+    if not token:
+        return _refund_approve_result_page('Invalid Link', 'This approval link is missing its token.', ok=False), 400
+    conn = get_db()
+    tok = fetchone(conn, 'SELECT * FROM refund_approval_tokens WHERE token=%s', (token,))
+    if not tok:
+        conn.close()
+        return _refund_approve_result_page('Invalid Link', "This approval link isn't recognized — it may have already been used from a different link, or copied incorrectly.", ok=False), 400
+    if tok.get('used_at'):
+        conn.close()
+        return _refund_approve_result_page('Already Used', 'This approval link has already been used. If you need to check the current status, open RoleCall directly.', ok=False), 400
+    rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (tok['refund_request_id'],))
+    if not rr:
+        conn.close()
+        return _refund_approve_result_page('Not Found', 'This refund request no longer exists.', ok=False), 404
+    expired = fetchone(conn, "SELECT (expires_at < NOW()) AS is_expired FROM refund_approval_tokens WHERE token=%s", (token,))
+    if expired and expired.get('is_expired'):
+        conn.close()
+        return _refund_approve_result_page('Link Expired', 'This approval link has expired. Please open RoleCall directly and sign off from there.', ok=False), 400
+    if rr.get('status') != 'approved':
+        conn.close()
+        return _refund_approve_result_page('Not Ready Yet', 'This request needs to go through "Begin Approval Process" in RoleCall before it can be signed off.', ok=False), 400
+    role = tok['role']
+    if rr.get(f'{role}_approved_by'):
+        execute(conn, 'UPDATE refund_approval_tokens SET used_at=NOW() WHERE token=%s', (token,))
+        conn.commit(); conn.close()
+        return _refund_approve_result_page('Already Signed Off', f'This request already has a {role.capitalize()} sign-off recorded.', ok=True)
+    officer = fetchone(conn, "SELECT name FROM board_members WHERE LOWER(email)=LOWER(%s) AND status='active'", (tok['officer_email'],))
+    officer_name = officer['name'] if officer else tok['officer_email']
+    col_by, col_at = f'{role}_approved_by', f'{role}_approved_at'
+    execute(conn, f'UPDATE refund_requests SET {col_by}=%s, {col_at}=NOW() WHERE id=%s', (officer_name, rr['id']))
+    execute(conn, 'UPDATE refund_approval_tokens SET used_at=NOW() WHERE token=%s', (token,))
+    conn.commit()
+    notify_other_officer_signoff_pending(conn, rr['id'], role)
+    conn.close()
+    return _refund_approve_result_page('Signed Off', f'Thanks, {officer_name} — your sign-off as {role.capitalize()} has been recorded for {rr.get("ref_number","")}.', ok=True)
+
 
 @app.route('/api/refund-requests/<rid>/board-approve', methods=['POST'])
 def board_approve_refund_request(rid):

@@ -8193,6 +8193,7 @@ var _inboxOpenThreadId = null
 var _inboxSearchDebounce = null
 var _inboxTeamNamesCache = null
 var _inboxMentionActiveIdx = -1
+var _inboxSelectedIds = new Set()   // bulk-selection for multi-thread actions
 
 // Ticketing-style "needs attention" signal: how long a thread has sat
 // without the right side taking the next step. 'open' means nobody on
@@ -8362,6 +8363,11 @@ async function renderInboxThreadList(){
  if(_inboxFilter.tag) qs.push('tag='+encodeURIComponent(_inboxFilter.tag))
  var threads = await api('/api/inbox/threads'+(qs.length?'?'+qs.join('&'):''))
  _inboxThreads = Array.isArray(threads) ? threads : []
+ // Drop any selected id that's no longer in view (filter change, etc.) —
+ // keeps a selection intact across an auto-refresh of the same list
+ // without letting a stale checkbox silently apply to a thread you can't
+ // even see anymore.
+ _inboxSelectedIds = new Set([..._inboxSelectedIds].filter(function(id){ return _inboxThreads.some(function(t){ return t.id===id }) }))
  var unreadCount = _inboxThreads.filter(function(t){ return t.unread }).length
  var badge = document.getElementById('inbox-nav-badge')
  if(badge){ badge.textContent = unreadCount; badge.style.display = unreadCount?'':'none' }
@@ -8415,6 +8421,33 @@ async function renderInboxThreadList(){
    + (_inboxFilter.tag ? '<button onclick="setInboxFilter(\'tag\',\'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid #6d28d9;background:#ede9fe;color:#6d28d9;cursor:pointer"> '+escHtml(_inboxFilter.tag)+' ×</button>' : '')
    + '</div>'
 
+ var allVisibleSelected = _inboxThreads.length>0 && _inboxThreads.every(function(t){ return _inboxSelectedIds.has(t.id) })
+ html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+   + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer">'
+   + '<input type="checkbox" '+(allVisibleSelected?'checked':'')+' onchange="toggleInboxSelectAllVisible(this.checked)" style="width:15px;height:15px;cursor:pointer"/>'
+   + 'Select all'+(_inboxThreads.length?' ('+_inboxThreads.length+')':'')
+   + '</label>'
+   + (_inboxSelectedIds.size ? '<span style="font-size:12px;color:#145466;font-weight:700">'+_inboxSelectedIds.size+' selected</span>' : '')
+   + '</div>'
+
+ if(_inboxSelectedIds.size){
+   html += '<div class="card" style="padding:10px 14px;margin-bottom:12px;background:#f0fdfa;border-color:#99f6e4;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+     + '<span style="font-size:12.5px;font-weight:700;color:#0f766e">'+_inboxSelectedIds.size+' selected:</span>'
+     + '<button class="btn btn-secondary btn-sm" onclick="bulkSetInboxStatus(\'open\')">Reopen</button>'
+     + '<button class="btn btn-secondary btn-sm" onclick="bulkSetInboxStatus(\'pending\')">Pending</button>'
+     + '<button class="btn btn-secondary btn-sm" onclick="bulkSetInboxStatus(\'closed\')">Close</button>'
+     + '<button class="btn btn-secondary btn-sm" onclick="bulkSetInboxStatus(\'spam\')">Spam</button>'
+     + '<select id="inbox-bulk-assign-select" onchange="bulkAssignInboxThreads(this.value);this.value=\'\'" style="padding:6px 10px;border-radius:8px;font-size:12px;border:1.5px solid var(--border-md);background:var(--surface)">'
+     + '<option value="">Assign to…</option>'
+     + '<option value="__me__">Me</option>'
+     + '<option value="__unassign__">Unassign</option>'
+     + (_inboxTeamNamesCache||[]).map(function(n){ return '<option value="'+escHtml(n)+'">'+escHtml(n)+'</option>' }).join('')
+     + '</select>'
+     + '<button class="btn btn-secondary btn-sm" style="color:#991b1b" onclick="bulkDeleteInboxThreads()">Delete</button>'
+     + '<button class="btn btn-secondary btn-sm" onclick="clearInboxSelection()" style="margin-left:auto">Clear</button>'
+     + '</div>'
+ }
+
  if(!_inboxThreads.length){
    html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">Nothing here right now.</div>'
  } else {
@@ -8428,7 +8461,10 @@ async function renderInboxThreadList(){
          : '')
        + '<span onclick="event.stopPropagation();quickDeleteInboxThread(\''+t.id+'\')" style="font-size:10.5px;color:#991b1b;cursor:pointer;text-decoration:underline">Delete</span>'
        + '</div>'
-     return '<div class="card" style="padding:14px 16px;margin-bottom:8px;cursor:pointer;'+(t.unread?'border-left:3px solid #145466':'')+'" onclick="openInboxThread(\''+t.id+'\')">'
+     var selected = _inboxSelectedIds.has(t.id)
+     return '<div class="card" style="padding:14px 16px;margin-bottom:8px;cursor:pointer;display:flex;gap:10px;align-items:flex-start;'+(selected?'background:#f0fdfa;border-color:#5eead4;':'')+(t.unread?'border-left:3px solid #145466':'')+'" onclick="openInboxThread(\''+t.id+'\')">'
+       + '<input type="checkbox" '+(selected?'checked':'')+' onclick="event.stopPropagation();toggleInboxSelect(\''+t.id+'\',this.checked)" style="width:15px;height:15px;margin-top:3px;flex-shrink:0;cursor:pointer"/>'
+       + '<div style="flex:1;min-width:0">'
        + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
        + '<div style="min-width:0;flex:1">'
        + '<div style="font-weight:'+(t.unread?'800':'600')+';font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(t.participant_name||t.participant_email||'Unknown')+'</div>'
@@ -8441,7 +8477,7 @@ async function renderInboxThreadList(){
        + (t.assigned_to?'<div style="font-size:11px;color:var(--text-muted);margin-top:5px"> '+escHtml(t.assigned_to)+'</div>':'')
        + '<div style="font-size:10.5px;color:#9ca3af;margin-top:4px">'+(t.last_message_at?t.last_message_at.slice(0,10):'')+'</div>'
        + '</div></div>'
-       + quickActions + '</div>'
+       + quickActions + '</div></div>'
    }).join('')
  }
  document.getElementById('inbox-content').innerHTML = '<div style="display:flex;gap:20px;align-items:flex-start">'
@@ -8459,6 +8495,14 @@ async function renderInboxThreadList(){
      return '<div onclick="setInboxFilter(\'tag\',\''+clickVal+'\')" style="padding:6px 8px;border-radius:6px;font-size:12.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:'+(active?'#ede9fe':'transparent')+';color:'+(active?'#6d28d9':'var(--text-secondary,#374151)')+';font-weight:'+(active?'700':'400')+'"> '+escHtml(tag)+'</div>'
    }).join('')
  })
+ // Populate the bulk-assign dropdown's team list if it isn't cached yet
+ // (normally primed by opening a thread, but bulk actions shouldn't
+ // require that first).
+ if(!_inboxTeamNamesCache){
+   api('/api/inbox/team').then(function(names){
+     if(Array.isArray(names)){ _inboxTeamNamesCache = names; if(_inboxSelectedIds.size) renderInboxThreadList() }
+   })
+ }
  api('/api/inbox/team').then(function(names){
    if(Array.isArray(names)) _inboxTeamNamesCache = names
    var sel = document.getElementById('inbox-assigned-filter-select')
@@ -9007,6 +9051,77 @@ async function assignInboxThreadToMe(tid){
    toast('Assigned to you','success')
    document.getElementById('inbox-thread-overlay')?.remove()
    openInboxThread(tid)
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+// ── Bulk selection / actions ──────────────────────────────────────────
+function toggleInboxSelect(tid, checked){
+ if(checked) _inboxSelectedIds.add(tid)
+ else _inboxSelectedIds.delete(tid)
+ renderInboxThreadList()
+}
+
+function toggleInboxSelectAllVisible(checked){
+ _inboxThreads.forEach(function(t){
+   if(checked) _inboxSelectedIds.add(t.id)
+   else _inboxSelectedIds.delete(t.id)
+ })
+ renderInboxThreadList()
+}
+
+function clearInboxSelection(){
+ _inboxSelectedIds.clear()
+ renderInboxThreadList()
+}
+
+async function bulkSetInboxStatus(status){
+ var ids = [..._inboxSelectedIds]
+ if(!ids.length) return
+ var res = await api('/api/inbox/threads/bulk-update','POST',{thread_ids:ids, status:status})
+ if(res&&res.ok){
+   toast(res.updated+' conversation'+(res.updated!==1?'s':'')+' updated'+(res.errors&&res.errors.length?' ('+res.errors.length+' failed)':''), res.errors&&res.errors.length?'error':'success')
+   _inboxSelectedIds.clear()
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function bulkAssignInboxThreads(value){
+ var ids = [..._inboxSelectedIds]
+ if(!ids.length || !value) return
+ var assigned_to = value==='__unassign__' ? '' : value
+ var body = {thread_ids:ids}
+ if(value==='__me__'){
+   // Reuse the single-thread "assign to me" endpoint per id, same as
+   // bulk-update does for status — resolves the current user server-side
+   // rather than the frontend needing to know its own display name.
+   var okCount = 0, errCount = 0
+   for(var i=0;i<ids.length;i++){
+     var r = await api('/api/inbox/threads/'+ids[i]+'/assign-me','POST',{})
+     if(r&&r.ok) okCount++; else errCount++
+   }
+   toast(okCount+' assigned to you'+(errCount?' ('+errCount+' failed)':''), errCount?'error':'success')
+   _inboxSelectedIds.clear()
+   renderInboxThreadList()
+   return
+ }
+ body.assigned_to = assigned_to
+ var res = await api('/api/inbox/threads/bulk-update','POST',body)
+ if(res&&res.ok){
+   toast(res.updated+' conversation'+(res.updated!==1?'s':'')+(assigned_to?' assigned to '+assigned_to:' unassigned')+(res.errors&&res.errors.length?' ('+res.errors.length+' failed)':''), res.errors&&res.errors.length?'error':'success')
+   _inboxSelectedIds.clear()
+   renderInboxThreadList()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function bulkDeleteInboxThreads(){
+ var ids = [..._inboxSelectedIds]
+ if(!ids.length) return
+ if(!confirm('Delete '+ids.length+' conversation'+(ids.length!==1?'s':'')+' permanently? This can\'t be undone.')) return
+ var res = await api('/api/inbox/threads/bulk-delete','POST',{thread_ids:ids})
+ if(res&&res.ok){
+   toast(res.deleted+' deleted'+(res.errors&&res.errors.length?' ('+res.errors.length+' failed)':''), res.errors&&res.errors.length?'error':'success')
+   _inboxSelectedIds.clear()
    renderInboxThreadList()
  } else toast((res&&res.error)||'Error','error')
 }

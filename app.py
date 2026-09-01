@@ -24688,6 +24688,58 @@ def delete_inbox_thread(tid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/inbox/threads/bulk-update', methods=['POST'])
+def bulk_update_inbox_threads():
+    """Applies the same status/assigned_to change to several threads at
+    once — reuses update_inbox_thread for each id (same request body, same
+    Gmail label push and assignment notification per thread) rather than
+    re-implementing those side effects here."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    thread_ids = d.get('thread_ids') or []
+    if not thread_ids:
+        return jsonify({'error': 'No conversations selected'}), 400
+    updated, errors = 0, []
+    for tid in thread_ids:
+        try:
+            resp = update_inbox_thread(tid)
+            code = resp[1] if isinstance(resp, tuple) else 200
+            if code and code >= 400:
+                errors.append(tid)
+            else:
+                updated += 1
+        except Exception as e:
+            app.logger.warning(f'Bulk inbox update error for {tid}: {e}')
+            errors.append(tid)
+    return jsonify({'ok': True, 'updated': updated, 'errors': errors})
+
+
+@app.route('/api/inbox/threads/bulk-delete', methods=['POST'])
+def bulk_delete_inbox_threads():
+    """Deletes several threads at once — reuses delete_inbox_thread per id
+    so each one still gets trashed in Gmail, same as a single delete."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    thread_ids = d.get('thread_ids') or []
+    if not thread_ids:
+        return jsonify({'error': 'No conversations selected'}), 400
+    deleted, errors = 0, []
+    for tid in thread_ids:
+        try:
+            resp = delete_inbox_thread(tid)
+            code = resp[1] if isinstance(resp, tuple) else 200
+            if code and code >= 400:
+                errors.append(tid)
+            else:
+                deleted += 1
+        except Exception as e:
+            app.logger.warning(f'Bulk inbox delete error for {tid}: {e}')
+            errors.append(tid)
+    return jsonify({'ok': True, 'deleted': deleted, 'errors': errors})
+
+
 @app.route('/api/inbox/check-now', methods=['POST'])
 def trigger_inbox_check_now():
     """Manual 'refresh' button — runs the same check the scheduler runs

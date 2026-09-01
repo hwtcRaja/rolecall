@@ -2872,14 +2872,14 @@ def notify_reviewer_ready_to_process(conn, refund_request_id):
         if not user:
             return
         amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'amount not yet set'
-        send_email(user['email'], f"Ready to process — {rr.get('ref_number','')}",
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+        subject = f"Ready to process — {rr.get('ref_number','')}"
+        body_html = (
             f'<p>Hi {rr.get("reviewed_by","")},</p>'
             f'<p>Both the President ({rr.get("president_approved_by","")}) and Treasurer ({rr.get("treasurer_approved_by","")}) have signed off on this refund request — it\'s ready to process:</p>'
             f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
             f'{amount} · {rr.get("ref_number","")}</p>'
-            f'<p><a href="{APP_BASE_URL}/#refund-requests">Open in RoleCall to process it</a></p></div>',
-            source='refund_signoff_needed')
+            f'<p><a href="{APP_BASE_URL}/#refund-requests">Open in RoleCall to process it</a></p>')
+        send_email(user['email'], subject, build_hwtc_email_html(subject, body_html), source='refund_signoff_needed')
     except Exception as e:
         app.logger.warning(f'Refund ready-to-process notification failed: {e}')
 
@@ -2920,14 +2920,14 @@ def notify_board_refund_signoff_needed(conn, refund_request_id):
                 continue
             token = create_refund_approval_token(conn, refund_request_id, role_keyword, officer['email'])
             approve_url = f'{APP_BASE_URL}/api/public/refund-approve?token={token}'
-            send_email(officer['email'], f"Refund request needs your sign-off — {rr.get('ref_number','')}",
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            subject = f"Refund request needs your sign-off — {rr.get('ref_number','')}"
+            body_html = (
                 f'<p>Hi {officer.get("name","")},</p>'
                 f'<p>{reviewer} began the approval process on a refund request — it needs sign-off from both the President and Treasurer before it can be processed:</p>'
                 f'{details_html}'
                 f'<p style="margin:20px 0"><a href="{approve_url}" style="background:#145466;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Approve as {role_keyword.capitalize()}</a></p>'
-                f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first — the button above signs off immediately, without opening the app.</p></div>',
-                source='refund_signoff_needed')
+                f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first — the button above signs off immediately, without opening the app.</p>')
+            send_email(officer['email'], subject, build_hwtc_email_html(subject, body_html), source='refund_signoff_needed')
     except Exception as e:
         app.logger.warning(f'Refund sign-off notification failed: {e}')
 
@@ -2950,14 +2950,14 @@ def notify_other_officer_signoff_pending(conn, refund_request_id, just_signed_ro
         details_html = _refund_request_email_details_html(rr)
         token = create_refund_approval_token(conn, refund_request_id, other_role, officer['email'])
         approve_url = f'{APP_BASE_URL}/api/public/refund-approve?token={token}'
-        send_email(officer['email'], f"Your sign-off still needed — {rr.get('ref_number','')}",
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+        subject = f"Your sign-off still needed — {rr.get('ref_number','')}"
+        body_html = (
             f'<p>Hi {officer.get("name","")},</p>'
             f'<p>{signer_name} ({just_signed_role.capitalize()}) has signed off on a refund request — it still needs your sign-off as {other_role.capitalize()} before it can be processed:</p>'
             f'{details_html}'
             f'<p style="margin:20px 0"><a href="{approve_url}" style="background:#145466;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Approve as {other_role.capitalize()}</a></p>'
-            f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first.</p></div>',
-            source='refund_signoff_needed')
+            f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first.</p>')
+        send_email(officer['email'], subject, build_hwtc_email_html(subject, body_html), source='refund_signoff_needed')
     except Exception as e:
         app.logger.warning(f'Refund sign-off nudge failed: {e}')
 

@@ -30549,7 +30549,11 @@ async function loadRefundRequestsPage(){
  var newBtn = document.getElementById('rr-new-btn')
  if(newBtn) newBtn.style.display = canEdit('refund_requests') ? '' : 'none'
  var tabs = document.getElementById('rr-status-tabs')
- var statuses = [{v:'pending',l:'Pending'},{v:'approved',l:'Approved'},{v:'denied',l:'Denied'},{v:'processed',l:'Processed'},{v:'',l:'All'}]
+ // 'approved' just means the approval process has begun — it doesn't mean
+ // it's actually ready to process, which needs both officers signed off
+ // too. 'ready' below is a derived filter (not a real status column
+ // value) for that specific actionable subset.
+ var statuses = [{v:'pending',l:'Pending'},{v:'approved',l:'In Review'},{v:'ready',l:'Ready to Process'},{v:'denied',l:'Denied'},{v:'processed',l:'Processed'},{v:'',l:'All'}]
  tabs.innerHTML = statuses.map(function(s){
    var active = _rrStatusFilter===s.v
    return '<button onclick="setRrStatusFilter(\''+s.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+s.l+'</button>'
@@ -30565,9 +30569,14 @@ function setRrStatusFilter(v){
 async function renderRefundRequestsList(){
  var list = document.getElementById('rr-list')
  list.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
- var qs = _rrStatusFilter ? ('?status='+_rrStatusFilter) : ''
+ // 'ready' isn't a real status column value — it's "approved AND both
+ // officers have signed", so fetch the approved bucket and narrow it
+ // client-side rather than needing a special case in the backend query.
+ var isReadyFilter = _rrStatusFilter === 'ready'
+ var qs = isReadyFilter ? '?status=approved' : (_rrStatusFilter ? ('?status='+_rrStatusFilter) : '')
  var rows = await api('/api/refund-requests'+qs)
  _rrList = Array.isArray(rows) ? rows : []
+ if(isReadyFilter) _rrList = _rrList.filter(rrCanProcess)
  document.getElementById('rr-subtitle').textContent = _rrList.length+' request'+(_rrList.length!==1?'s':'')
  if(!_rrList.length){
    list.innerHTML = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">Nothing here right now.</div>'
@@ -30874,6 +30883,7 @@ function renderRrSignoffSection(rr){
  if(!el) return
  el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:6px">Board Sign-Off <span style="font-weight:400;text-transform:none">(required before processing, any amount)</span></div>'
    + (rr.status==='pending'?'<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Click "Begin Approval Process" below to notify the President and Treasurer.</div>':'')
+   + (rr.status!=='pending' && rr.reviewed_by?'<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Approval process begun by '+escHtml(rr.reviewed_by)+(rr.reviewed_at?' · '+rr.reviewed_at.slice(0,10):'')+'</div>':'')
    + '<div style="display:flex;flex-direction:column;gap:6px">'
    + rrOfficerRowHtml(rr, 'president', 'President')
    + rrOfficerRowHtml(rr, 'treasurer', 'Treasurer')

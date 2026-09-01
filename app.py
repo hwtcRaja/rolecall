@@ -2797,6 +2797,72 @@ def current_user_board_role_match(conn, role_keyword):
     return bm['name'] if bm else None
 
 
+def find_board_officer(conn, role_keyword):
+    """Looks up whoever currently holds a given office on the board roster
+    (not tied to the logged-in user — used for notifying the right person,
+    as opposed to current_user_board_role_match which verifies identity).
+    Same 'vice' exclusion so a notification never goes to a VP instead of
+    the actual President. Returns {'name', 'email'} or None."""
+    bm = fetchone(conn, """SELECT name, email FROM board_members
+        WHERE status='active' AND role ILIKE %s AND role NOT ILIKE %s
+        ORDER BY created_at LIMIT 1""",
+        (f'%{role_keyword}%', '%vice%'))
+    return bm if bm else None
+
+
+def notify_board_refund_signoff_needed(conn, refund_request_id):
+    """New refund request notification — tells the President and Treasurer
+    a request is waiting on their sign-off. Best-effort: a missing/failed
+    email here shouldn't block the request from being created."""
+    try:
+        rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (refund_request_id,))
+        if not rr:
+            return
+        amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'amount not yet set'
+        for role_keyword in ('president', 'treasurer'):
+            officer = find_board_officer(conn, role_keyword)
+            if not officer or not officer.get('email'):
+                continue
+            send_email(officer['email'], f"Refund request needs your sign-off — {rr.get('ref_number','')}",
+                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                f'<p>Hi {officer.get("name","")},</p>'
+                f'<p>A refund request needs sign-off from both the President and Treasurer before it can be processed:</p>'
+                f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
+                f'{amount} · {rr.get("ref_number","")}</p>'
+                f'<p><a href="{APP_BASE_URL}/#refund-requests">Review in RoleCall</a></p></div>',
+                source='refund_signoff_needed')
+    except Exception as e:
+        app.logger.warning(f'Refund sign-off notification failed: {e}')
+
+
+def notify_other_officer_signoff_pending(conn, refund_request_id, just_signed_role):
+    """After one officer signs off, nudges whichever one hasn't yet —
+    otherwise a half-approved request could just sit there with no one
+    aware it's still waiting on them specifically."""
+    try:
+        rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (refund_request_id,))
+        if not rr:
+            return
+        other_role = 'treasurer' if just_signed_role == 'president' else 'president'
+        if rr.get(f'{other_role}_approved_by'):
+            return  # already signed too — nothing to nudge
+        officer = find_board_officer(conn, other_role)
+        if not officer or not officer.get('email'):
+            return
+        signer_name = rr.get(f'{just_signed_role}_approved_by', '')
+        amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'amount not yet set'
+        send_email(officer['email'], f"Your sign-off still needed — {rr.get('ref_number','')}",
+            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            f'<p>Hi {officer.get("name","")},</p>'
+            f'<p>{signer_name} ({just_signed_role.capitalize()}) has signed off on a refund request — it still needs your sign-off as {other_role.capitalize()} before it can be processed:</p>'
+            f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
+            f'{amount} · {rr.get("ref_number","")}</p>'
+            f'<p><a href="{APP_BASE_URL}/#refund-requests">Review in RoleCall</a></p></div>',
+            source='refund_signoff_needed')
+    except Exception as e:
+        app.logger.warning(f'Refund sign-off nudge failed: {e}')
+
+
 def today_eastern():
     """Today's date in America/New_York, not the server's (likely UTC) clock.
     The Railway server runs on UTC, which rolls over to the next calendar day
@@ -19876,6 +19942,10 @@ def submit_refund_request():
              d.get('replacement_name',''), d.get('replacement_email',''), d.get('replacement_phone',''),
              requires_board))
         conn.commit()
+        # Note: the board isn't notified yet here — staff review the
+        # request first and click "Begin Approval Process" (which flips
+        # status to 'approved'), and *that's* what actually notifies the
+        # President and Treasurer. See update_refund_request.
         # Send confirmation email to requester
         try:
             es = get_email_settings()
@@ -20067,6 +20137,8 @@ def create_refund_request_admin():
          d.get('status','pending'), d.get('admin_notes',''),
          requires_board, d.get('registration_id') or None))
     conn.commit()
+    # Same as the public-form path — the board gets notified once staff
+    # click "Begin Approval Process", not immediately on creation.
     row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
     conn.close()
     return jsonify(row)
@@ -20117,6 +20189,13 @@ def update_refund_request(rid):
         reviewed_by=%s, reviewed_at=NOW() WHERE id=%s''',
         (new_status, admin_notes, d.get('reviewed_by',''), rid))
     conn.commit()
+
+    # This is the actual trigger for notifying the board — not creation,
+    # not every edit, just the transition into 'approved' (i.e. staff
+    # clicking "Begin Approval Process"). Only fires once per transition,
+    # not on every subsequent save while it's still sitting at 'approved'.
+    if new_status == 'approved' and rr.get('status') != 'approved':
+        notify_board_refund_signoff_needed(conn, rid)
 
     # Send email to requester on approval or denial
     try:
@@ -20197,9 +20276,12 @@ def board_approve_refund_request(rid):
     if role not in ('president', 'treasurer'):
         return jsonify({'error': 'Invalid role'}), 400
     conn = get_db()
-    rr = fetchone(conn, 'SELECT id FROM refund_requests WHERE id=%s', (rid,))
+    rr = fetchone(conn, 'SELECT id, status FROM refund_requests WHERE id=%s', (rid,))
     if not rr:
         conn.close(); return jsonify({'error': 'Not found'}), 404
+    if rr.get('status') != 'approved':
+        conn.close()
+        return jsonify({'error': 'This request needs to go through "Begin Approval Process" first.'}), 400
     name = current_user_board_role_match(conn, role)
     if not name:
         conn.close()
@@ -20207,6 +20289,7 @@ def board_approve_refund_request(rid):
     col_by, col_at = f'{role}_approved_by', f'{role}_approved_at'
     execute(conn, f'UPDATE refund_requests SET {col_by}=%s, {col_at}=NOW() WHERE id=%s', (name, rid))
     conn.commit()
+    notify_other_officer_signoff_pending(conn, rid, role)
     row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
     conn.close()
     return jsonify(row)
@@ -20241,6 +20324,9 @@ def process_square_refund(rid):
     conn = get_db()
     rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
     if not rr: conn.close(); return jsonify({'error': 'Not found'}), 404
+    if rr.get('status') != 'approved':
+        conn.close()
+        return jsonify({'error': 'This request needs to go through "Begin Approval Process" before it can be signed off and processed.'}), 400
     if not rr.get('president_approved_by') or not rr.get('treasurer_approved_by'):
         conn.close()
         return jsonify({'error': 'This needs sign-off from both the President and Treasurer before it can be processed.'}), 400

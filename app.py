@@ -1333,6 +1333,23 @@ def init_db():
         "INSERT INTO nav_icons (key, lucide_name) VALUES ('youth-programs-page', 'book-open') ON CONFLICT (key) DO NOTHING",
         "INSERT INTO nav_icons (key, lucide_name) VALUES ('rising-stars-page', 'star') ON CONFLICT (key) DO NOTHING",
         "INSERT INTO nav_icons (key, lucide_name) VALUES ('refund-requests', 'rotate-ccw') ON CONFLICT (key) DO NOTHING",
+        # One-time backfill: registrations paid for as part of a multi-item
+        # cart never got their own amount_paid set (only the cart_orders
+        # row carried the real total), so they've been sitting at $0 ever
+        # since even though they were genuinely paid for. Fill in each
+        # registration's actual share from the per-item price the cart
+        # already computed at checkout time.
+        """UPDATE program_registrations pr SET amount_paid = sub.charge_now
+           FROM (
+               SELECT (item->>'registration_id') AS registration_id,
+                      (item->>'charge_now')::int AS charge_now
+               FROM cart_orders co, jsonb_array_elements(co.items_json::jsonb) AS item
+               WHERE item->>'charge_now' IS NOT NULL
+           ) sub
+           WHERE sub.registration_id = pr.id
+             AND (pr.amount_paid IS NULL OR pr.amount_paid = 0)
+             AND sub.charge_now > 0
+             AND pr.status = 'confirmed'""",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS performance_location TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_color TEXT",
@@ -19948,6 +19965,7 @@ def search_orders_for_refund():
         label = f"{(r.get('child_first_name') or '').strip()} {(r.get('child_last_name') or '').strip()}".strip()
         results.append({'source': 'program_registration', 'id': r['id'], 'square_order_id': r['square_order_id'],
             'label': (label + (' — ' + r['program_name'] if r.get('program_name') else '')) or 'Program registration',
+            'participant_name': label, 'program_name': r.get('program_name') or '',
             'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
             'amount_cents': r.get('amount_paid') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
 
@@ -19957,7 +19975,8 @@ def search_orders_for_refund():
           AND square_order_id IS NOT NULL AND square_order_id != ''
         ORDER BY created_at DESC LIMIT 15""", (like, like)):
         results.append({'source': 'cart_order', 'id': r['id'], 'square_order_id': r['square_order_id'],
-            'label': 'Cart order', 'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
+            'label': 'Cart order', 'participant_name': '', 'program_name': '',
+            'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
             'amount_cents': r.get('total_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
 
     for r in fetchall(conn, """SELECT t.id, t.guardian_name, t.guardian_email, t.total_cents,
@@ -19970,6 +19989,7 @@ def search_orders_for_refund():
         ORDER BY t.created_at DESC LIMIT 15""", (like, like)):
         results.append({'source': 'ticket_order', 'id': r['id'], 'square_order_id': r['square_order_id'],
             'label': 'Tickets' + (' — ' + r['production_name'] if r.get('production_name') else ''),
+            'participant_name': '', 'program_name': r.get('production_name') or '',
             'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
             'amount_cents': r.get('total_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
 
@@ -19979,7 +19999,8 @@ def search_orders_for_refund():
           AND square_order_id IS NOT NULL AND square_order_id != ''
         ORDER BY created_at DESC LIMIT 15""", (like, like)):
         results.append({'source': 'donation', 'id': r['id'], 'square_order_id': r['square_order_id'],
-            'label': 'Donation', 'payer_name': r.get('name'), 'payer_email': r.get('email'),
+            'label': 'Donation', 'participant_name': '', 'program_name': '',
+            'payer_name': r.get('name'), 'payer_email': r.get('email'),
             'amount_cents': r.get('amount_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
 
     conn.close()
@@ -21074,6 +21095,16 @@ def square_webhook():
                                     reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
                                     if reg2 and reg2['status'] == 'pending_payment':
                                         finalize_registration(conn, rid, payment_id, order_id)
+                                        # finalize_registration doesn't touch amount_paid — it has no
+                                        # idea what this item's actual share of the cart total was.
+                                        # Backfill it from the per-item price already computed at
+                                        # checkout time, so this registration doesn't sit at $0
+                                        # forever even though it was genuinely paid for.
+                                        paid_share = it.get('charge_now')
+                                        if paid_share is None:
+                                            paid_share = it.get('effective_price') or 0
+                                        execute(conn, 'UPDATE program_registrations SET amount_paid=%s WHERE id=%s',
+                                            (paid_share, rid))
                             conn.commit()
                         else:
                             # Check ticket orders

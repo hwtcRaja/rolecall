@@ -1350,6 +1350,13 @@ def init_db():
              AND (pr.amount_paid IS NULL OR pr.amount_paid = 0)
              AND sub.charge_now > 0
              AND pr.status = 'confirmed'""",
+        # Dual sign-off required before any refund can actually be processed
+        # through Square — separate from the general approve/deny status,
+        # which just tracks whether the request itself is legitimate.
+        "ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS president_approved_by TEXT",
+        "ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS president_approved_at TIMESTAMP",
+        "ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS treasurer_approved_by TEXT",
+        "ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS treasurer_approved_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS performance_location TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_color TEXT",
@@ -2768,6 +2775,26 @@ def resolve_perm_level(perms, section):
     if legacy and perms.get(legacy):
         return perms[legacy]
     return 'none'
+
+
+def current_user_board_role_match(conn, role_keyword):
+    """Checks whether the logged-in user is listed on the board roster
+    (board_members, matched by email — a separate roster from login
+    accounts) holding the given role. Matches loosely on the free-text
+    role field but explicitly excludes 'vice' so 'Vice President' can never
+    satisfy a 'president' check. Returns the board member's name if
+    matched, else None. Used to gate refund processing on a real person
+    holding that specific office, not just anyone with app permissions."""
+    if 'user_id' not in session:
+        return None
+    user = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+    if not user or not user.get('email'):
+        return None
+    bm = fetchone(conn, """SELECT name FROM board_members
+        WHERE LOWER(email)=LOWER(%s) AND status='active'
+          AND role ILIKE %s AND role NOT ILIKE %s""",
+        (user['email'], f'%{role_keyword}%', '%vice%'))
+    return bm['name'] if bm else None
 
 
 def today_eastern():
@@ -19969,15 +19996,14 @@ def search_orders_for_refund():
             'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
             'amount_cents': r.get('amount_paid') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
 
-    for r in fetchall(conn, """SELECT id, guardian_name, guardian_email, total_cents, square_order_id, status, created_at
-        FROM cart_orders
-        WHERE (guardian_name ILIKE %s OR guardian_email ILIKE %s)
-          AND square_order_id IS NOT NULL AND square_order_id != ''
-        ORDER BY created_at DESC LIMIT 15""", (like, like)):
-        results.append({'source': 'cart_order', 'id': r['id'], 'square_order_id': r['square_order_id'],
-            'label': 'Cart order', 'participant_name': '', 'program_name': '',
-            'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
-            'amount_cents': r.get('total_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
+    # cart_orders is deliberately not searched here — its total spans every
+    # program in the cart, so linking a refund to it directly makes it easy
+    # to accidentally refund someone else's program too. Each program still
+    # has its own square_order_id (same underlying Square order, just scoped
+    # to that program's real share — see the amount_paid backfill above),
+    # so refunding via the program_registration entry refunds correctly
+    # without the multi-program ambiguity. A family wanting refunds on
+    # several programs from one cart just gets one request per program.
 
     for r in fetchall(conn, """SELECT t.id, t.guardian_name, t.guardian_email, t.total_cents,
             t.square_order_id, t.status, t.created_at, p.name AS production_name
@@ -20157,6 +20183,57 @@ def update_refund_request(rid):
     conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/refund-requests/<rid>/board-approve', methods=['POST'])
+def board_approve_refund_request(rid):
+    """President and Treasurer sign-off — required (both) before any refund
+    can be processed through Square, separate from and in addition to the
+    general approve/deny status. Verifies the CURRENT logged-in user is
+    actually that officer on the board roster; anyone can click the button,
+    but only the real office-holder's click is accepted."""
+    err = require_permission('refund_requests', 'view')
+    if err: return err
+    d = request.json or {}
+    role = (d.get('role') or '').strip().lower()
+    if role not in ('president', 'treasurer'):
+        return jsonify({'error': 'Invalid role'}), 400
+    conn = get_db()
+    rr = fetchone(conn, 'SELECT id FROM refund_requests WHERE id=%s', (rid,))
+    if not rr:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    name = current_user_board_role_match(conn, role)
+    if not name:
+        conn.close()
+        return jsonify({'error': f"You're not listed as {role.capitalize()} on the board roster, so this can't be recorded as your approval."}), 403
+    col_by, col_at = f'{role}_approved_by', f'{role}_approved_at'
+    execute(conn, f'UPDATE refund_requests SET {col_by}=%s, {col_at}=NOW() WHERE id=%s', (name, rid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/refund-requests/<rid>/board-approve', methods=['DELETE'])
+def board_unapprove_refund_request(rid):
+    """Lets an officer retract their own sign-off (e.g. clicked by mistake,
+    or new information came up) — still requires being that same officer."""
+    err = require_permission('refund_requests', 'view')
+    if err: return err
+    role = (request.args.get('role') or '').strip().lower()
+    if role not in ('president', 'treasurer'):
+        return jsonify({'error': 'Invalid role'}), 400
+    conn = get_db()
+    name = current_user_board_role_match(conn, role)
+    if not name:
+        conn.close()
+        return jsonify({'error': f"You're not listed as {role.capitalize()} on the board roster."}), 403
+    col_by, col_at = f'{role}_approved_by', f'{role}_approved_at'
+    execute(conn, f'UPDATE refund_requests SET {col_by}=NULL, {col_at}=NULL WHERE id=%s', (rid,))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+
 @app.route('/api/refund-requests/<rid>/process-square', methods=['POST'])
 def process_square_refund(rid):
     err = require_permission('refund_requests')
@@ -20164,6 +20241,9 @@ def process_square_refund(rid):
     conn = get_db()
     rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
     if not rr: conn.close(); return jsonify({'error': 'Not found'}), 404
+    if not rr.get('president_approved_by') or not rr.get('treasurer_approved_by'):
+        conn.close()
+        return jsonify({'error': 'This needs sign-off from both the President and Treasurer before it can be processed.'}), 400
     if not rr.get('square_order_id'): conn.close(); return jsonify({'error': 'No Square order ID on file'}), 400
     if not SQUARE_ACCESS_TOKEN: conn.close(); return jsonify({'error': 'Square not configured'}), 400
     d = request.json or {}

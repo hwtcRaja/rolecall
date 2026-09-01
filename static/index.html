@@ -460,6 +460,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('inbox',this)"><span class="nav-icon" id="ni-inbox"></span>Inbox<span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
         <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee"></span>Marquee</div>
+        <div class="nav-item" onclick="navTo('refund-requests',this)" style="padding-left:28px"><span class="nav-icon" id="ni-refund-requests"></span>Refund Requests</div>
 
         <!-- MAINSTAGE -->
         <div class="nav-section">Mainstage</div>
@@ -1599,6 +1600,23 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   </div>
 </section>
 
+<!-- REFUND REQUESTS -->
+<section class="page" id="page-refund-requests">
+ <div class="page-header">
+ <div>
+ <div class="page-title">Refund Requests</div>
+ <div class="page-subtitle" id="rr-subtitle">Loading…</div>
+ </div>
+ <div class="page-actions">
+ <button class="btn btn-primary" id="rr-new-btn" onclick="openNewRefundRequestModal()">+ New Refund Request</button>
+ </div>
+ </div>
+ <div class="page-body">
+ <div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap" id="rr-status-tabs"></div>
+ <div id="rr-list"></div>
+ </div>
+</section>
+
 <section class="page" id="page-event-logs">
  <div class="page-body">
  <div id="event-logs-list"></div>
@@ -2533,6 +2551,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="ni-input-marquee" placeholder="ticket" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('marquee',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-refund-requests">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Refund Requests</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-refund-requests" placeholder="rotate-ccw" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('refund-requests',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-productions">
@@ -4255,6 +4283,7 @@ const NAV_PERM_MAP = {
  'email-templates-page': 'email',
  'events': 'events',
  'marquee': 'marquee',
+ 'refund-requests': 'refund_requests',
  'productions': 'productions',
  'production-signin':'productions',
  'daily-overview': 'productions',
@@ -4422,6 +4451,7 @@ function navTo(page,el){
  if(page==='donor-tiers') loadTiersPage()
  if(page==='donor-templates') loadTemplatesPage()
  if(page==='marquee') loadMarqueePage()
+ if(page==='refund-requests') loadRefundRequestsPage()
  if(page==='my-time') loadMyTimePage()
  if(page==='rentals') loadRentalsPage()
  if(page==='instructor-dashboard') loadInstructorDashboard()
@@ -10167,7 +10197,7 @@ async function loadSettings(){
 // ── NAV ICON DEFAULTS (emoji fallbacks) ──
 const NAV_ICON_DEFAULTS = {
  dashboard:'', 'daily-overview':'', volunteers:'', waivers:'', hours:'', email:'', 'email-log':'',
- events:'', marquee:'', productions:'', 'production-signin':'', youth:'', 'youth-programs-page':'',
+ events:'', marquee:'', 'refund-requests':'', productions:'', 'production-signin':'', youth:'', 'youth-programs-page':'',
  'rising-stars-page':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
@@ -16722,6 +16752,7 @@ const PERM_SECTIONS = [
  {key:'settings', label:'Settings', desc:'Users, system configuration'},
  {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
+ {key:'refund_requests', label:'Refund Requests', desc:'Review, approve, and process refund requests — actually charges back to Square'},
  {key:'rentals', label:'Artistic Partnership', desc:'Create and manage Artistic Partnership requests & agreements'},
  {key:'oncall', label:'On-Call Schedule', desc:'Manage who answers calls & texts to the Twilio number'},
  {key:'hours_store', label:'Hours Store', desc:'Manage store items, exchange rate, and redemption requests'},
@@ -30498,6 +30529,305 @@ async function deleteShowContractQA(qid, pid){
 }
 // ── End Show Contracts Q&A ────────────────────────────────────────────────
 
+
+// ── Refund Requests ─────────────────────────────────────────────────────
+var _rrList = []
+var _rrStatusFilter = 'pending'
+var _rrOrderSearchDebounce = null
+var _rrSelectedOrder = null   // order chosen in the "New Request" modal
+var _rrDetailSelectedOrder = null // order chosen while linking an existing request
+
+function rrMoney(cents){ return '$'+((cents||0)/100).toFixed(2) }
+function rrStatusMeta(status){
+ return {pending:{c:'#92400e',bg:'#fef3c7',l:'Pending'}, approved:{c:'#166534',bg:'#dcfce7',l:'Approved'},
+   denied:{c:'#991b1b',bg:'#fee2e2',l:'Denied'}, processed:{c:'#1e40af',bg:'#dbeafe',l:'Processed'}}[status]
+   || {c:'#6b7280',bg:'#f3f4f6',l:status||'Unknown'}
+}
+var RR_TYPE_LABELS = {refund:'Cash Refund', credit:'Account Credit', transfer:'Spot Transfer', find_replacement:'Help Find Replacement'}
+
+async function loadRefundRequestsPage(){
+ var newBtn = document.getElementById('rr-new-btn')
+ if(newBtn) newBtn.style.display = canEdit('refund_requests') ? '' : 'none'
+ var tabs = document.getElementById('rr-status-tabs')
+ var statuses = [{v:'pending',l:'Pending'},{v:'approved',l:'Approved'},{v:'denied',l:'Denied'},{v:'processed',l:'Processed'},{v:'',l:'All'}]
+ tabs.innerHTML = statuses.map(function(s){
+   var active = _rrStatusFilter===s.v
+   return '<button onclick="setRrStatusFilter(\''+s.v+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+s.l+'</button>'
+ }).join('')
+ await renderRefundRequestsList()
+}
+
+function setRrStatusFilter(v){
+ _rrStatusFilter = v
+ loadRefundRequestsPage()
+}
+
+async function renderRefundRequestsList(){
+ var list = document.getElementById('rr-list')
+ list.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
+ var qs = _rrStatusFilter ? ('?status='+_rrStatusFilter) : ''
+ var rows = await api('/api/refund-requests'+qs)
+ _rrList = Array.isArray(rows) ? rows : []
+ document.getElementById('rr-subtitle').textContent = _rrList.length+' request'+(_rrList.length!==1?'s':'')
+ if(!_rrList.length){
+   list.innerHTML = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">Nothing here right now.</div>'
+   return
+ }
+ list.innerHTML = _rrList.map(function(r){
+   var sm = rrStatusMeta(r.status)
+   return '<div class="card" style="padding:14px 16px;margin-bottom:8px;cursor:pointer" onclick="openRefundRequestDetail(\''+r.id+'\')">'
+     + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
+     + '<div style="min-width:0;flex:1">'
+     + '<div style="font-weight:700;font-size:14px">'+escHtml(r.participant_name||r.requester_name||'Unknown')+'</div>'
+     + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:1px">'+escHtml(r.program_name||'')+'</div>'
+     + '<div style="font-size:11.5px;color:#9ca3af;margin-top:3px">'+escHtml(r.ref_number)+' · '+(RR_TYPE_LABELS[r.request_type]||r.request_type)+(r.requester_email?' · '+escHtml(r.requester_email):'')+'</div>'
+     + (r.requires_board_approval?'<div style="font-size:11px;color:#b45309;font-weight:700;margin-top:4px"> Over $1,000 — board approval expected</div>':'')
+     + '</div>'
+     + '<div style="text-align:right;flex-shrink:0">'
+     + '<span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;background:'+sm.bg+';color:'+sm.c+'">'+sm.l.toUpperCase()+'</span>'
+     + (r.refund_amount_cents?'<div style="font-size:14px;font-weight:700;margin-top:5px">'+rrMoney(r.refund_amount_cents)+'</div>':'')
+     + (r.square_order_id?'<div style="font-size:10.5px;color:var(--teal-600);margin-top:4px"> Linked to order</div>':'<div style="font-size:10.5px;color:#b45309;margin-top:4px">Not linked to an order</div>')
+     + '<div style="font-size:10.5px;color:#9ca3af;margin-top:4px">'+(r.created_at?r.created_at.slice(0,10):'')+'</div>'
+     + '</div></div></div>'
+ }).join('')
+}
+
+// ── Order search (shared by the New Request modal and existing-request linking) ──
+function rrOrderSearchInputHtml(inputId, resultsId){
+ return '<input type="text" id="'+inputId+'" placeholder="Search by name or email…" oninput="onRrOrderSearchInput(\''+inputId+'\',\''+resultsId+'\')" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
+   + '<div id="'+resultsId+'" style="max-height:180px;overflow-y:auto;margin-top:6px"></div>'
+}
+
+function onRrOrderSearchInput(inputId, resultsId){
+ clearTimeout(_rrOrderSearchDebounce)
+ var q = document.getElementById(inputId).value.trim()
+ var results = document.getElementById(resultsId)
+ if(q.length < 2){ results.innerHTML = ''; return }
+ _rrOrderSearchDebounce = setTimeout(async function(){
+   results.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:6px 0">Searching…</div>'
+   var rows = await api('/api/orders/search?q='+encodeURIComponent(q))
+   if(!Array.isArray(rows) || !rows.length){ results.innerHTML = '<div style="font-size:12px;color:var(--text-muted);padding:6px 0">No matching orders found.</div>'; return }
+   var sourceLabels = {program_registration:'Program', cart_order:'Cart', ticket_order:'Tickets', donation:'Donation'}
+   results.innerHTML = rows.map(function(o,i){
+     return '<div onclick="event.stopPropagation();pickRrOrder('+i+',\''+resultsId+'\')" style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:5px;cursor:pointer;font-size:12.5px" data-rr-order-idx="'+i+'">'
+       + '<div style="font-weight:600">'+escHtml(o.label||'Order')+' <span style="font-weight:400;color:var(--text-muted)">— '+(sourceLabels[o.source]||o.source)+'</span></div>'
+       + '<div style="color:var(--text-muted)">'+escHtml(o.payer_name||'')+' · '+escHtml(o.payer_email||'')+' · '+rrMoney(o.amount_cents)+(o.date?' · '+o.date.slice(0,10):'')+'</div>'
+       + '</div>'
+   }).join('')
+   results._rrOrders = rows
+ }, 350)
+}
+
+function pickRrOrder(idx, resultsId){
+ var results = document.getElementById(resultsId)
+ var order = results._rrOrders && results._rrOrders[idx]
+ if(!order) return
+ if(resultsId==='rr-new-order-results'){
+   _rrSelectedOrder = order
+   renderRrNewOrderSelection()
+ } else {
+   _rrDetailSelectedOrder = order
+   renderRrDetailOrderSelection()
+ }
+}
+
+// ── New Refund Request modal ────────────────────────────────────────────
+function openNewRefundRequestModal(){
+ _rrSelectedOrder = null
+ var overlay = document.createElement('div')
+ overlay.id = 'rr-new-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:520px;padding:24px;max-height:90vh;overflow-y:auto">'
+   + '<div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">New Refund Request</div>'
+   + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">For a family who called or emailed instead of using the online form.</div>'
+   + '<div class="form-group"><label>Link to an order <span style="font-weight:400;color:var(--text-muted)">(optional, but required to process via Square)</span></label>'
+   + rrOrderSearchInputHtml('rr-new-order-search','rr-new-order-results')
+   + '<div id="rr-new-order-selected"></div></div>'
+   + '<div class="form-row">'
+   + '<div class="form-group"><label>Requester Name</label><input type="text" id="rr-new-requester-name"/></div>'
+   + '<div class="form-group"><label>Requester Email</label><input type="email" id="rr-new-requester-email"/></div>'
+   + '</div>'
+   + '<div class="form-row">'
+   + '<div class="form-group"><label>Participant Name</label><input type="text" id="rr-new-participant-name"/></div>'
+   + '<div class="form-group"><label>Program / Show</label><input type="text" id="rr-new-program-name"/></div>'
+   + '</div>'
+   + '<div class="form-row">'
+   + '<div class="form-group"><label>Request Type</label><select id="rr-new-type">'
+   + Object.keys(RR_TYPE_LABELS).map(function(k){ return '<option value="'+k+'">'+RR_TYPE_LABELS[k]+'</option>' }).join('')
+   + '</select></div>'
+   + '<div class="form-group"><label>Refund Amount ($)</label><input type="number" step="0.01" min="0" id="rr-new-amount"/></div>'
+   + '</div>'
+   + '<div class="form-group"><label>Reason</label><textarea id="rr-new-reason" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea></div>'
+   + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:6px">'
+   + '<button class="btn btn-secondary" onclick="document.getElementById(\'rr-new-overlay\').remove()">Cancel</button>'
+   + '<button class="btn btn-primary" id="rr-new-create-btn" onclick="submitNewRefundRequest()">Create Request</button>'
+   + '</div></div>'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+}
+
+function renderRrNewOrderSelection(){
+ var el = document.getElementById('rr-new-order-selected')
+ var o = _rrSelectedOrder
+ if(!o){ el.innerHTML = ''; return }
+ el.innerHTML = '<div style="margin-top:8px;padding:10px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:8px">'
+   + '<span> Linked: '+escHtml(o.label)+' — '+escHtml(o.payer_name||'')+' · '+rrMoney(o.amount_cents)+'</span>'
+   + '<button class="btn btn-secondary btn-sm" onclick="_rrSelectedOrder=null;renderRrNewOrderSelection()">Remove</button></div>'
+ // Prefill fields from the order if they're still empty
+ var reqName = document.getElementById('rr-new-requester-name')
+ var reqEmail = document.getElementById('rr-new-requester-email')
+ var amt = document.getElementById('rr-new-amount')
+ if(reqName && !reqName.value) reqName.value = o.payer_name||''
+ if(reqEmail && !reqEmail.value) reqEmail.value = o.payer_email||''
+ if(amt && !amt.value) amt.value = ((o.amount_cents||0)/100).toFixed(2)
+}
+
+async function submitNewRefundRequest(){
+ var participant = document.getElementById('rr-new-participant-name').value.trim()
+ var program = document.getElementById('rr-new-program-name').value.trim()
+ if(!participant && !program){ toast('Enter a participant or program name','error'); return }
+ var amountDollars = parseFloat(document.getElementById('rr-new-amount').value||'0')
+ var btn = document.getElementById('rr-new-create-btn')
+ var btnHTML = btn.innerHTML
+ btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creating…'
+ var res
+ try{
+   res = await api('/api/refund-requests','POST',{
+     requester_name: document.getElementById('rr-new-requester-name').value.trim(),
+     requester_email: document.getElementById('rr-new-requester-email').value.trim(),
+     participant_name: participant,
+     program_name: program,
+     request_type: document.getElementById('rr-new-type').value,
+     refund_amount_cents: Math.round(amountDollars*100) || null,
+     reason_category: 'staff_initiated',
+     reason_detail: document.getElementById('rr-new-reason').value.trim(),
+     square_order_id: _rrSelectedOrder ? _rrSelectedOrder.square_order_id : '',
+     amount_paid: _rrSelectedOrder ? rrMoney(_rrSelectedOrder.amount_cents) : '',
+     registration_id: _rrSelectedOrder && _rrSelectedOrder.source==='program_registration' ? _rrSelectedOrder.id : null,
+   })
+ } finally {
+   btn.disabled = false; btn.innerHTML = btnHTML
+ }
+ if(res && res.id){
+   toast('Refund request created','success')
+   document.getElementById('rr-new-overlay')?.remove()
+   loadRefundRequestsPage()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+// ── Refund Request detail ───────────────────────────────────────────────
+var _rrDetailOpenId = null
+async function openRefundRequestDetail(rid){
+ var rr = _rrList.find(function(r){ return r.id===rid })
+ if(!rr) return
+ _rrDetailSelectedOrder = null
+ _rrDetailOpenId = rid
+ var sm = rrStatusMeta(rr.status)
+ var overlay = document.createElement('div')
+ overlay.id = 'rr-detail-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;padding:24px;max-height:90vh;overflow-y:auto">'
+   + '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px">'
+   + '<div style="font-size:16px;font-weight:800;color:var(--teal-dark)">'+escHtml(rr.participant_name||rr.requester_name||'Refund Request')+'</div>'
+   + '<span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;background:'+sm.bg+';color:'+sm.c+'">'+sm.l.toUpperCase()+'</span>'
+   + '</div>'
+   + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">'+escHtml(rr.ref_number)+' · '+(RR_TYPE_LABELS[rr.request_type]||rr.request_type)+'</div>'
+   + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:13px">'
+   + '<div><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:700">Requester</div>'+escHtml(rr.requester_name||'')+'<br>'+escHtml(rr.requester_email||'')+(rr.requester_phone?'<br>'+escHtml(rr.requester_phone):'')+'</div>'
+   + '<div><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:700">Program</div>'+escHtml(rr.program_name||'—')+(rr.program_start_date?'<br>Starts '+escHtml(rr.program_start_date):'')+'</div>'
+   + '</div>'
+   + (rr.reason_detail?'<div style="margin-bottom:14px"><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:3px">Reason</div><div style="font-size:13px;background:var(--bg);padding:10px 12px;border-radius:8px">'+escHtml(rr.reason_detail)+'</div></div>':'')
+   + (rr.request_type==='find_replacement' && (rr.replacement_name||rr.replacement_email)?'<div style="margin-bottom:14px;font-size:13px"><div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:700">Suggested Replacement</div>'+escHtml(rr.replacement_name||'')+' '+escHtml(rr.replacement_email||'')+'</div>':'')
+   + (rr.requires_board_approval?'<div style="margin-bottom:14px;padding:10px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12.5px;color:#92400e;font-weight:600"> Over $1,000 — board approval expected before processing.</div>':'')
+   + '<div id="rr-detail-order-section" style="margin-bottom:14px"></div>'
+   + '<div class="form-group"><label>Amount</label><input type="number" step="0.01" min="0" id="rr-detail-amount" value="'+(rr.refund_amount_cents!=null?(rr.refund_amount_cents/100).toFixed(2):'')+'"/></div>'
+   + '<div class="form-group"><label>Internal Notes</label><textarea id="rr-detail-notes" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">'+escHtml(rr.admin_notes||'')+'</textarea></div>'
+   + '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:10px">'
+   + '<button class="btn btn-secondary" onclick="document.getElementById(\'rr-detail-overlay\').remove()">Close</button>'
+   + (canEdit('refund_requests') && rr.status!=='denied'?'<button class="btn btn-secondary" style="color:#991b1b" onclick="saveRefundRequestStatus(\''+rid+'\',\'denied\')">Deny</button>':'')
+   + (canEdit('refund_requests') && rr.status==='pending'?'<button class="btn btn-secondary" onclick="saveRefundRequestStatus(\''+rid+'\',\'approved\')">Approve</button>':'')
+   + (canEdit('refund_requests') && rr.status!=='processed'?'<button class="btn btn-primary" id="rr-process-btn" onclick="processRefundViaSquare(\''+rid+'\')" '+(rr.square_order_id?'':'disabled title="Link an order first"')+'>Process Refund via Square</button>':(rr.status==='processed'?'<span style="font-size:12px;color:var(--text-muted);align-self:center"> Processed'+(rr.square_refund_id?' — '+escHtml(rr.square_refund_id):'')+'</span>':''))
+   + '</div></div>'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+ renderRrDetailOrderSection(rr)
+}
+
+function renderRrDetailOrderSection(rr){
+ var el = document.getElementById('rr-detail-order-section')
+ if(!el) return
+ if(rr.square_order_id && !_rrDetailSelectedOrder){
+   el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:4px">Linked Order</div>'
+     + '<div style="padding:10px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:8px">'
+     + '<span> Square order <code>'+escHtml(rr.square_order_id)+'</code>'+(rr.amount_paid?' · '+escHtml(rr.amount_paid):'')+'</span>'
+     + '<button class="btn btn-secondary btn-sm" onclick="_rrDetailSelectedOrder={};renderRrDetailOrderSection(_rrList.find(function(r){return r.id===_rrDetailOpenId}))">Change</button></div>'
+ } else {
+   el.innerHTML = '<div style="color:var(--text-muted);font-size:11px;text-transform:uppercase;font-weight:700;margin-bottom:4px">Link to an order <span style="font-weight:400">(needed to process via Square)</span></div>'
+     + rrOrderSearchInputHtml('rr-detail-order-search','rr-detail-order-results')
+     + '<div id="rr-detail-order-picked"></div>'
+ }
+}
+
+function renderRrDetailOrderSelection(){
+ var picked = document.getElementById('rr-detail-order-picked')
+ var o = _rrDetailSelectedOrder
+ if(!picked || !o || !o.square_order_id) return
+ picked.innerHTML = '<div style="margin-top:8px;padding:10px;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;gap:8px">'
+   + '<span> '+escHtml(o.label)+' — '+escHtml(o.payer_name||'')+' · '+rrMoney(o.amount_cents)+'</span>'
+   + '<button class="btn btn-primary btn-sm" onclick="confirmLinkRrOrder()">Use This Order</button></div>'
+}
+
+async function confirmLinkRrOrder(){
+ var o = _rrDetailSelectedOrder
+ var targetId = _rrDetailOpenId
+ if(!o || !targetId) return
+ var res = await api('/api/refund-requests/'+targetId+'/link-order','PUT',{
+   square_order_id: o.square_order_id, amount_paid: rrMoney(o.amount_cents),
+   registration_id: o.source==='program_registration' ? o.id : null
+ })
+ if(res && res.id){
+   toast('Order linked','success')
+   var idx = _rrList.findIndex(function(r){ return r.id===targetId })
+   if(idx>-1) _rrList[idx] = res
+   document.getElementById('rr-detail-overlay')?.remove()
+   openRefundRequestDetail(targetId)
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function saveRefundRequestStatus(rid, status){
+ var notes = (document.getElementById('rr-detail-notes')||{}).value||''
+ var amountEl = document.getElementById('rr-detail-amount')
+ var body = {status: status, admin_notes: notes}
+ if(amountEl && amountEl.value) body.refund_amount_cents = Math.round(parseFloat(amountEl.value)*100)
+ var res = await api('/api/refund-requests/'+rid,'PUT',body)
+ if(res && res.ok){
+   toast(status==='approved'?'Approved':'Denied','success')
+   document.getElementById('rr-detail-overlay')?.remove()
+   loadRefundRequestsPage()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+async function processRefundViaSquare(rid){
+ var rr = _rrList.find(function(r){ return r.id===rid })
+ var amountEl = document.getElementById('rr-detail-amount')
+ var amountCents = amountEl && amountEl.value ? Math.round(parseFloat(amountEl.value)*100) : (rr&&rr.refund_amount_cents)
+ if(!amountCents){ toast('Enter a refund amount first','error'); return }
+ if(!confirm('Issue an actual refund of '+rrMoney(amountCents)+' through Square? This charges back to the original payment method and can\'t be undone.')) return
+ var btn = document.getElementById('rr-process-btn')
+ var btnHTML = btn ? btn.innerHTML : ''
+ if(btn){ btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Processing…' }
+ var res
+ try{
+   res = await api('/api/refund-requests/'+rid+'/process-square','POST',{amount_cents: amountCents})
+ } finally {
+   if(btn){ btn.disabled = false; btn.innerHTML = btnHTML }
+ }
+ if(res && res.ok){
+   toast('Refund of '+rrMoney(res.amount_cents)+' processed','success')
+   document.getElementById('rr-detail-overlay')?.remove()
+   loadRefundRequestsPage()
+ } else toast((res&&res.error)||'Error processing refund','error')
+}
 
 function loadMarqueePage(){
   // Wire tab buttons

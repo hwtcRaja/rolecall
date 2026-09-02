@@ -5848,7 +5848,17 @@ def portal_unread_summary():
     if err: return err
     conn = get_db()
     program_total = (fetchone(conn, "SELECT COALESCE(SUM(unread_admin),0) AS t FROM portal_message_threads WHERE unread_admin>0 AND program_id IS NOT NULL") or {}).get('t', 0)
-    production_total = (fetchone(conn, "SELECT COALESCE(SUM(unread_admin),0) AS t FROM portal_message_threads WHERE unread_admin>0 AND production_id IS NOT NULL") or {}).get('t', 0)
+    # Youth productions (Rising Stars + Teen Show) live in the same
+    # `productions` table as mainstage ones (distinguished by stage), but
+    # they're managed on a separate "Youth Productions" nav item — so
+    # their unread counts need to be split out here too, the same way
+    # program vs production already are.
+    mainstage_total = (fetchone(conn, """SELECT COALESCE(SUM(t.unread_admin),0) AS c
+        FROM portal_message_threads t JOIN productions p ON p.id=t.production_id
+        WHERE t.unread_admin>0 AND p.stage NOT IN ('rising_stars','teen_show')""") or {}).get('c', 0)
+    rising_stars_total = (fetchone(conn, """SELECT COALESCE(SUM(t.unread_admin),0) AS c
+        FROM portal_message_threads t JOIN productions p ON p.id=t.production_id
+        WHERE t.unread_admin>0 AND p.stage IN ('rising_stars','teen_show')""") or {}).get('c', 0)
     by_program = fetchall(conn, """
         SELECT program_id, COALESCE(SUM(unread_admin),0) AS unread
         FROM portal_message_threads
@@ -5860,14 +5870,15 @@ def portal_unread_summary():
         WHERE unread_admin>0 AND production_id IS NOT NULL
         GROUP BY production_id""")
     conn.close()
-    # 'total' kept for backward compatibility (any old caller expecting a
-    # single combined number) — program_total/production_total are the
-    # correct split for badging each section separately, since a thread
-    # belongs to exactly one or the other, never both.
+    # 'total'/'production_total' kept for backward compatibility (any old
+    # caller expecting the old combined shape) — mainstage_total/
+    # rising_stars_total are the correct split for badging each nav item.
     return jsonify({
-        'total': int(program_total) + int(production_total),
+        'total': int(program_total) + int(mainstage_total) + int(rising_stars_total),
         'program_total': int(program_total),
-        'production_total': int(production_total),
+        'production_total': int(mainstage_total) + int(rising_stars_total),
+        'mainstage_total': int(mainstage_total),
+        'rising_stars_total': int(rising_stars_total),
         'by_program': {r['program_id']: int(r['unread']) for r in (by_program or [])},
         'by_production': {r['production_id']: int(r['unread']) for r in (by_production or [])},
     })
@@ -19676,10 +19687,11 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     VALUES (%s,%s,%s,NOW()::TEXT,%s)
                     ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
                     (str(_ue.uuid4()), youth_id, prod['id'], f'Online registration #{reg_id[:8]}'))
-                # Rising Stars: the Cast tab is driven by youth_production_members,
-                # not youth_program_enrollments — auto-add confirmed registrants there
-                # too so staff don't have to manually "+ Enroll" everyone who registers.
-                if prod.get('stage') == 'rising_stars':
+                # Youth productions (Rising Stars or Teen Show): the Cast tab is driven
+                # by youth_production_members, not youth_program_enrollments — auto-add
+                # confirmed registrants there too so staff don't have to manually
+                # "+ Enroll" everyone who registers.
+                if prod.get('stage') in ('rising_stars', 'teen_show'):
                     existing_member = fetchone(conn, '''SELECT id FROM youth_production_members
                         WHERE production_id=%s AND youth_id=%s''', (prod['id'], youth_id))
                     if not existing_member:
@@ -31097,7 +31109,7 @@ def marquee_overview():
         COALESCE((SELECT SUM(w.amount) FROM waitlist_amt w WHERE w.production_id=prod.id), 0) AS waitlist_revenue_cents
     FROM productions prod
     LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != \'cancelled\'
-    WHERE prod.registration_status != \'draft\' AND prod.stage=\'rising_stars\'
+    WHERE prod.registration_status != \'draft\' AND prod.stage IN (\'rising_stars\',\'teen_show\')
     GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status
     ORDER BY confirmed_count DESC, prod.name''') or []
     for row in production_breakdown:
@@ -31351,7 +31363,7 @@ def marquee_all_registrations():
         except Exception:
             r['session_names'] = []
     programs = fetchall(conn, "SELECT id, name, start_date FROM youth_programs WHERE registration_status != 'draft' ORDER BY start_date ASC NULLS LAST, name ASC")
-    productions_rs = fetchall(conn, "SELECT id, name FROM productions WHERE stage='rising_stars' AND registration_status IS NOT NULL AND registration_status != 'draft' ORDER BY name")
+    productions_rs = fetchall(conn, "SELECT id, name FROM productions WHERE stage IN ('rising_stars','teen_show') AND registration_status IS NOT NULL AND registration_status != 'draft' ORDER BY name")
     conn.close()
     return jsonify({'registrations': regs, 'programs': programs, 'productions': productions_rs or []})
 
@@ -31369,7 +31381,7 @@ def rising_stars_live_stats():
         COUNT(pr.id) FILTER (WHERE pr.status='waitlisted') AS waitlisted_count
         FROM productions prod
         LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != 'cancelled'
-        WHERE prod.stage='rising_stars' AND prod.registration_status IS NOT NULL AND prod.registration_status != 'draft'
+        WHERE prod.stage IN ('rising_stars','teen_show') AND prod.registration_status IS NOT NULL AND prod.registration_status != 'draft'
         GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status, prod.image_url,
                  prod.portal_color, prod.registration_open_date, prod.registration_open_time
         ORDER BY prod.name''') or []
@@ -31377,7 +31389,7 @@ def rising_stars_live_stats():
     # Diagnostic: list every production tagged Rising Stars regardless of status,
     # so we can tell "wrong status" apart from "not tagged rising_stars" at a glance.
     debug_all_rs = fetchall(conn, '''SELECT id, name, stage, registration_status
-        FROM productions WHERE stage='rising_stars' ORDER BY name''') or []
+        FROM productions WHERE stage IN ('rising_stars','teen_show') ORDER BY name''') or []
 
     from zoneinfo import ZoneInfo as _ZIls
     for s in shows:
@@ -31400,7 +31412,7 @@ def rising_stars_live_stats():
         pr.created_at, pr.production_id, p.name AS production_name
         FROM program_registrations pr
         JOIN productions p ON p.id = pr.production_id
-        WHERE p.stage='rising_stars' AND pr.status != 'cancelled'
+        WHERE p.stage IN ('rising_stars','teen_show') AND pr.status != 'cancelled'
         ORDER BY pr.created_at DESC LIMIT 25''') or []
     conn.close()
 

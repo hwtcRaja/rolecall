@@ -11386,6 +11386,121 @@ def delete_production_conflict(pid, cid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/public/daily-overview/<pid>')
+def public_daily_overview_display(pid):
+    """Same data as the admin Daily Overview, minus phone/email (a lobby/
+    backstage screen doesn't need contact info) — meant to be left open on
+    a tablet or TV during rehearsal, not logged into. Same public-but-not-
+    linked-anywhere model as kiosk.html: no login wall, but nothing here
+    is discoverable unless you already have the URL."""
+    target_date = request.args.get('date') or today_eastern().isoformat()
+    conn = get_db()
+
+    prod = fetchone(conn, 'SELECT id, name, status, portal_color, portal_logo_url FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+
+    events = fetchall(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color
+        FROM events e LEFT JOIN event_types et ON e.event_type_id=et.id
+        WHERE e.production_id=%s AND e.event_date=%s
+        ORDER BY e.start_time ASC NULLS LAST''', (pid, target_date))
+    event_ids = [e['id'] for e in events]
+
+    crew = fetchall(conn, '''SELECT pm.id as member_id, pm.role, pm.department, pm.status as member_status,
+        v.id as volunteer_id, v.name
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s ORDER BY v.name''', (pid,))
+
+    youth = fetchall(conn, '''SELECT ypm.id as member_id, ypm.role,
+        y.id as youth_id, y.first_name, y.last_name
+        FROM youth_production_members ypm JOIN youth_participants y ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+
+    crew_signins = {}
+    youth_signins = {}
+    if event_ids:
+        ph = ','.join(['%s']*len(event_ids))
+        for row in fetchall(conn, f'''SELECT volunteer_id, event_id, signed_in_at, signed_out_at
+                FROM prod_attendance WHERE event_id IN ({ph})''', tuple(event_ids)):
+            crew_signins.setdefault(row['volunteer_id'], []).append(row)
+        for row in fetchall(conn, f'''SELECT youth_id, event_id, signed_in_at, signed_out_at
+                FROM youth_sign_ins WHERE event_id IN ({ph})''', tuple(event_ids)):
+            youth_signins.setdefault(row['youth_id'], []).append(row)
+
+    conflicts = fetchall(conn, '''SELECT pc.*, e.name as event_name
+        FROM production_conflicts pc LEFT JOIN events e ON pc.event_id=e.id
+        WHERE pc.production_id=%s AND (e.event_date=%s OR pc.event_id IS NULL)
+        ORDER BY pc.created_at DESC''', (pid, target_date))
+    conflicts_by_youth = {}
+    conflicts_by_volunteer = {}
+    for c in conflicts:
+        if c.get('youth_id'): conflicts_by_youth.setdefault(c['youth_id'], []).append(c)
+        if c.get('volunteer_id'): conflicts_by_volunteer.setdefault(c['volunteer_id'], []).append(c)
+
+    def roster_status(signin_rows, conflict_rows):
+        if conflict_rows:
+            return conflict_rows[-1]['status']
+        if signin_rows:
+            return 'signed_out' if all(r.get('signed_out_at') for r in signin_rows) else 'signed_in'
+        return 'no_show' if any_event_started else 'not_yet'
+
+    now_dt = now_eastern()
+    any_event_started = False
+    for e in events:
+        ev_date = e.get('event_date')
+        if not ev_date:
+            continue
+        if not hasattr(ev_date, 'year'):
+            try:
+                ev_date = datetime.strptime(str(ev_date)[:10], '%Y-%m-%d').date()
+            except Exception:
+                continue
+        ev_time = e.get('start_time')
+        if isinstance(ev_time, str):
+            try:
+                ev_time = datetime.strptime(ev_time, '%H:%M:%S').time() if len(ev_time) > 5 else datetime.strptime(ev_time, '%H:%M').time()
+            except Exception:
+                ev_time = None
+        ev_start = datetime.combine(ev_date, ev_time or datetime.min.time())
+        if ev_start <= now_dt:
+            any_event_started = True
+            break
+
+    crew_out = []
+    for m in crew:
+        rows = crew_signins.get(m['volunteer_id'], [])
+        conf = conflicts_by_volunteer.get(m['volunteer_id'], [])
+        crew_out.append({**m, 'status': roster_status(rows, conf)})
+
+    youth_out = []
+    for y in youth:
+        rows = youth_signins.get(y['youth_id'], [])
+        conf = conflicts_by_youth.get(y['youth_id'], [])
+        youth_out.append({**y, 'status': roster_status(rows, conf)})
+
+    all_statuses = [r['status'] for r in crew_out+youth_out]
+    summary = {
+        'total': len(all_statuses),
+        'signed_in': all_statuses.count('signed_in'),
+        'signed_out': all_statuses.count('signed_out'),
+        'not_yet': all_statuses.count('not_yet'),
+        'called_out': sum(1 for s in all_statuses if s in ('absent','sick','late','leaving_early')),
+        'no_show': all_statuses.count('no_show'),
+    }
+
+    conn.close()
+    return jsonify({
+        'production': prod, 'date': target_date, 'events': events,
+        'crew': crew_out, 'youth': youth_out, 'summary': summary,
+    })
+
+
+@app.route('/daily-overview-display/<pid>')
+def daily_overview_display_page(pid):
+    return send_from_directory('static', 'daily-overview-display.html')
+
+
 @app.route('/api/productions/<pid>/daily-overview')
 def get_production_daily_overview(pid):
     """Single-day command-center view for a production: today's (or a chosen

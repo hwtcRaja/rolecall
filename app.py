@@ -11396,7 +11396,7 @@ def public_daily_overview_display(pid):
     target_date = request.args.get('date') or today_eastern().isoformat()
     conn = get_db()
 
-    prod = fetchone(conn, 'SELECT id, name, status, portal_color, portal_logo_url FROM productions WHERE id=%s', (pid,))
+    prod = fetchone(conn, 'SELECT id, name, status, portal_color, portal_logo_url, start_date FROM productions WHERE id=%s', (pid,))
     if not prod:
         conn.close()
         return jsonify({'error': 'Production not found'}), 404
@@ -11407,13 +11407,33 @@ def public_daily_overview_display(pid):
         ORDER BY e.start_time ASC NULLS LAST''', (pid, target_date))
     event_ids = [e['id'] for e in events]
 
+    # This week's schedule — a compact look-ahead, not just today.
+    week_end = (date.fromisoformat(target_date) + timedelta(days=7)).isoformat()
+    week_events = fetchall(conn, '''SELECT e.id, e.name, e.event_date, e.start_time, e.location, et.name AS event_type_name
+        FROM events e LEFT JOIN event_types et ON e.event_type_id=et.id
+        WHERE e.production_id=%s AND e.event_date > %s AND e.event_date <= %s
+        ORDER BY e.event_date ASC, e.start_time ASC NULLS LAST
+        LIMIT 8''', (pid, target_date, week_end))
+
+    # Countdown to the next performance — prefer an actual scheduled
+    # performance date; fall back to the production's start_date if it
+    # doesn't use the ticketing/performances feature.
+    next_perf = fetchone(conn, '''SELECT performance_date, name FROM performances
+        WHERE production_id=%s AND performance_date >= %s
+        ORDER BY performance_date ASC LIMIT 1''', (pid, target_date))
+    countdown = None
+    if next_perf and next_perf.get('performance_date'):
+        countdown = {'date': next_perf['performance_date'], 'label': next_perf.get('name') or 'Opening'}
+    elif prod.get('start_date') and prod['start_date'] >= target_date:
+        countdown = {'date': prod['start_date'], 'label': 'Opening'}
+
     crew = fetchall(conn, '''SELECT pm.id as member_id, pm.role, pm.department, pm.status as member_status,
-        v.id as volunteer_id, v.name
+        v.id as volunteer_id, v.name, v.birthday
         FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
         WHERE pm.production_id=%s ORDER BY v.name''', (pid,))
 
     youth = fetchall(conn, '''SELECT ypm.id as member_id, ypm.role,
-        y.id as youth_id, y.first_name, y.last_name
+        y.id as youth_id, y.first_name, y.last_name, y.dob
         FROM youth_production_members ypm JOIN youth_participants y ON ypm.youth_id=y.id
         WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
 
@@ -11467,17 +11487,26 @@ def public_daily_overview_display(pid):
             any_event_started = True
             break
 
+    today_md = target_date[5:]  # 'MM-DD' slice of an 'YYYY-MM-DD' string
+
     crew_out = []
+    birthdays = []
     for m in crew:
         rows = crew_signins.get(m['volunteer_id'], [])
         conf = conflicts_by_volunteer.get(m['volunteer_id'], [])
-        crew_out.append({**m, 'status': roster_status(rows, conf)})
+        signed_in_at = rows[-1]['signed_in_at'] if rows else None
+        crew_out.append({**m, 'status': roster_status(rows, conf), 'signed_in_at': signed_in_at})
+        if m.get('birthday') and str(m['birthday'])[5:] == today_md:
+            birthdays.append(m['name'])
 
     youth_out = []
     for y in youth:
         rows = youth_signins.get(y['youth_id'], [])
         conf = conflicts_by_youth.get(y['youth_id'], [])
-        youth_out.append({**y, 'status': roster_status(rows, conf)})
+        signed_in_at = rows[-1]['signed_in_at'] if rows else None
+        youth_out.append({**y, 'status': roster_status(rows, conf), 'signed_in_at': signed_in_at})
+        if y.get('dob') and str(y['dob'])[5:] == today_md:
+            birthdays.append(f"{y.get('first_name','')} {y.get('last_name','')}".strip())
 
     all_statuses = [r['status'] for r in crew_out+youth_out]
     summary = {
@@ -11489,10 +11518,19 @@ def public_daily_overview_display(pid):
         'no_show': all_statuses.count('no_show'),
     }
 
+    # Recent arrivals feed - last 8 sign-ins, most recent first.
+    recent = sorted(
+        [{'name': f"{r.get('first_name','')} {r.get('last_name','')}".strip(), 'at': r['signed_in_at']} for r in youth_out if r.get('signed_in_at')]
+        + [{'name': r.get('name',''), 'at': r['signed_in_at']} for r in crew_out if r.get('signed_in_at')],
+        key=lambda r: r['at'], reverse=True
+    )[:8]
+
     conn.close()
     return jsonify({
         'production': prod, 'date': target_date, 'events': events,
+        'week_events': week_events, 'countdown': countdown,
         'crew': crew_out, 'youth': youth_out, 'summary': summary,
+        'birthdays': birthdays, 'recent_signins': recent,
     })
 
 

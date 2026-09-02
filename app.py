@@ -27283,6 +27283,8 @@ def get_rental_requests():
     try:
         requests_data = fetchall(conn, '''SELECT rr.*, rp.name AS partner_name,
             rp.contact_email AS partner_email, rp.contact_name AS partner_contact,
+            rp.contact_phone AS partner_phone, rp.organization_type AS partner_org_type,
+            rp.organization_website AS partner_website,
             rs.name AS space_name,
             ra.id AS agreement_id, ra.status AS agreement_status,
             ra.partner_signed_at, ra.partner_signed_name, ra.signing_token,

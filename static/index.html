@@ -470,8 +470,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         Rising Stars, Teen Show), not just Mainstage, so they get their own section
         instead of implying they're Mainstage-only. -->
         <div class="nav-section">Production Tools</div>
-        <div class="nav-item" onclick="navTo('daily-overview',this)"><span class="nav-icon" id="ni-daily-overview"></span>Daily Overview</div>
-        <div class="nav-item" onclick="navTo('production-signin',this)"><span class="nav-icon" id="ni-production-signin"></span>Cast Sign-In</div>
         <div class="nav-item" onclick="navTo('show-contracts',this)"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
         <div class="nav-item" onclick="navTo('licensing',this)"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
 
@@ -2483,16 +2481,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  oninput="previewNavIcon('dashboard',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
- <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-daily-overview">
- <span style="font-size:16px"></span>
- </div>
- <div style="flex:1;font-size:13px;font-weight:600">Daily Overview</div>
- <div style="display:flex;align-items:center;gap:8px">
- <input type="text" id="ni-input-daily-overview" placeholder="calendar-check" value=""
- style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
- oninput="previewNavIcon('daily-overview',this.value)"/>
- </div>
- </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-volunteers">
  <span style="font-size:16px"></span>
  </div>
@@ -2581,16 +2569,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="ni-input-productions" placeholder="film" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('productions',this.value)"/>
- </div>
- </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
- <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-production-signin">
- <span style="font-size:16px"></span>
- </div>
- <div style="flex:1;font-size:13px;font-weight:600">Cast Sign-In</div>
- <div style="display:flex;align-items:center;gap:8px">
- <input type="text" id="ni-input-production-signin" placeholder="clipboard-list" value=""
- style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
- oninput="previewNavIcon('production-signin',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-show-contracts">
@@ -4307,8 +4285,6 @@ const NAV_PERM_MAP = {
  'marquee': 'marquee',
  'refund-requests': 'refund_requests',
  'productions': 'productions',
- 'production-signin':'productions',
- 'daily-overview': 'productions',
  'show-contracts': 'productions',
  'licensing': 'licensing',
  'youth': 'youth',
@@ -4337,7 +4313,6 @@ const NAV_PERM_MAP = {
 // Mirrors PERM_LEGACY_FALLBACK in app.py - keep the two in sync.
 const PERM_LEGACY_FALLBACK = {
  'licensing': 'productions',
- 'daily-overview': 'productions',
 }
 
 function resolvePermLevel(section){
@@ -10218,8 +10193,8 @@ async function loadSettings(){
 
 // ── NAV ICON DEFAULTS (emoji fallbacks) ──
 const NAV_ICON_DEFAULTS = {
- dashboard:'', 'daily-overview':'', volunteers:'', waivers:'', hours:'', email:'', 'email-log':'',
- events:'', marquee:'', 'refund-requests':'', productions:'', 'production-signin':'', youth:'', 'youth-programs-page':'',
+ dashboard:'', volunteers:'', waivers:'', hours:'', email:'', 'email-log':'',
+ events:'', marquee:'', 'refund-requests':'', productions:'', youth:'', 'youth-programs-page':'',
  'rising-stars-page':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
@@ -16217,7 +16192,10 @@ function openProductionDetail(prodId, fromPage){
  <div class="page-subtitle">${PROD_TYPE_LABELS[p.production_type]||p.production_type} · <span style="color:${col}">${PROD_STATUS_LABELS[p.status]}</span></div>
  </div>
  </div>
- ${isAdmin?'<div class="page-actions"><button class="btn btn-secondary btn-sm" onclick="openEditProductionModal(\''+p.id+'\')">Edit Production</button>'+((p.stage==='rising_stars'||p.stage==='teen_show')?'<button class="btn btn-secondary btn-sm" onclick="openProductionRegistrationSettingsModal(\''+p.id+'\')">Registration Settings</button>':'')+((p.stage==='rising_stars'||p.stage==='teen_show')?'<button class="btn btn-secondary btn-sm" onclick="openProgramEmailModal(\''+p.id+'\')"> Email Cast</button>':'')+'<button class="btn btn-primary btn-sm" onclick="openAddMemberModal(\''+p.id+'\')">+ Add Member</button></div>':''}`
+ <div class="page-actions" style="display:flex;gap:8px;align-items:center">
+ <button class="btn btn-secondary btn-sm" onclick="window.open('/daily-overview-display/${p.id}','_blank')" title="Opens a TV/tablet-friendly view of today's schedule and who's signed in — no login needed, safe to leave up during rehearsal">Daily Overview Display</button>
+ ${isAdmin?'<button class="btn btn-secondary btn-sm" onclick="openEditProductionModal(\''+p.id+'\')">Edit Production</button>'+((p.stage==='rising_stars'||p.stage==='teen_show')?'<button class="btn btn-secondary btn-sm" onclick="openProductionRegistrationSettingsModal(\''+p.id+'\')">Registration Settings</button>':'')+((p.stage==='rising_stars'||p.stage==='teen_show')?'<button class="btn btn-secondary btn-sm" onclick="openProgramEmailModal(\''+p.id+'\')"> Email Cast</button>':'')+'<button class="btn btn-primary btn-sm" onclick="openAddMemberModal(\''+p.id+'\')">+ Add Member</button>':''}
+ </div>`
 
  // Group members by department
  const members=p.members||[]

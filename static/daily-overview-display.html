@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Daily Overview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#faf7f2;
+  --ink:#1c1917;
+  --ink-soft:#78716c;
+  --line:#e7e2d9;
+  --card:#ffffff;
+  --brand:#b45309;
+  --brand-soft:#fef3e2;
+  --signed-in:#16a34a;
+  --signed-in-bg:#f0fdf4;
+  --not-yet:#78716c;
+  --not-yet-bg:#f5f5f4;
+  --called-out:#d97706;
+  --called-out-bg:#fffbeb;
+  --no-show:#dc2626;
+  --no-show-bg:#fef2f2;
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg)}
+body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);display:flex;flex-direction:column;height:100vh}
+h1,h2,h3,.headline{font-family:'Space Grotesk',sans-serif}
+
+/* ── Top bar ── */
+#topbar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:20px 36px;border-bottom:2px solid var(--ink);background:var(--card);
+}
+#topbar .brand{display:flex;align-items:center;gap:14px}
+#topbar img{height:40px}
+#topbar .prod-name{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:24px;letter-spacing:-0.3px}
+#topbar .prod-sub{font-size:13px;color:var(--ink-soft);margin-top:1px}
+#topbar .clock{text-align:right}
+#topbar .clock-time{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;font-variant-numeric:tabular-nums;letter-spacing:-0.5px}
+#topbar .clock-date{font-size:13px;color:var(--ink-soft);margin-top:2px}
+
+/* ── Now playing strip ── */
+#now-strip{
+  padding:18px 36px;background:var(--ink);color:#fff;
+  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+}
+#now-strip .now-badge{
+  font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;
+  background:var(--brand);padding:5px 12px;border-radius:20px;flex-shrink:0;
+}
+#now-strip .now-badge.idle{background:#57534e}
+#now-strip .now-text{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px}
+#now-strip .now-time{color:rgba(255,255,255,0.55);font-size:14px}
+
+/* ── Body: board + schedule rail ── */
+#body-grid{flex:1;display:grid;grid-template-columns:1fr 300px;overflow:hidden}
+
+#board{overflow-y:auto;padding:24px 28px}
+#board::-webkit-scrollbar{width:6px}
+#board::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
+
+.summary-row{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+.summary-pill{
+  flex:1;min-width:130px;background:var(--card);border:2px solid var(--line);border-radius:14px;
+  padding:14px 18px;
+}
+.summary-pill .n{font-family:'Space Grotesk',sans-serif;font-weight:800;font-size:30px;line-height:1}
+.summary-pill .l{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;color:var(--ink-soft);margin-top:4px}
+
+.columns{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}
+.status-col{background:var(--card);border:2px solid var(--line);border-radius:16px;overflow:hidden;display:flex;flex-direction:column;max-height:100%}
+.status-col-hdr{padding:14px 18px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:14px;text-transform:uppercase;letter-spacing:0.6px;display:flex;align-items:center;justify-content:space-between}
+.status-col-hdr .count{font-size:13px;font-weight:600;opacity:0.7}
+.status-col[data-status="signed_in"] .status-col-hdr{background:var(--signed-in-bg);color:var(--signed-in)}
+.status-col[data-status="not_yet"] .status-col-hdr{background:var(--not-yet-bg);color:var(--not-yet)}
+.status-col[data-status="called_out"] .status-col-hdr{background:var(--called-out-bg);color:var(--called-out)}
+.status-col[data-status="no_show"] .status-col-hdr{background:var(--no-show-bg);color:var(--no-show)}
+.status-col-body{padding:10px;overflow-y:auto;flex:1}
+.person-chip{
+  padding:10px 12px;border-radius:10px;margin-bottom:6px;background:var(--bg);
+  font-size:14px;font-weight:600;display:flex;flex-direction:column;gap:1px;
+}
+.person-chip .role{font-size:11px;font-weight:500;color:var(--ink-soft);text-transform:none}
+.col-empty{padding:24px 12px;text-align:center;color:var(--ink-soft);font-size:12.5px}
+
+/* ── Schedule rail ── */
+#schedule-rail{background:var(--card);border-left:2px solid var(--ink);overflow-y:auto}
+#schedule-rail .rail-hdr{
+  padding:16px 20px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;
+  text-transform:uppercase;letter-spacing:0.8px;border-bottom:2px solid var(--line);position:sticky;top:0;background:var(--card);
+}
+.sched-item{padding:14px 20px;border-bottom:1px solid var(--line)}
+.sched-item.now{background:var(--brand-soft);border-left:4px solid var(--brand)}
+.sched-item .t{font-size:12px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:0.4px}
+.sched-item .n{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;margin-top:2px}
+.sched-item .loc{font-size:12px;color:var(--ink-soft);margin-top:2px}
+.rail-empty{padding:30px 20px;text-align:center;color:var(--ink-soft);font-size:13px}
+
+.empty-msg{text-align:center;color:var(--ink-soft);padding:100px 20px;font-size:17px}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <div class="brand">
+    <img id="hdr-logo" src="" alt="" style="display:none"/>
+    <div>
+      <div class="prod-name" id="hdr-title">Daily Overview</div>
+      <div class="prod-sub">Live rehearsal status</div>
+    </div>
+  </div>
+  <div class="clock">
+    <div class="clock-time" id="hdr-time">--:--</div>
+    <div class="clock-date" id="hdr-date"></div>
+  </div>
+</div>
+
+<div id="now-strip">
+  <span class="now-badge idle" id="now-badge">Right Now</span>
+  <span class="now-text" id="now-text">Loading…</span>
+</div>
+
+<div id="body-grid">
+  <div id="board"><div class="empty-msg">Loading…</div></div>
+  <div id="schedule-rail">
+    <div class="rail-hdr">Today's Schedule</div>
+    <div id="sched-list"><div class="rail-empty">Loading…</div></div>
+  </div>
+</div>
+
+<script>
+var PID = window.location.pathname.split('/').filter(Boolean).pop()
+var REFRESH_MS = 30000
+
+function tickClock(){
+  var now = new Date()
+  var h = now.getHours(), m = now.getMinutes()
+  var ap = h>=12?'PM':'AM'
+  h = h%12||12
+  document.getElementById('hdr-time').textContent = h+':'+String(m).padStart(2,'0')+' '+ap
+  document.getElementById('hdr-date').textContent = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
+}
+tickClock()
+setInterval(tickClock, 15000)
+
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+function fmtTime(t){
+  if(!t) return ''
+  var parts = String(t).split(':')
+  var h = parseInt(parts[0]), m = parts[1]||'00'
+  var ap = h>=12?'PM':'AM'
+  h = h%12||12
+  return h+(m!=='00'?':'+m:'')+' '+ap
+}
+
+function toMin(t){
+  if(!t) return null
+  var p = String(t).split(':')
+  return parseInt(p[0])*60 + parseInt(p[1]||0)
+}
+
+var CALLED_OUT_STATUSES = ['absent','sick','late','leaving_early']
+var CALLED_OUT_LABELS = {absent:'Absent', sick:'Sick', late:'Running Late', leaving_early:'Leaving Early'}
+
+async function loadOverview(){
+  var res
+  try{
+    res = await fetch('/api/public/daily-overview/'+PID)
+    res = await res.json()
+  } catch(e){
+    document.getElementById('board').innerHTML = '<div class="empty-msg">Couldn\'t load this production\'s overview.</div>'
+    return
+  }
+  if(res.error){
+    document.getElementById('board').innerHTML = '<div class="empty-msg">'+escH(res.error)+'</div>'
+    return
+  }
+
+  var prod = res.production
+  document.getElementById('hdr-title').textContent = prod.name || 'Daily Overview'
+  if(prod.portal_logo_url){
+    var logo = document.getElementById('hdr-logo')
+    logo.src = prod.portal_logo_url; logo.style.display = ''
+  }
+
+  var events = res.events || []
+  var nowMin = new Date().getHours()*60 + new Date().getMinutes()
+
+  // ── "Right now" strip ──
+  var current = null, next = null
+  events.forEach(function(e){
+    var s = toMin(e.start_time), en = toMin(e.end_time)
+    if(s!=null && nowMin>=s && (en==null || nowMin<=en)) current = e
+    else if(s!=null && s>nowMin && (!next || s<toMin(next.start_time))) next = e
+  })
+  var badge = document.getElementById('now-badge'), text = document.getElementById('now-text')
+  if(current){
+    badge.textContent = 'Happening Now'; badge.classList.remove('idle')
+    text.innerHTML = escH(current.name||current.event_type_name||'Event')+(current.location?' <span class="now-time">· '+escH(current.location)+'</span>':'')
+  } else if(next){
+    badge.textContent = 'Up Next'; badge.classList.add('idle')
+    text.innerHTML = escH(next.name||next.event_type_name||'Event')+' <span class="now-time">· '+fmtTime(next.start_time)+'</span>'
+  } else {
+    badge.textContent = 'Right Now'; badge.classList.add('idle')
+    text.textContent = events.length ? "Nothing scheduled at this moment" : "Nothing on the schedule today"
+  }
+
+  // ── Schedule rail ──
+  var schedList = document.getElementById('sched-list')
+  if(!events.length){
+    schedList.innerHTML = '<div class="rail-empty">Nothing on the schedule for today.</div>'
+  } else {
+    schedList.innerHTML = events.map(function(e){
+      var s = toMin(e.start_time), en = toMin(e.end_time)
+      var isNow = s!=null && nowMin>=s && (en==null || nowMin<=en)
+      return '<div class="sched-item'+(isNow?' now':'')+'">'
+        + '<div class="t">'+fmtTime(e.start_time)+(e.end_time?' – '+fmtTime(e.end_time):'')+'</div>'
+        + '<div class="n">'+escH(e.name||e.event_type_name||'Event')+'</div>'
+        + (e.location?'<div class="loc">'+escH(e.location)+'</div>':'')
+        + '</div>'
+    }).join('')
+  }
+
+  // ── Status board ──
+  var summary = res.summary || {}
+  document.getElementById('board').innerHTML = ''
+    + '<div class="summary-row">'
+    + '<div class="summary-pill"><div class="n" style="color:var(--signed-in)">'+(summary.signed_in||0)+'</div><div class="l">Signed In</div></div>'
+    + '<div class="summary-pill"><div class="n" style="color:var(--not-yet)">'+(summary.not_yet||0)+'</div><div class="l">Not Yet Here</div></div>'
+    + '<div class="summary-pill"><div class="n" style="color:var(--called-out)">'+(summary.called_out||0)+'</div><div class="l">Called Out</div></div>'
+    + '<div class="summary-pill"><div class="n" style="color:var(--no-show)">'+(summary.no_show||0)+'</div><div class="l">No Show</div></div>'
+    + '</div>'
+    + '<div class="columns" id="status-columns"></div>'
+
+  var everyone = (res.youth||[]).map(function(y){
+      return {name:(y.first_name||'')+' '+(y.last_name||''), role:y.role||'Cast', status:y.status}
+    }).concat((res.crew||[]).map(function(c){
+      return {name:c.name, role:c.role||c.department||'Crew', status:c.status}
+    }))
+
+  function bucketOf(status){
+    if(status==='signed_in') return 'signed_in'
+    if(status==='not_yet' || status==='signed_out') return 'not_yet'
+    if(CALLED_OUT_STATUSES.indexOf(status)>=0) return 'called_out'
+    if(status==='no_show') return 'no_show'
+    return 'not_yet'
+  }
+
+  var buckets = {signed_in:[], not_yet:[], called_out:[], no_show:[]}
+  everyone.forEach(function(p){ buckets[bucketOf(p.status)].push(p) })
+
+  var colDefs = [
+    {key:'signed_in', label:'Signed In'},
+    {key:'not_yet', label:'Not Yet Here'},
+    {key:'called_out', label:'Called Out'},
+    {key:'no_show', label:'No Show'},
+  ]
+  var colsHtml = colDefs.map(function(c){
+    var people = buckets[c.key]
+    return '<div class="status-col" data-status="'+c.key+'">'
+      + '<div class="status-col-hdr"><span>'+c.label+'</span><span class="count">'+people.length+'</span></div>'
+      + '<div class="status-col-body">'
+      + (people.length ? people.map(function(p){
+          var roleLine = p.role + (CALLED_OUT_STATUSES.indexOf(p.status)>=0 ? ' · '+(CALLED_OUT_LABELS[p.status]||p.status) : '')
+          return '<div class="person-chip">'+escH(p.name)+'<span class="role">'+escH(roleLine)+'</span></div>'
+        }).join('') : '<div class="col-empty">Nobody here</div>')
+      + '</div></div>'
+  }).join('')
+  document.getElementById('status-columns').innerHTML = colsHtml
+
+  if(!everyone.length){
+    document.getElementById('board').innerHTML += '<div class="empty-msg">No roster set for this production yet.</div>'
+  }
+}
+
+loadOverview()
+setInterval(loadOverview, REFRESH_MS)
+</script>
+</body>
+</html>

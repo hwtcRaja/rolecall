@@ -24,6 +24,8 @@
   --called-out-bg:#fffbeb;
   --no-show:#dc2626;
   --no-show-bg:#fef2f2;
+  --party:#7c3aed;
+  --party-bg:#f5f3ff;
 }
 html,body{width:100%;height:100%;overflow:hidden;background:var(--bg)}
 body{font-family:'Inter',system-ui,sans-serif;color:var(--ink);display:flex;flex-direction:column;height:100vh}
@@ -32,21 +34,25 @@ h1,h2,h3,.headline{font-family:'Space Grotesk',sans-serif}
 /* ── Top bar ── */
 #topbar{
   display:flex;align-items:center;justify-content:space-between;
-  padding:20px 36px;border-bottom:2px solid var(--ink);background:var(--card);
+  padding:18px 36px;border-bottom:2px solid var(--ink);background:var(--card);
 }
 #topbar .brand{display:flex;align-items:center;gap:14px}
 #topbar img{height:40px}
 #topbar .prod-name{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:24px;letter-spacing:-0.3px}
-#topbar .prod-sub{font-size:13px;color:var(--ink-soft);margin-top:1px}
+#topbar .prod-sub{font-size:13px;color:var(--ink-soft);margin-top:1px;display:flex;align-items:center;gap:8px}
+#countdown-pill{
+  background:var(--brand-soft);color:var(--brand);font-weight:700;font-size:11.5px;
+  padding:3px 10px;border-radius:20px;display:none;
+}
 #topbar .clock{text-align:right}
 #topbar .clock-time{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:30px;font-variant-numeric:tabular-nums;letter-spacing:-0.5px}
 #topbar .clock-date{font-size:13px;color:var(--ink-soft);margin-top:2px}
 
 /* ── Now playing strip ── */
 #now-strip{
-  padding:18px 36px;background:var(--ink);color:#fff;
-  display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  padding:16px 36px;background:var(--ink);color:#fff;
 }
+#now-strip .now-top{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 #now-strip .now-badge{
   font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:12px;letter-spacing:1.2px;text-transform:uppercase;
   background:var(--brand);padding:5px 12px;border-radius:20px;flex-shrink:0;
@@ -54,15 +60,31 @@ h1,h2,h3,.headline{font-family:'Space Grotesk',sans-serif}
 #now-strip .now-badge.idle{background:#57534e}
 #now-strip .now-text{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:19px}
 #now-strip .now-time{color:rgba(255,255,255,0.55);font-size:14px}
+#now-strip .now-note{font-size:13.5px;color:rgba(255,255,255,0.7);margin-top:6px;padding-left:2px}
+
+/* ── Birthday banner (only shown when relevant) ── */
+#birthday-banner{
+  display:none;padding:10px 36px;background:var(--party-bg);color:var(--party);
+  font-weight:700;font-size:14px;align-items:center;gap:8px;border-bottom:2px solid var(--line);
+}
 
 /* ── Body: board + schedule rail ── */
-#body-grid{flex:1;display:grid;grid-template-columns:1fr 300px;overflow:hidden}
+#body-grid{flex:1;display:grid;grid-template-columns:1fr 320px;overflow:hidden}
 
-#board{overflow-y:auto;padding:24px 28px}
+#board{overflow-y:auto;padding:20px 28px}
 #board::-webkit-scrollbar{width:6px}
 #board::-webkit-scrollbar-thumb{background:var(--line);border-radius:3px}
 
-.summary-row{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+/* Recent arrivals ticker */
+#arrivals-strip{
+  display:none;align-items:center;gap:10px;background:var(--card);border:2px solid var(--line);
+  border-radius:12px;padding:10px 16px;margin-bottom:16px;overflow:hidden;white-space:nowrap;
+}
+#arrivals-strip .al-label{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--signed-in);flex-shrink:0}
+#arrivals-strip .al-items{font-size:13.5px;color:var(--ink-soft);overflow:hidden;text-overflow:ellipsis}
+#arrivals-strip .al-items b{color:var(--ink);font-weight:600}
+
+.summary-row{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
 .summary-pill{
   flex:1;min-width:130px;background:var(--card);border:2px solid var(--line);border-radius:14px;
   padding:14px 18px;
@@ -84,20 +106,25 @@ h1,h2,h3,.headline{font-family:'Space Grotesk',sans-serif}
   font-size:14px;font-weight:600;display:flex;flex-direction:column;gap:1px;
 }
 .person-chip .role{font-size:11px;font-weight:500;color:var(--ink-soft);text-transform:none}
+.person-chip .cake{color:var(--party)}
 .col-empty{padding:24px 12px;text-align:center;color:var(--ink-soft);font-size:12.5px}
 
 /* ── Schedule rail ── */
 #schedule-rail{background:var(--card);border-left:2px solid var(--ink);overflow-y:auto}
 #schedule-rail .rail-hdr{
-  padding:16px 20px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;
-  text-transform:uppercase;letter-spacing:0.8px;border-bottom:2px solid var(--line);position:sticky;top:0;background:var(--card);
+  padding:14px 20px 10px;font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:13px;
+  text-transform:uppercase;letter-spacing:0.8px;position:sticky;top:0;background:var(--card);
 }
-.sched-item{padding:14px 20px;border-bottom:1px solid var(--line)}
+#schedule-rail .rail-hdr.second{border-top:2px solid var(--line);margin-top:6px;padding-top:16px}
+.sched-item{padding:12px 20px;border-bottom:1px solid var(--line)}
 .sched-item.now{background:var(--brand-soft);border-left:4px solid var(--brand)}
 .sched-item .t{font-size:12px;font-weight:700;color:var(--brand);text-transform:uppercase;letter-spacing:0.4px}
 .sched-item .n{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;margin-top:2px}
 .sched-item .loc{font-size:12px;color:var(--ink-soft);margin-top:2px}
-.rail-empty{padding:30px 20px;text-align:center;color:var(--ink-soft);font-size:13px}
+.week-item{padding:10px 20px;border-bottom:1px solid var(--line)}
+.week-item .wd{font-size:11px;font-weight:700;color:var(--ink-soft);text-transform:uppercase;letter-spacing:0.4px}
+.week-item .wn{font-size:13.5px;font-weight:600;margin-top:1px}
+.rail-empty{padding:20px 20px;text-align:center;color:var(--ink-soft);font-size:12.5px}
 
 .empty-msg{text-align:center;color:var(--ink-soft);padding:100px 20px;font-size:17px}
 </style>
@@ -109,7 +136,7 @@ h1,h2,h3,.headline{font-family:'Space Grotesk',sans-serif}
     <img id="hdr-logo" src="" alt="" style="display:none"/>
     <div>
       <div class="prod-name" id="hdr-title">Daily Overview</div>
-      <div class="prod-sub">Live rehearsal status</div>
+      <div class="prod-sub">Live rehearsal status <span id="countdown-pill"></span></div>
     </div>
   </div>
   <div class="clock">
@@ -118,9 +145,14 @@ h1,h2,h3,.headline{font-family:'Space Grotesk',sans-serif}
   </div>
 </div>
 
+<div id="birthday-banner"><span></span></div>
+
 <div id="now-strip">
-  <span class="now-badge idle" id="now-badge">Right Now</span>
-  <span class="now-text" id="now-text">Loading…</span>
+  <div class="now-top">
+    <span class="now-badge idle" id="now-badge">Right Now</span>
+    <span class="now-text" id="now-text">Loading…</span>
+  </div>
+  <div class="now-note" id="now-note" style="display:none"></div>
 </div>
 
 <div id="body-grid">
@@ -128,23 +160,35 @@ h1,h2,h3,.headline{font-family:'Space Grotesk',sans-serif}
   <div id="schedule-rail">
     <div class="rail-hdr">Today's Schedule</div>
     <div id="sched-list"><div class="rail-empty">Loading…</div></div>
+    <div class="rail-hdr second">Coming Up This Week</div>
+    <div id="week-list"><div class="rail-empty">Loading…</div></div>
   </div>
 </div>
 
 <script>
 var PID = window.location.pathname.split('/').filter(Boolean).pop()
 var REFRESH_MS = 30000
+var _current = null // currently-happening event, tracked for the live end-time countdown
 
 function tickClock(){
   var now = new Date()
   var h = now.getHours(), m = now.getMinutes()
   var ap = h>=12?'PM':'AM'
-  h = h%12||12
-  document.getElementById('hdr-time').textContent = h+':'+String(m).padStart(2,'0')+' '+ap
+  var h12 = h%12||12
+  document.getElementById('hdr-time').textContent = h12+':'+String(m).padStart(2,'0')+' '+ap
   document.getElementById('hdr-date').textContent = now.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
+  updateNowTime(h*60+m)
 }
-tickClock()
-setInterval(tickClock, 15000)
+setInterval(tickClock, 1000*15)
+
+function updateNowTime(nowMin){
+  var timeEl = document.getElementById('now-time-live')
+  if(!timeEl || !_current || !_current.end_time) return
+  var endMin = toMin(_current.end_time)
+  if(endMin==null) return
+  var left = endMin - nowMin
+  timeEl.textContent = left>0 ? ('· Ends in '+left+' min') : '· Wrapping up'
+}
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
 
@@ -161,6 +205,21 @@ function toMin(t){
   if(!t) return null
   var p = String(t).split(':')
   return parseInt(p[0])*60 + parseInt(p[1]||0)
+}
+
+function timeAgo(iso){
+  if(!iso) return ''
+  var mins = Math.max(0, Math.round((Date.now() - new Date(iso).getTime())/60000))
+  if(mins<1) return 'just now'
+  if(mins===1) return '1 min ago'
+  if(mins<60) return mins+' min ago'
+  return Math.round(mins/60)+' hr ago'
+}
+
+function daysUntil(dateStr){
+  var target = new Date(dateStr+'T00:00:00')
+  var today = new Date(); today.setHours(0,0,0,0)
+  return Math.round((target-today)/86400000)
 }
 
 var CALLED_OUT_STATUSES = ['absent','sick','late','leaving_early']
@@ -187,6 +246,26 @@ async function loadOverview(){
     logo.src = prod.portal_logo_url; logo.style.display = ''
   }
 
+  // ── Countdown pill ──
+  var pill = document.getElementById('countdown-pill')
+  if(res.countdown && res.countdown.date){
+    var d = daysUntil(res.countdown.date)
+    pill.style.display = 'inline-block'
+    pill.textContent = d<=0 ? (res.countdown.label+' is today!') : (d+' day'+(d!==1?'s':'')+' until '+res.countdown.label)
+  } else {
+    pill.style.display = 'none'
+  }
+
+  // ── Birthday banner ──
+  var bBanner = document.getElementById('birthday-banner')
+  var birthdays = res.birthdays || []
+  if(birthdays.length){
+    bBanner.style.display = 'flex'
+    bBanner.querySelector('span').textContent = 'Happy Birthday, '+birthdays.join(' & ')+'!'
+  } else {
+    bBanner.style.display = 'none'
+  }
+
   var events = res.events || []
   var nowMin = new Date().getHours()*60 + new Date().getMinutes()
 
@@ -197,19 +276,29 @@ async function loadOverview(){
     if(s!=null && nowMin>=s && (en==null || nowMin<=en)) current = e
     else if(s!=null && s>nowMin && (!next || s<toMin(next.start_time))) next = e
   })
+  _current = current
   var badge = document.getElementById('now-badge'), text = document.getElementById('now-text')
+  var noteEl = document.getElementById('now-note')
   if(current){
     badge.textContent = 'Happening Now'; badge.classList.remove('idle')
-    text.innerHTML = escH(current.name||current.event_type_name||'Event')+(current.location?' <span class="now-time">· '+escH(current.location)+'</span>':'')
+    text.innerHTML = escH(current.name||current.event_type_name||'Event')
+      + (current.location?' <span class="now-time">· '+escH(current.location)+'</span>':'')
+      + ' <span class="now-time" id="now-time-live"></span>'
+    updateNowTime(nowMin)
+    if(current.description){ noteEl.style.display=''; noteEl.textContent = current.description }
+    else noteEl.style.display = 'none'
   } else if(next){
     badge.textContent = 'Up Next'; badge.classList.add('idle')
     text.innerHTML = escH(next.name||next.event_type_name||'Event')+' <span class="now-time">· '+fmtTime(next.start_time)+'</span>'
+    if(next.description){ noteEl.style.display=''; noteEl.textContent = next.description }
+    else noteEl.style.display = 'none'
   } else {
     badge.textContent = 'Right Now'; badge.classList.add('idle')
     text.textContent = events.length ? "Nothing scheduled at this moment" : "Nothing on the schedule today"
+    noteEl.style.display = 'none'
   }
 
-  // ── Schedule rail ──
+  // ── Today's schedule ──
   var schedList = document.getElementById('sched-list')
   if(!events.length){
     schedList.innerHTML = '<div class="rail-empty">Nothing on the schedule for today.</div>'
@@ -225,9 +314,26 @@ async function loadOverview(){
     }).join('')
   }
 
+  // ── This week's schedule ──
+  var weekList = document.getElementById('week-list')
+  var weekEvents = res.week_events || []
+  if(!weekEvents.length){
+    weekList.innerHTML = '<div class="rail-empty">Nothing else scheduled this week.</div>'
+  } else {
+    weekList.innerHTML = weekEvents.map(function(e){
+      var d = new Date(e.event_date+'T12:00:00')
+      var wd = d.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})
+      return '<div class="week-item">'
+        + '<div class="wd">'+wd+(e.start_time?' · '+fmtTime(e.start_time):'')+'</div>'
+        + '<div class="wn">'+escH(e.name||e.event_type_name||'Event')+'</div>'
+        + '</div>'
+    }).join('')
+  }
+
   // ── Status board ──
   var summary = res.summary || {}
   document.getElementById('board').innerHTML = ''
+    + '<div id="arrivals-strip"><span class="al-label">Just Arrived</span><span class="al-items" id="arrivals-items"></span></div>'
     + '<div class="summary-row">'
     + '<div class="summary-pill"><div class="n" style="color:var(--signed-in)">'+(summary.signed_in||0)+'</div><div class="l">Signed In</div></div>'
     + '<div class="summary-pill"><div class="n" style="color:var(--not-yet)">'+(summary.not_yet||0)+'</div><div class="l">Not Yet Here</div></div>'
@@ -236,10 +342,24 @@ async function loadOverview(){
     + '</div>'
     + '<div class="columns" id="status-columns"></div>'
 
+  // ── Recent arrivals ticker ──
+  var recent = res.recent_signins || []
+  if(recent.length){
+    var strip = document.getElementById('arrivals-strip')
+    strip.style.display = 'flex'
+    document.getElementById('arrivals-items').innerHTML = recent.map(function(r){
+      return '<b>'+escH(r.name)+'</b> ('+timeAgo(r.at)+')'
+    }).join(' &nbsp;·&nbsp; ')
+  }
+
+  var birthdaySet = {}
+  birthdays.forEach(function(n){ birthdaySet[n] = true })
+
   var everyone = (res.youth||[]).map(function(y){
-      return {name:(y.first_name||'')+' '+(y.last_name||''), role:y.role||'Cast', status:y.status}
+      var full = (y.first_name||'')+' '+(y.last_name||'')
+      return {name:full.trim(), role:y.role||'Cast', status:y.status, bday: !!birthdaySet[full.trim()]}
     }).concat((res.crew||[]).map(function(c){
-      return {name:c.name, role:c.role||c.department||'Crew', status:c.status}
+      return {name:c.name, role:c.role||c.department||'Crew', status:c.status, bday: !!birthdaySet[c.name]}
     }))
 
   function bucketOf(status){
@@ -266,7 +386,7 @@ async function loadOverview(){
       + '<div class="status-col-body">'
       + (people.length ? people.map(function(p){
           var roleLine = p.role + (CALLED_OUT_STATUSES.indexOf(p.status)>=0 ? ' · '+(CALLED_OUT_LABELS[p.status]||p.status) : '')
-          return '<div class="person-chip">'+escH(p.name)+'<span class="role">'+escH(roleLine)+'</span></div>'
+          return '<div class="person-chip">'+escH(p.name)+(p.bday?' <span class="cake">— Birthday!</span>':'')+'<span class="role">'+escH(roleLine)+'</span></div>'
         }).join('') : '<div class="col-empty">Nobody here</div>')
       + '</div></div>'
   }).join('')
@@ -279,6 +399,7 @@ async function loadOverview(){
 
 loadOverview()
 setInterval(loadOverview, REFRESH_MS)
+tickClock()
 </script>
 </body>
 </html>

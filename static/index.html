@@ -28057,6 +28057,10 @@ function renderRentalsPage(){
          </div>
          ${approvalHtml}
          ${r.purpose?`<div style="font-size:12px;color:var(--text-muted);margin-top:4px;font-style:italic">${escHtml(r.purpose)}</div>`:''}
+         ${(r.partner_contact||r.partner_email||r.partner_phone)?`<div style="font-size:12px;color:var(--text-muted);margin-top:6px">Contact: ${[r.partner_contact,r.partner_email,r.partner_phone].filter(Boolean).map(escHtml).join(' · ')}</div>`:''}
+         ${(r.partner_org_type||r.partner_website)?`<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${[r.partner_org_type,r.partner_website].filter(Boolean).map(escHtml).join(' · ')}</div>`:''}
+         ${(()=>{ try{ const sd=JSON.parse(r.specific_dates||'[]'); return sd.length>1?`<div style="font-size:12px;color:var(--text-muted);margin-top:2px">Requested dates: ${sd.map(x=>x.date+(x.start_time?' ('+x.start_time+(x.end_time?'–'+x.end_time:'')+')':'')).join(', ')}</div>`:'' }catch(e){ return '' } })()}
+         ${r.notes?`<div style="font-size:12px;color:#374151;margin-top:6px;background:#f9fafb;border-radius:8px;padding:8px 12px"><strong style="color:var(--text-muted);font-size:10px;text-transform:uppercase;letter-spacing:0.4px;display:block;margin-bottom:2px">Additional Notes (from form)</strong>${escHtml(r.notes)}</div>`:''}
          ${r.agreement_id?`<div style="margin-top:8px;padding:8px 12px;background:${r.partner_signed_at?'#f0fdf4':'#f5f3ff'};border-radius:8px;border:1px solid ${r.partner_signed_at?'#86efac':'#c4b5fd'}">
           <div style="font-size:12px;font-weight:700;color:${r.partner_signed_at?'#166534':'#6d28d9'}">
            ${r.partner_signed_at?'Contract Signed':'Contract Generated — Awaiting Signature'}

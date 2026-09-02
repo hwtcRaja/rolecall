@@ -465,10 +465,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- MAINSTAGE -->
         <div class="nav-section">Mainstage</div>
         <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions<span class="nav-badge" id="prod-msg-unread-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('daily-overview',this)" style="padding-left:28px"><span class="nav-icon" id="ni-daily-overview"></span>Daily Overview</div>
-        <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-production-signin"></span>Cast Sign-In</div>
-        <div class="nav-item" onclick="navTo('show-contracts',this)" style="padding-left:28px"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
-        <div class="nav-item" onclick="navTo('licensing',this)" style="padding-left:28px"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
+
+        <!-- Cross-cutting tools — these work across every production type (Mainstage,
+        Rising Stars, Teen Show), not just Mainstage, so they get their own section
+        instead of implying they're Mainstage-only. -->
+        <div class="nav-section">Production Tools</div>
+        <div class="nav-item" onclick="navTo('daily-overview',this)"><span class="nav-icon" id="ni-daily-overview"></span>Daily Overview</div>
+        <div class="nav-item" onclick="navTo('production-signin',this)"><span class="nav-icon" id="ni-production-signin"></span>Cast Sign-In</div>
+        <div class="nav-item" onclick="navTo('show-contracts',this)"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
+        <div class="nav-item" onclick="navTo('licensing',this)"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
 
         <!-- INSTRUCTOR (restricted role) -->
         <div class="nav-section" id="nav-section-instructor" style="display:none">My Teaching</div>
@@ -478,7 +483,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Education &amp; Programming</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon" id="ni-youth"></span>Participants</div>
         <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-youth-programs-page"></span>Programs &amp; Classes<span class="nav-badge" id="msg-unread-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars-page"></span>Rising Stars</div>
+        <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars-page"></span>Youth Productions<span class="nav-badge" id="rs-msg-unread-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('step-up-holds',this)"><span class="nav-icon" id="ni-step-up-holds"></span>Step Up Holds<span class="nav-badge" id="step-up-pending-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin"></span>Participant Portal</div>
         <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin"></span>Participant Sign-In</div>
@@ -760,7 +765,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- Calendar legend -->
  <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
  <span style="font-size:11px;font-weight:600;color:var(--text-muted)">Legend:</span>
- <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(124,58,237,0.12);border:1px solid #5b21b6"></span>RS: Rising Stars</span>
+ <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(124,58,237,0.12);border:1px solid #5b21b6"></span>Youth: Rising Stars/Teen Show</span>
  <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(190,24,93,0.1);border:1px solid #9d174d"></span>Prod: Production</span>
  <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:rgba(21,128,61,0.1);border:1px solid #166534"></span>Class: Program/Class</span>
  <span style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--bg);border:1px solid var(--border)"></span>Standalone event</span>
@@ -1324,7 +1329,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <!-- RISING STARS PAGE -->
  <section class="page" id="page-rising-stars-page">
  <div class="page-header">
- <div><div class="page-title"> Rising Stars</div><div class="page-subtitle" id="rs-page-subtitle">Youth productions</div></div>
+ <div><div class="page-title"> Youth Productions</div><div class="page-subtitle" id="rs-page-subtitle">Rising Stars &amp; Teen Show productions</div></div>
  <div class="page-actions admin-only">
  <button class="btn btn-primary" onclick="openProductionModalForRS()">+ New Production</button>
  </div>
@@ -1332,6 +1337,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-body">
  <div class="search-bar" style="margin-bottom:20px">
  <div class="search-input-wrap"><span></span><input type="text" id="rs-search" placeholder="Search productions…" oninput="renderRisingStarsPage()"/></div>
+ <select class="filter-select" id="rs-filter-type" onchange="renderRisingStarsPage()">
+ <option value="">All Types</option>
+ <option value="rising_stars">Rising Stars</option>
+ <option value="teen_show">Teen Show</option>
+ </select>
  <select class="filter-select" id="rs-filter-status" onchange="renderRisingStarsPage()">
  <option value="">All Statuses</option>
  <option value="upcoming">Upcoming</option>
@@ -2626,7 +2636,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rising-stars-page">
  <span style="font-size:16px"></span>
  </div>
- <div style="flex:1;font-size:13px;font-weight:600">Rising Stars</div>
+ <div style="flex:1;font-size:13px;font-weight:600">Youth Productions</div>
  <div style="display:flex;align-items:center;gap:8px">
  <input type="text" id="ni-input-rising-stars-page" placeholder="star" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
@@ -3886,6 +3896,10 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="radio" name="prod-stage" id="prod-stage-rising" value="rising_stars" style="accent-color:var(--purple-600)" onchange="updateStageUI()"/>
  <div><div style="font-weight:600;font-size:14px"> Rising Stars</div><div style="font-size:11px;color:var(--text-muted)">Youth productions</div></div>
  </label>
+ <label style="flex:1;border:2.5px solid var(--border);border-radius:var(--radius);padding:12px 16px;cursor:pointer;transition:all 0.15s;display:flex;align-items:center;gap:10px" id="stage-teen-label">
+ <input type="radio" name="prod-stage" id="prod-stage-teen" value="teen_show" style="accent-color:var(--purple-600)" onchange="updateStageUI()"/>
+ <div><div style="font-weight:600;font-size:14px"> Teen Show</div><div style="font-size:11px;color:var(--text-muted)">Youth productions</div></div>
+ </label>
  </div>
  </div>
  <div class="form-row">
@@ -4555,7 +4569,7 @@ async function renderDashboard(){
  document.getElementById('stat-youth').textContent = d.total_youth
  document.getElementById('stat-waivers').textContent = d.expiring_waivers
  document.getElementById('stat-expired') && (document.getElementById('stat-expired').textContent = d.expired_waivers)
- const prodCount = allProductions.filter(p=>p.stage!=='rising_stars').length
+ const prodCount = allProductions.filter(p=>(p.stage!=='rising_stars'&&p.stage!=='teen_show')).length
  const statProd = document.getElementById('stat-productions')
  if(statProd) statProd.textContent = prodCount
  const statActions = document.getElementById('stat-actions')
@@ -4654,7 +4668,7 @@ async function renderDashboard(){
  if(activeProds.length){
  apHTML += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:12px;margin-bottom:8px">Productions</div>'
  apHTML += activeProds.map(p=>{
- const isRS = p.stage==='rising_stars'
+ const isRS = (p.stage==='rising_stars'||p.stage==='teen_show')
  const adultCount = p.members?.length||0
  const countSpan = isRS
  ? '<span id="dash-rs-count-'+p.id+'" style="font-size:11px;color:var(--text-muted)">loading…</span>'
@@ -4667,7 +4681,7 @@ async function renderDashboard(){
  }
  ap.innerHTML = apHTML || '<div style="font-size:13px;color:var(--text-muted)">No active programs or productions</div>'
  // Load RS youth enrolled counts asynchronously
- activeProds.filter(p=>p.stage==='rising_stars').forEach(p=>{
+ activeProds.filter(p=>(p.stage==='rising_stars'||p.stage==='teen_show')).forEach(p=>{
  api('/api/productions/'+p.id+'/youth-members').then(ym=>{
  const el = document.getElementById('dash-rs-count-'+p.id)
  if(el) el.textContent = (Array.isArray(ym)?ym.length:0)+' enrolled'
@@ -6463,11 +6477,11 @@ function renderEmailGroupOptions(){
  sel.innerHTML='<option value="">— Select —</option>'
 
  if(type==='production'){
- allProductions.filter(p=>p.stage!=='rising_stars').forEach(p=>{
+ allProductions.filter(p=>(p.stage!=='rising_stars'&&p.stage!=='teen_show')).forEach(p=>{
  sel.innerHTML+=`<option value="${p.id}">${p.name}</option>`
  })
  } else if(type==='rising_stars'){
- allProductions.filter(p=>p.stage==='rising_stars').forEach(p=>{
+ allProductions.filter(p=>(p.stage==='rising_stars'||p.stage==='teen_show')).forEach(p=>{
  sel.innerHTML+=`<option value="${p.id}">${p.name}</option>`
  })
  } else if(type==='program'){
@@ -6809,7 +6823,7 @@ function populateYouthFilters(){
  const sel=document.getElementById('youth-filter-program')
  if(!sel) return
  const activePrograms = allPrograms.filter(p=>p.status==='active'||p.status==='upcoming'||!p.status)
- const activeShows = (allProductions||[]).filter(p=>p.stage==='rising_stars' && (p.status==='active'||p.status==='upcoming'||!p.status))
+ const activeShows = (allProductions||[]).filter(p=>(p.stage==='rising_stars'||p.stage==='teen_show') && (p.status==='active'||p.status==='upcoming'||!p.status))
  sel.innerHTML='<option value="">All Programs</option>'
    + (activePrograms.length ? activePrograms.map(p=>`<option value="program:${p.id}">${escHtml(p.name)}</option>`).join('') : '')
    + (activeShows.length ? `<optgroup label="Rising Stars">` + activeShows.map(p=>`<option value="production:${p.id}">${escHtml(p.name)}</option>`).join('') + `</optgroup>` : '')
@@ -11984,14 +11998,16 @@ async function refreshUnreadMessageBadge(){
     if(!data || data.error) return
     _unreadByProgram = data.by_program || {}
     _unreadByProduction = data.by_production || {}
-    // Nav badges — programs and productions are counted and shown
-    // separately now (a thread belongs to one or the other, never both),
-    // so a production's unread messages show under Productions instead of
-    // getting silently folded into the Programs & Classes count.
+    // Nav badges — programs, mainstage productions, and Rising Stars
+    // productions are counted and shown separately now (a thread belongs
+    // to exactly one), so a Rising Stars production's unread messages
+    // show under Rising Stars instead of the mainstage Productions badge.
     var progBadge = document.getElementById('msg-unread-badge')
     if(progBadge){ var pt = data.program_total||0; progBadge.textContent = pt; progBadge.style.display = pt ? '' : 'none' }
     var prodBadge = document.getElementById('prod-msg-unread-badge')
-    if(prodBadge){ var pdt = data.production_total||0; prodBadge.textContent = pdt; prodBadge.style.display = pdt ? '' : 'none' }
+    if(prodBadge){ var pdt = data.mainstage_total||0; prodBadge.textContent = pdt; prodBadge.style.display = pdt ? '' : 'none' }
+    var rsBadge = document.getElementById('rs-msg-unread-badge')
+    if(rsBadge){ var rst = data.rising_stars_total||0; rsBadge.textContent = rst; rsBadge.style.display = rst ? '' : 'none' }
     // Messages tab button on currently open program detail
     var tabBtn = document.getElementById('pdtab-btn-messages')
     if(tabBtn && window._currentProgramDetailId){
@@ -12011,6 +12027,10 @@ async function refreshUnreadMessageBadge(){
     // Refresh production cards if visible, so unread badges show there too
     if(document.getElementById('productions-grid') && typeof renderProductions==='function'){
       renderProductions()
+    }
+    // Same for the Rising Stars page's own grid
+    if(document.getElementById('rising-stars-grid') && typeof renderRisingStarsPage==='function'){
+      renderRisingStarsPage()
     }
   }catch(e){}
 }
@@ -15809,8 +15829,8 @@ function populateDailyOverviewProductionSelect(){
  const sel = document.getElementById('daily-overview-production')
  if(!sel) return
  const current = sel.value
- const mainstage = allProductions.filter(p=>p.stage!=='rising_stars')
- const rs = allProductions.filter(p=>p.stage==='rising_stars')
+ const mainstage = allProductions.filter(p=>(p.stage!=='rising_stars'&&p.stage!=='teen_show'))
+ const rs = allProductions.filter(p=>(p.stage==='rising_stars'||p.stage==='teen_show'))
  sel.innerHTML = '<option value="">Select a production…</option>'
  + (mainstage.length ? '<optgroup label="Mainstage">'+mainstage.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')+'</optgroup>': '')
  + (rs.length ? '<optgroup label="Rising Stars">'+rs.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')+'</optgroup>': '')
@@ -15899,9 +15919,9 @@ function renderDailyOverviewHTML(data){
 function renderProductions(){
  const filter=document.getElementById('productions-filter-status')?.value||''
  // Mainstage page: show mainstage only. RS shown as reference cards below.
- const mainstage=allProductions.filter(p=>p.stage!=='rising_stars'&&(!filter||p.status===filter))
- const risingStars=allProductions.filter(p=>p.stage==='rising_stars'&&(!filter||p.status===filter))
- document.getElementById('productions-count-label').textContent=`${mainstage.length} mainstage production${mainstage.length!==1?'s':''}${risingStars.length?' · '+risingStars.length+' Rising Stars (read-only)':''}`
+ const mainstage=allProductions.filter(p=>(p.stage!=='rising_stars'&&p.stage!=='teen_show')&&(!filter||p.status===filter))
+ const risingStars=allProductions.filter(p=>(p.stage==='rising_stars'||p.stage==='teen_show')&&(!filter||p.status===filter))
+ document.getElementById('productions-count-label').textContent=`${mainstage.length} mainstage production${mainstage.length!==1?'s':''}${risingStars.length?' · '+risingStars.length+' Youth Productions (read-only)':''}`
  const grid=document.getElementById('productions-grid')
  const isAdmin=canEdit('productions')
 
@@ -15940,9 +15960,9 @@ function renderProductions(){
  if(risingStars.length){
  html+=`<div style="grid-column:1/-1;margin-top:${mainstage.length?'24px':'0'}">
  <div style="font-size:13px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;display:flex;align-items:center;gap:8px">
- Rising Stars Productions
+ Youth Productions
  <span style="font-size:11px;background:var(--purple-50);color:var(--purple-600);padding:2px 8px;border-radius:10px;font-weight:600">Managed under Education & Programming</span>
- <button class="btn btn-secondary btn-sm" onclick="navTo('rising-stars-page')">Go to Rising Stars →</button>
+ <button class="btn btn-secondary btn-sm" onclick="navTo('rising-stars-page')">Go to Youth Productions →</button>
  </div>
  </div>`
  html+=risingStars.map(p=>{
@@ -15987,7 +16007,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '</div>'
  s += '<hr class="divider"/>'
  s += '<div style="text-align:center;margin-bottom:16px">'
- s += '<div style="font-size:28px;font-weight:700;color:var(--teal-600)">'+members.length+'</div>'
+ s += '<div style="font-size:28px;font-weight:700;color:var(--teal-600)" id="prod-total-members-'+p.id+'">'+members.length+'</div>'
  s += '<div style="font-size:12px;color:var(--text-muted)">Total Members</div></div>'
  s += '<hr class="divider"/>'
  // Required waivers
@@ -16017,13 +16037,13 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  // Tab strip
  s += '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
  s += "<button id='prodtab-btn-members' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)' onclick='switchProductionTab(&quot;members&quot;)'>Cast &amp; Crew</button>"
- if(p.stage==='rising_stars') s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
+ if((p.stage==='rising_stars'||p.stage==='teen_show')) s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
  s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>Schedule &amp; Conflicts</button>"
  s += "<button id='prodtab-btn-waivers' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;waivers&quot;)'>Waivers</button>"
  s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>Info</button>"
  s += "<button id='prodtab-btn-messages' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;messages&quot;)'>Messages</button>"
     s += "<button id='prodtab-btn-tickets' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;tickets&quot;)'>Tickets</button>"
- if(p.stage==='rising_stars'){
+ if((p.stage==='rising_stars'||p.stage==='teen_show')){
    s += "<button id='prodtab-btn-auditions' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;auditions&quot;)'>Auditions</button>"
    s += "<button id='prodtab-btn-registrations' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;registrations&quot;)'>Registrations</button>"
  }
@@ -16049,7 +16069,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  mems.forEach(function(mem){
  var vol = volunteers.find(function(v){ return v.id===mem.volunteer_id })
  var bgcStatus = vol ? vol.background_check_status: 'none'
- var isYouthProd = p.stage==='rising_stars'
+ var isYouthProd = (p.stage==='rising_stars'||p.stage==='teen_show')
  s += '<div style="padding:10px 0;border-bottom:1px solid var(--border)">'
  s += '<div style="display:flex;align-items:center;gap:12px">'
  s += avatarHTML(mem.volunteer_name,36)
@@ -16078,7 +16098,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '</div>' // end members tab
 
  // Youth cast tab (RS only)
- if(p.stage==='rising_stars'){
+ if((p.stage==='rising_stars'||p.stage==='teen_show')){
  s += '<div id="prodtab-youth" class="card" style="padding:20px;display:none">'
  s += '<div id="cast-announcement-'+p.id+'" style="margin-bottom:20px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
  s += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">'
@@ -16170,7 +16190,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div id="prodtab-tickets" style="display:none"><div id="prod-tickets-inner-'+p.id+'"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>'
     s += '<div id="prodtab-portal" style="display:none"><div id="prodtab-portal-inner-'+p.id+'"></div></div>'
  s += '<div id="prodtab-auditions" style="display:none"><div id="prodtab-auditions-inner-'+p.id+'"></div></div>'
- if(p.stage==='rising_stars'){
+ if((p.stage==='rising_stars'||p.stage==='teen_show')){
    s += '<div id="prodtab-registrations" style="display:none"><div id="prodtab-registrations-inner-'+p.id+'"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div></div>'
  }
  s += '</div>' // end right column
@@ -16182,7 +16202,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
 let prodDetailFromPage = 'productions'
 function openProductionDetail(prodId, fromPage){
  currentProdId=prodId
- prodDetailFromPage = fromPage||(allProductions.find(p=>p.id===prodId)?.stage==='rising_stars'?'rising-stars-page':'productions')
+ prodDetailFromPage = fromPage||(['rising_stars','teen_show'].includes(allProductions.find(p=>p.id===prodId)?.stage)?'rising-stars-page':'productions')
  const p=allProductions.find(p=>p.id===prodId)
  if(!p) return
  const isAdmin=canEdit('productions')||canEdit('rising_stars')
@@ -16197,7 +16217,7 @@ function openProductionDetail(prodId, fromPage){
  <div class="page-subtitle">${PROD_TYPE_LABELS[p.production_type]||p.production_type} · <span style="color:${col}">${PROD_STATUS_LABELS[p.status]}</span></div>
  </div>
  </div>
- ${isAdmin?'<div class="page-actions"><button class="btn btn-secondary btn-sm" onclick="openEditProductionModal(\''+p.id+'\')">Edit Production</button>'+(p.stage==='rising_stars'?'<button class="btn btn-secondary btn-sm" onclick="openProductionRegistrationSettingsModal(\''+p.id+'\')">Registration Settings</button>':'')+(p.stage==='rising_stars'?'<button class="btn btn-secondary btn-sm" onclick="openProgramEmailModal(\''+p.id+'\')"> Email Cast</button>':'')+'<button class="btn btn-primary btn-sm" onclick="openAddMemberModal(\''+p.id+'\')">+ Add Member</button></div>':''}`
+ ${isAdmin?'<div class="page-actions"><button class="btn btn-secondary btn-sm" onclick="openEditProductionModal(\''+p.id+'\')">Edit Production</button>'+((p.stage==='rising_stars'||p.stage==='teen_show')?'<button class="btn btn-secondary btn-sm" onclick="openProductionRegistrationSettingsModal(\''+p.id+'\')">Registration Settings</button>':'')+((p.stage==='rising_stars'||p.stage==='teen_show')?'<button class="btn btn-secondary btn-sm" onclick="openProgramEmailModal(\''+p.id+'\')"> Email Cast</button>':'')+'<button class="btn btn-primary btn-sm" onclick="openAddMemberModal(\''+p.id+'\')">+ Add Member</button></div>':''}`
 
  // Group members by department
  const members=p.members||[]
@@ -16211,6 +16231,10 @@ function openProductionDetail(prodId, fromPage){
 
  document.getElementById('production-detail-content').innerHTML = buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColors, waiverTypes, canSeePortal)
  loadProductionWaiverStatus(p.id)
+ // "Total Members" starts as crew-only (the only count available
+ // synchronously) — for Rising Stars shows, add the youth cast once it
+ // loads so the total actually includes everyone instead of just crew.
+ if((p.stage==='rising_stars'||p.stage==='teen_show')) loadProductionDetailTotalMembers(p.id, members.length)
  bindHeadshotFileUpload('pinfo-imgfile-'+p.id, 'pinfo-imgurl-'+p.id, null, 'pinfo-imgstatus-'+p.id, function(){
  previewPortalColor(p.id, document.getElementById('pinfo-color-'+p.id)?.value)
  })
@@ -16222,13 +16246,13 @@ function openProductionDetail(prodId, fromPage){
  window._currentProductionDetailId = p.id
  if(canSeePortal){
  document.getElementById('prodtab-portal-inner-'+p.id).innerHTML = renderProductionPortalHTML(p.id,p.stage)
- if(p.stage==='rising_stars'){
+ if((p.stage==='rising_stars'||p.stage==='teen_show')){
  setTimeout(function(){ const btn=document.querySelector('#prodtab-portal-inner-'+p.id+'.portal-sub-btn[data-ptab="overview"]'); if(btn) btn.click() },50)
  }
  }
  navTo('production-detail')
  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
- if(p.stage==='rising_stars'){ setTimeout(()=>loadYouthProdMembers(p.id),100); setTimeout(()=>loadCastAnnouncementPanel(p.id),100) }
+ if((p.stage==='rising_stars'||p.stage==='teen_show')){ setTimeout(()=>loadYouthProdMembers(p.id),100); setTimeout(()=>loadCastAnnouncementPanel(p.id),100) }
 }
 
 function openProductionModal(){
@@ -16246,6 +16270,7 @@ function openProductionModal(){
  document.getElementById('prod-status').value='upcoming'
  document.getElementById('prod-stage-mainstage').checked=true
  document.getElementById('prod-stage-rising').checked=false
+ document.getElementById('prod-stage-teen').checked=false
  updateStageUI()
  const pdesel2=document.getElementById('prod-default-elic')
  if(pdesel2) pdesel2.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
@@ -16310,6 +16335,7 @@ function openEditProductionModal(pid){
  const stageVal=p.stage||'mainstage'
  document.getElementById('prod-stage-mainstage').checked=stageVal==='mainstage'
  document.getElementById('prod-stage-rising').checked=stageVal==='rising_stars'
+ document.getElementById('prod-stage-teen').checked=stageVal==='teen_show'
  updateStageUI()
  const epdesel2=document.getElementById('prod-default-elic')
  if(epdesel2){epdesel2.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');epdesel2.value=p.default_elic_id||''}
@@ -16775,7 +16801,7 @@ const PERM_SECTIONS = [
  {key:'hours', label:'Time Tracking', desc:'Hours, approvals, kiosk sessions'},
  {key:'email', label:'Email & Templates', desc:'Send emails & manage templates'},
  {key:'productions', label:'Productions', desc:'Cast, crew, production detail'},
- {key:'rising_stars', label:'Rising Stars', desc:'RS productions and portal content'},
+ {key:'rising_stars', label:'Youth Productions', desc:'Rising Stars & Teen Show productions and portal content'},
  {key:'youth', label:'Participants', desc:'Youth profiles & guardians'},
  {key:'programs', label:'Programs & Classes', desc:'Program enrollment & schedule'},
  {key:'portal_admin', label:'Portal Content', desc:'Announcements, files, team'},
@@ -18531,8 +18557,8 @@ function filterEvents(){
  if(filterType&&e.event_type_id!==filterType) return false
  if(filterStatus&&(e.status||'draft')!==filterStatus) return false
  if(filterCat){
- if(filterCat==='production'&&(!e.production_id||e.production_stage==='rising_stars')) return false
- if(filterCat==='rising_stars'&&e.production_stage!=='rising_stars') return false
+ if(filterCat==='production'&&(!e.production_id||e.production_stage==='rising_stars'||e.production_stage==='teen_show')) return false
+ if(filterCat==='rising_stars'&&e.production_stage!=='rising_stars'&&e.production_stage!=='teen_show') return false
  if(filterCat==='program'&&!e.program_id) return false
  if(filterCat==='standalone'&&(e.production_id||e.program_id)) return false
  }
@@ -18592,7 +18618,7 @@ function renderCalendar(events){
  // the same week don't look identical on the grid. Rising Stars gets a
  // small tag too, since its rehearsals otherwise look just like a
  // mainstage show's of the same event type.
- const showLabel = e.production_name ? e.production_name+(e.production_stage==='rising_stars'?' (RS)':'') : (e.program_name||'')
+ const showLabel = e.production_name ? e.production_name+(e.production_stage==='rising_stars'?' (RS)':e.production_stage==='teen_show'?' (Teen)':'') : (e.program_name||'')
  const chipText = showLabel ? `${showLabel}: ${e.name}` : e.name
  return`<div onclick="openEventChip('${e.id}')" title="${escHtml(e.name+calTimeStr+(e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:''))}${isCancelled?' [CANCELLED]':''}" style="background:${bg};color:${col};border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;margin-bottom:2px;cursor:pointer;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block;min-width:0;${isCancelled?'text-decoration:line-through;opacity:0.7;':''}">
  ${isCancelled?' ':''}${escHtml(chipText)}<span style="opacity:0.7;font-weight:400">${calTimeStr}</span>
@@ -18692,7 +18718,7 @@ function openEventDetail(eid){
  // Load async sections
  setTimeout(()=>{
  if(e.rsvp_enabled) loadEventRsvps(eid)
- if(e.stage==='rising_stars' || e.program_id) loadEventCarpools(eid)
+ if((e.stage==='rising_stars'||e.stage==='teen_show') || e.program_id) loadEventCarpools(eid)
  }, 100)
 }
 
@@ -20904,7 +20930,7 @@ function setYsiCategory(cat){
  evRow.style.display = 'none'
  } else if(cat === 'rising_stars'){
  if(label) label.textContent = 'Select Production'
- const rsProds = allProductions.filter(p=>p.stage==='rising_stars')
+ const rsProds = allProductions.filter(p=>(p.stage==='rising_stars'||p.stage==='teen_show'))
  sel.innerHTML = '<option value="">— Select Production —</option>' +
  rsProds.map(p=>`<option value="${p.id}">${p.name}</option>`).join('')
  evRow.style.display = 'none'
@@ -21345,19 +21371,24 @@ function exportProdSignInSheet(){
 
 function updateStageUI(){
  const isRising=document.getElementById('prod-stage-rising')?.checked
+ const isTeen=document.getElementById('prod-stage-teen')?.checked
+ const isYouth=isRising||isTeen
  const msLabel=document.getElementById('stage-mainstage-label')
  const rsLabel=document.getElementById('stage-rising-label')
- if(msLabel) msLabel.style.borderColor=isRising?'var(--border)':'var(--teal-400)'
- if(msLabel) msLabel.style.background=isRising?'':'var(--teal-light)'
+ const teenLabel=document.getElementById('stage-teen-label')
+ if(msLabel) msLabel.style.borderColor=isYouth?'var(--border)':'var(--teal-400)'
+ if(msLabel) msLabel.style.background=isYouth?'':'var(--teal-light)'
  if(rsLabel) rsLabel.style.borderColor=isRising?'var(--purple-400)':'var(--border)'
  if(rsLabel) rsLabel.style.background=isRising?'var(--purple-light)':''
+ if(teenLabel) teenLabel.style.borderColor=isTeen?'var(--purple-400)':'var(--border)'
+ if(teenLabel) teenLabel.style.background=isTeen?'var(--purple-light)':''
 }
 
 function renderRisingStars(){
  const section=document.getElementById('rising-stars-section')
  const grid=document.getElementById('rising-stars-grid')
  if(!section||!grid) return
- const risingProds=allProductions.filter(p=>p.stage==='rising_stars'&&p.status!=='cancelled')
+ const risingProds=allProductions.filter(p=>(p.stage==='rising_stars'||p.stage==='teen_show')&&p.status!=='cancelled')
  if(!risingProds.length){section.style.display='none';return}
  section.style.display='block'
  const[sbg,scol]=['#F3EEFF','#6D28D9']
@@ -21550,7 +21581,7 @@ function _renderGrouped(grid, filtered, isAdmin){
      +(cap?'<div style="display:flex;align-items:center;gap:6px;margin-top:3px">'
       +'<div style="width:80px;height:3px;background:#e5e7eb;border-radius:2px"><div style="height:100%;background:'+fc+';border-radius:2px;width:'+Math.min(pct||0,100)+'%"></div></div>'
       +'<span style="font-size:10px;color:var(--text-muted)">'+enrolled+'/'+cap+'</span>'
-      +(pct>=90?'<span style="font-size:10px;color:#d97706;font-weight:700">Almost Sold Out</span>':'')
+      +(pct>=100?'<span style="font-size:10px;color:#b91c1c;font-weight:700">Sold Out</span>':pct>=90?'<span style="font-size:10px;color:#d97706;font-weight:700">Almost Sold Out</span>':'')
       +'</div>':'')
      +'</div>'
      +'<div onclick="event.stopPropagation()">'+_progCardActions(p,isAdmin)+'</div>'
@@ -21612,7 +21643,7 @@ function _renderGrid(grid, filtered, isAdmin){
    +'<div style="font-size:12px;color:var(--text-muted);display:flex;flex-direction:column;gap:2px">'
    +(p.start_date?'<div>'+formatDate(p.start_date)+(p.end_date&&p.end_date!==p.start_date?' \u2192 '+formatDate(p.end_date):'')+'</div>':'')
    +(instructor?'<div>'+escHtml(instructor.name)+'</div>':'')+'</div>'
-   +(cap?'<div style="margin-top:8px"><div style="height:3px;background:#e5e7eb;border-radius:2px"><div style="height:100%;background:'+fc+';border-radius:2px;width:'+Math.min(pct||0,100)+'%"></div></div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">'+enrolled+'/'+cap+' enrolled'+(pct>=90?' \u00b7 <span style=\"color:#d97706;font-weight:700\">Almost Sold Out</span>':'')+'</div></div>':'')
+   +(cap?'<div style="margin-top:8px"><div style="height:3px;background:#e5e7eb;border-radius:2px"><div style="height:100%;background:'+fc+';border-radius:2px;width:'+Math.min(pct||0,100)+'%"></div></div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">'+enrolled+'/'+cap+' enrolled'+(pct>=100?' \u00b7 <span style=\"color:#b91c1c;font-weight:700\">Sold Out</span>':pct>=90?' \u00b7 <span style=\"color:#d97706;font-weight:700\">Almost Sold Out</span>':'')+'</div></div>':'')
    +'<div style="margin-top:8px">'+_progStatusBadge(p)+'</div>'
    +'</div></div>'
  })
@@ -22787,7 +22818,7 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
 
 // ── PRODUCTION PORTAL TAB ──
 function renderProductionPortalHTML(pid, stage){
- const isRS = stage==='rising_stars'
+ const isRS = stage==='rising_stars'||stage==='teen_show'
  return `
  <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px;overflow-x:auto;scrollbar-width:none">
  ${isRS?'<button class="portal-sub-btn" data-ptab="overview" onclick="switchProdPortalTab(\'overview\',this)">Overview</button>':''}
@@ -26201,7 +26232,7 @@ function updateEventBgcLock(){
 
  // Check if the selected production is Rising Stars
  const prod = allProductions.find(p=>p.id===prodId)
- const isYouthContext =!!progId || (prod && prod.stage==='rising_stars')
+ const isYouthContext =!!progId || (prod && (prod.stage==='rising_stars'||prod.stage==='teen_show'))
 
  const note = document.getElementById('bgcheck-auto-note')
  if(isYouthContext){
@@ -27123,11 +27154,13 @@ async function suhCharge(id, btn){
 function renderRisingStarsPage(){
  const search = document.getElementById('rs-search')?.value.toLowerCase()||''
  const filterStatus = document.getElementById('rs-filter-status')?.value||''
+ const filterType = document.getElementById('rs-filter-type')?.value||''
  const grid = document.getElementById('rs-page-grid')
  const isAdmin = canEdit('rising_stars') || canEdit('productions')
 
  let filtered = allProductions.filter(p=>{
- if(p.stage!=='rising_stars') return false
+ if(p.stage!=='rising_stars' && p.stage!=='teen_show') return false
+ if(filterType && p.stage!==filterType) return false
  if(search &&!p.name.toLowerCase().includes(search)) return false
  if(filterStatus && (p.status||'upcoming')!==filterStatus) return false
  return true
@@ -27139,7 +27172,7 @@ function renderRisingStarsPage(){
 
  if(!filtered.length){
  grid.innerHTML=`<div class="empty-state"><div class="empty-icon"></div>
- <p>No Rising Stars productions yet</p>
+ <p>No Youth Productions yet</p>
  ${isAdmin?'<button class="btn btn-primary" onclick="openProductionModalForRS()" style="margin-top:12px">+ New Production</button>':''}
  </div>`
  return
@@ -27169,10 +27202,10 @@ function renderRisingStarsPage(){
  <div style="padding:20px">
  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:12px">
  <div>
- <div style="font-size:17px;font-weight:700;margin-bottom:4px">${p.name}</div>
+ <div style="font-size:17px;font-weight:700;margin-bottom:4px">${p.name}${(_unreadByProduction&&_unreadByProduction[p.id])?`<span style="background:#e24b4a;color:#fff;padding:1px 6px;border-radius:20px;font-size:10px;font-weight:700;margin-left:6px;vertical-align:middle">${_unreadByProduction[p.id]} new</span>`:''}</div>
  <div style="display:flex;gap:6px;flex-wrap:wrap">
  <span style="background:${bg};color:${col};padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${PROD_STATUS_LABELS[p.status]||p.status}</span>
- <span style="background:var(--purple-50);color:var(--purple-600);padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">RS: Rising Stars</span>
+ <span style="background:var(--purple-50);color:var(--purple-600);padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">${p.stage==='teen_show'?'Teen Show':'Rising Stars'}</span>
  </div>
  </div>
  ${isAdmin?`<div style="display:flex;gap:4px;flex-shrink:0">
@@ -27228,11 +27261,19 @@ function renderRisingStarsPage(){
 
 async function loadRSYouthCount(prodId){
  const youthM = await api('/api/productions/'+prodId+'/youth-members')
- const prod = allProductions.find(p=>p.id===prodId)
  const youthCount = Array.isArray(youthM)?youthM.length:0
- const adultCount = prod?.members?.length||0
  const el = document.getElementById('rs-youth-count-'+prodId)
- if(el) el.textContent = youthCount+adultCount
+ // This box is specifically "Cast Members" — the adult crew count has its
+ // own separate box right next to it, so adding crew in here double-counts
+ // them under the cast label instead of showing the true cast size.
+ if(el) el.textContent = youthCount
+}
+
+async function loadProductionDetailTotalMembers(prodId, crewCount){
+ const youthM = await api('/api/productions/'+prodId+'/youth-members')
+ const youthCount = Array.isArray(youthM)?youthM.length:0
+ const el = document.getElementById('prod-total-members-'+prodId)
+ if(el) el.textContent = crewCount + youthCount
 }
 
 function openProductionModalForRS(){
@@ -27241,16 +27282,19 @@ function openProductionModalForRS(){
  const rBtn = document.getElementById('prod-stage-rising')
  const mBtn = document.getElementById('prod-stage-mainstage')
  if(rBtn){ rBtn.checked=true; if(mBtn) mBtn.checked=false; updateStageUI() }
- // Lock stage to Rising Stars - hide the selector
- const stageRow = document.getElementById('prod-stage-mainstage')?.closest('.form-group')
- if(stageRow) stageRow.style.display='none'
+ // Youth Productions covers both Rising Stars and Teen Show — hide just
+ // the Mainstage option (defaults to Rising Stars, but Teen Show is
+ // still pickable) rather than locking to one specific sub-type.
+ const msLabel = document.getElementById('stage-mainstage-label')
+ if(msLabel) msLabel.style.display='none'
  // Add a note
+ const stageRow = document.getElementById('prod-stage-mainstage')?.closest('.form-group')
  const existing = document.getElementById('rs-locked-note')
  if(!existing){
  const note = document.createElement('div')
  note.id = 'rs-locked-note'
  note.style.cssText='font-size:12px;background:var(--purple-50);color:var(--purple-600);padding:8px 12px;border-radius:8px;margin-bottom:12px;font-weight:500'
- note.textContent=' Creating a Rising Stars youth production'
+ note.textContent=' Creating a Youth Production — pick Rising Stars or Teen Show below'
  stageRow?.closest('.modal-body')?.insertBefore(note, stageRow?.closest('.modal-body')?.firstChild)
  }
  }, 50)
@@ -27258,8 +27302,8 @@ function openProductionModalForRS(){
 
 function closeRSProductionModal(){
  // Restore stage selector when modal closes normally
- const stageRow = document.getElementById('prod-stage-mainstage')?.closest('.form-group')
- if(stageRow) stageRow.style.display=''
+ const msLabel = document.getElementById('stage-mainstage-label')
+ if(msLabel) msLabel.style.display=''
  document.getElementById('rs-locked-note')?.remove()
  closeModal('modal-production')
 }
@@ -31294,7 +31338,7 @@ function renderMarqueeDashboardBody(el, data){
                 + '<td style="padding:7px 8px;color:var(--text-muted)">'+(sCap||'—')+'</td>'
                 + '<td style="padding:7px 8px">'
                 + (sPct!==null ? '<div style="display:flex;align-items:center;gap:6px"><div style="width:60px;height:4px;background:#e5e7eb;border-radius:2px"><div style="height:100%;background:'+sFillColor+';border-radius:2px;width:'+Math.min(sPct,100)+'%"></div></div>'
-                  + '<span style="font-size:11px;color:'+sFillColor+';font-weight:700">'+sPct+'%'+(sPct>=90?' Almost Sold Out!':'')+'</span></div>' : '—')
+                  + '<span style="font-size:11px;color:'+sFillColor+';font-weight:700">'+sPct+'%'+(sPct>=100?' Sold Out!':sPct>=90?' Almost Sold Out!':'')+'</span></div>' : '—')
                 + '</td>'
                 + '<td style="padding:7px 8px;font-weight:700;color:#166534">'+fmtMoney(sRev)+'</td>'
                 + '</tr>'
@@ -31402,7 +31446,7 @@ async function renderMarqueeCatalog(el){
   // Programs
   var progs = allPrograms.filter(function(p){ return p.registration_status && p.registration_status !== 'draft' })
   // RS Productions with registration enabled
-  var prods = allProductions.filter(function(p){ return p.stage==='rising_stars' && p.registration_status && p.registration_status !== 'draft' })
+  var prods = allProductions.filter(function(p){ return (p.stage==='rising_stars'||p.stage==='teen_show') && p.registration_status && p.registration_status !== 'draft' })
 
   function fmtDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return d } }
   var statusBadge = {
@@ -31454,10 +31498,10 @@ async function renderMarqueeCatalog(el){
 
   var html = ''
   if(!sortedProgs.length && !sortedProds.length){
-    html = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No items in catalog yet. Set a registration status on a program or Rising Stars production to add it here.</div>'
+    html = '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No items in catalog yet. Set a registration status on a program or Youth Production to add it here.</div>'
   } else {
     if(sortedProds.length){
-      html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Rising Stars Productions</div>'
+      html += '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:10px">Youth Productions</div>'
       html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;margin-bottom:20px">'
       sortedProds.forEach(function(p){ html += makeCard(p, 'production') })
       html += '</div>'
@@ -31923,7 +31967,7 @@ async function renderMarqueeDiscounts(el){
   }
 
   // ── Rising Stars production codes ──
-  var prods = allProductions.filter(function(p){ return p.stage==='rising_stars' && p.registration_status && p.registration_status !== 'draft' })
+  var prods = allProductions.filter(function(p){ return (p.stage==='rising_stars'||p.stage==='teen_show') && p.registration_status && p.registration_status !== 'draft' })
   if(prods.length){
     html += '<div style="font-size:13px;font-weight:700;color:#374151;margin:16px 0 10px">Rising Stars Codes</div>'
     for(var j=0;j<prods.length;j++){

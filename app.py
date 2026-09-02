@@ -5847,14 +5847,30 @@ def portal_unread_summary():
     err = require_auth()
     if err: return err
     conn = get_db()
-    total = (fetchone(conn, "SELECT COALESCE(SUM(unread_admin),0) AS t FROM portal_message_threads WHERE unread_admin>0") or {}).get('t', 0)
+    program_total = (fetchone(conn, "SELECT COALESCE(SUM(unread_admin),0) AS t FROM portal_message_threads WHERE unread_admin>0 AND program_id IS NOT NULL") or {}).get('t', 0)
+    production_total = (fetchone(conn, "SELECT COALESCE(SUM(unread_admin),0) AS t FROM portal_message_threads WHERE unread_admin>0 AND production_id IS NOT NULL") or {}).get('t', 0)
     by_program = fetchall(conn, """
         SELECT program_id, COALESCE(SUM(unread_admin),0) AS unread
         FROM portal_message_threads
         WHERE unread_admin>0 AND program_id IS NOT NULL
         GROUP BY program_id""")
+    by_production = fetchall(conn, """
+        SELECT production_id, COALESCE(SUM(unread_admin),0) AS unread
+        FROM portal_message_threads
+        WHERE unread_admin>0 AND production_id IS NOT NULL
+        GROUP BY production_id""")
     conn.close()
-    return jsonify({'total': int(total), 'by_program': {r['program_id']: int(r['unread']) for r in (by_program or [])}})
+    # 'total' kept for backward compatibility (any old caller expecting a
+    # single combined number) — program_total/production_total are the
+    # correct split for badging each section separately, since a thread
+    # belongs to exactly one or the other, never both.
+    return jsonify({
+        'total': int(program_total) + int(production_total),
+        'program_total': int(program_total),
+        'production_total': int(production_total),
+        'by_program': {r['program_id']: int(r['unread']) for r in (by_program or [])},
+        'by_production': {r['production_id']: int(r['unread']) for r in (by_production or [])},
+    })
 
 
 @app.route('/api/portal/messages/threads')

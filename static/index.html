@@ -464,7 +464,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
         <!-- MAINSTAGE -->
         <div class="nav-section">Mainstage</div>
-        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions</div>
+        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions<span class="nav-badge" id="prod-msg-unread-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('daily-overview',this)" style="padding-left:28px"><span class="nav-icon" id="ni-daily-overview"></span>Daily Overview</div>
         <div class="nav-item" onclick="navTo('production-signin',this)" style="padding-left:28px"><span class="nav-icon" id="ni-production-signin"></span>Cast Sign-In</div>
         <div class="nav-item" onclick="navTo('show-contracts',this)" style="padding-left:28px"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
@@ -6675,7 +6675,7 @@ function showEmailFailedModal(failedList, subject, body){
  const overlay = document.createElement('div')
  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
  overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:520px;padding:24px;max-height:80vh;overflow-y:auto">
-  <div style="font-size:16px;font-weight:800;color:#991b1b;margin-bottom:4px">&#x26a0; ${failedList.length} Email${failedList.length!==1?'s':''} Failed to Send</div>
+  <div style="font-size:16px;font-weight:800;color:#991b1b;margin-bottom:4px">${failedList.length} Email${failedList.length!==1?'s':''} Failed to Send</div>
   <div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Click "Retry" to resend individually, or fix the issue and try again.</div>
   <div style="display:flex;flex-direction:column;gap:8px">
   ${failedList.map(function(f,i){
@@ -6725,7 +6725,7 @@ async function loadEmailLog(){
   return
  }
  const failedCount = rows.filter(function(r){ return r.status==='failed' }).length
- el.innerHTML = (failedCount>0?'<div style="padding:10px 20px;background:#fef2f2;border-bottom:1px solid #fecaca;font-size:13px;color:#991b1b;font-weight:600">&#x26a0; '+failedCount+' failed email'+(failedCount!==1?'s':'')+' — click Retry to resend</div>':'')
+ el.innerHTML = (failedCount>0?'<div style="padding:10px 20px;background:#fef2f2;border-bottom:1px solid #fecaca;font-size:13px;color:#991b1b;font-weight:600">'+failedCount+' failed email'+(failedCount!==1?'s':'')+' — click Retry to resend</div>':'')
   + '<table style="width:100%;border-collapse:collapse;font-size:12px">'
   + '<thead><tr style="border-bottom:1px solid var(--border);background:var(--bg);position:sticky;top:0;z-index:1">'
   + '<th style="text-align:left;padding:8px 14px;color:var(--text-muted);font-size:11px;text-transform:uppercase">To</th>'
@@ -11976,25 +11976,41 @@ function openEmailTemplateEditor(tid){
 // ═══════════════════════════════════════════════════════════════
 
 var _unreadByProgram = {}
+var _unreadByProduction = {}
 
 async function refreshUnreadMessageBadge(){
   try{
     var data = await api('/api/portal/messages/unread-summary')
     if(!data || data.error) return
-    var total = data.total || 0
     _unreadByProgram = data.by_program || {}
-    // Nav badge
-    var badge = document.getElementById('msg-unread-badge')
-    if(badge){ badge.textContent = total; badge.style.display = total ? '' : 'none' }
+    _unreadByProduction = data.by_production || {}
+    // Nav badges — programs and productions are counted and shown
+    // separately now (a thread belongs to one or the other, never both),
+    // so a production's unread messages show under Productions instead of
+    // getting silently folded into the Programs & Classes count.
+    var progBadge = document.getElementById('msg-unread-badge')
+    if(progBadge){ var pt = data.program_total||0; progBadge.textContent = pt; progBadge.style.display = pt ? '' : 'none' }
+    var prodBadge = document.getElementById('prod-msg-unread-badge')
+    if(prodBadge){ var pdt = data.production_total||0; prodBadge.textContent = pdt; prodBadge.style.display = pdt ? '' : 'none' }
     // Messages tab button on currently open program detail
     var tabBtn = document.getElementById('pdtab-btn-messages')
     if(tabBtn && window._currentProgramDetailId){
       var pUnread = _unreadByProgram[window._currentProgramDetailId] || 0
       tabBtn.innerHTML = 'Messages' + (pUnread ? ' <span style="background:#e24b4a;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px">'+pUnread+'</span>' : '')
     }
+    // Same for a currently open production detail, if it has a Messages tab
+    var prodTabBtn = document.getElementById('prodtab-btn-messages')
+    if(prodTabBtn && window._currentProductionDetailId){
+      var pdUnread = _unreadByProduction[window._currentProductionDetailId] || 0
+      prodTabBtn.innerHTML = 'Messages' + (pdUnread ? ' <span style="background:#e24b4a;color:#fff;font-size:10px;font-weight:700;padding:1px 6px;border-radius:20px;margin-left:4px">'+pdUnread+'</span>' : '')
+    }
     // Refresh program cards if visible
     if(document.getElementById('youth-programs-grid') && typeof renderYouthProgramsPage==='function'){
       renderYouthProgramsPage()
+    }
+    // Refresh production cards if visible, so unread badges show there too
+    if(document.getElementById('productions-grid') && typeof renderProductions==='function'){
+      renderProductions()
     }
   }catch(e){}
 }
@@ -15903,7 +15919,7 @@ function renderProductions(){
  ${p.image_url?`<div style="height:140px;overflow:hidden;background:#1a1a2e"><img src="${p.image_url}" style="width:100%;height:100%;object-fit:cover;display:block" onerror="this.parentElement.style.height='4px';this.style.display='none'"/></div>`:`<div style="height:4px;background:${col}"></div>`}
  <div style="padding:20px 20px 16px;border-bottom:1px solid var(--border)">
  <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px">
- <div style="font-size:16px;font-weight:600">${p.name}</div>
+ <div style="font-size:16px;font-weight:600">${p.name}${(_unreadByProduction&&_unreadByProduction[p.id])?`<span style="background:#e24b4a;color:#fff;padding:1px 6px;border-radius:20px;font-size:10px;font-weight:700;margin-left:6px;vertical-align:middle">${_unreadByProduction[p.id]} new</span>`:''}</div>
  <span style="background:${bg};color:${col};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap">${PROD_STATUS_LABELS[p.status]||p.status}</span>
  </div>
  <div style="font-size:12px;color:var(--text-muted);margin-bottom:4px">${PROD_TYPE_LABELS[p.production_type]||p.production_type}${p.start_date?' · '+formatDate(p.start_date):''}${p.end_date?' → '+formatDate(p.end_date):''}</div>
@@ -16005,7 +16021,8 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>Schedule &amp; Conflicts</button>"
  s += "<button id='prodtab-btn-waivers' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;waivers&quot;)'>Waivers</button>"
  s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>Info</button>"
-    s += "<button id='prodtab-btn-tickets' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;tickets&quot;)'>&#127903; Tickets</button>"
+ s += "<button id='prodtab-btn-messages' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;messages&quot;)'>Messages</button>"
+    s += "<button id='prodtab-btn-tickets' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;tickets&quot;)'>Tickets</button>"
  if(p.stage==='rising_stars'){
    s += "<button id='prodtab-btn-auditions' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;auditions&quot;)'>Auditions</button>"
    s += "<button id='prodtab-btn-registrations' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;registrations&quot;)'>Registrations</button>"
@@ -16140,6 +16157,15 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<button class="btn btn-primary btn-sm" onclick="saveProductionInfo(\''+p.id+'\')">Save Info</button>'
  s += '<span id="pinfo-saved-'+p.id+'" style="font-size:12px;color:var(--green);margin-left:10px"></span>'
  s += '</div>'
+ // Messages tab — family conversations started from the parent portal about this production
+ s += '<div id="prodtab-messages" style="display:none"><div class="card" style="padding:20px">'
+   + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+   + '<div><div style="font-size:15px;font-weight:700">Family Messages</div>'
+   + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">Conversations started by families from the parent portal</div></div>'
+   + '<button class="btn btn-secondary btn-sm" onclick="loadPortalMessages(null,\''+p.id+'\',\'prod-messages-current\')">\u21bb Refresh</button>'
+   + '</div>'
+   + '<div id="prod-messages-current"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading\u2026</div></div>'
+   + '</div></div>'
  // Portal content tab
  s += '<div id="prodtab-tickets" style="display:none"><div id="prod-tickets-inner-'+p.id+'"><div style="padding:20px;color:var(--text-muted)">Loading\u2026</div></div></div>'
     s += '<div id="prodtab-portal" style="display:none"><div id="prodtab-portal-inner-'+p.id+'"></div></div>'
@@ -23137,7 +23163,7 @@ function openProductionRegistrationSettingsModal(pid){
 
 function switchProductionTab(tab){
  const pid = window._currentProductionDetailId
- const tabs = ['members','youth','schedule','waivers','info','portal','auditions','registrations','tickets']
+ const tabs = ['members','youth','schedule','waivers','info','messages','portal','auditions','registrations','tickets']
  tabs.forEach(t=>{
  const el = document.getElementById('prodtab-'+t)
  if(el) el.style.display = t===tab?'':'none'
@@ -23147,6 +23173,7 @@ function switchProductionTab(tab){
  if(tab==='portal') loadProductionPortalContent(pid)
  if(tab==='youth' && pid){ loadYouthProdMembers(pid); loadCastAnnouncementPanel(pid) }
  if(tab==='waivers' && pid) loadProductionWaiverStatus(pid)
+ if(tab==='messages' && pid) loadPortalMessages(null, pid, 'prod-messages-current')
  if(tab==='auditions' && pid){
  const inner = document.getElementById('prodtab-auditions-inner-'+pid)
  if(inner &&!inner.dataset.loaded){
@@ -27964,7 +27991,7 @@ function renderRentalsPage(){
           const approvedEntry = history.find(function(h){ return h.level === i+1 })
           const bg = done ? '#dcfce7' : current ? '#fef3c7' : '#f3f4f6'
           const col = done ? '#166534' : current ? '#92400e' : '#9ca3af'
-          const icon = done ? '&#10003;' : current ? '&#8987;' : '&#9679;'
+          const icon = done ? '&#10003;' : current ? '&#9673;' : '&#9679;'
           approvalHtml += `<div style="display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;background:${bg};font-size:11px;font-weight:700;color:${col}">
             <span>${icon}</span>
             <span>L${i+1}: ${escHtml(lv.label||'Level '+(i+1))}</span>

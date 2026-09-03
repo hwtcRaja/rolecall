@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Audition Submission</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#f7f7f5;color:#1c1917;line-height:1.5}
+.wrap{max-width:640px;margin:0 auto;padding:0 20px 60px}
+header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px 24px;text-align:center;margin-bottom:-1px}
+header img{height:44px;margin-bottom:14px}
+header h1{color:#fff;font-size:24px;font-weight:800}
+header .sub{color:rgba(255,255,255,0.75);font-size:14px;margin-top:6px}
+.card{background:#fff;border:1px solid #e7e2d9;border-radius:14px;padding:24px;margin-top:20px}
+.card h2{font-size:15px;font-weight:700;color:#145466;margin-bottom:10px}
+.desc-box{font-size:13.5px;background:#f0f8fa;border-radius:10px;padding:14px 16px;line-height:1.65;margin-bottom:12px;white-space:pre-wrap}
+.meta-row{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:#57534e;margin-bottom:4px}
+.material-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f7f7f5;border-radius:8px;margin-bottom:6px;font-size:13.5px}
+.material-item a{color:#145466;font-weight:600;text-decoration:none}
+.form-group{margin-bottom:16px}
+label{display:block;font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#78716c;margin-bottom:6px}
+input[type=text],input[type=email],input[type=url],textarea,select{
+  width:100%;padding:11px 13px;border:1.5px solid #d6d3ce;border-radius:9px;font-family:inherit;font-size:14px;outline:none;background:#fff
+}
+input:focus,textarea:focus,select:focus{border-color:#145466}
+textarea{resize:vertical}
+.hint{font-size:11.5px;color:#a8a29e;margin-top:4px}
+.role-grid{display:flex;flex-direction:column;gap:8px;padding:12px 14px;border:1.5px solid #d6d3ce;border-radius:9px;background:#faf9f7}
+.role-grid label{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:500;text-transform:none;letter-spacing:0;color:#1c1917;cursor:pointer}
+.role-grid input[type=checkbox]{width:16px;height:16px;accent-color:#145466}
+.toggle-row{display:flex;gap:8px;margin-bottom:10px}
+.toggle-btn{flex:1;padding:9px;border:1.5px solid #d6d3ce;border-radius:8px;background:#fff;font-size:12.5px;font-weight:700;cursor:pointer;text-align:center;color:#57534e}
+.toggle-btn.active{border-color:#145466;background:#f0f8fa;color:#145466}
+.file-drop{border:1.5px dashed #d6d3ce;border-radius:9px;padding:14px;text-align:center;font-size:12.5px;color:#78716c;cursor:pointer;background:#faf9f7}
+.file-drop.has-file{border-color:#16a34a;color:#166534;background:#f0fdf4;font-weight:600}
+.crew-toggle{display:flex;align-items:center;gap:10px;padding:14px;background:#faf9f7;border-radius:10px;cursor:pointer;margin-bottom:14px}
+.crew-toggle input{width:17px;height:17px;accent-color:#7c3aed}
+.slot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:4px}
+.slot-btn{padding:10px 8px;border:1.5px solid #d6d3ce;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;text-align:center;background:#fff}
+.slot-btn.selected{border-color:#145466;background:#145466;color:#fff}
+.slot-btn.full{opacity:0.4;cursor:not-allowed;text-decoration:line-through}
+.btn-primary{width:100%;padding:14px;background:#145466;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn-primary:disabled{opacity:0.6;cursor:default}
+.status-msg{font-size:13px;margin-top:10px;text-align:center}
+.status-msg.error{color:#dc2626}
+.status-msg.success{color:#166534}
+.empty-msg{text-align:center;color:#a8a29e;padding:60px 20px;font-size:15px}
+.confirm-box{text-align:center;padding:40px 24px}
+.confirm-box .check{width:56px;height:56px;border-radius:50%;background:#dcfce7;color:#16a34a;font-size:28px;font-weight:800;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.confirm-box h2{font-size:19px;margin-bottom:8px;color:#145466}
+.confirm-box p{font-size:14px;color:#57534e}
+</style>
+</head>
+<body>
+<div id="app">
+  <header><div class="empty-msg" style="color:rgba(255,255,255,0.7)">Loading…</div></header>
+</div>
+
+<script>
+var pathParts = window.location.pathname.split('/').filter(Boolean)
+var CONTEXT_TYPE = pathParts[1]
+var CONTEXT_ID = pathParts[2]
+var SETTINGS = null
+var SELECTED_SLOT = null
+var UPLOADED = { resume: null, headshot: null, video_clip: null }
+
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+async function boot(){
+  var res
+  try{
+    res = await fetch(`/api/auditions/settings/${CONTEXT_TYPE}/${CONTEXT_ID}`)
+    res = await res.json()
+  } catch(e){
+    renderError("Couldn't load this audition page.")
+    return
+  }
+  if(res.error || !res.is_open){
+    renderError(res.is_open===false ? "Auditions aren't currently open." : (res.error || 'Not found.'))
+    return
+  }
+  SETTINGS = res
+  render()
+}
+
+function renderError(msg){
+  document.getElementById('app').innerHTML = `
+    <header>
+      <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC"/>
+      <h1>Auditions</h1>
+    </header>
+    <div class="wrap"><div class="card"><div class="empty-msg">${escH(msg)}</div></div></div>`
+}
+
+function render(){
+  var s = SETTINGS
+  var html = `
+    <header>
+      <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC"/>
+      <h1>${escH(s.title||'Auditions')}</h1>
+      <div class="sub">Horizon West Theater Company</div>
+    </header>
+    <div class="wrap">`
+
+  // Info card
+  html += '<div class="card">'
+  var metaBits = []
+  if(s.audition_date) metaBits.push('<strong> Date:</strong> '+escH(s.audition_date)+(s.audition_time?' at '+escH(s.audition_time):''))
+  if(s.location) metaBits.push('<strong>Where:</strong> '+escH(s.location))
+  if(metaBits.length) html += '<div class="meta-row">'+metaBits.join(' &nbsp;·&nbsp; ')+'</div>'
+  if(s.description) html += '<div class="desc-box">'+escH(s.description)+'</div>'
+  if(s.instructions) html += '<div style="font-size:13px;color:#57534e;margin-top:8px">'+escH(s.instructions)+'</div>'
+  html += '</div>'
+
+  // Materials
+  if((s.materials||[]).length){
+    html += '<div class="card"><h2>Audition Materials</h2>'
+    html += s.materials.map(m=>`<div class="material-item"><a href="${m.file_url}" target="_blank">${escH(m.filename)}</a>${m.description?'<span style="color:#78716c">'+escH(m.description)+'</span>':''}</div>`).join('')
+    html += '</div>'
+  }
+
+  // Slots
+  if(s.allow_slots && (s.slots||[]).length){
+    html += '<div class="card"><h2>Pick a Time</h2><div class="slot-grid" id="slot-grid">'
+    html += s.slots.map(sl=>{
+      var full = (sl.booked_count||0) >= (sl.capacity||1)
+      return `<div class="slot-btn${full?' full':''}" data-slot="${sl.id}" onclick="${full?'':'selectSlot(this.dataset.slot)'}">${escH(sl.slot_date)}<br>${escH(sl.start_time)}</div>`
+    }).join('')
+    html += '</div><div class="hint">Choose an in-person slot, or skip this to submit a virtual audition below.</div></div>'
+  }
+
+  // Main form
+  html += '<div class="card"><h2>Submit Your Audition</h2><div style="display:flex;flex-direction:column">'
+  html += `
+    <div class="form-group"><label>Your Name *</label><input type="text" id="f-name"/></div>
+    <div class="form-group"><label>Email (for confirmation)</label><input type="email" id="f-email"/></div>`
+
+  // Roles
+  if((s.roles||[]).length){
+    html += '<div class="form-group"><label>Roles Interested In</label><div class="role-grid">'
+    html += s.roles.map(r=>`<label><input type="checkbox" class="role-cb" value="${escH(r)}"/> ${escH(r)}</label>`).join('')
+    html += '<label><input type="checkbox" class="role-cb" value="Other / Not sure yet"/> Other / Not sure yet</label></div></div>'
+  } else {
+    html += '<div class="form-group"><label>Roles Interested In</label><input type="text" id="f-role-text" placeholder="e.g. Lead, Ensemble"/></div>'
+  }
+
+  // Video
+  if(s.allow_video_link!==false){
+    html += `<div class="form-group"><label>Audition Video</label>
+      <div class="toggle-row">
+        <div class="toggle-btn active" id="vid-tab-clip" onclick="setVidMode('clip')">Upload a Short Clip</div>
+        <div class="toggle-btn" id="vid-tab-link" onclick="setVidMode('link')">Link to Full Video</div>
+      </div>
+      <div id="vid-clip-area"><input type="file" id="f-video-file" accept=".mp4,.mov,.webm" style="display:none" onchange="handleFileUpload('video_clip', this)"/>
+        <div class="file-drop" id="drop-video_clip" onclick="document.getElementById('f-video-file').click()">Click to upload a short clip (MP4/MOV/WEBM, up to 15MB)</div>
+        <div class="hint">For a longer performance, use "Link to Full Video" instead.</div></div>
+      <div id="vid-link-area" style="display:none"><input type="url" id="f-video-link" placeholder="YouTube, Google Drive, Vimeo…"/></div>
+    </div>`
+  }
+
+  // Resume
+  if(s.allow_resume_link!==false){
+    html += `<div class="form-group"><label>Resume</label>
+      <input type="file" id="f-resume-file" accept=".pdf,.doc,.docx" style="display:none" onchange="handleFileUpload('resume', this)"/>
+      <div class="file-drop" id="drop-resume" onclick="document.getElementById('f-resume-file').click()">Click to upload (PDF or Word doc)</div>
+      <div class="hint">Or paste a link instead:</div>
+      <input type="url" id="f-resume-link" placeholder="Google Drive or Dropbox link" style="margin-top:6px"/>
+    </div>`
+  }
+
+  // Headshot
+  if(s.allow_headshot_link!==false){
+    html += `<div class="form-group"><label>Headshot</label>
+      <input type="file" id="f-headshot-file" accept=".png,.jpg,.jpeg" style="display:none" onchange="handleFileUpload('headshot', this)"/>
+      <div class="file-drop" id="drop-headshot" onclick="document.getElementById('f-headshot-file').click()">Click to upload (PNG or JPG)</div>
+      <div class="hint">Or paste a link instead:</div>
+      <input type="url" id="f-headshot-link" placeholder="Google Drive or Dropbox link" style="margin-top:6px"/>
+    </div>`
+  }
+
+  html += '<div class="form-group"><label>Anything Else?</label><textarea id="f-notes" rows="3" placeholder="Conflicts, questions, anything we should know…"></textarea></div>'
+  html += '</div></div>'
+
+  // Crew/tech section
+  if(s.allow_crew_interest!==false){
+    html += `<div class="card">
+      <label class="crew-toggle">
+        <input type="checkbox" id="f-crew-interest" onchange="document.getElementById('crew-fields').style.display=this.checked?'':'none'"/>
+        <span><strong>I'm also interested in Crew / Tech</strong><br><span style="font-weight:400;color:#78716c;font-size:12.5px">Stage management, costumes, sets, lighting, sound, and more.</span></span>
+      </label>
+      <div id="crew-fields" style="display:none">
+        ${s.crew_instructions?'<div class="desc-box">'+escH(s.crew_instructions)+'</div>':''}
+        ${(s.crew_roles||[]).length?`<div class="form-group"><label>Crew / Tech Areas</label><div class="role-grid">`+
+          s.crew_roles.map(r=>`<label><input type="checkbox" class="crew-role-cb" value="${escH(r)}"/> ${escH(r)}</label>`).join('')+
+          `</div></div>`:''}
+        <div class="form-group"><label>Relevant Skills / Experience</label><textarea id="f-crew-exp" rows="3" placeholder="Anything you'd like us to know — prior experience is not required."></textarea></div>
+      </div>
+    </div>`
+  }
+
+  html += `<div class="card">
+    <button class="btn-primary" id="submit-btn" onclick="submitAudition()">Submit Audition</button>
+    <div class="status-msg" id="submit-status"></div>
+  </div></div>`
+
+  document.getElementById('app').innerHTML = html
+}
+
+function selectSlot(id){
+  SELECTED_SLOT = id
+  document.querySelectorAll('.slot-btn').forEach(el=>{
+    el.classList.toggle('selected', el.dataset.slot===id)
+  })
+}
+
+function setVidMode(mode){
+  document.getElementById('vid-tab-clip').classList.toggle('active', mode==='clip')
+  document.getElementById('vid-tab-link').classList.toggle('active', mode==='link')
+  document.getElementById('vid-clip-area').style.display = mode==='clip' ? '' : 'none'
+  document.getElementById('vid-link-area').style.display = mode==='link' ? '' : 'none'
+}
+
+async function handleFileUpload(kind, inputEl){
+  var file = inputEl.files?.[0]
+  if(!file) return
+  var dropEl = document.getElementById('drop-'+kind)
+  var originalText = dropEl.textContent
+  dropEl.textContent = 'Uploading…'
+  var fd = new FormData()
+  fd.append('file', file)
+  fd.append('kind', kind)
+  try{
+    var res = await fetch('/api/auditions/submit-file', {method:'POST', body: fd})
+    var d = await res.json()
+    if(!d.ok){
+      dropEl.textContent = originalText
+      alert(d.error || 'Upload failed')
+      inputEl.value = ''
+      return
+    }
+    UPLOADED[kind] = d.url
+    dropEl.textContent = ' ' + d.filename
+    dropEl.classList.add('has-file')
+  } catch(e){
+    dropEl.textContent = originalText
+    alert('Upload failed')
+  }
+}
+
+async function submitAudition(){
+  var statusEl = document.getElementById('submit-status')
+  var name = document.getElementById('f-name')?.value.trim()
+  if(!name){ statusEl.textContent = 'Please enter your name.'; statusEl.className = 'status-msg error'; return }
+
+  var rolesRequested = Array.from(document.querySelectorAll('.role-cb:checked')).map(el=>el.value)
+  var roleText = document.getElementById('f-role-text')?.value.trim()
+  if(roleText) rolesRequested = [roleText]
+
+  var crewInterest = !!document.getElementById('f-crew-interest')?.checked
+  var crewRoles = Array.from(document.querySelectorAll('.crew-role-cb:checked')).map(el=>el.value)
+
+  var payload = {
+    context_type: CONTEXT_TYPE, context_id: CONTEXT_ID,
+    submitter_name: name,
+    submitter_email: document.getElementById('f-email')?.value.trim()||null,
+    roles_requested: rolesRequested,
+    video_url: document.getElementById('f-video-link')?.value.trim()||null,
+    video_clip_url: UPLOADED.video_clip,
+    resume_url: document.getElementById('f-resume-link')?.value.trim()||null,
+    resume_file_url: UPLOADED.resume,
+    headshot_url: document.getElementById('f-headshot-link')?.value.trim()||null,
+    headshot_file_url: UPLOADED.headshot,
+    notes: document.getElementById('f-notes')?.value.trim()||null,
+    slot_id: SELECTED_SLOT,
+    audition_type: SELECTED_SLOT ? 'in_person' : 'virtual',
+    crew_interest: crewInterest,
+    crew_roles_requested: crewRoles,
+    crew_experience: document.getElementById('f-crew-exp')?.value.trim()||null,
+  }
+
+  var btn = document.getElementById('submit-btn')
+  btn.disabled = true; btn.textContent = 'Submitting…'
+  statusEl.textContent = ''
+
+  try{
+    var res = await fetch('/api/auditions/submit', {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    })
+    var d = await res.json()
+    if(!d.ok){
+      statusEl.textContent = d.error || 'Something went wrong — please try again.'
+      statusEl.className = 'status-msg error'
+      btn.disabled = false; btn.textContent = 'Submit Audition'
+      return
+    }
+    document.getElementById('app').innerHTML = `
+      <header>
+        <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC"/>
+        <h1>${escH(SETTINGS.title||'Auditions')}</h1>
+      </header>
+      <div class="wrap"><div class="card confirm-box">
+        <div class="check">✓</div>
+        <h2>You're all set!</h2>
+        <p>Thanks, ${escH(name)} — we've received your audition submission.${document.getElementById('f-email')?.value.trim()?" We'll be in touch by email.":''}</p>
+      </div></div>`
+  } catch(e){
+    statusEl.textContent = 'Something went wrong — please try again.'
+    statusEl.className = 'status-msg error'
+    btn.disabled = false; btn.textContent = 'Submit Audition'
+  }
+}
+
+boot()
+</script>
+</body>
+</html>

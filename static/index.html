@@ -12220,6 +12220,10 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
     <button class="btn btn-secondary btn-sm" onclick="openAuditionSettingsModal('${contextType}','${contextId}','${containerId}')">Settings</button>
    </div>
   </div>
+  <div style="margin-top:10px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg);border-radius:8px">
+   <span style="font-size:12px;color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Public audition form: <strong>${window.location.origin}/audition/${contextType}/${contextId}</strong></span>
+   <button class="btn btn-secondary btn-sm" onclick="copyAuditionPublicLink('${contextType}','${contextId}')" style="flex-shrink:0">Copy Link</button>
+  </div>
   ${settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-top:8px">${formatDate(settings.audition_date)}${settings.audition_time?' at '+fmtTime(settings.audition_time):''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:''}
   ${settings.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;line-height:1.5">${escHtml(settings.description)}</div>`:''}
   ${roles.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${roles.map(r=>'<span style="background:var(--teal-50);color:var(--teal-dark);padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600">'+escHtml(r)+'</span>').join('')}</div>`:''}
@@ -12375,8 +12379,11 @@ function renderAuditionList(submissions, contextId, filterStatus){
  const [bg,col] = AUDITION_STATUS_COLORS[s.status]||AUDITION_STATUS_COLORS.pending
  const links = [
  s.video_url ? `<a href="${escHtml(s.video_url)}" target="_blank" class="btn btn-secondary btn-sm"> Video</a>`: '',
+ s.video_clip_url ? `<a href="${escHtml(s.video_clip_url)}" target="_blank" class="btn btn-secondary btn-sm"> Video Clip</a>`: '',
  s.resume_url ? `<a href="${escHtml(s.resume_url)}" target="_blank" class="btn btn-secondary btn-sm"> Resume</a>`: '',
+ s.resume_file_url ? `<a href="${escHtml(s.resume_file_url)}" target="_blank" class="btn btn-secondary btn-sm"> Resume (uploaded)</a>`: '',
  s.headshot_url? `<a href="${escHtml(s.headshot_url)}" target="_blank" class="btn btn-secondary btn-sm"> Headshot</a>`: '',
+ s.headshot_file_url? `<a href="${escHtml(s.headshot_file_url)}" target="_blank" class="btn btn-secondary btn-sm"> Headshot (uploaded)</a>`: '',
  ].filter(Boolean).join('')
  const videoEmbed = s.video_url && (s.video_url.includes('youtube.com')||s.video_url.includes('youtu.be'))
  ? getYouTubeEmbedId(s.video_url): null
@@ -12400,6 +12407,15 @@ function renderAuditionList(submissions, contextId, filterStatus){
  ${s.cast_role?`<div style="font-size:12px;font-weight:700;color:var(--green-600);margin-top:4px"> Cast as: ${escHtml(s.cast_role)}</div>`:''}
  ${s.submitter_email?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(s.submitter_email)}</div>`:''}
  ${s.slot_id?`<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:4px;background:var(--teal-50);display:inline-block;padding:2px 8px;border-radius:6px">In-Person: ${escHtml(s.slot_date||'')} ${s.start_time?s.start_time+(s.end_time?' \u2013 '+s.end_time:''):''}</div>`:s.audition_type==='virtual'?`<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Virtual submission</div>`:''}
+ ${s.crew_interest?(()=>{
+ let crewRoleList = []
+ try { crewRoleList = JSON.parse(s.crew_roles_requested||'[]') } catch(e){}
+ return `<div style="margin-top:6px;padding:8px 10px;background:#f5f3ff;border-radius:6px">
+ <div style="font-size:11px;font-weight:700;color:#7c3aed;text-transform:uppercase;letter-spacing:0.4px">Also interested in Crew/Tech</div>
+ ${crewRoleList.length?`<div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:4px">`+crewRoleList.map(r=>`<span style="background:#ede9fe;color:#6d28d9;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600">${escHtml(r)}</span>`).join('')+`</div>`:''}
+ ${s.crew_experience?`<div style="font-size:12.5px;color:#4c1d95;margin-top:5px">${escHtml(s.crew_experience)}</div>`:''}
+ </div>`
+ })():''}
  ${s.notes?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;background:var(--bg);padding:8px 10px;border-radius:6px;font-style:italic">"${escHtml(s.notes)}"</div>`:''}
  <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Submitted ${formatDateTime(s.submitted_at)}</div>
  </div>
@@ -12436,6 +12452,11 @@ function filterAuditionSubmissions(contextId){
  if(!parentEl ||!parentEl._submissions) return
  const status = document.getElementById('aud-filter-'+contextId)?.value
  document.getElementById('aud-list-'+contextId).innerHTML = renderAuditionList(parentEl._submissions, contextId, status)
+}
+
+function copyAuditionPublicLink(contextType, contextId){
+ const url = `${window.location.origin}/audition/${contextType}/${contextId}`
+ navigator.clipboard.writeText(url).then(()=>toast('Link copied!','success')).catch(()=>toast('Could not copy — link: '+url,'error'))
 }
 
 async function toggleAuditionOpen(contextType, contextId, containerId, newState){
@@ -12629,6 +12650,22 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  <label>Additional Instructions</label>
  <textarea id="aud-s-instructions" rows="2" style="resize:vertical" placeholder="Any other prep notes for families…">${escHtml(settings.instructions||'')}</textarea>
  </div>
+ <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px">
+ <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:${settings.allow_crew_interest!==false?'10px':'0'}">
+ <input type="checkbox" id="aud-s-allow-crew" ${settings.allow_crew_interest!==false?'checked':''} style="accent-color:var(--teal);width:16px;height:16px" onchange="document.getElementById('aud-crew-fields').style.display=this.checked?'':'none'">
+ <span style="font-size:13px"><strong>Also collect Crew/Tech interest</strong><br><span style="font-weight:400;color:var(--text-muted)">Adds a separate section to the same form — one submission can express cast interest, crew interest, or both.</span></span>
+ </label>
+ <div id="aud-crew-fields" style="${settings.allow_crew_interest!==false?'':'display:none'}">
+ <div class="form-group" style="margin-bottom:8px">
+ <label>Crew / Tech Areas <span style="font-weight:400;color:var(--text-muted)">(comma separated)</span></label>
+ <input type="text" id="aud-s-crew-roles" value="${escHtml((settings.crew_roles||[]).join(', '))}" placeholder="e.g. Stage Management, Costumes, Sets/Build, Lighting, Sound, Props"/>
+ </div>
+ <div class="form-group" style="margin-bottom:0">
+ <label>Crew Instructions <span style="font-weight:400;color:var(--text-muted)">(optional, shown only in the crew section)</span></label>
+ <textarea id="aud-s-crew-instructions" rows="2" style="resize:vertical" placeholder="e.g. No experience necessary — just tell us what you're interested in.">${escHtml(settings.crew_instructions||'')}</textarea>
+ </div>
+ </div>
+ </div>
  <div class="form-group">
  <label>Also notify this email on submissions <span style="font-weight:400;color:var(--text-muted)">(in addition to admins)</span></label>
  <input type="email" id="aud-s-email" value="${escHtml(settings.email_submissions||'')}" placeholder="director@hwtco.org"/>
@@ -12680,6 +12717,16 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  </div>
  </div>
  </div>
+ <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:14px">
+ <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Audition Materials <span style="font-weight:400;color:var(--text-muted);text-transform:none">(sides, sheet music, tracks — auditionees can download these before their slot)</span></div>
+ <div id="aud-materials-list" style="margin-bottom:8px">${(settings.materials||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No materials uploaded yet.</div>':(settings.materials||[]).map(m=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:5px;font-size:12px">
+   <a href="${m.file_url}" target="_blank" style="color:var(--teal-dark);font-weight:600;text-decoration:none">${escHtml(m.filename)}</a>
+   <button onclick="deleteAudMaterial('${m.id}','${contextType}','${contextId}','${containerId}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">×</button>
+   </div>`).join('')}</div>
+ <input type="file" id="aud-material-file" accept=".pdf,.doc,.docx,.mp3,.wav,.m4a,.png,.jpg,.jpeg" style="display:none" onchange="uploadAudMaterial('${contextType}','${contextId}','${containerId}')"/>
+ <button type="button" class="btn btn-secondary btn-sm" id="aud-material-upload-btn" onclick="document.getElementById('aud-material-file').click()" style="font-size:12px">+ Upload Material</button>
+ <div style="font-size:10px;color:var(--text-muted);margin-top:4px">PDF, Word doc, image, or audio (MP3/WAV/M4A) — up to 15MB</div>
+ </div>
  <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
  <button class="btn btn-secondary" onclick="document.getElementById('aud-settings-overlay').remove()">Cancel</button>
  <button class="btn btn-primary" onclick="saveAuditionSettings('${contextType}','${contextId}','${containerId}')">Save Settings</button>
@@ -12692,6 +12739,8 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
 
 async function saveAuditionSettings(contextType, contextId, containerId){
  const roles = (document.getElementById('aud-s-roles')?.value||'')
+   .split(',').map(r=>r.trim()).filter(Boolean)
+ const crewRoles = (document.getElementById('aud-s-crew-roles')?.value||'')
    .split(',').map(r=>r.trim()).filter(Boolean)
  const allowSlotsEl = document.getElementById('aud-s-slots')
  const allowSlots = allowSlotsEl ? allowSlotsEl.checked : false
@@ -12712,6 +12761,9 @@ async function saveAuditionSettings(contextType, contextId, containerId){
    allow_headshot_link: !!document.getElementById('aud-s-headshot')?.checked,
    allow_slots: allowSlots,
    tab_visible: !!document.getElementById('aud-s-tab-visible')?.checked,
+   allow_crew_interest: !!document.getElementById('aud-s-allow-crew')?.checked,
+   crew_roles: crewRoles,
+   crew_instructions: document.getElementById('aud-s-crew-instructions')?.value.trim()||'',
  }
  console.log('saveAuditionSettings payload:', data)
  const res = await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', data)
@@ -12720,6 +12772,38 @@ async function saveAuditionSettings(contextType, contextId, containerId){
  document.getElementById('aud-settings-overlay')?.remove()
  toast('Settings saved!', 'success')
  loadAuditionsTab(contextType, contextId, containerId)
+}
+
+async function uploadAudMaterial(contextType, contextId, containerId){
+ const fileEl = document.getElementById('aud-material-file')
+ const file = fileEl?.files?.[0]
+ if(!file) return
+ const btn = document.getElementById('aud-material-upload-btn')
+ const btnHTML = btn ? btn.innerHTML : ''
+ if(btn){ btn.disabled = true; btn.textContent = 'Uploading…' }
+ const fd = new FormData()
+ fd.append('file', file)
+ fd.append('context_type', contextType)
+ fd.append('context_id', contextId)
+ try{
+   const res = await fetch('/api/auditions/materials/upload', {method:'POST', credentials:'include', body: fd})
+   const d = await res.json()
+   if(!d.ok){ toast(d.error||'Upload failed','error'); return }
+   toast('Material uploaded', 'success')
+   openAuditionSettingsModal(contextType, contextId, containerId)
+ } catch(e){
+   toast('Upload failed','error')
+ } finally {
+   if(btn){ btn.disabled = false; btn.innerHTML = btnHTML }
+   if(fileEl) fileEl.value = ''
+ }
+}
+
+async function deleteAudMaterial(mid, contextType, contextId, containerId){
+ if(!confirm('Remove this audition material?')) return
+ const res = await api(`/api/auditions/materials/${mid}`, 'DELETE')
+ if(res?.error){ toast(res.error,'error'); return }
+ openAuditionSettingsModal(contextType, contextId, containerId)
 }
 
 function toggleAudSlotSection(show){

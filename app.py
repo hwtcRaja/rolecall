@@ -1124,6 +1124,62 @@ def init_db():
             description TEXT DEFAULT '',
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
+        # Roles move from a flat comma-separated list to structured
+        # {name, description} objects, so families can see what a role
+        # actually involves when picking. Old-format plain-string roles
+        # already saved are handled gracefully wherever roles are read
+        # (treated as {name: string, description: ''}), so nothing needs
+        # a data migration here.
+        #
+        # Optional extra questions on the public form — each is a simple
+        # per-field toggle plus a free-form custom question builder for
+        # anything else (special skills, instrument, etc).
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_age_check BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_pronouns BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_phone BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_how_heard BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS custom_questions TEXT DEFAULT '[]'",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS is_minor BOOLEAN",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS birthday TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS pronouns TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS phone TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS how_heard TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS custom_answers TEXT DEFAULT '{}'",
+        # A slug on the production/program lets the audition URL read like
+        # /audition/production/together-home-for-the-holidays instead of a
+        # raw UUID. Backfilled below for anything that doesn't have one yet
+        # (a plain lowercase-hyphenated version of the name, de-duplicated
+        # by appending a short suffix on collision).
+        """DO $$
+           DECLARE r RECORD; base TEXT; candidate TEXT; n INT;
+           BEGIN
+               FOR r IN SELECT id, name FROM productions WHERE slug IS NULL OR slug='' LOOP
+                   base := regexp_replace(lower(trim(r.name)), '[^a-z0-9]+', '-', 'g');
+                   base := trim(both '-' from base);
+                   IF base = '' THEN base := 'show'; END IF;
+                   candidate := base; n := 1;
+                   WHILE EXISTS (SELECT 1 FROM productions WHERE slug=candidate AND id!=r.id) LOOP
+                       n := n + 1;
+                       candidate := base || '-' || n;
+                   END LOOP;
+                   UPDATE productions SET slug=candidate WHERE id=r.id;
+               END LOOP;
+           END $$;""",
+        """DO $$
+           DECLARE r RECORD; base TEXT; candidate TEXT; n INT;
+           BEGIN
+               FOR r IN SELECT id, name FROM youth_programs WHERE slug IS NULL OR slug='' LOOP
+                   base := regexp_replace(lower(trim(r.name)), '[^a-z0-9]+', '-', 'g');
+                   base := trim(both '-' from base);
+                   IF base = '' THEN base := 'program'; END IF;
+                   candidate := base; n := 1;
+                   WHILE EXISTS (SELECT 1 FROM youth_programs WHERE slug=candidate AND id!=r.id) LOOP
+                       n := n + 1;
+                       candidate := base || '-' || n;
+                   END LOOP;
+                   UPDATE youth_programs SET slug=candidate WHERE id=r.id;
+               END LOOP;
+           END $$;""",
         """CREATE TABLE IF NOT EXISTS volunteer_groups (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
@@ -6041,6 +6097,13 @@ def portal_family_threads():
 @app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['GET'])
 def get_audition_settings(context_type, context_id):
     conn = get_db()
+    # The URL can carry a slug (nicer, shareable) or a raw id — resolve to
+    # the real id either way, same slug-or-id pattern already used for
+    # ticket links.
+    context_id, ctx_name, ctx_logo, ctx_slug = _resolve_audition_context(conn, context_type, context_id)
+    if not context_id:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
     row = fetchone(conn, '''SELECT *, COALESCE(allow_slots, FALSE) AS allow_slots,
         COALESCE(tab_visible, TRUE) AS tab_visible
         FROM audition_settings WHERE context_id=%s AND context_type=%s''',
@@ -6061,23 +6124,61 @@ def get_audition_settings(context_type, context_id):
         # to visible so nothing that already relied on this tab breaks;
         # staff can explicitly hide it once they've set anything up.
         resp = jsonify({'context_type': context_type, 'context_id': context_id,
+             'context_name': ctx_name, 'context_logo_url': ctx_logo, 'context_slug': ctx_slug,
             'is_open': False, 'roles': [], 'allow_video_link': True,
             'allow_resume_link': True, 'allow_headshot_link': True,
             'allow_slots': False, 'tab_visible': True, 'slots': slots,
             'materials': materials, 'allow_crew_interest': True, 'crew_roles': [],
-            'crew_instructions': None,
+            'crew_instructions': None, 'collect_age_check': False, 'collect_pronouns': False,
+            'collect_phone': False, 'collect_how_heard': False, 'custom_questions': [],
             'cast_list_reveal_at': None})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
-    try: row['roles'] = json.loads(row.get('roles') or '[]')
-    except Exception: row['roles'] = []
-    try: row['crew_roles'] = json.loads(row.get('crew_roles') or '[]')
-    except Exception: row['crew_roles'] = []
+    row['roles'] = _normalize_audition_roles(row.get('roles'))
+    row['crew_roles'] = _normalize_audition_roles(row.get('crew_roles'), simple=True)
+    try: row['custom_questions'] = json.loads(row.get('custom_questions') or '[]')
+    except Exception: row['custom_questions'] = []
     row['slots'] = slots
     row['materials'] = materials
+    row['context_name'] = ctx_name
+    row['context_logo_url'] = ctx_logo
+    row['context_slug'] = ctx_slug
     resp = jsonify(row)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
+
+
+def _resolve_audition_context(conn, context_type, context_id):
+    """Slug-or-id lookup, matching the pattern already used for ticket
+    links — the URL can carry either. Returns (real_id, name, logo_url, slug) or
+    (None, None, None, None) if nothing matches."""
+    if context_type == 'production':
+        row = fetchone(conn, 'SELECT id, name, portal_logo_url, slug FROM productions WHERE slug=%s OR id=%s', (context_id, context_id))
+    elif context_type == 'program':
+        row = fetchone(conn, 'SELECT id, name, portal_logo_url, slug FROM youth_programs WHERE slug=%s OR id=%s', (context_id, context_id))
+    else:
+        return None, None, None, None
+    if not row:
+        return None, None, None, None
+    return row['id'], row.get('name'), row.get('portal_logo_url'), row.get('slug')
+
+
+def _normalize_audition_roles(raw, simple=False):
+    """Roles used to be a flat list of strings; now they're
+    {name, description} objects so families can see what a role involves.
+    Reads both formats so nothing already saved breaks. simple=True is for
+    crew roles, which don't carry a description."""
+    try:
+        parsed = json.loads(raw or '[]')
+    except Exception:
+        return []
+    out = []
+    for item in parsed:
+        if isinstance(item, dict):
+            out.append(item if not simple else {'name': item.get('name', '')})
+        else:
+            out.append({'name': str(item)} if simple else {'name': str(item), 'description': ''})
+    return out
 
 
 @app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['PUT'])
@@ -6105,6 +6206,11 @@ def save_audition_settings(context_type, context_id):
     allow_crew   = bool(d.get('allow_crew_interest', True))
     crew_roles_json = json.dumps(d.get('crew_roles') or [])
     crew_instructions = (d.get('crew_instructions') or '').strip() or None
+    collect_age    = bool(d.get('collect_age_check', False))
+    collect_pron   = bool(d.get('collect_pronouns', False))
+    collect_phone_ = bool(d.get('collect_phone', False))
+    collect_heard  = bool(d.get('collect_how_heard', False))
+    custom_q_json  = json.dumps(d.get('custom_questions') or [])
     # Cast list reveal countdown — a datetime-local string like
     # "2026-05-16T19:00", or None/'' to clear it.
     reveal_raw = d.get('cast_list_reveal_at')
@@ -6114,20 +6220,26 @@ def save_audition_settings(context_type, context_id):
             audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
             email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
             allow_slots=%s, tab_visible=%s, cast_list_reveal_at=%s,
-            allow_crew_interest=%s, crew_roles=%s, crew_instructions=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            allow_crew_interest=%s, crew_roles=%s, crew_instructions=%s,
+            collect_age_check=%s, collect_pronouns=%s, collect_phone=%s, collect_how_heard=%s,
+            custom_questions=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
              email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
-             allow_crew,crew_roles_json,crew_instructions,context_id,context_type))
+             allow_crew,crew_roles_json,crew_instructions,
+             collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
+             context_id,context_type))
     else:
         sid = str(uuid.uuid4())
         execute(conn, """INSERT INTO audition_settings
             (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
              location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible,cast_list_reveal_at,
-             allow_crew_interest,crew_roles,crew_instructions)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             allow_crew_interest,crew_roles,crew_instructions,
+             collect_age_check,collect_pronouns,collect_phone,collect_how_heard,custom_questions)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
              location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
-             allow_crew,crew_roles_json,crew_instructions))
+             allow_crew,crew_roles_json,crew_instructions,
+             collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6384,6 +6496,11 @@ def submit_audition():
     if not context_type or not context_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
     conn = get_db()
+    # The standalone form's URL — and therefore this context_id — may be a
+    # slug rather than a raw id.
+    resolved_id, _, _, _ = _resolve_audition_context(conn, context_type, context_id)
+    if resolved_id:
+        context_id = resolved_id
     settings = fetchone(conn, 'SELECT * FROM audition_settings WHERE context_id=%s AND context_type=%s',
         (context_id, context_type))
     if not settings or not settings.get('is_open'):
@@ -6416,8 +6533,9 @@ def submit_audition():
         (id,context_type,context_id,family_id,participant_id,submitter_name,
          submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase,
          slot_id,audition_type,resume_file_url,headshot_file_url,video_clip_url,
-         crew_interest,crew_roles_requested,crew_experience)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+         crew_interest,crew_roles_requested,crew_experience,
+         is_minor,birthday,pronouns,phone,how_heard,custom_answers)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
         sid, context_type, context_id, family_id,
         d.get('participant_id') or None, name,
         (d.get('submitter_email') or '').strip() or None,
@@ -6434,6 +6552,12 @@ def submit_audition():
         bool(d.get('crew_interest', False)),
         json.dumps(d.get('crew_roles_requested') or []),
         (d.get('crew_experience') or '').strip() or None,
+        d.get('is_minor') if d.get('is_minor') is not None else None,
+        (d.get('birthday') or '').strip() or None,
+        (d.get('pronouns') or '').strip() or None,
+        (d.get('phone') or '').strip() or None,
+        (d.get('how_heard') or '').strip() or None,
+        json.dumps(d.get('custom_answers') or {}),
     ))
     conn.commit()
     # Get context name

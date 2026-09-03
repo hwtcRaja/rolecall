@@ -1349,12 +1349,12 @@ def init_db():
         # One-time backfill: registrations paid for as part of a multi-item
         # cart never got their own amount_paid_cents set (only the
         # cart_orders row carried the real total), so they've been sitting
-        # at $0 ever since even though they were genuinely paid for. Fill
-        # in each registration's actual share from the per-item price the
-        # cart already computed at checkout time. (A prior version of this
-        # migration wrote to the wrong column — amount_paid instead of
-        # amount_paid_cents, which is what the rest of the app actually
-        # reads — this corrects that.)
+        # at $0 — or in some cases the full program price, once other code
+        # fell back to a price-based estimate — ever since even though
+        # they were genuinely paid for a specific split amount. Cart data
+        # is authoritative for any registration that came out of a cart,
+        # so this corrects the amount whenever it doesn't match what the
+        # cart actually charged for that item, not just when it's blank.
         """UPDATE program_registrations pr SET amount_paid_cents = sub.charge_now
            FROM (
                SELECT (item->>'registration_id') AS registration_id,
@@ -1363,9 +1363,9 @@ def init_db():
                WHERE item->>'charge_now' IS NOT NULL
            ) sub
            WHERE sub.registration_id = pr.id
-             AND (pr.amount_paid_cents IS NULL OR pr.amount_paid_cents = 0)
              AND sub.charge_now > 0
-             AND pr.status = 'confirmed'""",
+             AND pr.status = 'confirmed'
+             AND (pr.amount_paid_cents IS NULL OR pr.amount_paid_cents != sub.charge_now)""",
         # Dual sign-off required before any refund can actually be processed
         # through Square — separate from the general approve/deny status,
         # which just tracks whether the request itself is legitimate.
@@ -1808,6 +1808,15 @@ def init_db():
         # NULL for registrations with no confirmed Square payment (free, comp,
         # or pre-dating this column) — those fall back to the old estimate.
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS amount_paid_cents INTEGER""",
+        # Tracks that a refund actually happened for this registration,
+        # separate from status — a refunded registration might still be
+        # "confirmed" (family kept their spot, got money back for another
+        # reason) or "cancelled" (unenrolled too), so this needs its own
+        # flag rather than overloading status. refund_amount_cents lets
+        # revenue totals subtract exactly what was returned, even for a
+        # partial refund.
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS refunded_at TIMESTAMP",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS refund_amount_cents INTEGER DEFAULT 0",
         # A comp'd (complimentary/free) enrollment — still a real confirmed
         # registration, just $0 by design rather than an unpaid gap. Kept as
         # a flag rather than a separate status so it still shows up
@@ -5183,6 +5192,7 @@ def get_youth_programs():
                 ELSE COALESCE(pr.amount_paid_cents,
                     COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
                     - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
+                    - COALESCE(pr.refund_amount_cents,0)
             END), 0)
          FROM program_registrations pr
          LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
@@ -20676,10 +20686,19 @@ def process_square_refund(rid):
             execute(conn, '''UPDATE refund_requests SET status='processed',
                 square_refund_id=%s, reviewed_at=NOW() WHERE id=%s''', (sq_refund_id, rid))
             conn.commit()
-            # Un-enroll from program if registration_id exists
+            # Mark the registration as refunded — this happens regardless
+            # of whether they're also unenrolled, since "got money back"
+            # and "no longer in the program" are two separate facts. This
+            # is what makes revenue totals and the roster reflect the
+            # refund; the unenroll step below is a separate, optional
+            # choice staff make per-refund, not automatic.
             if rr.get('registration_id'):
                 try:
-                    execute(conn, "UPDATE program_registrations SET status='cancelled' WHERE id=%s", (rr['registration_id'],))
+                    execute(conn, '''UPDATE program_registrations
+                        SET refunded_at=NOW(), refund_amount_cents=COALESCE(refund_amount_cents,0)+%s
+                        WHERE id=%s''', (int(amount_cents), rr['registration_id']))
+                    if d.get('unenroll'):
+                        execute(conn, "UPDATE program_registrations SET status='cancelled' WHERE id=%s", (rr['registration_id'],))
                     conn.commit()
                 except Exception: pass
             # This is the real "good news" moment — the refund has actually
@@ -31456,12 +31475,13 @@ def compute_registration_amount(reg):
         return reg.get('step_up_amount') or 0, 'step_up'
     if reg.get('step_up_hold_status') == 'pending':
         return 0, 'step_up_pending'
+    refunded = reg.get('refund_amount_cents') or 0
     if reg.get('amount_paid_cents') is not None:
-        return reg['amount_paid_cents'], 'square'
+        return max(0, reg['amount_paid_cents'] - refunded), 'square'
     price = reg.get('program_price') or 0
     count = reg.get('participant_count') or 1
     discount = (reg.get('discount_amount') or 0) + (reg.get('sibling_discount_amount') or 0)
-    return max(0, price * count - discount), 'estimate'
+    return max(0, price * count - discount - refunded), 'estimate'
 
 
 @app.route('/api/marquee/registrations', methods=['GET'])

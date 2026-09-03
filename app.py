@@ -1817,6 +1817,21 @@ def init_db():
         # partial refund.
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS refunded_at TIMESTAMP",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS refund_amount_cents INTEGER DEFAULT 0",
+        # One-time backfill: refunds processed before refunded_at/
+        # refund_amount_cents existed never got the linked registration
+        # updated, so they still show as full-price "confirmed" with no
+        # Refunded badge even though the money genuinely went back.
+        # Only touches registrations that don't already have a refund
+        # recorded, so it can't double-count anything the app already
+        # tracked correctly going forward.
+        """UPDATE program_registrations pr
+           SET refunded_at = COALESCE(rr.reviewed_at, rr.created_at, NOW()),
+               refund_amount_cents = COALESCE(rr.refund_amount_cents, 0)
+           FROM refund_requests rr
+           WHERE rr.registration_id = pr.id
+             AND rr.status = 'processed'
+             AND rr.square_refund_id IS NOT NULL AND rr.square_refund_id != ''
+             AND pr.refunded_at IS NULL""",
         # A comp'd (complimentary/free) enrollment — still a real confirmed
         # registration, just $0 by design rather than an unpaid gap. Kept as
         # a flag rather than a separate status so it still shows up

@@ -97,11 +97,12 @@ function renderError(msg){
 
 function render(){
   var s = SETTINGS
+  var logoUrl = s.context_logo_url || 'https://rolecall.hwtco.org/static/images/hwtc_logo_white.png'
   var html = `
     <header>
-      <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC"/>
+      <img src="${logoUrl}" alt="${escH(s.context_name||'HWTC')}"/>
       <h1>${escH(s.title||'Auditions')}</h1>
-      <div class="sub">Horizon West Theater Company</div>
+      <div class="sub">${escH(s.context_name||'Horizon West Theater Company')}</div>
     </header>
     <div class="wrap">`
 
@@ -141,10 +142,37 @@ function render(){
   // Roles
   if((s.roles||[]).length){
     html += '<div class="form-group"><label>Roles Interested In</label><div class="role-grid">'
-    html += s.roles.map(r=>`<label><input type="checkbox" class="role-cb" value="${escH(r)}"/> ${escH(r)}</label>`).join('')
+    html += s.roles.map(r=>`<label><input type="checkbox" class="role-cb" value="${escH(r.name)}"/> <span><strong>${escH(r.name)}</strong>${r.description?'<br><span style="font-weight:400;color:#78716c;font-size:12px">'+escH(r.description)+'</span>':''}</span></label>`).join('')
     html += '<label><input type="checkbox" class="role-cb" value="Other / Not sure yet"/> Other / Not sure yet</label></div></div>'
   } else {
     html += '<div class="form-group"><label>Roles Interested In</label><input type="text" id="f-role-text" placeholder="e.g. Lead, Ensemble"/></div>'
+  }
+
+  // Age check
+  if(s.collect_age_check){
+    html += `<div class="form-group"><label>Are you under or over 18?</label>
+      <select id="f-age-status" onchange="document.getElementById('birthday-field').style.display=this.value==='under'?'':'none'">
+        <option value="">Select…</option>
+        <option value="over">18 or older</option>
+        <option value="under">Under 18</option>
+      </select>
+      <div id="birthday-field" style="display:none;margin-top:8px"><label>Birthday</label><input type="date" id="f-birthday"/></div>
+    </div>`
+  }
+
+  // Pronouns
+  if(s.collect_pronouns){
+    html += '<div class="form-group"><label>Pronouns</label><input type="text" id="f-pronouns" placeholder="e.g. she/her, he/him, they/them"/></div>'
+  }
+
+  // Phone
+  if(s.collect_phone){
+    html += '<div class="form-group"><label>Phone</label><input type="text" id="f-phone" placeholder="(555) 555-5555"/></div>'
+  }
+
+  // How heard
+  if(s.collect_how_heard){
+    html += '<div class="form-group"><label>How Did You Hear About Us?</label><input type="text" id="f-how-heard" placeholder="e.g. Friend, social media, past show…"/></div>'
   }
 
   // Video
@@ -181,6 +209,11 @@ function render(){
     </div>`
   }
 
+  // Custom questions
+  if((s.custom_questions||[]).length){
+    html += s.custom_questions.map((q,i)=>`<div class="form-group"><label>${escH(q.question)}</label><textarea class="f-custom-answer" data-q="${escH(q.question)}" rows="2"></textarea></div>`).join('')
+  }
+
   html += '<div class="form-group"><label>Anything Else?</label><textarea id="f-notes" rows="3" placeholder="Conflicts, questions, anything we should know…"></textarea></div>'
   html += '</div></div>'
 
@@ -194,7 +227,7 @@ function render(){
       <div id="crew-fields" style="display:none">
         ${s.crew_instructions?'<div class="desc-box">'+escH(s.crew_instructions)+'</div>':''}
         ${(s.crew_roles||[]).length?`<div class="form-group"><label>Crew / Tech Areas</label><div class="role-grid">`+
-          s.crew_roles.map(r=>`<label><input type="checkbox" class="crew-role-cb" value="${escH(r)}"/> ${escH(r)}</label>`).join('')+
+          s.crew_roles.map(r=>`<label><input type="checkbox" class="crew-role-cb" value="${escH(r.name)}"/> ${escH(r.name)}</label>`).join('')+
           `</div></div>`:''}
         <div class="form-group"><label>Relevant Skills / Experience</label><textarea id="f-crew-exp" rows="3" placeholder="Anything you'd like us to know — prior experience is not required."></textarea></div>
       </div>
@@ -279,6 +312,19 @@ async function submitAudition(){
     crew_interest: crewInterest,
     crew_roles_requested: crewRoles,
     crew_experience: document.getElementById('f-crew-exp')?.value.trim()||null,
+    is_minor: (function(){ var v=document.getElementById('f-age-status')?.value; return v ? v==='under' : null })(),
+    birthday: document.getElementById('f-birthday')?.value||null,
+    pronouns: document.getElementById('f-pronouns')?.value.trim()||null,
+    phone: document.getElementById('f-phone')?.value.trim()||null,
+    how_heard: document.getElementById('f-how-heard')?.value.trim()||null,
+    custom_answers: (function(){
+      var out = {}
+      document.querySelectorAll('.f-custom-answer').forEach(function(el){
+        var v = el.value.trim()
+        if(v) out[el.dataset.q] = v
+      })
+      return out
+    })(),
   }
 
   var btn = document.getElementById('submit-btn')
@@ -298,7 +344,7 @@ async function submitAudition(){
     }
     document.getElementById('app').innerHTML = `
       <header>
-        <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC"/>
+        <img src="${SETTINGS.context_logo_url || 'https://rolecall.hwtco.org/static/images/hwtc_logo_white.png'}" alt="${escH(SETTINGS.context_name||'HWTC')}"/>
         <h1>${escH(SETTINGS.title||'Auditions')}</h1>
       </header>
       <div class="wrap"><div class="card confirm-box">

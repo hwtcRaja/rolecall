@@ -12221,8 +12221,8 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
    </div>
   </div>
   <div style="margin-top:10px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg);border-radius:8px">
-   <span style="font-size:12px;color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Public audition form: <strong>${window.location.origin}/audition/${contextType}/${contextId}</strong></span>
-   <button class="btn btn-secondary btn-sm" onclick="copyAuditionPublicLink('${contextType}','${contextId}')" style="flex-shrink:0">Copy Link</button>
+   <span style="font-size:12px;color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Public audition form: <strong>${window.location.origin}/audition/${contextType}/${settings.context_slug||contextId}</strong></span>
+   <button class="btn btn-secondary btn-sm" onclick="copyAuditionPublicLink('${contextType}','${settings.context_slug||contextId}')" style="flex-shrink:0">Copy Link</button>
   </div>
   ${settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-top:8px">${formatDate(settings.audition_date)}${settings.audition_time?' at '+fmtTime(settings.audition_time):''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:''}
   ${settings.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;line-height:1.5">${escHtml(settings.description)}</div>`:''}
@@ -12271,7 +12271,7 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
   html += `<div id="aud-tab-panel-${contextId}-schedule" style="display:none">`
   html += `<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
    <div style="font-size:14px;font-weight:700">Audition Schedule</div>
-   <button class="btn btn-secondary btn-sm" onclick="openAuditionSettingsModal('${contextType}','${contextId}','${containerId}')">Manage Slots</button>
+   <button class="btn btn-secondary btn-sm" onclick="openAuditionSettingsModal('${contextType}','${contextId}','${containerId}','slots')">Manage Slots</button>
   </div>`
 
   // Group slots by date
@@ -12406,6 +12406,15 @@ function renderAuditionList(submissions, contextId, filterStatus){
  })()}
  ${s.cast_role?`<div style="font-size:12px;font-weight:700;color:var(--green-600);margin-top:4px"> Cast as: ${escHtml(s.cast_role)}</div>`:''}
  ${s.submitter_email?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(s.submitter_email)}</div>`:''}
+ ${(()=>{
+ let bits = []
+ if(s.pronouns) bits.push(escHtml(s.pronouns))
+ if(s.phone) bits.push(escHtml(s.phone))
+ if(s.is_minor===true) bits.push('Under 18'+(s.birthday?' · DOB '+escHtml(s.birthday):''))
+ else if(s.is_minor===false) bits.push('18+')
+ if(s.how_heard) bits.push('Heard via: '+escHtml(s.how_heard))
+ return bits.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${bits.join(' · ')}</div>` : ''
+ })()}
  ${s.slot_id?`<div style="font-size:12px;color:var(--teal-dark);font-weight:600;margin-top:4px;background:var(--teal-50);display:inline-block;padding:2px 8px;border-radius:6px">In-Person: ${escHtml(s.slot_date||'')} ${s.start_time?s.start_time+(s.end_time?' \u2013 '+s.end_time:''):''}</div>`:s.audition_type==='virtual'?`<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Virtual submission</div>`:''}
  ${s.crew_interest?(()=>{
  let crewRoleList = []
@@ -12416,6 +12425,15 @@ function renderAuditionList(submissions, contextId, filterStatus){
  ${s.crew_experience?`<div style="font-size:12.5px;color:#4c1d95;margin-top:5px">${escHtml(s.crew_experience)}</div>`:''}
  </div>`
  })():''}
+ ${(()=>{
+ let answers = {}
+ try { answers = JSON.parse(s.custom_answers||'{}') } catch(e){}
+ const keys = Object.keys(answers)
+ if(!keys.length) return ''
+ return `<div style="margin-top:6px;display:flex;flex-direction:column;gap:3px">`
+ + keys.map(k=>`<div style="font-size:12.5px;color:var(--text-muted)"><strong style="color:var(--text)">${escHtml(k)}:</strong> ${escHtml(answers[k])}</div>`).join('')
+ + `</div>`
+ })()}
  ${s.notes?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;background:var(--bg);padding:8px 10px;border-radius:6px;font-style:italic">"${escHtml(s.notes)}"</div>`:''}
  <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Submitted ${formatDateTime(s.submitted_at)}</div>
  </div>
@@ -12605,27 +12623,44 @@ async function deleteAuditionSubmission(sid, contextId){
  toast('Submission removed')
 }
 
-function openAuditionSettingsModal(contextType, contextId, containerId){
+function openAuditionSettingsModal(contextType, contextId, containerId, startTab){
  api(`/api/auditions/settings/${contextType}/${contextId}`).then(settings=>{
- const roles = (settings.roles||[]).join(', ')
  const existing = document.getElementById('aud-settings-overlay')
  if(existing) existing.remove()
+ const roles = settings.roles || []
+ const crewRoles = settings.crew_roles || []
+ const customQs = settings.custom_questions || []
  const overlay = document.createElement('div')
  overlay.id = 'aud-settings-overlay'
  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto'
- overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:540px;box-shadow:var(--shadow-lg)">
- <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
- <div style="font-size:16px;font-weight:700"> Audition Settings</div>
+
+ const tabDefs = [
+  {id:'basics', label:'Basics'},
+  {id:'roles', label:'Roles'},
+  {id:'extra', label:'Extra Info'},
+  {id:'slots', label:'Slots'},
+  {id:'materials', label:'Materials'},
+ ]
+
+ overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:600px;max-height:88vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg)">
+ <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
+ <div style="font-size:16px;font-weight:700">Audition Settings</div>
  <button onclick="document.getElementById('aud-settings-overlay').remove()" style="background:none;border:none;font-size:22px;cursor:pointer;color:var(--text-muted)">\u00d7</button>
  </div>
  <input type="hidden" id="aud-s-is-open" data-open="${settings.is_open?'true':'false'}" />
- <div style="padding:20px 22px;display:flex;flex-direction:column;gap:14px">
+ <div style="display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 22px;flex-shrink:0;overflow-x:auto">
+ ${tabDefs.map((t,i)=>`<button type="button" onclick="switchAudSettingsTab('${t.id}')" id="aud-stab-btn-${t.id}"
+   style="padding:11px 14px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;border-bottom:2px solid ${i===0?'var(--teal-mid)':'transparent'};margin-bottom:-1px;color:${i===0?'var(--teal-dark)':'var(--text-muted)'}">${t.label}</button>`).join('')}
+ </div>
+ <div style="padding:20px 22px;overflow-y:auto;flex:1">
+
+ <div id="aud-stab-basics" style="display:flex;flex-direction:column;gap:14px">
  <label style="display:flex;align-items:center;gap:10px;background:var(--bg);border-radius:var(--radius);padding:12px 14px;cursor:pointer">
  <input type="checkbox" id="aud-s-tab-visible" ${settings.tab_visible!==false?'checked':''} style="accent-color:var(--teal);width:16px;height:16px">
  <span style="font-size:13px"><strong>Show Auditions tab in family portal</strong><br><span style="font-weight:400;color:var(--text-muted)">Turn off for programs/productions that never hold auditions, so families don't see an empty tab.</span></span>
  </label>
  <div class="form-group">
- <label>Audition Title <span style="font-weight:400;color:var(--text-muted)">(shown on portal)</span></label>
+ <label>Audition Title <span style="font-weight:400;color:var(--text-muted)">(shown on the form)</span></label>
  <input type="text" id="aud-s-title" value="${escHtml(settings.title||'')}" placeholder="e.g. Spring Musical Auditions"/>
  </div>
  <div class="form-group">
@@ -12643,28 +12678,8 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  <input type="text" id="aud-s-location" value="${escHtml(settings.location||'')}" placeholder="e.g. HWTC Main Stage"/>
  </div>
  <div class="form-group">
- <label>Available Roles <span style="font-weight:400;color:var(--text-muted)">(comma separated)</span></label>
- <input type="text" id="aud-s-roles" value="${escHtml(roles)}" placeholder="e.g. Lead, Supporting, Ensemble, Crew"/>
- </div>
- <div class="form-group">
  <label>Additional Instructions</label>
  <textarea id="aud-s-instructions" rows="2" style="resize:vertical" placeholder="Any other prep notes for families…">${escHtml(settings.instructions||'')}</textarea>
- </div>
- <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px">
- <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:${settings.allow_crew_interest!==false?'10px':'0'}">
- <input type="checkbox" id="aud-s-allow-crew" ${settings.allow_crew_interest!==false?'checked':''} style="accent-color:var(--teal);width:16px;height:16px" onchange="document.getElementById('aud-crew-fields').style.display=this.checked?'':'none'">
- <span style="font-size:13px"><strong>Also collect Crew/Tech interest</strong><br><span style="font-weight:400;color:var(--text-muted)">Adds a separate section to the same form — one submission can express cast interest, crew interest, or both.</span></span>
- </label>
- <div id="aud-crew-fields" style="${settings.allow_crew_interest!==false?'':'display:none'}">
- <div class="form-group" style="margin-bottom:8px">
- <label>Crew / Tech Areas <span style="font-weight:400;color:var(--text-muted)">(comma separated)</span></label>
- <input type="text" id="aud-s-crew-roles" value="${escHtml((settings.crew_roles||[]).join(', '))}" placeholder="e.g. Stage Management, Costumes, Sets/Build, Lighting, Sound, Props"/>
- </div>
- <div class="form-group" style="margin-bottom:0">
- <label>Crew Instructions <span style="font-weight:400;color:var(--text-muted)">(optional, shown only in the crew section)</span></label>
- <textarea id="aud-s-crew-instructions" rows="2" style="resize:vertical" placeholder="e.g. No experience necessary — just tell us what you're interested in.">${escHtml(settings.crew_instructions||'')}</textarea>
- </div>
- </div>
  </div>
  <div class="form-group">
  <label>Also notify this email on submissions <span style="font-weight:400;color:var(--text-muted)">(in addition to admins)</span></label>
@@ -12675,18 +12690,77 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  <div style="display:flex;flex-direction:column;gap:8px">
  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
  <input type="checkbox" id="aud-s-video" ${settings.allow_video_link!==false?'checked':''} style="accent-color:var(--teal)">
- Video link (YouTube, Drive, Vimeo…)</label>
+ Video (upload a short clip, or link a full video)</label>
  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
  <input type="checkbox" id="aud-s-resume" ${settings.allow_resume_link!==false?'checked':''} style="accent-color:var(--teal)">
- Resume / headshot link (Drive, Dropbox…)</label>
+ Resume (upload or link)</label>
  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
  <input type="checkbox" id="aud-s-headshot" ${settings.allow_headshot_link!==false?'checked':''} style="accent-color:var(--teal)">
- Headshot link</label>
+ Headshot (upload or link)</label>
+ </div>
+ </div>
+ </div>
+
+ <div id="aud-stab-roles" style="display:none;flex-direction:column;gap:16px">
+ <div>
+ <div style="font-size:13px;font-weight:700;margin-bottom:4px">Cast Roles</div>
+ <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">Each role can have a description, so families see what it involves before picking it on the form.</div>
+ <div id="aud-role-rows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px">
+ ${roles.map((r,i)=>audRoleRowHtml(i, r.name||'', r.description||'')).join('')}
+ </div>
+ <button type="button" class="btn btn-secondary btn-sm" onclick="addAudRoleRow()">+ Add Role</button>
+ </div>
+ <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px">
+ <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:${settings.allow_crew_interest!==false?'10px':'0'}">
+ <input type="checkbox" id="aud-s-allow-crew" ${settings.allow_crew_interest!==false?'checked':''} style="accent-color:var(--teal);width:16px;height:16px" onchange="document.getElementById('aud-crew-fields').style.display=this.checked?'':'none'">
+ <span style="font-size:13px"><strong>Also collect Crew/Tech interest</strong><br><span style="font-weight:400;color:var(--text-muted)">Adds a separate section to the same form — one submission can express cast interest, crew interest, or both.</span></span>
+ </label>
+ <div id="aud-crew-fields" style="${settings.allow_crew_interest!==false?'':'display:none'}">
+ <div style="font-size:12px;font-weight:700;margin-bottom:6px">Crew / Tech Areas</div>
+ <div id="aud-crew-role-rows" style="display:flex;flex-direction:column;gap:6px;margin-bottom:8px">
+ ${crewRoles.map((r,i)=>audCrewRoleRowHtml(i, r.name||'')).join('')}
+ </div>
+ <button type="button" class="btn btn-secondary btn-sm" onclick="addAudCrewRoleRow()" style="margin-bottom:10px">+ Add Area</button>
+ <div class="form-group" style="margin-bottom:0">
+ <label>Crew Instructions <span style="font-weight:400;color:var(--text-muted)">(optional, shown only in the crew section)</span></label>
+ <textarea id="aud-s-crew-instructions" rows="2" style="resize:vertical" placeholder="e.g. No experience necessary — just tell us what you're interested in.">${escHtml(settings.crew_instructions||'')}</textarea>
+ </div>
+ </div>
+ </div>
+ </div>
+
+ <div id="aud-stab-extra" style="display:none;flex-direction:column;gap:14px">
+ <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px">
+ <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">Ask on the form</div>
+ <div style="display:flex;flex-direction:column;gap:8px">
  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+ <input type="checkbox" id="aud-s-age" ${settings.collect_age_check?'checked':''} style="accent-color:var(--teal)">
+ Are you under or over 18? <span style="color:var(--text-muted)">(asks for birthday if under 18)</span></label>
+ <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+ <input type="checkbox" id="aud-s-pronouns" ${settings.collect_pronouns?'checked':''} style="accent-color:var(--teal)">
+ Pronouns</label>
+ <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+ <input type="checkbox" id="aud-s-phone" ${settings.collect_phone?'checked':''} style="accent-color:var(--teal)">
+ Phone number</label>
+ <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+ <input type="checkbox" id="aud-s-how-heard" ${settings.collect_how_heard?'checked':''} style="accent-color:var(--teal)">
+ How did you hear about us?</label>
+ </div>
+ </div>
+ <div>
+ <div style="font-size:13px;font-weight:700;margin-bottom:4px">Custom Questions</div>
+ <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">e.g. Special skills, do you play an instrument, availability conflicts…</div>
+ <div id="aud-custom-q-rows" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px">
+ ${customQs.map((q,i)=>audCustomQRowHtml(i, (q&&q.question)||'')).join('')}
+ </div>
+ <button type="button" class="btn btn-secondary btn-sm" onclick="addAudCustomQRow()">+ Add Question</button>
+ </div>
+ </div>
+
+ <div id="aud-stab-slots" style="display:none;flex-direction:column;gap:14px">
+ <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;background:var(--bg);border-radius:var(--radius);padding:12px 14px">
  <input type="checkbox" id="aud-s-slots" ${settings.allow_slots?'checked':''} style="accent-color:var(--teal)" onchange="toggleAudSlotSection(this.checked)">
- In-person audition slots (families book a specific time)</label>
- </div>
- </div>
+ <span><strong>In-person audition slots</strong><br><span style="font-weight:400;color:var(--text-muted)">Families book a specific time instead of submitting virtually.</span></span></label>
  <div id="aud-slots-section" style="${settings.allow_slots?'':'display:none'}">
  <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Audition Slots</div>
  <div id="aud-slots-list" style="margin-bottom:8px">${(settings.slots||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No slots yet.</div>':(settings.slots||[]).map(s=>{
@@ -12698,7 +12772,7 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  }).join('')}</div>
  <div style="display:flex;gap:6px;margin-bottom:8px">
  <button type="button" class="btn btn-secondary btn-sm" onclick="openAddAudSlotForm('${contextType}','${contextId}')" style="font-size:12px">+ Add Slot</button>
- <button type="button" class="btn btn-secondary btn-sm" id="aud-gen-slots-btn" onclick="toggleAudGenForm()" style="font-size:12px"> Generate Slots</button>
+ <button type="button" class="btn btn-secondary btn-sm" id="aud-gen-slots-btn" onclick="toggleAudGenForm()" style="font-size:12px">Generate Slots</button>
  </div>
  <div id="aud-gen-form" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
  <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Bulk Slot Generator</div>
@@ -12717,8 +12791,10 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  </div>
  </div>
  </div>
- <div style="border-top:1px solid var(--border);margin-top:4px;padding-top:14px">
- <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Audition Materials <span style="font-weight:400;color:var(--text-muted);text-transform:none">(sides, sheet music, tracks — auditionees can download these before their slot)</span></div>
+
+ <div id="aud-stab-materials" style="display:none;flex-direction:column;gap:8px">
+ <div style="font-size:13px;font-weight:700">Audition Materials</div>
+ <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:6px">Sides, sheet music, tracks — auditionees can download these before their slot.</div>
  <div id="aud-materials-list" style="margin-bottom:8px">${(settings.materials||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No materials uploaded yet.</div>':(settings.materials||[]).map(m=>`<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:5px;font-size:12px">
    <a href="${m.file_url}" target="_blank" style="color:var(--teal-dark);font-weight:600;text-decoration:none">${escHtml(m.filename)}</a>
    <button onclick="deleteAudMaterial('${m.id}','${contextType}','${contextId}','${containerId}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">×</button>
@@ -12727,21 +12803,84 @@ function openAuditionSettingsModal(contextType, contextId, containerId){
  <button type="button" class="btn btn-secondary btn-sm" id="aud-material-upload-btn" onclick="document.getElementById('aud-material-file').click()" style="font-size:12px">+ Upload Material</button>
  <div style="font-size:10px;color:var(--text-muted);margin-top:4px">PDF, Word doc, image, or audio (MP3/WAV/M4A) — up to 15MB</div>
  </div>
- <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end">
+
+ </div>
+ <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
  <button class="btn btn-secondary" onclick="document.getElementById('aud-settings-overlay').remove()">Cancel</button>
  <button class="btn btn-primary" onclick="saveAuditionSettings('${contextType}','${contextId}','${containerId}')">Save Settings</button>
  </div>
  </div>`
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
  document.body.appendChild(overlay)
+ if(startTab) switchAudSettingsTab(startTab)
  })
 }
 
+function switchAudSettingsTab(tabId){
+ ['basics','roles','extra','slots','materials'].forEach(id=>{
+   const panel = document.getElementById('aud-stab-'+id)
+   const btn = document.getElementById('aud-stab-btn-'+id)
+   if(panel) panel.style.display = id===tabId ? 'flex' : 'none'
+   if(btn){
+     btn.style.borderBottomColor = id===tabId ? 'var(--teal-mid)' : 'transparent'
+     btn.style.color = id===tabId ? 'var(--teal-dark)' : 'var(--text-muted)'
+   }
+ })
+}
+
+function audRoleRowHtml(i, name, desc){
+ return `<div class="aud-role-row" data-idx="${i}" style="display:flex;gap:6px;align-items:flex-start;background:var(--bg);border-radius:8px;padding:8px">
+ <div style="flex:1;display:flex;flex-direction:column;gap:5px">
+ <input type="text" class="aud-role-name" value="${escHtml(name)}" placeholder="Role name (e.g. Lead)" style="padding:7px 9px;border:1.5px solid var(--border-md);border-radius:6px;font-size:12.5px;font-family:inherit;box-sizing:border-box"/>
+ <input type="text" class="aud-role-desc" value="${escHtml(desc)}" placeholder="Short description (optional)" style="padding:7px 9px;border:1.5px solid var(--border-md);border-radius:6px;font-size:12px;font-family:inherit;box-sizing:border-box"/>
+ </div>
+ <button type="button" onclick="this.closest('.aud-role-row').remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:2px 4px">×</button>
+ </div>`
+}
+function addAudRoleRow(){
+ const wrap = document.getElementById('aud-role-rows')
+ const div = document.createElement('div')
+ div.innerHTML = audRoleRowHtml(Date.now(), '', '')
+ wrap.appendChild(div.firstElementChild)
+}
+
+function audCrewRoleRowHtml(i, name){
+ return `<div class="aud-crew-role-row" data-idx="${i}" style="display:flex;gap:6px;align-items:center">
+ <input type="text" class="aud-crew-role-name" value="${escHtml(name)}" placeholder="e.g. Stage Management" style="flex:1;padding:7px 9px;border:1.5px solid var(--border-md);border-radius:6px;font-size:12.5px;font-family:inherit;box-sizing:border-box"/>
+ <button type="button" onclick="this.closest('.aud-crew-role-row').remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:2px 4px">×</button>
+ </div>`
+}
+function addAudCrewRoleRow(){
+ const wrap = document.getElementById('aud-crew-role-rows')
+ const div = document.createElement('div')
+ div.innerHTML = audCrewRoleRowHtml(Date.now(), '')
+ wrap.appendChild(div.firstElementChild)
+}
+
+function audCustomQRowHtml(i, question){
+ return `<div class="aud-custom-q-row" data-idx="${i}" style="display:flex;gap:6px;align-items:center">
+ <input type="text" class="aud-custom-q-text" value="${escHtml(question)}" placeholder="e.g. Do you play an instrument?" style="flex:1;padding:7px 9px;border:1.5px solid var(--border-md);border-radius:6px;font-size:12.5px;font-family:inherit;box-sizing:border-box"/>
+ <button type="button" onclick="this.closest('.aud-custom-q-row').remove()" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:2px 4px">×</button>
+ </div>`
+}
+function addAudCustomQRow(){
+ const wrap = document.getElementById('aud-custom-q-rows')
+ const div = document.createElement('div')
+ div.innerHTML = audCustomQRowHtml(Date.now(), '')
+ wrap.appendChild(div.firstElementChild)
+}
+
 async function saveAuditionSettings(contextType, contextId, containerId){
- const roles = (document.getElementById('aud-s-roles')?.value||'')
-   .split(',').map(r=>r.trim()).filter(Boolean)
- const crewRoles = (document.getElementById('aud-s-crew-roles')?.value||'')
-   .split(',').map(r=>r.trim()).filter(Boolean)
+ const roles = Array.from(document.querySelectorAll('#aud-role-rows .aud-role-row')).map(row=>({
+   name: row.querySelector('.aud-role-name')?.value.trim()||'',
+   description: row.querySelector('.aud-role-desc')?.value.trim()||'',
+ })).filter(r=>r.name)
+ const crewRoles = Array.from(document.querySelectorAll('#aud-crew-role-rows .aud-crew-role-row')).map(row=>({
+   name: row.querySelector('.aud-crew-role-name')?.value.trim()||'',
+ })).filter(r=>r.name)
+ const customQuestions = Array.from(document.querySelectorAll('#aud-custom-q-rows .aud-custom-q-row')).map(row=>({
+   question: row.querySelector('.aud-custom-q-text')?.value.trim()||'',
+ })).filter(q=>q.question)
  const allowSlotsEl = document.getElementById('aud-s-slots')
  const allowSlots = allowSlotsEl ? allowSlotsEl.checked : false
  const isOpenEl = document.getElementById('aud-s-is-open')
@@ -12764,6 +12903,11 @@ async function saveAuditionSettings(contextType, contextId, containerId){
    allow_crew_interest: !!document.getElementById('aud-s-allow-crew')?.checked,
    crew_roles: crewRoles,
    crew_instructions: document.getElementById('aud-s-crew-instructions')?.value.trim()||'',
+   collect_age_check: !!document.getElementById('aud-s-age')?.checked,
+   collect_pronouns: !!document.getElementById('aud-s-pronouns')?.checked,
+   collect_phone: !!document.getElementById('aud-s-phone')?.checked,
+   collect_how_heard: !!document.getElementById('aud-s-how-heard')?.checked,
+   custom_questions: customQuestions,
  }
  console.log('saveAuditionSettings payload:', data)
  const res = await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', data)

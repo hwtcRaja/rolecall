@@ -3254,6 +3254,7 @@ def build_waitlist_promoted_email_html(guardian_name, child_name, program_name, 
     return f'''
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px 28px;text-align:center;border-radius:12px 12px 0 0">
+    <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:40px;margin-bottom:14px"/>
     <h1 style="color:#fff;margin:0;font-size:21px;font-weight:700">{heading}</h1>
     <p style="color:rgba(255,255,255,0.82);margin:6px 0 0;font-size:14px">{program_name}</p>
   </div>
@@ -3277,6 +3278,7 @@ def build_waitlist_email_html(guardian_name, program_name, position_desc, is_plu
     return f'''
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px 28px;text-align:center;border-radius:12px 12px 0 0">
+    <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:40px;margin-bottom:14px"/>
     <h1 style="color:#fff;margin:0;font-size:21px;font-weight:700">You're on the Waitlist</h1>
     <p style="color:rgba(255,255,255,0.82);margin:6px 0 0;font-size:14px">{program_name}</p>
   </div>
@@ -4604,7 +4606,7 @@ def approve_hour_redemption(rid):
         try:
             if vol and vol.get('email'):
                 send_email([vol['email']], 'Your Hours Store request was approved — balance due',
-                    f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                    build_hwtc_email_html('Your Hours Store request was approved — balance due',
                     f'<h2 style="color:#145466">Approved — almost there!</h2>'
                     f'<p>Hi {vol.get("name","there")},</p>'
                     f'<p>Your redemption of <strong>{pseudo_program["name"]}</strong> has been approved. '
@@ -4613,8 +4615,7 @@ def approve_hour_redemption(rid):
                     f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
                     f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
                     f'Pay Remaining Balance</a></p>'
-                    f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-                    f'<p>Horizon West Theater Company</p></div>')
+                    f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'))
         except Exception as e:
             app.logger.warning(f'Hours store partial-approval email failed: {e}')
         conn.close()
@@ -4629,13 +4630,12 @@ def approve_hour_redemption(rid):
         vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
         if vol and vol.get('email'):
             send_email([vol['email']], 'Your Hours Store request has been approved!',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html('Your Hours Store request has been approved!',
                 f'<h2 style="color:#145466">Approved!</h2>'
                 f'<p>Hi {vol.get("name","there")},</p>'
                 f'<p>Your redemption of <strong>{red.get("item_name_snapshot") or (item["name"] if item else "your item")}</strong> '
                 f'for {red["hours_spent"]} volunteer hours has been approved'
-                f'{" and you have been enrolled." if new_reg_id else ". We will follow up with next steps."}</p>'
-                f'<p>Horizon West Theater Company</p></div>')
+                f'{" and you have been enrolled." if new_reg_id else ". We will follow up with next steps."}</p>'))
     except Exception as e:
         app.logger.warning(f'Hours store approval email failed: {e}')
     conn.close()
@@ -4662,13 +4662,12 @@ def deny_hour_redemption(rid):
         vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
         if vol and vol.get('email'):
             send_email([vol['email']], 'Update on your Hours Store request',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html('Update on your Hours Store request',
                 f'<h2 style="color:#145466">Hours Store Update</h2>'
                 f'<p>Hi {vol.get("name","there")},</p>'
                 f'<p>We were not able to approve your redemption of <strong>{red.get("item_name_snapshot") or "your item"}</strong> '
                 f'({red["hours_spent"]} hours).{" Note: " + d.get("reason","") if d.get("reason") else ""}</p>'
-                f'<p>Your hours have been returned to your available balance. Please reach out if you have questions.</p>'
-                f'<p>Horizon West Theater Company</p></div>')
+                f'<p>Your hours have been returned to your available balance. Please reach out if you have questions.</p>'))
     except Exception as e:
         app.logger.warning(f'Hours store denial email failed: {e}')
     conn.close()
@@ -4722,7 +4721,7 @@ def resend_hour_redemption_payment_link(rid):
     try:
         if vol and vol.get('email'):
             send_email([vol['email']], 'Reminder — balance due for your Hours Store request',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html('Reminder — balance due for your Hours Store request',
                 f'<h2 style="color:#145466">Balance Due</h2>'
                 f'<p>Hi {vol.get("name","there")},</p>'
                 f'<p>Just a reminder — there\'s a balance of <strong>${red["balance_due_cents"]/100:.2f}</strong> remaining on your '
@@ -4730,8 +4729,7 @@ def resend_hour_redemption_payment_link(rid):
                 f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
                 f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
                 f'Pay Remaining Balance</a></p>'
-                f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-                f'<p>Horizon West Theater Company</p></div>')
+                f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'))
     except Exception as e:
         app.logger.warning(f'Hours store resend-link email failed: {e}')
     conn.close()
@@ -4805,11 +4803,11 @@ def public_hours_store_redeem(token):
         if recipients:
             balance_note = f' plus a ${balance_due_cents/100:.2f} balance to be invoiced' if balance_due_cents else ''
             send_email(recipients, f'New Hours Store request — {vol["name"]}',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html(f'New Hours Store request — {vol["name"]}',
                 f'<h2 style="color:#145466">New Hours Store Request</h2>'
                 f'<p><strong>{vol["name"]}</strong> ({vol.get("email","")}) has requested to redeem '
                 f'<strong>{hours_to_apply} hours</strong> for <strong>{item["name"]}</strong>{balance_note}.</p>'
-                f'<p>Review and approve/deny it in RoleCall under Volunteers → Hours Store.</p></div>')
+                f'<p>Review and approve/deny it in RoleCall under Volunteers → Hours Store.</p>'))
     except Exception as e:
         app.logger.warning(f'Hours store admin notify failed: {e}')
     return jsonify({'ok': True, 'status': 'pending', 'hours_applied': hours_to_apply, 'balance_due_cents': balance_due_cents})
@@ -5406,7 +5404,7 @@ def push_program_announcement(pid, aid):
     </div>'''
     try:
         fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
-        send_email(list(recipients), f'{prog_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
+        send_email(list(recipients), f'{prog_name}: {ann["title"]}', build_hwtc_email_html(f'{prog_name}: {ann["title"]}', html_body), fi.get('email') or None, fi.get('name') or None)
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
         app.logger.error(f'push_program_announcement email error: {e}')
@@ -5487,7 +5485,7 @@ def send_program_email(pid):
     </div>'''
 
     try:
-        send_email(list(recipients), subject, html_body)
+        send_email(list(recipients), subject, build_hwtc_email_html(subject, html_body))
         return jsonify({'ok': True, 'sent_to': len(recipients), 'recipients': list(recipients)})
     except Exception as e:
         app.logger.error(f'send_program_email error: {e}')
@@ -5682,7 +5680,7 @@ def send_program_welcome(pid):
             .replace('{{passphrase_reminder_line}}', adult_blocks['passphrase_reminder_line'])
             .replace('{{closing_line}}', adult_blocks['closing_line']))
         subject = subject_base.replace('{{program_name}}', prog_name)
-        ok, err_msg = send_email([r['email']], subject, html_body, fi.get('email') or None, fi.get('name') or None)
+        ok, err_msg = send_email([r['email']], subject, build_hwtc_email_html(subject, html_body), fi.get('email') or None, fi.get('name') or None)
         if ok:
             sent += 1
         else:
@@ -5816,7 +5814,7 @@ def portal_start_message_thread():
             p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
             if p: ctx = f' - {p["name"]}'
         html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New Portal Message{ctx}</h2><p><strong>From:</strong> {sender_name}<br/><strong>Subject:</strong> {subject}</p><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p style="color:#9ca3af;font-size:12px">Reply via Programs or Productions - Portal Content - Messages tab in RoleCall admin.</p></div>'
-        send_email(recipients, f'Portal Message: {subject}', html)
+        send_email(recipients, f'Portal Message: {subject}', build_hwtc_email_html(f'Portal Message: {subject}', html))
     conn.close()
     return jsonify({'ok': True, 'thread_id': tid})
 
@@ -5876,7 +5874,7 @@ def portal_reply_thread(tid):
             family = fetchone(conn, 'SELECT email FROM families WHERE passphrase=%s', (thread['family_passphrase'],))
             if family and family.get('email'):
                 html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New reply: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p><a href="https://rolecall.hwtco.org/portal.html" style="background:#145466;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">View in Portal</a></p></div>'
-                send_email([family['email']], f'Re: {thread["subject"]}', html)
+                send_email([family['email']], f'Re: {thread["subject"]}', build_hwtc_email_html(f'Re: {thread["subject"]}', html))
         except Exception: pass
     elif is_family:
         recipients = list(get_recipient_emails(s))
@@ -5903,7 +5901,7 @@ def portal_reply_thread(tid):
         except Exception: pass
         if recipients:
             html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">Family replied: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div></div>'
-            send_email(recipients, f'Portal Reply: {thread["subject"]}', html)
+            send_email(recipients, f'Portal Reply: {thread["subject"]}', build_hwtc_email_html(f'Portal Reply: {thread["subject"]}', html))
     conn.close()
     return jsonify({'ok': True})
 
@@ -6337,7 +6335,7 @@ def submit_audition():
                 + '<p style="color:#9ca3af;font-size:12px">Manage submissions in RoleCall under the Auditions tab.</p>'
                 + '</div>'
             )
-            send_email(recipients, 'New Audition: ' + name + ' for ' + ctx_name, html)
+            send_email(recipients, 'New Audition: ' + name + ' for ' + ctx_name, build_hwtc_email_html('New Audition: ' + name + ' for ' + ctx_name, html))
     except Exception as e:
         app.logger.warning(f'Audition notification failed: {e}')
     # Confirmation to submitter
@@ -6352,7 +6350,7 @@ def submit_audition():
                 '<p>We will be in touch soon.</p>'
                 '<p style="color:#9ca3af;font-size:13px">Horizon West Theater Company</p></div>'
             )
-            send_email([sub_email], 'Audition Received: ' + ctx_name, conf)
+            send_email([sub_email], 'Audition Received: ' + ctx_name, build_hwtc_email_html('Audition Received: ' + ctx_name, conf))
     except Exception: pass
     conn.close()
     return jsonify({'ok': True, 'submission_id': sid})
@@ -6794,20 +6792,19 @@ def submit_board_application(position_id):
             recipients = [u['email'] for u in admins if u.get('email')]
         if recipients:
             send_email(recipients, f'New Board Application: {full_name} — {pos["title"]}',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                build_hwtc_email_html(f'New Board Application: {full_name} — {pos["title"]}',
                 f'<h2 style="color:#145466">New Board Position Application</h2>'
                 f'<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
                 f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:160px">Position</td><td style="padding:8px 12px">{pos["title"]}</td></tr>'
                 f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Name</td><td style="padding:8px 12px">{full_name}</td></tr>'
                 f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Email</td><td style="padding:8px 12px">{email}</td></tr>'
                 f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Attachments</td><td style="padding:8px 12px">{len(labeled_files) or "None"}</td></tr>'
-                f'</table><p style="color:#9ca3af;font-size:12px">Review the full application in RoleCall under Board → Applications.</p></div>')
+                f'</table><p style="color:#9ca3af;font-size:12px">Review the full application in RoleCall under Board → Applications.</p>'))
         send_email(email, f'Application Received — {pos["title"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+            build_hwtc_email_html(f'Application Received — {pos["title"]}',
             f'<p>Hi {full_name.split(" ")[0]},</p>'
             f'<p>Thank you for applying for the <strong>{pos["title"]}</strong> position on our Board. '
-            f'We\'ve received your application and will be in touch soon.</p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'We\'ve received your application and will be in touch soon.</p>'))
     except Exception as e:
         app.logger.error(f'Board application notify failed: {e}')
     conn.close()
@@ -7101,7 +7098,7 @@ def submit_director_interest():
                 '<p style="color:#9ca3af;font-size:12px">View full response in RoleCall under Directors.</p>'
                 '</div>'
             )
-            send_email(recipients, 'Director Interest: ' + name, html)
+            send_email(recipients, 'Director Interest: ' + name, build_hwtc_email_html('Director Interest: ' + name, html))
     except Exception as e:
         app.logger.error(f'Director interest notify failed: {e}')
     conn.close()
@@ -7257,7 +7254,7 @@ def send_director_form_email():
         '<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theater Company</p>'
         '</div>'
     )
-    ok, msg = send_email([email], 'HWTC Director Interest Form', html)
+    ok, msg = send_email([email], 'HWTC Director Interest Form', build_hwtc_email_html('HWTC Director Interest Form', html))
     if not ok:
         return jsonify({'error': msg or 'Failed to send email'}), 500
     return jsonify({'ok': True})
@@ -9790,7 +9787,7 @@ def send_thank_you(donation_id):
             <p style="font-size:15px;color:#5f5e5a">With gratitude,<br/><strong>Horizon West Theater Company</strong></p></div>
         <p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">Horizon West Theater Company is a 501(c)(3) non-profit organization.</p>
         </div>'''.format(name=name, amount=amount, campaign_str=campaign_str, date=date_str)
-    ok, err_msg = send_email([row['email']], subject, html_body, from_addr)
+    ok, err_msg = send_email([row['email']], subject, build_hwtc_email_html(subject, html_body), from_addr)
     if ok:
         execute(conn, '''UPDATE donor_donations SET thank_you_sent=TRUE,
             thank_you_sent_at=NOW(), thank_you_sent_by=%s WHERE id=%s''',
@@ -10727,7 +10724,7 @@ def test_template_email(tid):
     body = f'''<div style="background:#fef9c3;border:2px dashed #f59e0b;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-family:sans-serif;font-size:13px;color:#854d0e">
         <strong> This is a test email</strong>  -  sent to {to}. Sample values have been substituted for real data.
     </div>''' + body
-    ok, msg = send_email([to], subject, body)
+    ok, msg = send_email([to], subject, build_hwtc_email_html(subject, body))
     if ok: return jsonify({'ok': True, 'sent_to': to})
     return jsonify({'error': msg or 'Failed to send'}), 500
 
@@ -10827,7 +10824,7 @@ def send_reset_link(uid):
         </div>
     </div>'''
     fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
-    ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', html_body, fi.get('email') or None, fi.get('name') or None)
+    ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', build_hwtc_email_html('Your RoleCall Temporary Password', html_body), fi.get('email') or None, fi.get('name') or None)
     conn.close()
     if ok: return jsonify({'ok': True})
     return jsonify({'error': msg or 'Failed to send email. Check that your Resend API key is configured in Settings → Email.'}), 500
@@ -10986,8 +10983,9 @@ def portal_contact_production():
     recipients = get_recipient_emails(s)
     if recipients:
         send_email(recipients, f'Portal Message: {d.get("subject","")}',
-            f'<p style="font-family:sans-serif">From: {d.get("from_name","")} ({d.get("from_email","")})<br/>'
-            f'Production: {prod["name"]}<br/><br/>{d.get("message","")}</p>')
+            build_hwtc_email_html(f'Portal Message: {d.get("subject","")}',
+            f'<p>From: {d.get("from_name","")} ({d.get("from_email","")})<br/>'
+            f'Production: {prod["name"]}<br/><br/>{d.get("message","")}</p>'))
     return jsonify({'ok': True})
 
 
@@ -11924,7 +11922,7 @@ def push_announcement(pid, aid):
     </div>'''
     try:
         fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
-        send_email(list(recipients), f'{prod_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
+        send_email(list(recipients), f'{prod_name}: {ann["title"]}', build_hwtc_email_html(f'{prod_name}: {ann["title"]}', html_body), fi.get('email') or None, fi.get('name') or None)
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
         app.logger.error(f'push_announcement (production) email error: {e}')
@@ -12348,9 +12346,10 @@ def kiosk_stop_session():
                 vol_name = vol['name'] if vol else 'A volunteer'
                 if recipients:
                     send_email(recipients, 'RoleCall  -  Hours Submitted: ' + vol_name,
-                        '<p style="font-family:sans-serif"><strong>' + vol_name + '</strong> logged <strong>'
+                        build_hwtc_email_html('RoleCall  -  Hours Submitted: ' + vol_name,
+                        '<p><strong>' + vol_name + '</strong> logged <strong>'
                         + str(elapsed_hours) + ' hours</strong> via kiosk timer for <strong>'
-                        + (sess['event_name'] or 'a session') + '</strong>.</p>')
+                        + (sess['event_name'] or 'a session') + '</strong>.</p>'))
         except Exception:
             pass
         conn.close()
@@ -12459,7 +12458,8 @@ def kiosk_submit_independent():
         if recipients and s.get('alert_pending_hours'):
             send_email(recipients,
                 f'RoleCall  -  Independent Hours Submitted: {vol["name"]}',
-                f'<p style="font-family:sans-serif"><strong>{vol["name"]}</strong> submitted <strong>{hours}h</strong> of independent work: <strong>{activity}</strong>.</p><p style="font-family:sans-serif;color:#666">Please review and approve in RoleCall → Hours.</p>')
+                build_hwtc_email_html(f'RoleCall  -  Independent Hours Submitted: {vol["name"]}',
+                f'<p><strong>{vol["name"]}</strong> submitted <strong>{hours}h</strong> of independent work: <strong>{activity}</strong>.</p><p style="color:#666">Please review and approve in RoleCall → Hours.</p>'))
     except Exception:
         pass
     conn.close()
@@ -12555,7 +12555,7 @@ def join_submit():
                   <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes',' - ') or ' - '}</td></tr>
                 </table>
             </div>'''
-            send_email(recipients, f'New Volunteer Interest  -  {d["name"]}', html_body)
+            send_email(recipients, f'New Volunteer Interest  -  {d["name"]}', build_hwtc_email_html(f'New Volunteer Interest  -  {d["name"]}', html_body))
     except Exception:
         pass
     # If Director is selected, send director interest form email
@@ -12578,7 +12578,7 @@ def join_submit():
                     f'<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theater Company &mdash; rolecall.hwtco.org</p>'
                     f'</div>'
                 )
-                send_email([applicant_email], 'HWTC Director Interest Form', dir_html)
+                send_email([applicant_email], 'HWTC Director Interest Form', build_hwtc_email_html('HWTC Director Interest Form', dir_html))
     except Exception as e:
         app.logger.warning(f'Director interest email failed: {e}')
     conn.close()
@@ -13138,6 +13138,7 @@ def build_report_email_html(report_type, data, params=None):
     today = date.today().strftime('%B %d, %Y')
     header = f'''<div style="font-family:-apple-system,sans-serif;max-width:700px;margin:0 auto">
     <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;color:#fff">
+        <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:36px;margin-bottom:10px"/>
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theater Company</div>
         <div style="font-size:22px;font-weight:800">{{}}</div>
         <div style="font-size:13px;opacity:0.7;margin-top:4px">Generated {today}</div>
@@ -13354,7 +13355,7 @@ def send_report_now():
         html = build_payroll_report_html(data, link=f'{APP_URL}/payroll-report/{token}')
         subject = f" Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
         fi = d.get('from_identity') or {}
-        ok, msg = send_email(emails, subject, html, fi.get('email') or None, fi.get('name') or None)
+        ok, msg = send_email(emails, subject, build_hwtc_email_html(subject, html), fi.get('email') or None, fi.get('name') or None)
         if ok: return jsonify({'ok': True, 'sent_to': emails})
         return jsonify({'error': msg or 'Failed to send'}), 500
     else:
@@ -13368,7 +13369,7 @@ def send_report_now():
         return jsonify({'error': 'No recipients configured'}), 400
 
     fi = d.get('from_identity') or {}
-    ok, msg = send_email(emails, subject, html, fi.get('email') or None, fi.get('name') or None)
+    ok, msg = send_email(emails, subject, build_hwtc_email_html(subject, html), fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True, 'sent_to': emails})
     return jsonify({'error': msg or 'Failed to send'}), 500
 
@@ -13696,7 +13697,7 @@ def _fire_scheduled_report(r):
         c.commit(); c.close()
         return
 
-    ok, msg = send_email(emails, subject, html)
+    ok, msg = send_email(emails, subject, build_hwtc_email_html(subject, html))
     c = get_db()
     execute(c, '''INSERT INTO scheduled_report_runs (id, scheduled_report_id, report_type, success, email_sent_to, email_error)
         VALUES (%s,%s,%s,%s,%s,%s)''',
@@ -13767,7 +13768,7 @@ def _fire_payroll_report(r):
     email_sent_to, email_error = '', None
     if emails:
         html_with_link = build_payroll_report_html(data, link=link)
-        ok, msg = send_email(emails, subject, html_with_link)
+        ok, msg = send_email(emails, subject, build_hwtc_email_html(subject, html_with_link))
         if ok:
             sent_something = True
             email_sent_to = ', '.join(emails)
@@ -14273,7 +14274,7 @@ def kiosk_close_event():
                     <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Volunteer</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Hours</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Status</th></tr></thead>
                     <tbody>{hrs_rows}</tbody></table>""" if hrs_count else "<p><em>No hours recorded for this event.</em></p>"}
                     </div></div>'''
-                send_email(recipients, f'Event Closed: {evt_name}', body)
+                send_email(recipients, f'Event Closed: {evt_name}', build_hwtc_email_html(f'Event Closed: {evt_name}', body))
         except Exception as e:
             app.logger.error(f'close-event email error: {e}')
         conn.close()
@@ -15167,7 +15168,7 @@ def email_event_signups(eid):
       </div>
     </div>'''
     try:
-        send_email(recipients, subject, html_body)
+        send_email(recipients, subject, build_hwtc_email_html(subject, html_body))
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -15552,7 +15553,7 @@ def submit_portal_production_conflict():
                         f'<p><strong>{who}</strong> has been marked '
                         f'<strong>{label}</strong> for <strong>{prod["name"]}</strong>{where} on {date_str}.</p>'
                         + (f'<p>Notes: {notes}</p>' if notes else '') + '</div>')
-                send_email(recipients, subject, html)
+                send_email(recipients, subject, build_hwtc_email_html(subject, html))
 
             try:
                 vol_ids = json.loads(prod.get('callout_alert_volunteer_ids') or '[]')
@@ -15969,10 +15970,11 @@ def kiosk_unauthorized_pickup_notify():
         recipients = get_recipient_emails(s)
         if recipients:
             send_email(recipients, 'ALERT: Unauthorized Pickup Attempt',
-                f'<p style="font-family:sans-serif;color:#dc2626"><strong>Unauthorized pickup attempt</strong> at the kiosk.<br/>'
+                build_hwtc_email_html('ALERT: Unauthorized Pickup Attempt',
+                f'<p style="color:#dc2626"><strong>Unauthorized pickup attempt</strong> at the kiosk.<br/>'
                 f'Youth: {d.get("youth_name","Unknown")}<br/>'
                 f'Attempted by: {d.get("person_name","Unknown")}<br/>'
-                f'Time: {__import__("datetime").datetime.now().strftime("%I:%M %p")}</p>')
+                f'Time: {__import__("datetime").datetime.now().strftime("%I:%M %p")}</p>'))
     except Exception:
         pass
     return jsonify({'ok': True})
@@ -16525,7 +16527,7 @@ def send_rsvp_invite(eid):
                 email_subject = render_template_vars(tmpl_subject, tmpl_vars)
 
             fi = d.get('from_identity') or {}
-            send_email([v['email']], email_subject, body, fi.get('email') or None, fi.get('name') or None)
+            send_email([v['email']], email_subject, build_hwtc_email_html(email_subject, body), fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
             conn.commit()
@@ -17063,7 +17065,8 @@ def rsvp_submit(token):
             recipients = get_recipient_emails(s)
             if recipients and s.get('alert_new_rsvp', True):
                 send_email(recipients, f'RSVP Decline: {rsvp["event_name"]}',
-                    f'<div style="font-family:sans-serif"><p> <strong>{vol_name}</strong> declined the invite for <strong>{rsvp["event_name"]}</strong>.</p></div>')
+                    build_hwtc_email_html(f'RSVP Decline: {rsvp["event_name"]}',
+                    f'<p><strong>{vol_name}</strong> declined the invite for <strong>{rsvp["event_name"]}</strong>.</p>'))
         except Exception as e:
             app.logger.warning(f'rsvp decline alert email error: {e}')
         conn.close()
@@ -17148,8 +17151,9 @@ def rsvp_submit(token):
                 coming_names = ', '.join(r['name'] for r in responses if r['attending']) or 'no one'
                 not_coming_names = ', '.join(r['name'] for r in responses if not r['attending']) or 'no one'
                 send_email(recipients, f'RSVP: {rsvp["event_name"]}',
-                    f'<div style="font-family:sans-serif"><p> <strong>{vol_name}</strong> responded for <strong>{rsvp["event_name"]}</strong>.</p>'
-                    f'<p><strong>Coming:</strong> {coming_names}<br/><strong>Not coming:</strong> {not_coming_names}</p></div>')
+                    build_hwtc_email_html(f'RSVP: {rsvp["event_name"]}',
+                    f'<p><strong>{vol_name}</strong> responded for <strong>{rsvp["event_name"]}</strong>.</p>'
+                    f'<p><strong>Coming:</strong> {coming_names}<br/><strong>Not coming:</strong> {not_coming_names}</p>'))
         except Exception as e:
             app.logger.warning(f'rsvp party alert email error: {e}')
         conn.close()
@@ -17213,15 +17217,17 @@ def rsvp_submit(token):
             # New RSVP alert
             if s.get('alert_new_rsvp', True):
                 send_email(recipients, f'New RSVP: {evt_name}' if is_guest else f'New Sign-up: {evt_name}',
-                    f'<div style="font-family:sans-serif"><p> <strong>{vol_name}</strong> {action_word}{role_line} for <strong>{evt_name}</strong>.</p>'
-                    f'{f"<p>Date: {date_str}</p>" if date_str else ""}</div>')
+                    build_hwtc_email_html(f'New RSVP: {evt_name}' if is_guest else f'New Sign-up: {evt_name}',
+                    f'<p><strong>{vol_name}</strong> {action_word}{role_line} for <strong>{evt_name}</strong>.</p>'
+                    f'{f"<p>Date: {date_str}</p>" if date_str else ""}'))
             # Slot filled alert
             if role_id and role_name and s.get('alert_role_filled', True):
                 filled_now_ct = _role_headcount(conn, role_id)
                 role_row = fetchone(conn, 'SELECT slots FROM event_roles WHERE id=%s', (role_id,))
                 if role_row and filled_now_ct >= int(role_row['slots']):
                     send_email(recipients, f'{slot_word} Filled: {role_name}  -  {evt_name}',
-                        f'<div style="font-family:sans-serif"><p> The <strong>{role_name}</strong> {slot_word.lower()} for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
+                        build_hwtc_email_html(f'{slot_word} Filled: {role_name}  -  {evt_name}',
+                        f'<p>The <strong>{role_name}</strong> {slot_word.lower()} for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p>'))
     except Exception as e:
         app.logger.warning(f'rsvp alert email error: {e}')
 
@@ -17597,7 +17603,8 @@ def public_rsvp_open_submit(event_id):
         if recipients and s.get('alert_new_rsvp', True):
             role_line = f' for <strong>{role_name}</strong>' if role_name else ''
             send_email(recipients, f'New RSVP: {evt["name"]}',
-                f'<div style="font-family:sans-serif"><p> <strong>{name}</strong> ({email}) submitted an RSVP{role_line} for <strong>{evt["name"]}</strong> via the public RSVP link.</p></div>')
+                build_hwtc_email_html(f'New RSVP: {evt["name"]}',
+                f'<p><strong>{name}</strong> ({email}) submitted an RSVP{role_line} for <strong>{evt["name"]}</strong> via the public RSVP link.</p>'))
     except Exception as e:
         app.logger.warning(f'public rsvp alert email error: {e}')
 
@@ -18206,7 +18213,7 @@ def send_board_availability_request():
         </div>'''
         try:
             fi = d.get('from_identity') or {}
-            send_email([m['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
+            send_email([m['email']], subj, build_hwtc_email_html(subj, body), fi.get('email') or None, fi.get('name') or None)
             sent += 1
         except Exception as e:
             app.logger.warning(f'Board availability email failed for {m["email"]}: {e}')
@@ -18438,7 +18445,7 @@ def send_single_giving_reminder(vol_id):
             body = base_body[:idx] + hours_section + base_body[idx:]
         else:
             body = base_body + hours_section
-        ok, msg = send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
+        ok, msg = send_email([v['email']], subj, build_hwtc_email_html(subj, body), fi.get('email') or None, fi.get('name') or None)
         if ok:
             conn3 = get_db()
             log_volunteer_comm(conn3, vol_id, subj, prog['tmpl_key'], session.get('user_name', 'admin'), v['email'])
@@ -18602,7 +18609,7 @@ def send_employer_program_reminder():
             body = base_body
         try:
             fi = d.get('from_identity') or {}
-            send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
+            send_email([v['email']], subj, build_hwtc_email_html(subj, body), fi.get('email') or None, fi.get('name') or None)
             sent += 1
             conn3 = get_db()
             execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)
@@ -20011,7 +20018,7 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     merge.update(_welcome_email_adult_aware_blocks(is_adult, program_name))
                     subject = render_template_vars(tmpl['subject'], merge)
                     body = render_template_vars(tmpl['body'], merge)
-                    send_email(reg['guardian_email'], subject, body, source='welcome_email')
+                    send_email(reg['guardian_email'], subject, build_hwtc_email_html(subject, body), source='welcome_email')
                     if group_id:
                         execute(conn, 'UPDATE program_registrations SET welcome_email_sent_at=NOW() WHERE registration_group_id=%s', (group_id,))
                     else:
@@ -20359,7 +20366,7 @@ def debug_email_test():
     default_sender = identities[0].get('email','') if identities else es.get('from_email','')
     d = request.json or {}
     to_email = d.get('to','raja.jalernpan@gmail.com')
-    ok, err_msg = send_email(to_email, 'RoleCall Email Test', '<p>This is a test email from RoleCall.</p>', source='debug')
+    ok, err_msg = send_email(to_email, 'RoleCall Email Test', build_hwtc_email_html('RoleCall Email Test', '<p>This is a test email from RoleCall.</p>'), source='debug')
     return jsonify({
         'has_resend_key': has_key,
         'default_sender': default_sender,
@@ -20981,13 +20988,13 @@ def submit_licensing_request():
                 send_email(
                     ','.join(notify_emails),
                     subject,
-                    f'''<div style="font-family:sans-serif;padding:20px">
+                    build_hwtc_email_html(subject, f'''
                         <h3>New show licensing request{"s" if len(created) > 1 else ""} received</h3>
                         <p><b>Requested by:</b> {requester_name} ({requester_email})<br>
                         <b>Venue:</b> {d.get("venue_name","")}</p>
                         <ul>{show_rows_html}</ul>
                         <p><a href="https://rolecall.hwtco.org" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review in RoleCall</a></p>
-                      </div>''',
+                      '''),
                     source='licensing_request_admin')
         except Exception as e:
             app.logger.warning(f'Licensing request admin notification failed: {e}')
@@ -21250,7 +21257,8 @@ def public_submit_registration(slug):
                 recipients = list(get_recipient_emails(s))
                 if recipients:
                     send_email(recipients, f'Interest List: {p["name"]} — {d.get("name","")}',
-                        f'<p><strong>{d.get("name","")}</strong> ({email}) joined the interest list for <strong>{p["name"]}</strong>.</p>')
+                        build_hwtc_email_html(f'Interest List: {p["name"]} — {d.get("name","")}',
+                        f'<p><strong>{d.get("name","")}</strong> ({email}) joined the interest list for <strong>{p["name"]}</strong>.</p>'))
             except Exception: pass
             # Thank-you email to the family
             try:
@@ -21654,12 +21662,11 @@ def square_webhook():
                             vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (hour_red['volunteer_id'],))
                             if vol and vol.get('email'):
                                 send_email([vol['email']], 'Payment received — Hours Store',
-                                    f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                                    build_hwtc_email_html('Payment received — Hours Store',
                                     f'<h2 style="color:#145466">Payment Received!</h2>'
                                     f'<p>Hi {vol.get("name","there")},</p>'
                                     f'<p>Thanks — we received your balance payment for <strong>{hour_red.get("item_name_snapshot") or (item["name"] if item else "your item")}</strong>.'
-                                    f'{" You have been enrolled." if new_reg_id else " We will follow up with next steps."}</p>'
-                                    f'<p>Horizon West Theater Company</p></div>')
+                                    f'{" You have been enrolled." if new_reg_id else " We will follow up with next steps."}</p>'))
                         except Exception as e:
                             app.logger.warning(f'Hours store balance-paid email failed: {e}')
                     else:
@@ -23982,10 +23989,10 @@ def _notify_inbox_new_thread(conn, thread_id):
         first_msg = fetchone(conn, "SELECT body_text FROM inbox_messages WHERE thread_id=%s ORDER BY created_at LIMIT 1", (thread_id,))
         preview = ((first_msg or {}).get('body_text') or '').strip().replace('\n', ' ')[:200]
         send_email(recipients, f'New message: {thread.get("subject","(no subject)")}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'New message: {thread.get("subject","(no subject)")}',
             f'<p><strong>{thread.get("participant_name") or thread.get("participant_email","")}</strong> sent a new message to info@hwtco.org:</p>'
             f'<p style="color:#6b7280;font-size:13px;border-left:3px solid #145466;padding-left:10px">{preview}{"…" if len(preview)==200 else ""}</p>'
-            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p>'),
             source='inbox_notify')
     except Exception as e:
         app.logger.warning(f'Inbox new-thread notification failed: {e}')
@@ -24001,10 +24008,10 @@ def _notify_inbox_assigned(conn, thread_id, assignee_name):
         if not thread:
             return
         send_email(user['email'], f'Assigned to you: {thread.get("subject","(no subject)")}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'Assigned to you: {thread.get("subject","(no subject)")}',
             f'<p>You\'ve been assigned a conversation in the RoleCall Inbox:</p>'
             f'<p><strong>{thread.get("participant_name") or thread.get("participant_email","")}</strong> — {thread.get("subject","(no subject)")}</p>'
-            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p>'),
             source='inbox_notify')
     except Exception as e:
         app.logger.warning(f'Inbox assignment notification failed: {e}')
@@ -24044,11 +24051,11 @@ def _notify_inbox_mentioned(conn, thread_id, mentioned_names, author_name, comme
                 continue
             preview = (comment_body or '').strip().replace('\n', ' ')[:200]
             send_email(user['email'], f'{author_name} mentioned you: {thread.get("subject","(no subject)")}',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html(f'{author_name} mentioned you: {thread.get("subject","(no subject)")}',
                 f'<p><strong>{author_name}</strong> mentioned you on a conversation with '
                 f'{thread.get("participant_name") or thread.get("participant_email","")} in the RoleCall Inbox:</p>'
                 f'<p style="color:#6b7280;font-size:13px;border-left:3px solid #145466;padding-left:10px">{preview}{"…" if len(preview)==200 else ""}</p>'
-                f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+                f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p>'),
                 source='inbox_notify')
         except Exception as e:
             app.logger.warning(f'Inbox mention notification failed for {name}: {e}')
@@ -24832,7 +24839,7 @@ def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name
     if attachments:
         import base64 as _b64send
         resend_attachments = [{'filename': a['filename'], 'content_b64': _b64send.b64encode(a['data']).decode()} for a in attachments]
-    ok, err, resend_id = send_email(to_email, subject, html_body, from_email=from_email,
+    ok, err, resend_id = send_email(to_email, subject, build_hwtc_email_html(subject, html_body), from_email=from_email,
         from_name='Horizon West Theater Company', source='shared_inbox', extra_headers=headers,
         cc=cc_emails or None, bcc=bcc_emails or None, attachments=resend_attachments)
     if not ok:
@@ -27326,7 +27333,7 @@ def public_partnership_interest_submit():
                 f'Please log in to RoleCall → Artistic Partnership to review and follow up.')
         for email_addr in approver_emails:
             try:
-                send_email(email_addr, subject, body)
+                send_email(email_addr, subject, build_hwtc_email_html(subject, body))
             except Exception as email_err:
                 app.logger.warning(f'Partnership interest notify to {email_addr} failed: {email_err}')
     except Exception as e:
@@ -27462,7 +27469,7 @@ def create_rental_request():
         body = f'A new Artistic Partnership request has been submitted and requires approval.<br><br><strong>Title:</strong> {d.get("title","")}<br><strong>Start:</strong> {d.get("start_date","")}<br><strong>Purpose:</strong> {d.get("purpose","")}<br><br>Please log in to RoleCall → Artistic Partnership to review and approve.'
         for email_addr in approver_emails:
             try:
-                send_email(email_addr, subject, body)
+                send_email(email_addr, subject, build_hwtc_email_html(subject, body))
             except Exception as email_err:
                 app.logger.warning(f'Rental approver email to {email_addr} failed: {email_err}')
         if not approver_emails:
@@ -28054,7 +28061,8 @@ def approve_rental_request(rid):
             try:
                 send_email(em,
                     f'Artistic Partnership Request Needs Your Approval (Level {next_level+1}): {req.get("title","")}',
-                    f'{approver_name} has approved this request at Level {next_level}.<br><br>Title: {req.get("title","")}<br><br>Please log in to RoleCall to review and approve at Level {next_level+1}: {next_level_config.get("label","")}.')
+                    build_hwtc_email_html(f'Artistic Partnership Request Needs Your Approval (Level {next_level+1}): {req.get("title","")}',
+                    f'<p>{approver_name} has approved this request at Level {next_level}.</p><p>Title: {req.get("title","")}</p><p>Please log in to RoleCall to review and approve at Level {next_level+1}: {next_level_config.get("label","")}.</p>'))
             except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'fully_approved': fully_approved, 'level': next_level})
@@ -28098,7 +28106,8 @@ def deny_rental_request(rid):
         try:
             send_email(partner['contact_email'],
                 f'Artistic Partnership Request Update: {req.get("title","")}',
-                f'Dear {partner.get("contact_name") or partner.get("pname","")},<br><br>We regret to inform you that your Artistic Partnership request "{req.get("title","")}" has not been approved at this time.<br><br>{("Reason: "+reason) if reason else ""}<br><br>Please contact us if you have questions.<br><br>Horizon West Theater Company')
+                build_hwtc_email_html(f'Artistic Partnership Request Update: {req.get("title","")}',
+                f'<p>Dear {partner.get("contact_name") or partner.get("pname","")},</p><p>We regret to inform you that your Artistic Partnership request "{req.get("title","")}" has not been approved at this time.</p><p>{("Reason: "+reason) if reason else ""}</p><p>Please contact us if you have questions.</p>'))
         except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -29004,7 +29013,7 @@ If you have any questions, please contact us.
 
 Horizon West Theater Company'''
         try:
-            send_email(email_to, subject, body)
+            send_email(email_to, subject, build_hwtc_email_html(subject, body))
             execute(conn, "UPDATE rental_agreements SET status='sent', sent_at=NOW() WHERE id=%s", (aid,))
             conn.commit()
         except Exception as e:
@@ -29276,9 +29285,9 @@ def submit_rental_signature(token):
         if partner_email:
             send_email(partner_email,
                 f'Your Signed Agreement: {title}',
-                f'Hi {name},<br><br>Thanks for signing! Attached is a signed copy of your Artistic Partnership and '
-                f'Studio Use Agreement for "{title}" for your records.<br><br>We look forward to working with you.<br><br>'
-                f'Horizon West Theater Company',
+                build_hwtc_email_html(f'Your Signed Agreement: {title}',
+                f'<p>Hi {name},</p><p>Thanks for signing! Attached is a signed copy of your Artistic Partnership and '
+                f'Studio Use Agreement for "{title}" for your records.</p><p>We look forward to working with you.</p>'),
                 attachments=attachments)
         else:
             app.logger.warning(f'Signed agreement for request {agr.get("request_id")} — no partner email on file, PDF not sent to partner')
@@ -29287,8 +29296,9 @@ def submit_rental_signature(token):
         for admin in (admins or []):
             send_email(admin['email'],
                 f'Agreement Signed: {title}',
-                f'{name} has signed the Artistic Partnership and Studio Use Agreement for {title}.<br><br>'
-                f'A signed PDF copy is attached. You can also view it anytime in RoleCall.',
+                build_hwtc_email_html(f'Agreement Signed: {title}',
+                f'<p>{name} has signed the Artistic Partnership and Studio Use Agreement for {title}.</p>'
+                f'<p>A signed PDF copy is attached. You can also view it anytime in RoleCall.</p>'),
                 attachments=attachments)
     except Exception as e:
         app.logger.warning(f'Signed agreement PDF/email error: {e}')
@@ -29512,11 +29522,11 @@ def create_rental_payment_plan(aid):
             if req and req.get('partner_email'):
                 try:
                     send_email(req['partner_email'], f'Payment Plan — {req.get("title","")}',
-                        f'Hi {req.get("partner_contact") or req.get("partner_name") or ""},<br><br>'
-                        f'Here is the payment schedule for <strong>{req.get("title","")}</strong>: {len(created_ids)} installment(s). '
-                        f'Each will be invoiced separately by Square, automatically emailed to you about a week before its due date.<br><br>'
-                        f'<a href="{payment_plan_url}">View the full Payment Plan</a><br><br>'
-                        f'Horizon West Theater Company')
+                        build_hwtc_email_html(f'Payment Plan — {req.get("title","")}',
+                        f'<p>Hi {req.get("partner_contact") or req.get("partner_name") or ""},</p>'
+                        f'<p>Here is the payment schedule for <strong>{req.get("title","")}</strong>: {len(created_ids)} installment(s). '
+                        f'Each will be invoiced separately by Square, automatically emailed to you about a week before its due date.</p>'
+                        f'<p><a href="{payment_plan_url}">View the full Payment Plan</a></p>'))
                 except Exception as e:
                     app.logger.warning(f'Payment plan email to partner failed: {e}')
     conn.close()
@@ -29788,7 +29798,8 @@ def _apply_rental_invoice_update(conn, payment, invoice):
                 admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL") or []
                 for admin in admins:
                     send_email(admin['email'], f'{label} Paid: {(req or {}).get("title","")}',
-                        f'The payment &ldquo;{label}&rdquo; for <strong>{(req or {}).get("title","")}</strong> has been paid.<br><br>{progress_note}')
+                        build_hwtc_email_html(f'{label} Paid: {(req or {}).get("title","")}',
+                        f'<p>The payment &ldquo;{label}&rdquo; for <strong>{(req or {}).get("title","")}</strong> has been paid.</p><p>{progress_note}</p>'))
             except Exception as e:
                 app.logger.warning(f'Rental payment-paid notify error: {e}')
 
@@ -29923,7 +29934,7 @@ def send_rental_message(rid):
         f'Or copy this link: {portal_url}'
     )
     mid = str(uuid.uuid4())
-    ok, err_msg = send_email(to_email, subject, email_body, from_name=sender_name)
+    ok, err_msg = send_email(to_email, subject, build_hwtc_email_html(subject, email_body), from_name=sender_name)
     if not ok:
         conn.close()
         return jsonify({'error': err_msg or 'Failed to send'}), 500
@@ -30096,8 +30107,9 @@ def public_rental_message_submit(token):
         for addr in approver_emails:
             try:
                 send_email(addr, f'New reply on Artistic Partnership request: {req.get("title","")}',
-                    f'{req.get("partner_contact","") or req.get("partner_email","")} replied about "{req.get("title","")}".<br><br>'
-                    f'Log in to RoleCall → Artistic Partnership to view and respond.')
+                    build_hwtc_email_html(f'New reply on Artistic Partnership request: {req.get("title","")}',
+                    f'<p>{req.get("partner_contact","") or req.get("partner_email","")} replied about "{req.get("title","")}".</p>'
+                    f'<p>Log in to RoleCall → Artistic Partnership to view and respond.</p>'))
             except Exception:
                 pass
     except Exception as e:
@@ -31953,7 +31965,7 @@ def send_registration_payment_link(pid, rid):
     try:
         child_name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
         send_email([reg['guardian_email']], f'We noticed your registration wasn\'t finished — {prog["name"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'We noticed your registration wasn\'t finished — {prog["name"]}',
             f'<h2 style="color:#145466">Looks like you didn\'t quite finish!</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
             f'<p>We saw that you started registering {child_name or "your participant"} for '
@@ -31964,8 +31976,7 @@ def send_registration_payment_link(pid, rid):
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
             f'Finish Registration</a></p>'
             f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'))
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
@@ -32013,15 +32024,14 @@ def send_balance_payment_link(pid, rid):
     conn.commit()
     try:
         send_email([reg['guardian_email']], f'Balance payment due — {prog["name"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'Balance payment due — {prog["name"]}',
             f'<h2 style="color:#145466">Balance Payment Due</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
             f'<p>Your remaining balance of <strong>${balance/100:.2f}</strong> is due for '
             f'<strong>{prog["name"]}</strong>.</p>'
             f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
-            f'Pay Balance — ${balance/100:.2f}</a></p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'Pay Balance — ${balance/100:.2f}</a></p>'))
     except Exception as e:
         app.logger.warning(f'Balance link email failed: {e}')
     conn.close()
@@ -32069,7 +32079,7 @@ def send_production_registration_payment_link(pid, rid):
     try:
         child_name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
         send_email([reg['guardian_email']], f'We noticed your registration wasn\'t finished — {prod["name"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'We noticed your registration wasn\'t finished — {prod["name"]}',
             f'<h2 style="color:#145466">Looks like you didn\'t quite finish!</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
             f'<p>We saw that you started registering {child_name or "your participant"} for '
@@ -32080,8 +32090,7 @@ def send_production_registration_payment_link(pid, rid):
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
             f'Finish Registration</a></p>'
             f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'))
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
@@ -32115,15 +32124,14 @@ def send_production_balance_payment_link(pid, rid):
     conn.commit()
     try:
         send_email([reg['guardian_email']], f'Balance payment due — {prod["name"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'Balance payment due — {prod["name"]}',
             f'<h2 style="color:#145466">Balance Payment Due</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
             f'<p>Your remaining balance of <strong>${balance/100:.2f}</strong> is due for '
             f'<strong>{prod["name"]}</strong>.</p>'
             f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
-            f'Pay Balance — ${balance/100:.2f}</a></p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'Pay Balance — ${balance/100:.2f}</a></p>'))
     except Exception as e:
         app.logger.warning(f'Balance link email failed: {e}')
     conn.close()
@@ -33167,13 +33175,13 @@ def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
             prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) if perf else None
             seat_list = ', '.join(li.get('seat_label','') for li in line_items) or f'{len(line_items)} ticket(s)'
             send_email([order['guardian_email']], f"Your tickets — {(prod or {}).get('name','')}",
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html(f"Your tickets — {(prod or {}).get('name','')}",
                 f'<h2 style="color:#145466">You\'re all set!</h2>'
                 f'<p>Hi {order.get("guardian_name","")},</p>'
                 f'<p>Thanks for your order for <strong>{(prod or {}).get("name","")}</strong>'
                 f'{" on "+perf.get("performance_date","") if perf and perf.get("performance_date") else ""}.</p>'
                 f'<p><strong>Seats/Tickets:</strong> {seat_list}</p>'
-                f'<p>See you at the show!</p></div>')
+                f'<p>See you at the show!</p>'))
         except Exception as e:
             app.logger.warning(f'Ticket confirmation email failed: {e}')
 

@@ -24252,7 +24252,7 @@ async function loadProgramRegistrations(pid){
             + '<td style="padding:8px">'+participantName+'</td>'
             + '<td style="padding:8px">'+contactCell+'</td>'
             + sessionCell
-            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.is_comped?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fce7f3;color:#9d174d"> Comp\'d</span>':'')+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
+            + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;'+(statusMap[r.status]||'')+'">'+(r.status||'').replace('_',' ')+'</span>'+(r.is_comped?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fce7f3;color:#9d174d"> Comp\'d</span>':'')+(r.refunded_at?'<span style="display:inline-block;margin-left:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:700;background:#fee2e2;color:#991b1b" title="'+fmtMoney(r.refund_amount_cents||0)+' refunded '+(r.refunded_at?r.refunded_at.slice(0,10):'')+'">Refunded</span>':'')+(r.status==='waitlisted'?'<div style="font-size:10px;color:var(--text-muted)">#'+(r.waitlist_position||'')+'</div>':'')+(r.status==='pending_payment'&&r.payment_attempt_failed_at?'<div title="'+escHtml(r.payment_failure_reason||'Payment attempt failed')+'" style="font-size:10px;color:#991b1b;font-weight:700;margin-top:3px"> Card declined'+(r.payment_attempt_count>1?' &times;'+r.payment_attempt_count:'')+'</div>':'')+(r.status==='pending_payment'&&r.last_resent_at?'<div style="font-size:10px;color:var(--text-muted);margin-top:3px">Resent'+(r.resend_count>1?' '+r.resend_count+'x':'')+' &middot; '+formatDateTimeShort(r.last_resent_at)+'</div>':'')+'</td>'
             + amtCell
             + '<td style="padding:8px;color:var(--text-muted)">'+(r.created_at?r.created_at.slice(0,10):'')+'</td>'
             + '<td style="padding:8px;white-space:nowrap">'+actions+'</td>'
@@ -30875,6 +30875,7 @@ async function openRefundRequestDetail(rid){
    + '<div class="form-row">' + rrAmountControlHtml('rr-detail', rrParseAmountPaid(rr.amount_paid)) + '</div>'
    + '<div class="form-group"><label>Internal Notes</label><textarea id="rr-detail-notes" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">'+escHtml(rr.admin_notes||'')+'</textarea></div>'
    + '<div id="rr-signoff-section" style="margin-bottom:14px"></div>'
+   + (rr.registration_id && rr.status!=='processed' ? '<label style="display:flex;align-items:flex-start;gap:8px;font-size:13px;margin-bottom:14px;padding:10px 12px;background:var(--bg);border-radius:8px;cursor:pointer"><input type="checkbox" id="rr-unenroll-checkbox" style="margin-top:2px;width:auto"/><span>Also unenroll them from the program when this is processed <span style="display:block;color:var(--text-muted);font-size:11.5px;margin-top:2px">Not always the case — leave unchecked if they should keep their spot.</span></span></label>' : '')
    + '<div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;margin-top:10px">'
    + '<button class="btn btn-secondary" onclick="document.getElementById(\'rr-detail-overlay\').remove()">Close</button>'
    + (canEdit('refund_requests') && rr.status!=='denied'?'<button class="btn btn-secondary" style="color:#991b1b" onclick="saveRefundRequestStatus(\''+rid+'\',\'denied\')">Deny</button>':'')
@@ -31035,18 +31036,20 @@ async function processRefundViaSquare(rid){
  var amountEl = document.getElementById('rr-detail-amount')
  var amountCents = amountEl && amountEl.value ? Math.round(parseFloat(amountEl.value)*100) : (rr&&rr.refund_amount_cents)
  if(!amountCents){ toast('Enter a refund amount first','error'); return }
- if(!confirm('Issue an actual refund of '+rrMoney(amountCents)+' through Square? This charges back to the original payment method and can\'t be undone.')) return
+ var unenrollCb = document.getElementById('rr-unenroll-checkbox')
+ var unenroll = unenrollCb ? unenrollCb.checked : false
+ if(!confirm('Issue an actual refund of '+rrMoney(amountCents)+' through Square'+(unenroll?', and unenroll them from the program':'')+'? This charges back to the original payment method and can\'t be undone.')) return
  var btn = document.getElementById('rr-process-btn')
  var btnHTML = btn ? btn.innerHTML : ''
  if(btn){ btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Processing…' }
  var res
  try{
-   res = await api('/api/refund-requests/'+rid+'/process-square','POST',{amount_cents: amountCents})
+   res = await api('/api/refund-requests/'+rid+'/process-square','POST',{amount_cents: amountCents, unenroll: unenroll})
  } finally {
    if(btn){ btn.disabled = false; btn.innerHTML = btnHTML }
  }
  if(res && res.ok){
-   toast('Refund of '+rrMoney(res.amount_cents)+' processed','success')
+   toast('Refund of '+rrMoney(res.amount_cents)+' processed'+(unenroll?' — unenrolled':''),'success')
    document.getElementById('rr-detail-overlay')?.remove()
    loadRefundRequestsPage()
  } else toast((res&&res.error)||'Error processing refund','error')

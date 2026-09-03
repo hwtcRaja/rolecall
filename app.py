@@ -1095,7 +1095,35 @@ def init_db():
             status TEXT DEFAULT 'open',
             created_at TIMESTAMP DEFAULT NOW())""",
         """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS slot_id TEXT REFERENCES audition_slots(id) ON DELETE SET NULL""",
-        """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'""",
+         """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'""",
+        # Real file uploads for resume/headshot (replacing link-only) and a
+        # short video clip option alongside the existing full-length video
+        # link — small files only (uses the same GitHub-backed storage as
+        # other small uploads in the app), so this is separate from
+        # video_url, which stays for linking out to a longer video.
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS resume_file_url TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS headshot_file_url TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS video_clip_url TEXT",
+        # Back-of-house / crew interest — a separate section on the same
+        # form, not a separate flow. A submitter can express cast interest,
+        # crew interest, or both on one submission.
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS crew_interest BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS crew_roles_requested TEXT DEFAULT '[]'",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS crew_experience TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_crew_interest BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS crew_roles TEXT DEFAULT '[]'",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS crew_instructions TEXT",
+        # Staff-uploaded audition materials (sides, sheet music, tracks) that
+        # auditionees can download from the public form before their slot.
+        """CREATE TABLE IF NOT EXISTS audition_materials (
+            id TEXT PRIMARY KEY,
+            context_type TEXT NOT NULL,
+            context_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            file_url TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS volunteer_groups (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
@@ -6024,6 +6052,9 @@ def get_audition_settings(context_type, context_id):
         FROM audition_slots as2
         WHERE as2.context_id=%s AND as2.context_type=%s
         ORDER BY as2.slot_date, as2.start_time''', (context_id, context_type)) or []
+    materials = fetchall(conn, '''SELECT * FROM audition_materials
+        WHERE context_id=%s AND context_type=%s ORDER BY sort_order, created_at''',
+        (context_id, context_type)) or []
     conn.close()
     if not row:
         # No settings ever configured for this program/production — default
@@ -6033,12 +6064,17 @@ def get_audition_settings(context_type, context_id):
             'is_open': False, 'roles': [], 'allow_video_link': True,
             'allow_resume_link': True, 'allow_headshot_link': True,
             'allow_slots': False, 'tab_visible': True, 'slots': slots,
+            'materials': materials, 'allow_crew_interest': True, 'crew_roles': [],
+            'crew_instructions': None,
             'cast_list_reveal_at': None})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
     try: row['roles'] = json.loads(row.get('roles') or '[]')
     except Exception: row['roles'] = []
+    try: row['crew_roles'] = json.loads(row.get('crew_roles') or '[]')
+    except Exception: row['crew_roles'] = []
     row['slots'] = slots
+    row['materials'] = materials
     resp = jsonify(row)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -6066,6 +6102,9 @@ def save_audition_settings(context_type, context_id):
     allow_head   = bool(d.get('allow_headshot_link', True))
     allow_slots  = bool(d.get('allow_slots', False))
     tab_visible  = bool(d.get('tab_visible', True))
+    allow_crew   = bool(d.get('allow_crew_interest', True))
+    crew_roles_json = json.dumps(d.get('crew_roles') or [])
+    crew_instructions = (d.get('crew_instructions') or '').strip() or None
     # Cast list reveal countdown — a datetime-local string like
     # "2026-05-16T19:00", or None/'' to clear it.
     reveal_raw = d.get('cast_list_reveal_at')
@@ -6074,17 +6113,21 @@ def save_audition_settings(context_type, context_id):
         execute(conn, """UPDATE audition_settings SET is_open=%s,title=%s,description=%s,
             audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
             email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
-            allow_slots=%s, tab_visible=%s, cast_list_reveal_at=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            allow_slots=%s, tab_visible=%s, cast_list_reveal_at=%s,
+            allow_crew_interest=%s, crew_roles=%s, crew_instructions=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
-             email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,context_id,context_type))
+             email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
+             allow_crew,crew_roles_json,crew_instructions,context_id,context_type))
     else:
         sid = str(uuid.uuid4())
         execute(conn, """INSERT INTO audition_settings
             (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
-             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible,cast_list_reveal_at)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible,cast_list_reveal_at,
+             allow_crew_interest,crew_roles,crew_instructions)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
-             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at))
+             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
+             allow_crew,crew_roles_json,crew_instructions))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6231,6 +6274,107 @@ def delete_audition_slot(sid):
     return jsonify({'ok': True})
 
 
+# ── Audition materials (sides, sheet music, tracks) — staff upload, ──
+# ── auditionees download from the public form before their slot.    ──
+AUDITION_MATERIAL_TYPES = {'pdf','doc','docx','mp3','wav','m4a','png','jpg','jpeg'}
+
+@app.route('/api/auditions/materials/upload', methods=['POST'])
+def upload_audition_material():
+    err = require_auth()
+    if err: return err
+    context_type = request.form.get('context_type')
+    context_id = request.form.get('context_id')
+    if not context_type or not context_id:
+        return jsonify({'error': 'Missing context_type/context_id'}), 400
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    filename = secure_filename(f.filename or 'material')
+    ext = os.path.splitext(filename)[1].lower().lstrip('.')
+    if ext not in AUDITION_MATERIAL_TYPES:
+        return jsonify({'error': f'File type not supported — use PDF, Word doc, image, or audio (MP3/WAV/M4A)'}), 400
+    file_bytes = f.read()
+    if len(file_bytes) > 15 * 1024 * 1024:
+        return jsonify({'error': 'File is too large — please keep audition materials under 15MB (a short clip or PDF, not a full-length recording)'}), 400
+    unique_name = f'audition-material-{str(uuid.uuid4())[:8]}.{ext}'
+    url, gh_err = upload_image_to_github(unique_name, file_bytes)
+    if not url:
+        try:
+            with open(os.path.join(app.static_folder, 'images', unique_name), 'wb') as fp:
+                fp.write(file_bytes)
+            url = f'/static/images/{unique_name}'
+        except Exception as e:
+            return jsonify({'error': f'Upload failed: {e}'}), 500
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),-1)+1 AS n FROM audition_materials WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type)) or {'n': 0}
+    execute(conn, '''INSERT INTO audition_materials (id, context_type, context_id, filename, file_url, description, sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (mid, context_type, context_id, filename, url, (request.form.get('description') or '').strip(), max_sort['n']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': mid, 'filename': filename, 'url': url})
+
+
+@app.route('/api/auditions/materials/<context_type>/<context_id>', methods=['GET'])
+def list_audition_materials(context_type, context_id):
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM audition_materials WHERE context_id=%s AND context_type=%s
+        ORDER BY sort_order, created_at''', (context_id, context_type)) or []
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/auditions/materials/<mid>', methods=['DELETE'])
+def delete_audition_material(mid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM audition_materials WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── Small file uploads from the public audition form (resume, headshot, ──
+# ── short video clip) — kept deliberately small; a full-length video   ──
+# ── still goes through the existing link field instead.                ──
+AUDITION_SUBMIT_FILE_TYPES = {
+    'resume': {'pdf','doc','docx'},
+    'headshot': {'png','jpg','jpeg'},
+    'video_clip': {'mp4','mov','webm'},
+}
+AUDITION_SUBMIT_FILE_MAX_BYTES = 15 * 1024 * 1024
+
+@app.route('/api/auditions/submit-file', methods=['POST'])
+def upload_audition_submit_file():
+    """Public, unauthenticated — this is called from the audition form
+    itself before the person has submitted anything, same as any other
+    public upload in the app. Restricted to small files and a fixed set
+    of extensions per field so it can't become a general file host."""
+    kind = (request.form.get('kind') or '').strip()
+    allowed = AUDITION_SUBMIT_FILE_TYPES.get(kind)
+    if not allowed:
+        return jsonify({'error': 'Invalid upload kind'}), 400
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    filename = secure_filename(f.filename or kind)
+    ext = os.path.splitext(filename)[1].lower().lstrip('.')
+    if ext not in allowed:
+        return jsonify({'error': f'File type not supported for {kind.replace("_"," ")} — use {", ".join(sorted(allowed))}'}), 400
+    file_bytes = f.read()
+    if len(file_bytes) > AUDITION_SUBMIT_FILE_MAX_BYTES:
+        return jsonify({'error': 'File is too large — please keep it under 15MB. For a full-length video, use the video link field instead.'}), 400
+    unique_name = f'audition-{kind}-{str(uuid.uuid4())[:8]}.{ext}'
+    url, gh_err = upload_image_to_github(unique_name, file_bytes)
+    if not url:
+        try:
+            with open(os.path.join(app.static_folder, 'images', unique_name), 'wb') as fp:
+                fp.write(file_bytes)
+            url = f'/static/images/{unique_name}'
+        except Exception as e:
+            return jsonify({'error': f'Upload failed: {e}'}), 500
+    return jsonify({'ok': True, 'url': url, 'filename': filename})
+
+
 @app.route('/api/auditions/submit', methods=['POST'])
 def submit_audition():
     d = request.json or {}
@@ -6271,8 +6415,9 @@ def submit_audition():
     execute(conn, """INSERT INTO audition_submissions
         (id,context_type,context_id,family_id,participant_id,submitter_name,
          submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase,
-         slot_id,audition_type)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+         slot_id,audition_type,resume_file_url,headshot_file_url,video_clip_url,
+         crew_interest,crew_roles_requested,crew_experience)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
         sid, context_type, context_id, family_id,
         d.get('participant_id') or None, name,
         (d.get('submitter_email') or '').strip() or None,
@@ -6283,6 +6428,12 @@ def submit_audition():
         (d.get('notes') or '').strip() or None,
         passphrase or None,
         slot_id, audition_type,
+        (d.get('resume_file_url') or '').strip() or None,
+        (d.get('headshot_file_url') or '').strip() or None,
+        (d.get('video_clip_url') or '').strip() or None,
+        bool(d.get('crew_interest', False)),
+        json.dumps(d.get('crew_roles_requested') or []),
+        (d.get('crew_experience') or '').strip() or None,
     ))
     conn.commit()
     # Get context name
@@ -27230,6 +27381,14 @@ def save_partnership_policy():
 def public_partnership_interest_page():
     """Public-facing artistic partnership interest form."""
     return send_from_directory('static', 'partnership-interest.html')
+
+@app.route('/audition/<context_type>/<context_id>')
+def public_audition_page(context_type, context_id):
+    """Public-facing audition submission form — its own standalone page,
+    not tucked inside the family portal. No login/passphrase needed to
+    reach it; it fetches settings and submits via the existing public
+    audition API using the context_type/context_id in the URL."""
+    return send_from_directory('static', 'audition-form.html')
 
 @app.route('/api/public/partnership-interest-info')
 def public_partnership_interest_info():

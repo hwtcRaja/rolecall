@@ -1832,6 +1832,47 @@ def init_db():
              AND rr.status = 'processed'
              AND rr.square_refund_id IS NOT NULL AND rr.square_refund_id != ''
              AND pr.refunded_at IS NULL""",
+        # One-off correction: refund RFD-QPP3H7NN was linked to the wrong
+        # program (Eloise's "Booked! The Audition Song Workshop" registration
+        # instead of her "Crack the Score" one). Repoints the refund request
+        # and moves the refund tracking to the correct registration. Scoped
+        # tightly to this one ref_number and self-disarms once corrected
+        # (the != check goes false), so it's safe to leave in place.
+        """DO $$
+           DECLARE
+               correct_reg_id TEXT;
+               wrong_reg_id TEXT;
+               correct_prog_name TEXT;
+           BEGIN
+               SELECT pr.id, yp.name INTO correct_reg_id, correct_prog_name
+               FROM program_registrations pr
+               JOIN youth_participants y ON y.id = pr.youth_id
+               JOIN youth_programs yp ON yp.id = pr.program_id
+               JOIN youth_guardians g ON g.youth_id = y.id
+               WHERE y.first_name = 'Eloise' AND y.last_name = 'Kellough'
+                 AND LOWER(g.email) = 'caroline82480@gmail.com'
+                 AND yp.name ILIKE '%Crack the Score%'
+                 AND pr.status = 'confirmed'
+               LIMIT 1;
+
+               SELECT registration_id INTO wrong_reg_id
+               FROM refund_requests WHERE ref_number = 'RFD-QPP3H7NN';
+
+               IF correct_reg_id IS NOT NULL AND correct_reg_id IS DISTINCT FROM wrong_reg_id THEN
+                   UPDATE refund_requests
+                   SET registration_id = correct_reg_id, program_name = correct_prog_name
+                   WHERE ref_number = 'RFD-QPP3H7NN';
+
+                   IF wrong_reg_id IS NOT NULL THEN
+                       UPDATE program_registrations SET refunded_at = NULL, refund_amount_cents = 0
+                       WHERE id = wrong_reg_id;
+                   END IF;
+
+                   UPDATE program_registrations
+                   SET refunded_at = COALESCE(refunded_at, NOW()), refund_amount_cents = 2000
+                   WHERE id = correct_reg_id;
+               END IF;
+           END $$;""",
         # A comp'd (complimentary/free) enrollment — still a real confirmed
         # registration, just $0 by design rather than an unpaid gap. Kept as
         # a flag rather than a separate status so it still shows up

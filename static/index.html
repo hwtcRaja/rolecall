@@ -16102,8 +16102,10 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>Info</button>"
  s += "<button id='prodtab-btn-messages' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;messages&quot;)'>Messages</button>"
     s += "<button id='prodtab-btn-tickets' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;tickets&quot;)'>Tickets</button>"
- if((p.stage==='rising_stars'||p.stage==='teen_show')){
+ if(p.stage!=='rising_stars' && p.stage!=='teen_show'){
    s += "<button id='prodtab-btn-auditions' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;auditions&quot;)'>Auditions</button>"
+ }
+ if((p.stage==='rising_stars'||p.stage==='teen_show')){
    s += "<button id='prodtab-btn-registrations' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;registrations&quot;)'>Registrations</button>"
  }
  if(canSeePortal) s += "<button id='prodtab-btn-portal' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;portal&quot;)'>Portal Content</button>"

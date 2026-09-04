@@ -10,14 +10,18 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',-apple-system,sans-serif;background:#f7f7f5;color:#1c1917;line-height:1.5}
 .wrap{max-width:640px;margin:0 auto;padding:0 20px 60px}
-header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px 24px;text-align:center;margin-bottom:-1px}
-header img{height:68px;margin-bottom:14px}
+header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 24px;margin-bottom:-1px}
+header .hdr-inner{max-width:640px;margin:0 auto;display:flex;flex-direction:column;align-items:flex-start}
+header img{height:96px;margin-bottom:16px}
 header h1{color:#fff;font-size:24px;font-weight:800}
 header .sub{color:rgba(255,255,255,0.75);font-size:14px;margin-top:6px}
 .card{background:#fff;border:1px solid #e7e2d9;border-radius:14px;padding:24px;margin-top:20px}
 .card h2{font-size:15px;font-weight:700;color:#145466;margin-bottom:10px}
 .desc-box{font-size:13.5px;background:#f0f8fa;border-radius:10px;padding:14px 16px;line-height:1.65;margin-bottom:12px;white-space:pre-wrap}
 .meta-row{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:#57534e;margin-bottom:4px}
+.info-grid{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13.5px}
+.info-label{font-weight:700;color:#78716c;font-size:11.5px;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap;padding-top:1px}
+.info-value{color:#1c1917}
 .material-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f7f7f5;border-radius:8px;margin-bottom:6px;font-size:13.5px}
 .material-item a{color:#145466;font-weight:600;text-decoration:none}
 .form-group{margin-bottom:16px}
@@ -91,31 +95,41 @@ async function boot(){
 
 function renderError(msg){
   document.getElementById('app').innerHTML = `
-    <header>
-      <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC"/>
+    <header><div class="hdr-inner">
+      <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
       <h1>Auditions</h1>
-    </header>
+    </div></header>
     <div class="wrap"><div class="card"><div class="empty-msg">${escH(msg)}</div></div></div>`
 }
 
 function render(){
   var s = SETTINGS
-  var logoUrl = s.context_logo_url || 'https://rolecall.hwtco.org/static/images/hwtc_logo_white.png'
   var html = `
-    <header>
-      <img src="${logoUrl}" alt="${escH(s.context_name||'HWTC')}"/>
+    <header><div class="hdr-inner">
+      <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
       <h1>${escH(s.title||'Auditions')}</h1>
       <div class="sub">Horizon West Theater Company</div>
-    </header>
+    </div></header>
     <div class="wrap">`
 
   // Info card
   html += '<div class="card">'
-  var metaBits = []
-  if(s.audition_date) metaBits.push('<strong> Date:</strong> '+escH(s.audition_date)+(s.audition_time?' at '+escH(s.audition_time):''))
-  if(s.location) metaBits.push('<strong>Where:</strong> '+escH(s.location))
-  if(metaBits.length) html += '<div class="meta-row">'+metaBits.join(' &nbsp;·&nbsp; ')+'</div>'
-  if(s.description) html += '<div class="desc-box">'+escH(s.description)+'</div>'
+  html += '<div class="info-grid">'
+  var infoRows = [
+    ['Production', s.context_name],
+    ['Director', s.director],
+    ['Audition Date', s.audition_date ? escH(s.audition_date)+(s.audition_time?' at '+escH(s.audition_time):'') : null],
+    ['Audition Location', s.location_name],
+    ['Audition Address', s.location_address],
+    ['Performance Dates', s.performance_dates],
+    ['Performance Location', s.performance_location],
+  ]
+  infoRows.forEach(function(r){
+    if(r[1]) html += '<div class="info-label">'+r[0]+'</div><div class="info-value">'+(r[0]==='Audition Date'?r[1]:escH(r[1]))+'</div>'
+  })
+  html += '</div>'
+  if(s.rehearsal_schedule_url) html += '<div style="margin-top:10px"><a href="'+escH(s.rehearsal_schedule_url)+'" target="_blank" style="color:#145466;font-weight:700;font-size:13px">View Temporary Rehearsal Schedule →</a></div>'
+  if(s.description) html += '<div class="desc-box" style="margin-top:14px">'+escH(s.description)+'</div>'
   if(s.instructions) html += '<div style="font-size:13px;color:#57534e;margin-top:8px">'+escH(s.instructions)+'</div>'
   html += '</div>'
 
@@ -190,23 +204,19 @@ function render(){
     html += auditionVideoFieldHtml()
   }
 
-  // Resume
+  // Resume — upload only, no link fallback
   if(s.allow_resume_link!==false){
     html += `<div class="form-group"><label>Resume</label>
       <input type="file" id="f-resume-file" accept=".pdf,.doc,.docx" style="display:none" onchange="handleFileUpload('resume', this)"/>
       <div class="file-drop" id="drop-resume" onclick="document.getElementById('f-resume-file').click()">Click to upload (PDF or Word doc)</div>
-      <div class="hint">Or paste a link instead:</div>
-      <input type="url" id="f-resume-link" placeholder="Google Drive or Dropbox link" style="margin-top:6px"/>
     </div>`
   }
 
-  // Headshot
+  // Headshot — upload only, no link fallback
   if(s.allow_headshot_link!==false){
     html += `<div class="form-group"><label>Headshot</label>
       <input type="file" id="f-headshot-file" accept=".png,.jpg,.jpeg" style="display:none" onchange="handleFileUpload('headshot', this)"/>
       <div class="file-drop" id="drop-headshot" onclick="document.getElementById('f-headshot-file').click()">Click to upload (PNG or JPG)</div>
-      <div class="hint">Or paste a link instead:</div>
-      <input type="url" id="f-headshot-link" placeholder="Google Drive or Dropbox link" style="margin-top:6px"/>
     </div>`
   }
 
@@ -417,10 +427,10 @@ async function submitAudition(){
       return
     }
     document.getElementById('app').innerHTML = `
-      <header>
-        <img src="${SETTINGS.context_logo_url || 'https://rolecall.hwtco.org/static/images/hwtc_logo_white.png'}" alt="${escH(SETTINGS.context_name||'HWTC')}"/>
+      <header><div class="hdr-inner">
+        <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
         <h1>${escH(SETTINGS.title||'Auditions')}</h1>
-      </header>
+      </div></header>
       <div class="wrap"><div class="card confirm-box">
         <div class="check">✓</div>
         <h2>You're all set!</h2>

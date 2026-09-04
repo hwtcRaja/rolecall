@@ -12674,8 +12674,26 @@ function openAuditionSettingsModal(contextType, contextId, containerId, startTab
  <input type="time" id="aud-s-time" value="${settings.audition_time||''}"/></div>
  </div>
  <div class="form-group">
- <label>Location</label>
- <input type="text" id="aud-s-location" value="${escHtml(settings.location||'')}" placeholder="e.g. HWTC Main Stage"/>
+ <label>Audition Location Name</label>
+ <input type="text" id="aud-s-location-name" value="${escHtml(settings.location_name||'')}" placeholder="e.g. HWTC Studio"/>
+ </div>
+ <div class="form-group">
+ <label>Audition Location Address</label>
+ <input type="text" id="aud-s-location-address" value="${escHtml(settings.location_address||'')}" placeholder="e.g. 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden FL 35787"/>
+ </div>
+ <div class="form-group">
+ <label>Director</label>
+ <input type="text" id="aud-s-director" value="${escHtml(settings.director||'')}" placeholder="e.g. Marley Smith"/>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+ <div class="form-group"><label>Performance Dates</label>
+ <input type="text" id="aud-s-perf-dates" value="${escHtml(settings.performance_dates||'')}" placeholder="e.g. Dec 19–21, 2026"/></div>
+ <div class="form-group"><label>Performance Location</label>
+ <input type="text" id="aud-s-perf-location" value="${escHtml(settings.performance_location||'')}" placeholder="e.g. HWTC Main Stage"/></div>
+ </div>
+ <div class="form-group">
+ <label>Rehearsal Schedule Link <span style="font-weight:400;color:var(--text-muted)">(optional — a doc or page families can check; mark it as temporary/subject to change)</span></label>
+ <input type="url" id="aud-s-rehearsal-url" value="${escHtml(settings.rehearsal_schedule_url||'')}" placeholder="https://…"/>
  </div>
  <div class="form-group">
  <label>Additional Instructions</label>
@@ -12891,7 +12909,12 @@ async function saveAuditionSettings(contextType, contextId, containerId){
    description: document.getElementById('aud-s-desc')?.value.trim()||'',
    audition_date: document.getElementById('aud-s-date')?.value||null,
    audition_time: document.getElementById('aud-s-time')?.value||null,
-   location: document.getElementById('aud-s-location')?.value.trim()||'',
+   location_name: document.getElementById('aud-s-location-name')?.value.trim()||'',
+   location_address: document.getElementById('aud-s-location-address')?.value.trim()||'',
+   director: document.getElementById('aud-s-director')?.value.trim()||'',
+   performance_dates: document.getElementById('aud-s-perf-dates')?.value.trim()||'',
+   performance_location: document.getElementById('aud-s-perf-location')?.value.trim()||'',
+   rehearsal_schedule_url: document.getElementById('aud-s-rehearsal-url')?.value.trim()||'',
    roles,
    instructions: document.getElementById('aud-s-instructions')?.value.trim()||'',
    email_submissions: document.getElementById('aud-s-email')?.value.trim()||'',

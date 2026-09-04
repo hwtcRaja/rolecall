@@ -4184,6 +4184,25 @@ def _delete_event_cascade(conn, eid):
     conn.commit()
     cur.close()
 
+@app.route('/api/events/bulk-update-type', methods=['POST'])
+def bulk_update_event_type():
+    """Change the event type on many events at once — e.g. every rehearsal
+    on a production that was miscategorized, without opening each one."""
+    err = require_permission('events')
+    if err: return err
+    d = request.json or {}
+    event_ids = d.get('event_ids') or []
+    event_type_id = d.get('event_type_id') or None
+    if not event_ids:
+        return jsonify({'error': 'No events selected'}), 400
+    conn = get_db()
+    ph = ','.join(['%s']*len(event_ids))
+    execute(conn, f'UPDATE events SET event_type_id=%s WHERE id IN ({ph})', tuple([event_type_id]+event_ids))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'updated': len(event_ids)})
+
+
 @app.route('/api/events/<eid>', methods=['DELETE'])
 def delete_event(eid):
     err = require_permission('events')

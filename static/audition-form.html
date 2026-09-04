@@ -12,7 +12,7 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f7f7f5;color:#1c
 .wrap{max-width:640px;margin:0 auto;padding:0 20px 60px}
 header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 24px;margin-bottom:-1px}
 header .hdr-inner{max-width:640px;margin:0 auto;display:flex;flex-direction:column;align-items:flex-start}
-header img{height:96px;margin-bottom:16px}
+header img{height:96px;margin-bottom:16px;mix-blend-mode:screen}
 header h1{color:#fff;font-size:24px;font-weight:800}
 header .sub{color:rgba(255,255,255,0.75);font-size:14px;margin-top:6px}
 .card{background:#fff;border:1px solid #e7e2d9;border-radius:14px;padding:24px;margin-top:20px}
@@ -76,6 +76,20 @@ var UPLOADED = { resume: null, headshot: null, video_clip: null }
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
 
+function fmtTimeRange(start, end){
+  function fmt(t){
+    if(!t) return ''
+    var p = String(t).split(':')
+    var h = parseInt(p[0]), m = p[1]||'00'
+    var ap = h>=12?'PM':'AM'
+    h = h%12||12
+    return h+(m!=='00'?':'+m:'')+' '+ap
+  }
+  var s = fmt(start)
+  var e = fmt(end)
+  return e ? (s+' – '+e) : s
+}
+
 async function boot(){
   var res
   try{
@@ -104,8 +118,11 @@ function renderError(msg){
 
 function render(){
   var s = SETTINGS
+  var headerBg = s.banner_image_url
+    ? `background:linear-gradient(135deg,rgba(13,61,77,0.88),rgba(20,84,102,0.88)),url('${s.banner_image_url}') center/cover no-repeat`
+    : ''
   var html = `
-    <header><div class="hdr-inner">
+    <header style="${headerBg}"><div class="hdr-inner">
       <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
       <h1>${escH(s.title||'Auditions')}</h1>
       <div class="sub">Horizon West Theater Company</div>
@@ -118,7 +135,7 @@ function render(){
   var infoRows = [
     ['Production', s.context_name],
     ['Director', s.director],
-    ['Audition Date', s.audition_date ? escH(s.audition_date)+(s.audition_time?' at '+escH(s.audition_time):'') : null],
+     ['Audition Date', s.audition_date ? escH(s.audition_date)+(s.audition_time?' at '+fmtTimeRange(s.audition_time, s.audition_time_end):'') : null],
     ['Audition Location', s.location_name],
     ['Audition Address', s.location_address],
     ['Performance Dates', s.performance_dates],
@@ -128,7 +145,7 @@ function render(){
     if(r[1]) html += '<div class="info-label">'+r[0]+'</div><div class="info-value">'+(r[0]==='Audition Date'?r[1]:escH(r[1]))+'</div>'
   })
   html += '</div>'
-  if(s.rehearsal_schedule_url) html += '<div style="margin-top:10px"><a href="'+escH(s.rehearsal_schedule_url)+'" target="_blank" style="color:#145466;font-weight:700;font-size:13px">View Temporary Rehearsal Schedule →</a></div>'
+   if(s.show_rehearsal_schedule) html += '<div style="margin-top:10px"><a href="/audition-schedule/'+encodeURIComponent(CONTEXT_TYPE)+'/'+encodeURIComponent(CONTEXT_ID)+'" target="_blank" style="color:#145466;font-weight:700;font-size:13px">View Rehearsal Schedule (subject to change) →</a></div>'
   if(s.description) html += '<div class="desc-box" style="margin-top:14px">'+escH(s.description)+'</div>'
   if(s.instructions) html += '<div style="font-size:13px;color:#57534e;margin-top:8px">'+escH(s.instructions)+'</div>'
   html += '</div>'

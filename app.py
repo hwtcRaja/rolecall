@@ -1148,7 +1148,17 @@ def init_db():
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS director TEXT",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS performance_dates TEXT",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS performance_location TEXT",
-        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS rehearsal_schedule_url TEXT",
+         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS rehearsal_schedule_url TEXT",
+        # Custom banner image (like program/production cover photos) and an
+        # audition end time so it can show as a real range, not just a
+        # single start time.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS banner_image_url TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS audition_time_end TEXT",
+        # Rehearsal schedule is no longer a manually-typed external URL —
+        # it's an auto-generated link to a live overview of this show's
+        # actual scheduled events, so it can't go stale. This just tracks
+        # whether staff want that link shown at all.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS show_rehearsal_schedule BOOLEAN DEFAULT FALSE",
         # One-time backfill: anything already saved in the old single
         # `location` field moves into location_address (the more specific
         # of the two new fields), so existing productions don't lose what
@@ -6234,6 +6244,8 @@ def save_audition_settings(context_type, context_id):
     performance_dates = (d.get('performance_dates') or '').strip() or None
     performance_location = (d.get('performance_location') or '').strip() or None
     rehearsal_schedule_url = (d.get('rehearsal_schedule_url') or '').strip() or None
+    aud_time_end = d.get('audition_time_end') or None
+    show_rehearsal = bool(d.get('show_rehearsal_schedule', False))
     # Cast list reveal countdown — a datetime-local string like
     # "2026-05-16T19:00", or None/'' to clear it.
     reveal_raw = d.get('cast_list_reveal_at')
@@ -6247,12 +6259,14 @@ def save_audition_settings(context_type, context_id):
             collect_age_check=%s, collect_pronouns=%s, collect_phone=%s, collect_how_heard=%s,
             custom_questions=%s, location_name=%s, location_address=%s, director=%s,
             performance_dates=%s, performance_location=%s, rehearsal_schedule_url=%s,
+            audition_time_end=%s, show_rehearsal_schedule=%s,
             updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
              email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
              allow_crew,crew_roles_json,crew_instructions,
              collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
              location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
+             aud_time_end,show_rehearsal,
              context_id,context_type))
     else:
         sid = str(uuid.uuid4())
@@ -6261,13 +6275,15 @@ def save_audition_settings(context_type, context_id):
              location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible,cast_list_reveal_at,
              allow_crew_interest,crew_roles,crew_instructions,
              collect_age_check,collect_pronouns,collect_phone,collect_how_heard,custom_questions,
-             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
+             audition_time_end,show_rehearsal_schedule)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
              location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
              allow_crew,crew_roles_json,crew_instructions,
              collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
-             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url))
+             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
+             aud_time_end,show_rehearsal))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6417,6 +6433,41 @@ def delete_audition_slot(sid):
 # ── Audition materials (sides, sheet music, tracks) — staff upload, ──
 # ── auditionees download from the public form before their slot.    ──
 AUDITION_MATERIAL_TYPES = {'pdf','doc','docx','mp3','wav','m4a','png','jpg','jpeg'}
+
+@app.route('/api/auditions/banner/upload', methods=['POST'])
+def upload_audition_banner():
+    err = require_auth()
+    if err: return err
+    context_type = request.form.get('context_type')
+    context_id = request.form.get('context_id')
+    if not context_type or not context_id:
+        return jsonify({'error': 'Missing context_type/context_id'}), 400
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    if not f or not f.filename: return jsonify({'error': 'Empty file'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.gif', '.webp'):
+        return jsonify({'error': 'Only JPG, PNG, GIF, or WEBP allowed'}), 400
+    filename = f'audition-banner-{context_type}-{str(uuid.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    url, gh_err = upload_image_to_github(filename, file_bytes)
+    if not url:
+        try:
+            with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp:
+                fp.write(file_bytes)
+            url = f'/static/images/{filename}'
+        except Exception as e:
+            return jsonify({'error': f'Upload failed: {e}'}), 500
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM audition_settings WHERE context_id=%s AND context_type=%s', (context_id, context_type))
+    if existing:
+        execute(conn, 'UPDATE audition_settings SET banner_image_url=%s WHERE context_id=%s AND context_type=%s', (url, context_id, context_type))
+    else:
+        execute(conn, 'INSERT INTO audition_settings (id, context_type, context_id, banner_image_url) VALUES (%s,%s,%s,%s)',
+            (str(uuid.uuid4()), context_type, context_id, url))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'url': url})
+
 
 @app.route('/api/auditions/materials/upload', methods=['POST'])
 def upload_audition_material():
@@ -27541,6 +27592,27 @@ def public_audition_page(context_type, context_id):
     reach it; it fetches settings and submits via the existing public
     audition API using the context_type/context_id in the URL."""
     return send_from_directory('static', 'audition-form.html')
+
+@app.route('/audition-schedule/<context_type>/<context_id>')
+def public_audition_schedule_page(context_type, context_id):
+    """The rehearsal-schedule link shown from the audition form — an
+    auto-generated overview of this show's actual scheduled events, not a
+    manually-typed URL, so it can never go stale."""
+    return send_from_directory('static', 'audition-schedule.html')
+
+@app.route('/api/public/audition-schedule/<context_type>/<context_id>')
+def public_audition_schedule_data(context_type, context_id):
+    conn = get_db()
+    resolved_id, ctx_name, ctx_logo, ctx_slug = _resolve_audition_context(conn, context_type, context_id)
+    if not resolved_id:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    field = 'production_id' if context_type == 'production' else 'program_id'
+    events = fetchall(conn, f'''SELECT e.name, e.event_date, e.start_time, e.end_time, e.location, e.description
+        FROM events e WHERE e.{field}=%s AND e.event_date >= %s
+        ORDER BY e.event_date ASC, e.start_time ASC NULLS LAST''', (resolved_id, today_eastern().isoformat())) or []
+    conn.close()
+    return jsonify({'context_name': ctx_name, 'events': events})
 
 @app.route('/api/public/partnership-interest-info')
 def public_partnership_interest_info():

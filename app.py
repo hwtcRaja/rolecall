@@ -1115,7 +1115,7 @@ def init_db():
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS crew_instructions TEXT",
         # Staff-uploaded audition materials (sides, sheet music, tracks) that
         # auditionees can download from the public form before their slot.
-        """CREATE TABLE IF NOT EXISTS audition_materials (
+         """CREATE TABLE IF NOT EXISTS audition_materials (
             id TEXT PRIMARY KEY,
             context_type TEXT NOT NULL,
             context_id TEXT NOT NULL,
@@ -1124,6 +1124,41 @@ def init_db():
             description TEXT DEFAULT '',
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
+        # Space/date requests — any staff member can request a space for a
+        # one-off date or a recurring class/program schedule, check it
+        # against the calendar (reusing the same conflict-checking as
+        # external rentals), and submit for the facilities manager to
+        # approve. Approval creates the actual calendar events, and — for
+        # a brand-new program — the program record itself, with its
+        # schedule already populated.
+        """CREATE TABLE IF NOT EXISTS space_requests (
+            id TEXT PRIMARY KEY,
+            requester_user_id TEXT,
+            requester_name TEXT DEFAULT '',
+            requester_email TEXT DEFAULT '',
+            title TEXT NOT NULL,
+            purpose TEXT DEFAULT '',
+            space_id TEXT REFERENCES rental_spaces(id) ON DELETE SET NULL,
+            is_new_program BOOLEAN DEFAULT FALSE,
+            program_type TEXT DEFAULT 'class',
+            program_price INTEGER DEFAULT 0,
+            program_min_age INTEGER,
+            program_max_age INTEGER,
+            program_instructor_id TEXT,
+            recurring BOOLEAN DEFAULT FALSE,
+            meeting_days TEXT DEFAULT '[]',
+            start_date TEXT,
+            end_date TEXT,
+            specific_dates TEXT DEFAULT '[]',
+            start_time TEXT DEFAULT '',
+            end_time TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            denial_reason TEXT DEFAULT '',
+            approved_by TEXT DEFAULT '',
+            approved_at TIMESTAMP,
+            created_program_id TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
         # Roles move from a flat comma-separated list to structured
         # {name, description} objects, so families can see what a role
         # actually involves when picking. Old-format plain-string roles
@@ -30290,6 +30325,264 @@ def check_rental_availability():
         results.append({'date': date, 'conflicts': conflicts})
     conn.close()
     return jsonify({'space_name': space['name'] if space else '', 'results': results})
+
+
+# ── Space/Date Requests — internal staff version of the rental-request ──
+# ── flow above: any logged-in staff member can request a space, check ──
+# ── it against the calendar, and submit for the facilities manager.   ──
+def _space_request_dates(d):
+    """Given a request payload, compute the actual list of individual
+    dates — either the explicit specific_dates, or every matching weekday
+    between start_date and end_date for a recurring schedule."""
+    if not d.get('recurring'):
+        return d.get('specific_dates') or ([d.get('start_date')] if d.get('start_date') else [])
+    start = d.get('start_date')
+    end = d.get('end_date') or start
+    days = set(d.get('meeting_days') or [])  # 'Mon','Tue', etc.
+    if not start or not end or not days:
+        return []
+    wd_map = {'Mon':0,'Tue':1,'Wed':2,'Thu':3,'Fri':4,'Sat':5,'Sun':6}
+    wanted = {wd_map[x] for x in days if x in wd_map}
+    out = []
+    cur = date.fromisoformat(start)
+    last = date.fromisoformat(end)
+    while cur <= last:
+        if cur.weekday() in wanted:
+            out.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return out
+
+
+@app.route('/api/space-requests/spaces', methods=['GET'])
+def list_spaces_for_request():
+    """Open to any logged-in staff member (unlike /api/rental/spaces,
+    which is gated to the rentals permission) — picking a space to
+    request shouldn't require rental-admin access."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    spaces = fetchall(conn, 'SELECT id, name, description, capacity FROM rental_spaces WHERE active=TRUE ORDER BY sort_order, name') or []
+    conn.close()
+    return jsonify(spaces)
+
+
+@app.route('/api/space-requests/check-availability', methods=['POST'])
+def check_space_request_availability():
+    """Same idea as /api/rental/check-availability, but open to any staff
+    member and also checks other pending/approved space requests, not
+    just external rentals — a purely-preview check, nothing is written."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    space_id = d.get('space_id')
+    exclude_request_id = d.get('exclude_request_id')
+    dates = _space_request_dates(d)
+    stime = (d.get('start_time') or '').strip()
+    etime = (d.get('end_time') or '').strip()
+    conn = get_db()
+    space = fetchone(conn, 'SELECT * FROM rental_spaces WHERE id=%s', (space_id,)) if space_id else None
+    results = []
+    for date_str in dates:
+        conflicts = []
+        if date_str and space_id:
+            rental_rows = fetchall(conn, '''SELECT ro.start_time, ro.end_time, rr.title
+                FROM rental_occurrences ro JOIN rental_requests rr ON rr.id=ro.request_id
+                WHERE rr.space_id=%s AND ro.occurrence_date=%s AND ro.status != 'cancelled' ''',
+                (space_id, date_str)) or []
+            for r in rental_rows:
+                if _rc_times_overlap(stime, etime, r.get('start_time',''), r.get('end_time','')):
+                    conflicts.append({'type': 'rental', 'title': r.get('title',''),
+                        'start_time': r.get('start_time',''), 'end_time': r.get('end_time','')})
+            other_rows = fetchall(conn, '''SELECT sr.title, sr.start_time, sr.end_time, sr.specific_dates, sr.recurring,
+                    sr.start_date, sr.end_date, sr.meeting_days
+                FROM space_requests sr WHERE sr.space_id=%s AND sr.status IN ('pending','approved')
+                    AND (sr.id != %s OR %s IS NULL)''',
+                (space_id, exclude_request_id, exclude_request_id)) or []
+            for r in other_rows:
+                r_dates = _space_request_dates({
+                    'recurring': r.get('recurring'), 'start_date': r.get('start_date'), 'end_date': r.get('end_date'),
+                    'meeting_days': json.loads(r.get('meeting_days') or '[]'),
+                    'specific_dates': json.loads(r.get('specific_dates') or '[]') if not r.get('recurring') else None,
+                })
+                if date_str in r_dates and _rc_times_overlap(stime, etime, r.get('start_time',''), r.get('end_time','')):
+                    conflicts.append({'type': 'space_request', 'title': r.get('title',''),
+                        'start_time': r.get('start_time',''), 'end_time': r.get('end_time','')})
+            if space:
+                event_rows = fetchall(conn, '''SELECT name, start_time, end_time FROM events
+                    WHERE (LOWER(room)=LOWER(%s) OR LOWER(location)=LOWER(%s))
+                    AND %s BETWEEN event_date AND COALESCE(NULLIF(end_date,''), event_date)''',
+                    (space['name'], space['name'], date_str)) or []
+                for ev in event_rows:
+                    if _rc_times_overlap(stime, etime, ev.get('start_time',''), ev.get('end_time','')):
+                        conflicts.append({'type': 'event', 'title': ev.get('name',''),
+                            'start_time': ev.get('start_time',''), 'end_time': ev.get('end_time','')})
+        results.append({'date': date_str, 'conflicts': conflicts})
+    conn.close()
+    return jsonify({'space_name': space['name'] if space else '', 'results': results})
+
+
+@app.route('/api/space-requests', methods=['GET'])
+def list_space_requests():
+    err = require_permission('rentals', 'view')
+    if err: return err
+    status = request.args.get('status')
+    conn = get_db()
+    q = '''SELECT sr.*, rs.name AS space_name FROM space_requests sr
+        LEFT JOIN rental_spaces rs ON rs.id=sr.space_id'''
+    params = ()
+    if status:
+        q += ' WHERE sr.status=%s'
+        params = (status,)
+    q += ' ORDER BY sr.created_at DESC'
+    rows = fetchall(conn, q, params) or []
+    conn.close()
+    for r in rows:
+        try: r['meeting_days'] = json.loads(r.get('meeting_days') or '[]')
+        except Exception: r['meeting_days'] = []
+        try: r['specific_dates'] = json.loads(r.get('specific_dates') or '[]')
+        except Exception: r['specific_dates'] = []
+    return jsonify(rows)
+
+
+@app.route('/api/space-requests', methods=['POST'])
+def create_space_request():
+    """Any logged-in staff member can submit — this is deliberately not
+    gated by the rentals permission, since requesting a space is a
+    different action from managing rentals/approving requests."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    title = (d.get('title') or '').strip()
+    if not title:
+        return jsonify({'error': 'Title is required'}), 400
+    if not d.get('space_id'):
+        return jsonify({'error': 'Please select a space'}), 400
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name, email FROM users WHERE id=%s', (session.get('user_id'),)) if session.get('user_id') else None
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO space_requests
+        (id, requester_user_id, requester_name, requester_email, title, purpose, space_id,
+         is_new_program, program_type, program_price, program_min_age, program_max_age, program_instructor_id,
+         recurring, meeting_days, start_date, end_date, specific_dates, start_time, end_time)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (rid, session.get('user_id'), (user or {}).get('name',''), (user or {}).get('email',''),
+         title, (d.get('purpose') or '').strip(), d.get('space_id'),
+         bool(d.get('is_new_program', False)), d.get('program_type') or 'class',
+         int(d.get('program_price') or 0), d.get('program_min_age') or None, d.get('program_max_age') or None,
+         d.get('program_instructor_id') or None,
+         bool(d.get('recurring', False)), json.dumps(d.get('meeting_days') or []),
+         d.get('start_date') or None, d.get('end_date') or None, json.dumps(d.get('specific_dates') or []),
+         (d.get('start_time') or '').strip(), (d.get('end_time') or '').strip()))
+    conn.commit()
+    # Notify the facilities manager the same way refund/rising-stars
+    # approvals do — best-effort, doesn't block the request either way.
+    try:
+        s = get_email_settings()
+        recipients = list(get_recipient_emails(s))
+        if recipients:
+            dates_preview = _space_request_dates(d)
+            send_email(recipients, f'New Space Request: {title}',
+                build_hwtc_email_html(f'New Space Request: {title}',
+                f'<p><strong>{(user or {}).get("name","A staff member")}</strong> requested a space'
+                f'{" for a new program" if d.get("is_new_program") else ""}: <strong>{title}</strong></p>'
+                f'<p>{len(dates_preview)} date(s) requested{", " + dates_preview[0] if dates_preview else ""}'
+                f'{" through " + dates_preview[-1] if len(dates_preview)>1 else ""}.</p>'
+                f'<p>Review it in RoleCall under Artistic Partnership → Space Requests.</p>'))
+    except Exception as e:
+        app.logger.warning(f'Space request notification failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'id': rid})
+
+
+@app.route('/api/space-requests/<rid>/deny', methods=['PUT'])
+def deny_space_request(rid):
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    req = fetchone(conn, 'SELECT * FROM space_requests WHERE id=%s', (rid,))
+    if not req: conn.close(); return jsonify({'error': 'Not found'}), 404
+    reviewer = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),)) if session.get('user_id') else None
+    execute(conn, '''UPDATE space_requests SET status='denied', denial_reason=%s,
+        approved_by=%s, approved_at=NOW(), updated_at=NOW() WHERE id=%s''',
+        ((d.get('reason') or '').strip(), (reviewer or {}).get('name',''), rid))
+    conn.commit()
+    try:
+        if req.get('requester_email'):
+            send_email(req['requester_email'], f'Space Request Update: {req["title"]}',
+                build_hwtc_email_html(f'Space Request Update: {req["title"]}',
+                f'<p>Hi {req.get("requester_name","")},</p>'
+                f'<p>Your space request for <strong>{req["title"]}</strong> was not approved at this time.</p>'
+                 f'{"<p>" + d.get("reason","") + "</p>" if d.get("reason") else ""}'
+                f'<p>Reach out if you have questions or want to try different dates.</p>'))
+    except Exception as e:
+        app.logger.warning(f'Space request denial email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/space-requests/<rid>/approve', methods=['PUT'])
+def approve_space_request(rid):
+    """Approving creates the actual calendar events for every requested
+    date, and — if this was for a brand-new program — the program record
+    itself (in draft registration status, so staff still finish pricing/
+    registration details before it goes live) with its schedule already
+    filled in from the request."""
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    req = fetchone(conn, 'SELECT * FROM space_requests WHERE id=%s', (rid,))
+    if not req: conn.close(); return jsonify({'error': 'Not found'}), 404
+    if req.get('status') != 'pending':
+        conn.close(); return jsonify({'error': 'This request has already been reviewed'}), 400
+    space = fetchone(conn, 'SELECT name FROM rental_spaces WHERE id=%s', (req['space_id'],)) if req.get('space_id') else None
+    reviewer = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),)) if session.get('user_id') else None
+
+    program_id = None
+    if req.get('is_new_program'):
+        program_id = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO youth_programs
+            (id, name, description, program_type, instructor_id, price, min_age, max_age,
+             start_date, end_date, program_location, schedule_type, meeting_days,
+             meeting_start_time, meeting_end_time, status, registration_status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active','draft')''',
+            (program_id, req['title'], req.get('purpose') or '', req.get('program_type') or 'class',
+             req.get('program_instructor_id'), req.get('program_price') or 0,
+             req.get('program_min_age'), req.get('program_max_age'),
+             req.get('start_date'), req.get('end_date'), (space or {}).get('name',''),
+             'recurring' if req.get('recurring') else 'date_range', req.get('meeting_days') or '[]',
+             req.get('start_time') or '', req.get('end_time') or ''))
+
+    dates = _space_request_dates({
+        'recurring': req.get('recurring'), 'start_date': req.get('start_date'), 'end_date': req.get('end_date'),
+        'meeting_days': json.loads(req.get('meeting_days') or '[]'),
+        'specific_dates': json.loads(req.get('specific_dates') or '[]') if not req.get('recurring') else None,
+    })
+    for d_str in dates:
+        execute(conn, '''INSERT INTO events (id, name, event_date, start_time, end_time, location, room, program_id, description)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), req['title'], d_str, req.get('start_time') or None, req.get('end_time') or None,
+             (space or {}).get('name',''), (space or {}).get('name',''), program_id, req.get('purpose') or ''))
+
+    execute(conn, '''UPDATE space_requests SET status='approved', approved_by=%s, approved_at=NOW(),
+        created_program_id=%s, updated_at=NOW() WHERE id=%s''',
+        ((reviewer or {}).get('name',''), program_id, rid))
+    conn.commit()
+    try:
+        if req.get('requester_email'):
+            send_email(req['requester_email'], f'Space Request Approved: {req["title"]}',
+                build_hwtc_email_html(f'Space Request Approved: {req["title"]}',
+                f'<p>Hi {req.get("requester_name","")},</p>'
+                f'<p>Your space request for <strong>{req["title"]}</strong> has been approved — '
+                f'{len(dates)} date(s) are now on the calendar'
+                f'{" in " + space["name"] if space else ""}.</p>'
+                + (f'<p>A draft program has also been created — finish setting up pricing and registration details in RoleCall under Programs & Classes.</p>' if program_id else '')
+                + f'<p>Reach out with any questions.</p>'))
+    except Exception as e:
+        app.logger.warning(f'Space request approval email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'program_id': program_id, 'events_created': len(dates)})
+
 
 # ── Artistic Partnership: customer self-service portal ──────────────────────
 # Rather than routing replies through inbound email (which needs DNS/MX

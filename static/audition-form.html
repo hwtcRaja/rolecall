@@ -11,7 +11,7 @@
 body{font-family:'DM Sans',-apple-system,sans-serif;background:#f7f7f5;color:#1c1917;line-height:1.5}
 .wrap{max-width:640px;margin:0 auto;padding:0 20px 60px}
 header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px 24px;text-align:center;margin-bottom:-1px}
-header img{height:44px;margin-bottom:14px}
+header img{height:68px;margin-bottom:14px}
 header h1{color:#fff;font-size:24px;font-weight:800}
 header .sub{color:rgba(255,255,255,0.75);font-size:14px;margin-top:6px}
 .card{background:#fff;border:1px solid #e7e2d9;border-radius:14px;padding:24px;margin-top:20px}
@@ -40,6 +40,9 @@ textarea{resize:vertical}
 .crew-toggle input{width:17px;height:17px;accent-color:#7c3aed}
 .slot-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px;margin-bottom:4px}
 .slot-btn{padding:10px 8px;border:1.5px solid #d6d3ce;border-radius:8px;font-size:12.5px;font-weight:600;cursor:pointer;text-align:center;background:#fff}
+.date-pill-row{display:flex;gap:8px;flex-wrap:wrap}
+.date-pill{padding:9px 14px;border:1.5px solid #d6d3ce;border-radius:20px;font-size:12.5px;font-weight:700;cursor:pointer;background:#fff;color:#57534e}
+.date-pill.active{border-color:#145466;background:#145466;color:#fff}
 .slot-btn.selected{border-color:#145466;background:#145466;color:#fff}
 .slot-btn.full{opacity:0.4;cursor:not-allowed;text-decoration:line-through}
 .btn-primary{width:100%;padding:14px;background:#145466;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;font-family:inherit}
@@ -102,7 +105,7 @@ function render(){
     <header>
       <img src="${logoUrl}" alt="${escH(s.context_name||'HWTC')}"/>
       <h1>${escH(s.title||'Auditions')}</h1>
-      <div class="sub">${escH(s.context_name||'Horizon West Theater Company')}</div>
+      <div class="sub">Horizon West Theater Company</div>
     </header>
     <div class="wrap">`
 
@@ -123,14 +126,20 @@ function render(){
     html += '</div>'
   }
 
-  // Slots
-  if(s.allow_slots && (s.slots||[]).length){
-    html += '<div class="card"><h2>Pick a Time</h2><div class="slot-grid" id="slot-grid">'
-    html += s.slots.map(sl=>{
-      var full = (sl.booked_count||0) >= (sl.capacity||1)
-      return `<div class="slot-btn${full?' full':''}" data-slot="${sl.id}" onclick="${full?'':'selectSlot(this.dataset.slot)'}">${escH(sl.slot_date)}<br>${escH(sl.start_time)}</div>`
-    }).join('')
-    html += '</div><div class="hint">Choose an in-person slot, or skip this to submit a virtual audition below.</div></div>'
+  // How would you like to audition? — an explicit choice instead of two
+  // unlabeled, disconnected sections (a slot grid and a video field) that
+  // left people unsure which one applied to them.
+  var hasSlots = s.allow_slots && (s.slots||[]).length
+  var hasVideo = s.allow_video_link!==false
+  if(hasSlots && hasVideo){
+    html += `<div class="card"><h2>How Would You Like to Audition?</h2>
+      <div class="toggle-row" style="margin-top:10px">
+        <div class="toggle-btn" id="mode-tab-inperson" onclick="setAuditionMode('inperson')">In-Person — Pick a Time</div>
+        <div class="toggle-btn" id="mode-tab-virtual" onclick="setAuditionMode('virtual')">Virtual — Submit a Video</div>
+      </div>
+      <div id="mode-area-inperson" style="display:none;margin-top:14px"></div>
+      <div id="mode-area-virtual" style="display:none;margin-top:14px"></div>
+    </div>`
   }
 
   // Main form
@@ -175,18 +184,10 @@ function render(){
     html += '<div class="form-group"><label>How Did You Hear About Us?</label><input type="text" id="f-how-heard" placeholder="e.g. Friend, social media, past show…"/></div>'
   }
 
-  // Video
-  if(s.allow_video_link!==false){
-    html += `<div class="form-group"><label>Audition Video</label>
-      <div class="toggle-row">
-        <div class="toggle-btn active" id="vid-tab-clip" onclick="setVidMode('clip')">Upload a Short Clip</div>
-        <div class="toggle-btn" id="vid-tab-link" onclick="setVidMode('link')">Link to Full Video</div>
-      </div>
-      <div id="vid-clip-area"><input type="file" id="f-video-file" accept=".mp4,.mov,.webm" style="display:none" onchange="handleFileUpload('video_clip', this)"/>
-        <div class="file-drop" id="drop-video_clip" onclick="document.getElementById('f-video-file').click()">Click to upload a short clip (MP4/MOV/WEBM, up to 15MB)</div>
-        <div class="hint">For a longer performance, use "Link to Full Video" instead.</div></div>
-      <div id="vid-link-area" style="display:none"><input type="url" id="f-video-link" placeholder="YouTube, Google Drive, Vimeo…"/></div>
-    </div>`
+  // Video — shown inline only when there's no in-person slot option to
+  // choose between (otherwise it's rendered into the toggle area below).
+  if(hasVideo && !hasSlots){
+    html += auditionVideoFieldHtml()
   }
 
   // Resume
@@ -240,6 +241,10 @@ function render(){
   </div></div>`
 
   document.getElementById('app').innerHTML = html
+  // If both in-person and virtual are options, default to in-person
+  // (booking a real time is usually the stronger preference) but leave it
+  // an explicit, visible choice either way.
+  if(document.getElementById('mode-tab-inperson')) setAuditionMode('inperson')
 }
 
 function selectSlot(id){
@@ -247,6 +252,75 @@ function selectSlot(id){
   document.querySelectorAll('.slot-btn').forEach(el=>{
     el.classList.toggle('selected', el.dataset.slot===id)
   })
+}
+
+function auditionVideoFieldHtml(){
+  return `<div class="form-group"><label>Audition Video</label>
+      <div class="toggle-row">
+        <div class="toggle-btn active" id="vid-tab-clip" onclick="setVidMode('clip')">Upload a Short Clip</div>
+        <div class="toggle-btn" id="vid-tab-link" onclick="setVidMode('link')">Link to Full Video</div>
+      </div>
+      <div id="vid-clip-area"><input type="file" id="f-video-file" accept=".mp4,.mov,.webm" style="display:none" onchange="handleFileUpload('video_clip', this)"/>
+        <div class="file-drop" id="drop-video_clip" onclick="document.getElementById('f-video-file').click()">Click to upload a short clip (MP4/MOV/WEBM, up to 15MB)</div>
+        <div class="hint">For a longer performance, use "Link to Full Video" instead.</div></div>
+      <div id="vid-link-area" style="display:none"><input type="url" id="f-video-link" placeholder="YouTube, Google Drive, Vimeo…"/></div>
+    </div>`
+}
+
+function dateGroupedSlotPickerHtml(){
+  var byDate = {}
+  var order = []
+  ;(SETTINGS.slots||[]).forEach(function(sl){
+    if(!byDate[sl.slot_date]){ byDate[sl.slot_date] = []; order.push(sl.slot_date) }
+    byDate[sl.slot_date].push(sl)
+  })
+  var html = '<div class="hint" style="margin-bottom:10px">Pick a date, then a time.</div>'
+  html += '<div class="date-pill-row" id="date-pill-row">'
+  html += order.map(function(d, i){
+    var dObj = new Date(d+'T12:00:00')
+    var label = dObj.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})
+    return `<div class="date-pill${i===0?' active':''}" data-date="${d}" onclick="selectAuditionDate('${d}')">${label}</div>`
+  }).join('')
+  html += '</div><div class="slot-grid" id="slot-grid" style="margin-top:10px"></div>'
+  // Stash for selectAuditionDate to use
+  window._SLOT_BY_DATE = byDate
+  window._SLOT_DATE_ORDER = order
+  return html
+}
+
+function selectAuditionDate(date){
+  document.querySelectorAll('.date-pill').forEach(function(el){ el.classList.toggle('active', el.dataset.date===date) })
+  var grid = document.getElementById('slot-grid')
+  var slots = (window._SLOT_BY_DATE||{})[date] || []
+  grid.innerHTML = slots.map(function(sl){
+    var full = (sl.booked_count||0) >= (sl.capacity||1)
+    return `<div class="slot-btn${full?' full':''}" data-slot="${sl.id}" onclick="${full?'':'selectSlot(this.dataset.slot)'}">${escH(sl.start_time)}${sl.end_time?' – '+escH(sl.end_time):''}</div>`
+  }).join('') || '<div class="hint">No times available this date.</div>'
+}
+
+function setAuditionMode(mode){
+  document.getElementById('mode-tab-inperson').classList.toggle('active', mode==='inperson')
+  document.getElementById('mode-tab-virtual').classList.toggle('active', mode==='virtual')
+  var ipArea = document.getElementById('mode-area-inperson')
+  var vArea = document.getElementById('mode-area-virtual')
+  ipArea.style.display = mode==='inperson' ? '' : 'none'
+  vArea.style.display = mode==='virtual' ? '' : 'none'
+  if(mode==='inperson'){
+    if(!ipArea.dataset.built){
+      ipArea.dataset.built = '1'
+      ipArea.innerHTML = dateGroupedSlotPickerHtml()
+      if((window._SLOT_DATE_ORDER||[]).length) selectAuditionDate(window._SLOT_DATE_ORDER[0])
+    }
+    // Switching to in-person clears any video selection, since only one mode applies
+    var linkEl = document.getElementById('f-video-link'); if(linkEl) linkEl.value = ''
+    UPLOADED.video_clip = null
+  } else {
+    if(!vArea.dataset.built){
+      vArea.dataset.built = '1'
+      vArea.innerHTML = auditionVideoFieldHtml()
+    }
+    SELECTED_SLOT = null
+  }
 }
 
 function setVidMode(mode){

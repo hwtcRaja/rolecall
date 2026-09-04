@@ -10,18 +10,24 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',-apple-system,sans-serif;background:#f7f7f5;color:#1c1917;line-height:1.5}
 .wrap{max-width:640px;margin:0 auto;padding:0 20px 60px}
-header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 24px;margin-bottom:-1px}
-header .hdr-inner{max-width:640px;margin:0 auto;display:flex;flex-direction:column;align-items:flex-start}
-header img{height:96px;margin-bottom:16px;mix-blend-mode:screen}
-header h1{color:#fff;font-size:24px;font-weight:800}
-header .sub{color:rgba(255,255,255,0.75);font-size:14px;margin-top:6px}
+header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:36px 24px;text-align:center;margin-bottom:-1px}
+header img{height:64px;margin-bottom:18px;mix-blend-mode:screen}
+header h1{color:#fff;font-size:26px;font-weight:800}
 .card{background:#fff;border:1px solid #e7e2d9;border-radius:14px;padding:24px;margin-top:20px}
+.card.hero-card{padding:0;overflow:hidden}
+.card-body{padding:22px 24px}
 .card h2{font-size:15px;font-weight:700;color:#145466;margin-bottom:10px}
-.desc-box{font-size:13.5px;background:#f0f8fa;border-radius:10px;padding:14px 16px;line-height:1.65;margin-bottom:12px;white-space:pre-wrap}
-.meta-row{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:#57534e;margin-bottom:4px}
-.info-grid{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13.5px}
-.info-label{font-weight:700;color:#78716c;font-size:11.5px;text-transform:uppercase;letter-spacing:0.4px;white-space:nowrap;padding-top:1px}
-.info-value{color:#1c1917}
+.banner-photo{width:100%;display:block;aspect-ratio:16/6;object-fit:cover;background:#e7e2d9}
+.hero-top{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:14px}
+.hero-title{font-size:21px;font-weight:800;color:#1c1917}
+.status-pill{background:#dcfce7;color:#166534;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;white-space:nowrap;flex-shrink:0}
+.status-pill.closed{background:#fee2e2;color:#991b1b}
+.meta-list{display:flex;flex-direction:column;gap:7px;margin-bottom:16px}
+.meta-line{font-size:14px;color:#44403c;display:flex;gap:8px}
+.meta-line .meta-tag{font-weight:700;color:#78716c;font-size:11px;text-transform:uppercase;letter-spacing:0.4px;min-width:108px;flex-shrink:0;padding-top:2px}
+.divider{border-top:1px solid #e7e2d9;margin:16px 0}
+.section-label{font-size:11.5px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px}
+.desc-box{font-size:13.5px;line-height:1.65;white-space:pre-wrap;color:#44403c}
 .material-item{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:#f7f7f5;border-radius:8px;margin-bottom:6px;font-size:13.5px}
 .material-item a{color:#145466;font-weight:600;text-decoration:none}
 .form-group{margin-bottom:16px}
@@ -68,8 +74,13 @@ textarea{resize:vertical}
 
 <script>
 var pathParts = window.location.pathname.split('/').filter(Boolean)
-var CONTEXT_TYPE = pathParts[1]
-var CONTEXT_ID = pathParts[2]
+// Two URL shapes are supported: the simple /audition/<slug> (matching the
+// existing /register/<slug> style) and the older /audition/<type>/<id>.
+// CONTEXT_TYPE/CONTEXT_ID start out possibly wrong for the slug style —
+// boot() corrects them from the settings response once it resolves.
+var IS_SLUG_URL = pathParts.length === 2
+var CONTEXT_TYPE = IS_SLUG_URL ? null : pathParts[1]
+var CONTEXT_ID = IS_SLUG_URL ? pathParts[1] : pathParts[2]
 var SETTINGS = null
 var SELECTED_SLOT = null
 var UPLOADED = { resume: null, headshot: null, video_clip: null }
@@ -93,7 +104,10 @@ function fmtTimeRange(start, end){
 async function boot(){
   var res
   try{
-    res = await fetch(`/api/auditions/settings/${CONTEXT_TYPE}/${CONTEXT_ID}`)
+    var url = IS_SLUG_URL
+      ? `/api/public/audition-settings-by-slug/${encodeURIComponent(CONTEXT_ID)}`
+      : `/api/auditions/settings/${CONTEXT_TYPE}/${CONTEXT_ID}`
+    res = await fetch(url)
     res = await res.json()
   } catch(e){
     renderError("Couldn't load this audition page.")
@@ -103,52 +117,71 @@ async function boot(){
     renderError(res.is_open===false ? "Auditions aren't currently open." : (res.error || 'Not found.'))
     return
   }
+  // The settings response carries the real context_type/context_id (from
+  // the audition_settings row itself), which is what submission and file
+  // uploads need — important for the slug URL, where we didn't know the
+  // type going in.
+  if(res.context_type) CONTEXT_TYPE = res.context_type
+  if(res.context_id) CONTEXT_ID = res.context_id
   SETTINGS = res
   render()
 }
 
 function renderError(msg){
   document.getElementById('app').innerHTML = `
-    <header><div class="hdr-inner">
+    <header>
       <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
       <h1>Auditions</h1>
-    </div></header>
-    <div class="wrap"><div class="card"><div class="empty-msg">${escH(msg)}</div></div></div>`
+    </header>
+    <div class="wrap"><div class="card"><div class="card-body"><div class="empty-msg">${escH(msg)}</div></div></div></div>`
 }
 
 function render(){
   var s = SETTINGS
-  var headerBg = s.banner_image_url
-    ? `background:linear-gradient(135deg,rgba(13,61,77,0.88),rgba(20,84,102,0.88)),url('${s.banner_image_url}') center/cover no-repeat`
-    : ''
   var html = `
-    <header style="${headerBg}"><div class="hdr-inner">
+    <header>
       <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
       <h1>${escH(s.title||'Auditions')}</h1>
-      <div class="sub">Horizon West Theater Company</div>
-    </div></header>
+    </header>
     <div class="wrap">`
 
-  // Info card
-  html += '<div class="card">'
-  html += '<div class="info-grid">'
-  var infoRows = [
-    ['Production', s.context_name],
+  // Hero card — banner photo (if set) at the top of the card, then title +
+  // status pill, clean meta lines, a divider, and an About section —
+  // matching the look of the existing program registration pages.
+   html += '<div class="card hero-card">'
+  if(s.banner_image_url) html += `<img class="banner-photo" src="${s.banner_image_url}" alt=""/>`
+  html += '<div class="card-body">'
+  html += '<div class="hero-top"><div class="hero-title">'+escH(s.context_name||s.title||'Auditions')+'</div>'
+    + '<div class="status-pill">Open</div></div>'
+
+  html += '<div class="meta-list">'
+  var metaRows = [
     ['Director', s.director],
-     ['Audition Date', s.audition_date ? escH(s.audition_date)+(s.audition_time?' at '+fmtTimeRange(s.audition_time, s.audition_time_end):'') : null],
-    ['Audition Location', s.location_name],
-    ['Audition Address', s.location_address],
-    ['Performance Dates', s.performance_dates],
-    ['Performance Location', s.performance_location],
+    ['Audition Date', s.audition_date ? escH(s.audition_date)+(s.audition_time?' \u00b7 '+fmtTimeRange(s.audition_time, s.audition_time_end):'') : null],
+    ['Location', s.location_name],
+    ['Address', s.location_address],
+    ['Performance', s.performance_dates],
+    ['Show Venue', s.performance_location],
   ]
-  infoRows.forEach(function(r){
-    if(r[1]) html += '<div class="info-label">'+r[0]+'</div><div class="info-value">'+(r[0]==='Audition Date'?r[1]:escH(r[1]))+'</div>'
+  metaRows.forEach(function(r){
+    if(r[1]) html += '<div class="meta-line"><span class="meta-tag">'+r[0]+'</span><span>'+(r[0]==='Audition Date'?r[1]:escH(r[1]))+'</span></div>'
   })
   html += '</div>'
-   if(s.show_rehearsal_schedule) html += '<div style="margin-top:10px"><a href="/audition-schedule/'+encodeURIComponent(CONTEXT_TYPE)+'/'+encodeURIComponent(CONTEXT_ID)+'" target="_blank" style="color:#145466;font-weight:700;font-size:13px">View Rehearsal Schedule (subject to change) →</a></div>'
-  if(s.description) html += '<div class="desc-box" style="margin-top:14px">'+escH(s.description)+'</div>'
-  if(s.instructions) html += '<div style="font-size:13px;color:#57534e;margin-top:8px">'+escH(s.instructions)+'</div>'
-  html += '</div>'
+
+  if(s.show_rehearsal_schedule){
+    var scheduleHref = s.context_slug
+      ? '/audition/'+encodeURIComponent(s.context_slug)+'/schedule'
+      : '/audition-schedule/'+encodeURIComponent(CONTEXT_TYPE)+'/'+encodeURIComponent(CONTEXT_ID)
+    html += '<div style="margin-bottom:14px"><a href="'+scheduleHref+'" target="_blank" style="color:#145466;font-weight:700;font-size:13px">View Rehearsal Schedule (subject to change) →</a></div>'
+  }
+
+  if(s.description || s.instructions){
+    html += '<div class="divider"></div>'
+    html += '<div class="section-label">About This Audition</div>'
+    if(s.description) html += '<div class="desc-box">'+escH(s.description)+'</div>'
+    if(s.instructions) html += '<div class="desc-box" style="margin-top:10px">'+escH(s.instructions)+'</div>'
+  }
+  html += '</div></div>'
 
   // Materials
   if((s.materials||[]).length){
@@ -444,10 +477,10 @@ async function submitAudition(){
       return
     }
     document.getElementById('app').innerHTML = `
-      <header><div class="hdr-inner">
+      <header>
         <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
         <h1>${escH(SETTINGS.title||'Auditions')}</h1>
-      </div></header>
+      </header>
       <div class="wrap"><div class="card confirm-box">
         <div class="check">✓</div>
         <h2>You're all set!</h2>

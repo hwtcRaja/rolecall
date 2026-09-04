@@ -31,8 +31,12 @@ header .sub{color:rgba(255,255,255,0.75);font-size:14px;margin-top:6px}
 </div>
 <script>
 var pathParts = window.location.pathname.split('/').filter(Boolean)
-var CONTEXT_TYPE = pathParts[1]
-var CONTEXT_ID = pathParts[2]
+// Two URL shapes: /audition/<slug>/schedule (matching the simple
+// /audition/<slug> submission page) and the older /audition-schedule/<type>/<id>.
+var IS_SLUG_URL = pathParts[0] === 'audition'
+var SLUG = IS_SLUG_URL ? pathParts[1] : null
+var CONTEXT_TYPE = IS_SLUG_URL ? null : pathParts[1]
+var CONTEXT_ID = IS_SLUG_URL ? null : pathParts[2]
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
 
@@ -53,7 +57,10 @@ function fmtDate(d){
 async function boot(){
   var res
   try{
-    res = await fetch('/api/public/audition-schedule/'+CONTEXT_TYPE+'/'+CONTEXT_ID)
+    var url = IS_SLUG_URL
+      ? '/api/public/audition-schedule-by-slug/'+encodeURIComponent(SLUG)
+      : '/api/public/audition-schedule/'+CONTEXT_TYPE+'/'+CONTEXT_ID
+    res = await fetch(url)
     res = await res.json()
   } catch(e){
     render(null, [], "Couldn't load this schedule.")

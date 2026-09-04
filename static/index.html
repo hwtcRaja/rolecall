@@ -12221,8 +12221,8 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
    </div>
   </div>
   <div style="margin-top:10px;display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg);border-radius:8px">
-   <span style="font-size:12px;color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Public audition form: <strong>${window.location.origin}/audition/${contextType}/${settings.context_slug||contextId}</strong></span>
-   <button class="btn btn-secondary btn-sm" onclick="copyAuditionPublicLink('${contextType}','${settings.context_slug||contextId}')" style="flex-shrink:0">Copy Link</button>
+   <span style="font-size:12px;color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Public audition form: <strong>${window.location.origin}/audition/${settings.context_slug||contextId}</strong></span>
+   <button class="btn btn-secondary btn-sm" onclick="copyAuditionPublicLink('${settings.context_slug||contextId}')" style="flex-shrink:0">Copy Link</button>
   </div>
   ${settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-top:8px">${formatDate(settings.audition_date)}${settings.audition_time?' at '+fmtTime(settings.audition_time):''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:''}
   ${settings.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;line-height:1.5">${escHtml(settings.description)}</div>`:''}
@@ -12472,8 +12472,8 @@ function filterAuditionSubmissions(contextId){
  document.getElementById('aud-list-'+contextId).innerHTML = renderAuditionList(parentEl._submissions, contextId, status)
 }
 
-function copyAuditionPublicLink(contextType, contextId){
- const url = `${window.location.origin}/audition/${contextType}/${contextId}`
+function copyAuditionPublicLink(slugOrId){
+ const url = `${window.location.origin}/audition/${slugOrId}`
  navigator.clipboard.writeText(url).then(()=>toast('Link copied!','success')).catch(()=>toast('Could not copy — link: '+url,'error'))
 }
 

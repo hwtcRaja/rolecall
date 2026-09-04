@@ -18907,7 +18907,15 @@ function renderCalendar(events){
  <div style="font-size:12px;font-weight:${isToday?'800':'500'};color:${isToday?'var(--teal-600)':'var(--text-muted)'};margin-bottom:4px">${d}</div>
  ${dayEvents.slice(0,3).map(e=>{
  const isCancelled = e.status==='cancelled'
- const[bg,col]=isCancelled ? ['#FEE2E2','#DC2626']: typeColorPair(e.event_type_color)
+ // Calendar chips specifically use the bold/saturated half of the color
+ // pair as the fill (white text on top) rather than the pale tint used
+ // for badges elsewhere — at chip size (10px text, a couple pixels tall)
+ // the light tints all read as "off-white" and the different event types
+ // become impossible to tell apart at a glance. A solid color block reads
+ // instantly, the way most calendar apps do it.
+ const[, boldCol]=isCancelled ? ['#FEE2E2','#DC2626']: typeColorPair(e.event_type_color)
+ const bg = isCancelled ? '#DC2626' : boldCol
+ const col = '#fff'
  const isAdminCal=canEdit('events')
  const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
  // A "Rehearsal"/"Performance" chip alone doesn't say which show — prefix

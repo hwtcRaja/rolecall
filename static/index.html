@@ -16408,7 +16408,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div class="card" style="padding:20px;margin-bottom:16px">'
  s += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">'
  s += '<div style="font-size:14px;font-weight:700"> Rehearsal Schedule</div>'
- s += (isAdmin?'<button class="btn btn-secondary btn-sm" onclick="addProductionRehearsalEvent(\''+p.id+'\')">+ Add Event</button>':'')
+  s += (isAdmin?'<div style="display:flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="openBulkEventTypeModal(\'production_id\',\''+p.id+'\')">Bulk Update Types</button><button class="btn btn-secondary btn-sm" onclick="addProductionRehearsalEvent(\''+p.id+'\')">+ Add Event</button></div>':'')
  s += '</div>'
  s += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">This production\'s schedule is its calendar events — add a rehearsal event for each date/time. BloomBooks reads these to charge the show for studio use at cost.</div>'
  s += '<div id="prod-sessions-'+p.id+'"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
@@ -18685,6 +18685,10 @@ const TYPE_COLORS = {
  rose: ['#FFF1F3','#BE123C'], lime: ['#F1FDE8','#3A6B0A'],
  cyan: ['#E0F7FA','#006064'], violet: ['#F5F0FF','#5B21B6'],
  slate: ['#F1F5F9','#334155'], brown: ['#FDF4EC','#7C3F1E'],
+ yellow: ['#FEFCE8','#854D0E'], emerald: ['#ECFDF5','#065F46'],
+ fuchsia: ['#FDF4FF','#86198F'], sky: ['#F0F9FF','#0369A1'],
+ stone: ['#FAFAF9','#57534E'], maroon: ['#FEF2F2','#7F1D1D'],
+ olive: ['#FAFAE8','#4D5A0B'], navy: ['#EEF2FA','#1E3A5F'],
 }
 // Some calendar entries are synthetic (rentals, venue tours) and carry a
 // literal hex color instead of a named TYPE_COLORS key, since they don't
@@ -22975,7 +22979,7 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
  <div class="card" style="padding:20px;margin-bottom:16px">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
  <div style="font-size:15px;font-weight:700"> Upcoming Events</div>
- ${isAdmin?`<button class="btn btn-primary btn-sm" onclick="openEventModalForParent(null,'${p.id}')">+ Add Event</button>`:''}
+ ${isAdmin?`<div style="display:flex;gap:6px"><button class="btn btn-secondary btn-sm" onclick="openBulkEventTypeModal('program_id','${p.id}')">Bulk Update Types</button><button class="btn btn-primary btn-sm" onclick="openEventModalForParent(null,'${p.id}')">+ Add Event</button></div>`:''}
  </div>
  ${eventRows(upcoming, false)}
  </div>
@@ -25991,6 +25995,71 @@ function renderProductionRehearsalEvents(pid){
 function addProductionRehearsalEvent(pid){
   window._openEventParent = {productionId: pid}
   openEventModal()
+}
+
+// ── Bulk event-type update — usable for either a production or a program's
+// ── events, since the only difference is which foreign key to filter on. ──
+function openBulkEventTypeModal(contextField, contextId){
+ var events = (allEvents||[]).filter(function(e){ return e[contextField]===contextId })
+ var existing = document.getElementById('bulk-etype-overlay')
+ if(existing) existing.remove()
+ if(!events.length){ toast('No events to update yet','error'); return }
+ var sorted = events.slice().sort(function(a,b){ return (a.event_date||'')<(b.event_date||'')?-1:1 })
+ var overlay = document.createElement('div')
+ overlay.id = 'bulk-etype-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:480px;max-height:80vh;display:flex;flex-direction:column">
+  <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0">
+   <div style="font-size:15px;font-weight:700">Bulk Update Event Type</div>
+   <button onclick="document.getElementById('bulk-etype-overlay').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button>
+  </div>
+  <div style="padding:16px 20px;overflow-y:auto;flex:1">
+   <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="bulk-etype-selectall" onchange="toggleBulkEtypeAll(this.checked)" style="accent-color:var(--teal)"/> Select all (${sorted.length})</label>
+   </div>
+   <div id="bulk-etype-list" style="display:flex;flex-direction:column;gap:5px;margin-bottom:16px">
+    ${sorted.map(function(e){
+      var ct = allEventTypes.find(function(t){ return t.id===e.event_type_id })
+      return '<label style="display:flex;align-items:center;gap:8px;padding:7px 8px;background:var(--bg);border-radius:6px;font-size:12.5px;cursor:pointer">'
+        + '<input type="checkbox" class="bulk-etype-cb" value="'+e.id+'" style="accent-color:var(--teal)"/>'
+        + '<span style="flex:1">'+escHtml(e.name)+'<span style="color:var(--text-muted)"> · '+(e.event_date||'no date')+'</span></span>'
+        + (ct?'<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:'+typeColorPair(ct.color)[0]+';color:'+typeColorPair(ct.color)[1]+'">'+escHtml(ct.name)+'</span>':'<span style="font-size:10px;color:var(--text-hint)">none</span>')
+        + '</label>'
+    }).join('')}
+   </div>
+   <div class="form-group" style="margin-bottom:0">
+    <label>Change selected events to</label>
+    <select id="bulk-etype-target">${allEventTypes.map(function(t){ return '<option value="'+t.id+'">'+escHtml(t.name)+'</option>' }).join('')}</select>
+   </div>
+  </div>
+  <div style="padding:14px 20px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0">
+   <button class="btn btn-secondary" onclick="document.getElementById('bulk-etype-overlay').remove()">Cancel</button>
+   <button class="btn btn-primary" id="bulk-etype-apply-btn" onclick="applyBulkEventType('${contextField}','${contextId}')">Apply</button>
+  </div>
+ </div>`
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+ document.body.appendChild(overlay)
+}
+
+function toggleBulkEtypeAll(checked){
+ document.querySelectorAll('.bulk-etype-cb').forEach(function(cb){ cb.checked = checked })
+}
+
+async function applyBulkEventType(contextField, contextId){
+ var ids = Array.from(document.querySelectorAll('.bulk-etype-cb:checked')).map(function(cb){ return cb.value })
+ if(!ids.length){ toast('Select at least one event','error'); return }
+ var typeId = document.getElementById('bulk-etype-target').value
+ var btn = document.getElementById('bulk-etype-apply-btn')
+ btn.disabled = true; btn.textContent = 'Applying…'
+ var res = await api('/api/events/bulk-update-type', 'POST', {event_ids: ids, event_type_id: typeId})
+ btn.disabled = false; btn.textContent = 'Apply'
+ if(res?.error){ toast(res.error, 'error'); return }
+  toast(res.updated+' event(s) updated', 'success')
+ document.getElementById('bulk-etype-overlay')?.remove()
+ const freshEvents = await api('/api/events')
+ if(Array.isArray(freshEvents)) allEvents = freshEvents
+ if(contextField==='production_id') renderProductionRehearsalEvents(contextId)
+ if(contextField==='program_id') openProgramDetail(contextId)
 }
 
 function toggleScheduleFields(){

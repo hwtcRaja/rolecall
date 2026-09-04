@@ -451,6 +451,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">RoleCall</div>
         <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon" id="ni-dashboard"></span>Dashboard</div>
         <div class="nav-item" onclick="navTo('my-time',this)"><span class="nav-icon" id="ni-my-time"></span>My Time &amp; Attendance</div>
+        <div class="nav-item" onclick="navTo('space-requests',this)"><span class="nav-icon" id="ni-space-requests"></span>Request a Space</div>
         <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers"></span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors"></span>Directors</div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
@@ -541,6 +542,22 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     </div>
   </div>
   <div class="page-body" id="rentals-body"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div>
+ </section>
+
+ <section class="page" id="page-space-requests">
+  <div class="page-header">
+    <div><div class="page-title">Request a Space</div><div class="page-subtitle">Check availability and request a date for an event, class, or workshop</div></div>
+  </div>
+  <div class="page-body">
+   <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:20px" id="sr-tabs">
+    <button class="btn-tab" id="sr-tab-btn-new" onclick="switchSpaceReqTab('new')" style="padding:11px 16px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid var(--teal-mid);color:var(--teal-dark)">New Request</button>
+    <button class="btn-tab" id="sr-tab-btn-mine" onclick="switchSpaceReqTab('mine')" style="padding:11px 16px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:var(--text-muted)">My Requests</button>
+    <button class="btn-tab admin-only" id="sr-tab-btn-queue" onclick="switchSpaceReqTab('queue')" style="padding:11px 16px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;border-bottom:2px solid transparent;color:var(--text-muted)">Review Queue<span class="nav-badge" id="sr-queue-badge" style="display:none;margin-left:6px">0</span></button>
+   </div>
+   <div id="sr-tab-new"></div>
+   <div id="sr-tab-mine" style="display:none"></div>
+   <div id="sr-tab-queue" style="display:none"></div>
+  </div>
  </section>
 
  <section class="page" id="page-my-time">
@@ -2797,6 +2814,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-space-requests">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Request a Space</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-space-requests" placeholder="calendar-plus" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('space-requests',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rentals">
  <span style="font-size:16px"></span>
  </div>
@@ -4272,7 +4300,8 @@ async function handleLogout(){
 // Map nav item text/id to permission section key
 const NAV_PERM_MAP = {
  'dashboard': null,
- 'my-time': null,
+  'my-time': null,
+ 'space-requests': null,
  'rentals': 'rentals', // always visible
  'volunteers': 'volunteers',
  'directors': 'directors',
@@ -4449,7 +4478,8 @@ function navTo(page,el){
  if(page==='donor-templates') loadTemplatesPage()
  if(page==='marquee') loadMarqueePage()
  if(page==='refund-requests') loadRefundRequestsPage()
- if(page==='my-time') loadMyTimePage()
+  if(page==='my-time') loadMyTimePage()
+ if(page==='space-requests') loadSpaceRequestsPage()
  if(page==='rentals') loadRentalsPage()
  if(page==='instructor-dashboard') loadInstructorDashboard()
  if(page==='responsibility') loadResponsibilityPage()
@@ -10198,7 +10228,7 @@ const NAV_ICON_DEFAULTS = {
  'rising-stars-page':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
- board:'', directors:'', 'my-time':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
+  board:'', directors:'', 'my-time':'', 'space-requests':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
  oncall:'', 'hours-store':'', responsibility:'', licensing:'', inbox:'',
  'instructor-dashboard':''
@@ -27932,6 +27962,243 @@ function formatDateTimeShort(ts){
 var _marqueeTab = 'dashboard'
 var _marqueeRegs = []
 var _marqueePrograms = []
+
+// ═══════════════════════════════════════════════════════════════
+// SPACE REQUESTS
+// ═══════════════════════════════════════════════════════════════
+var _srSpaces = []
+var _srSpecificDates = []
+
+async function loadSpaceRequestsPage(){
+ _srSpaces = await api('/api/space-requests/spaces') || []
+ document.getElementById('sr-tab-btn-queue').style.display = canEdit('rentals') ? '' : 'none'
+ switchSpaceReqTab('new')
+ if(canEdit('rentals')) refreshSpaceReqQueueBadge()
+}
+
+function switchSpaceReqTab(tab){
+ ['new','mine','queue'].forEach(function(t){
+  document.getElementById('sr-tab-'+t).style.display = t===tab ? '' : 'none'
+  var btn = document.getElementById('sr-tab-btn-'+t)
+  btn.style.borderBottomColor = t===tab ? 'var(--teal-mid)' : 'transparent'
+  btn.style.color = t===tab ? 'var(--teal-dark)' : 'var(--text-muted)'
+ })
+ if(tab==='new') renderSpaceReqForm()
+ if(tab==='mine') loadMySpaceRequests()
+ if(tab==='queue') loadSpaceReqQueue()
+}
+
+async function refreshSpaceReqQueueBadge(){
+ var rows = await api('/api/space-requests?status=pending') || []
+ var badge = document.getElementById('sr-queue-badge')
+ if(badge){ badge.textContent = rows.length; badge.style.display = rows.length ? '' : 'none' }
+}
+
+function renderSpaceReqForm(){
+ _srSpecificDates = []
+ var el = document.getElementById('sr-tab-new')
+ el.innerHTML = `
+  <div class="card" style="max-width:640px">
+  <div class="form-group"><label>Title</label><input type="text" id="sr-title" placeholder="e.g. Improv Workshop, Board Meeting, Set Build Day"/></div>
+  <div class="form-group"><label>Purpose / Description</label><textarea id="sr-purpose" rows="2" style="resize:vertical"></textarea></div>
+  <div class="form-group"><label>Space</label><select id="sr-space">${_srSpaces.map(function(s){ return '<option value="'+s.id+'">'+escHtml(s.name)+(s.capacity?' (up to '+s.capacity+')':'')+'</option>' }).join('')}</select></div>
+
+  <div class="form-group"><label>When</label>
+   <div style="display:flex;gap:8px;margin-bottom:10px">
+    <button type="button" class="btn btn-secondary btn-sm" id="sr-mode-btn-onetime" onclick="setSpaceReqMode('onetime')">One-Time / Specific Dates</button>
+    <button type="button" class="btn btn-secondary btn-sm" id="sr-mode-btn-recurring" onclick="setSpaceReqMode('recurring')">Recurring (class/program)</button>
+   </div>
+   <div id="sr-mode-onetime">
+    <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+     <input type="date" id="sr-add-date" style="flex:1"/>
+     <button type="button" class="btn btn-secondary btn-sm" onclick="addSpaceReqDate()">+ Add Date</button>
+    </div>
+    <div id="sr-date-list" style="display:flex;flex-direction:column;gap:5px"></div>
+   </div>
+   <div id="sr-mode-recurring" style="display:none">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Start Date</label><input type="date" id="sr-start-date" style="width:100%;box-sizing:border-box"/></div>
+     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">End Date</label><input type="date" id="sr-end-date" style="width:100%;box-sizing:border-box"/></div>
+    </div>
+    <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:5px">Days of the Week</label>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+     ${['Mon','Tue','Wed','Thu','Fri','Sat','Sun'].map(function(d){ return '<label style="display:flex;align-items:center;gap:4px;font-size:12.5px;background:var(--bg);padding:6px 10px;border-radius:20px;cursor:pointer"><input type="checkbox" class="sr-day-cb" value="'+d+'" style="accent-color:var(--teal)">'+d+'</label>' }).join('')}
+    </div>
+   </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px" class="form-group">
+   <div><label>Start Time</label><input type="time" id="sr-start-time"/></div>
+   <div><label>End Time</label><input type="time" id="sr-end-time"/></div>
+  </div>
+
+  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;background:var(--bg);border-radius:var(--radius);padding:12px 14px;margin-bottom:16px">
+   <input type="checkbox" id="sr-new-program" onchange="document.getElementById('sr-program-fields').style.display=this.checked?'':'none'" style="accent-color:var(--teal)">
+   <span><strong>This is for a brand-new class or program</strong><br><span style="font-weight:400;color:var(--text-muted)">If approved, a draft program is created automatically with this schedule already filled in.</span></span></label>
+  <div id="sr-program-fields" style="display:none;margin-bottom:16px">
+   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div class="form-group"><label>Program Type</label><select id="sr-program-type">
+     <option value="class">Class</option><option value="workshop">Workshop</option><option value="camp">Camp</option><option value="other">Other</option>
+    </select></div>
+    <div class="form-group"><label>Min Age</label><input type="number" id="sr-min-age" min="0" max="21"/></div>
+    <div class="form-group"><label>Max Age</label><input type="number" id="sr-max-age" min="0" max="21"/></div>
+   </div>
+  </div>
+
+  <div id="sr-availability-result" style="margin-bottom:14px"></div>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+   <button type="button" class="btn btn-secondary" onclick="checkSpaceReqAvailability()">Check Availability</button>
+   <button type="button" class="btn btn-primary" id="sr-submit-btn" onclick="submitSpaceRequest()">Submit Request</button>
+  </div>
+  </div>`
+ setSpaceReqMode('onetime')
+}
+
+function setSpaceReqMode(mode){
+ document.getElementById('sr-mode-onetime').style.display = mode==='onetime' ? '' : 'none'
+ document.getElementById('sr-mode-recurring').style.display = mode==='recurring' ? '' : 'none'
+ document.getElementById('sr-mode-btn-onetime').classList.toggle('btn-primary', mode==='onetime')
+ document.getElementById('sr-mode-btn-recurring').classList.toggle('btn-primary', mode==='recurring')
+ document.getElementById('sr-mode-btn-onetime').classList.toggle('btn-secondary', mode!=='onetime')
+ document.getElementById('sr-mode-btn-recurring').classList.toggle('btn-secondary', mode!=='recurring')
+ window._srMode = mode
+}
+
+function addSpaceReqDate(){
+ var input = document.getElementById('sr-add-date')
+ if(!input.value) return
+ if(!_srSpecificDates.includes(input.value)){
+  _srSpecificDates.push(input.value)
+  _srSpecificDates.sort()
+ }
+ input.value = ''
+ renderSpaceReqDateList()
+}
+function removeSpaceReqDate(d){
+ _srSpecificDates = _srSpecificDates.filter(function(x){ return x!==d })
+ renderSpaceReqDateList()
+}
+function renderSpaceReqDateList(){
+ var el = document.getElementById('sr-date-list')
+ el.innerHTML = _srSpecificDates.map(function(d){
+  return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 10px;background:var(--bg);border-radius:6px;font-size:13px"><span>'+d+'</span><button type="button" onclick="removeSpaceReqDate(\''+d+'\')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:15px">×</button></div>'
+ }).join('') || '<div style="font-size:12px;color:var(--text-muted)">No dates added yet.</div>'
+}
+
+function buildSpaceReqPayload(){
+ var recurring = window._srMode === 'recurring'
+ return {
+  title: document.getElementById('sr-title').value.trim(),
+  purpose: document.getElementById('sr-purpose').value.trim(),
+  space_id: document.getElementById('sr-space').value,
+  recurring: recurring,
+  start_date: recurring ? document.getElementById('sr-start-date').value : (_srSpecificDates[0]||null),
+  end_date: recurring ? document.getElementById('sr-end-date').value : (_srSpecificDates[_srSpecificDates.length-1]||null),
+  meeting_days: recurring ? Array.from(document.querySelectorAll('.sr-day-cb:checked')).map(function(c){return c.value}) : [],
+  specific_dates: recurring ? [] : _srSpecificDates,
+  start_time: document.getElementById('sr-start-time').value,
+  end_time: document.getElementById('sr-end-time').value,
+  is_new_program: document.getElementById('sr-new-program').checked,
+  program_type: document.getElementById('sr-program-type')?.value || 'class',
+  program_min_age: document.getElementById('sr-min-age')?.value || null,
+  program_max_age: document.getElementById('sr-max-age')?.value || null,
+ }
+}
+
+async function checkSpaceReqAvailability(){
+ var payload = buildSpaceReqPayload()
+ var resultEl = document.getElementById('sr-availability-result')
+ if(!payload.space_id || (!payload.start_date && !payload.specific_dates.length)){
+  resultEl.innerHTML = '<div style="font-size:12.5px;color:var(--text-muted)">Pick a space and at least one date first.</div>'
+  return
+ }
+ resultEl.innerHTML = '<div style="font-size:12.5px;color:var(--text-muted)">Checking…</div>'
+ var res = await api('/api/space-requests/check-availability', 'POST', payload)
+ if(!res || !res.results){ resultEl.innerHTML = ''; return }
+ var anyConflict = res.results.some(function(r){ return r.conflicts.length })
+ if(!anyConflict){
+  resultEl.innerHTML = '<div style="font-size:13px;color:#166534;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:10px 12px;font-weight:600"> '+res.results.length+' date(s) checked — no conflicts in '+escHtml(res.space_name)+'.</div>'
+ } else {
+  resultEl.innerHTML = '<div style="font-size:13px;color:#991b1b;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px">'
+   + '<div style="font-weight:700;margin-bottom:6px">Some dates conflict in '+escHtml(res.space_name)+':</div>'
+   + res.results.filter(function(r){return r.conflicts.length}).map(function(r){
+     return '<div style="margin-bottom:4px">'+r.date+': '+r.conflicts.map(function(c){return escHtml(c.title)+' ('+(c.start_time||'')+'-'+(c.end_time||'')+')'}).join(', ')+'</div>'
+   }).join('')
+   + '</div>'
+ }
+}
+
+async function submitSpaceRequest(){
+ var payload = buildSpaceReqPayload()
+ if(!payload.title){ toast('Enter a title','error'); return }
+ if(!payload.space_id){ toast('Select a space','error'); return }
+ if(!payload.start_date && !payload.specific_dates.length){ toast('Add at least one date','error'); return }
+ var btn = document.getElementById('sr-submit-btn')
+ btn.disabled = true; btn.textContent = 'Submitting…'
+ var res = await api('/api/space-requests', 'POST', payload)
+ btn.disabled = false; btn.textContent = 'Submit Request'
+ if(res?.error){ toast(res.error, 'error'); return }
+ toast('Request submitted!', 'success')
+ switchSpaceReqTab('mine')
+}
+
+async function loadMySpaceRequests(){
+ var el = document.getElementById('sr-tab-mine')
+ el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Loading…</div>'
+ var rows = await api('/api/space-requests') || []
+ var mine = rows.filter(function(r){ return r.requester_user_id === currentUser?.id })
+ if(!mine.length){ el.innerHTML = '<div class="card" style="text-align:center;padding:40px;color:var(--text-muted)">You haven\'t submitted any space requests yet.</div>'; return }
+ el.innerHTML = mine.map(spaceReqCardHtml).join('')
+}
+
+async function loadSpaceReqQueue(){
+ var el = document.getElementById('sr-tab-queue')
+ el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Loading…</div>'
+ var rows = await api('/api/space-requests?status=pending') || []
+ refreshSpaceReqQueueBadge()
+ if(!rows.length){ el.innerHTML = '<div class="card" style="text-align:center;padding:40px;color:var(--text-muted)">No pending requests.</div>'; return }
+ el.innerHTML = rows.map(function(r){ return spaceReqCardHtml(r, true) }).join('')
+}
+
+function spaceReqCardHtml(r, showActions){
+ var statusColor = {pending:'#b45309', approved:'#166534', denied:'#991b1b'}[r.status]||'#57534e'
+ var statusBg = {pending:'#fffbeb', approved:'#f0fdf4', denied:'#fef2f2'}[r.status]||'var(--bg)'
+ var dateSummary = r.recurring
+   ? (r.start_date||'')+' – '+(r.end_date||'')+' · '+(r.meeting_days||[]).join(', ')
+   : (r.specific_dates||[]).join(', ')
+ return `<div class="card" style="margin-bottom:12px">
+  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">
+   <div><div style="font-weight:700;font-size:15px">${escHtml(r.title)}</div>
+   <div style="font-size:12px;color:var(--text-muted)">${escHtml(r.space_name||'')}${r.requester_name?' · '+escHtml(r.requester_name):''}</div></div>
+   <span style="background:${statusBg};color:${statusColor};padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;text-transform:capitalize">${r.status}</span>
+  </div>
+  <div style="font-size:13px;color:var(--text-default);margin-bottom:4px">${escHtml(dateSummary)}${r.start_time?' · '+r.start_time+(r.end_time?'–'+r.end_time:''):''}</div>
+  ${r.is_new_program?'<div style="font-size:11px;font-weight:700;color:#7c3aed;margin-bottom:4px">For a new program/class</div>':''}
+  ${r.purpose?'<div style="font-size:13px;color:var(--text-muted);margin-bottom:6px">'+escHtml(r.purpose)+'</div>':''}
+  ${r.status==='denied' && r.denial_reason?'<div style="font-size:12.5px;color:#991b1b;background:#fef2f2;padding:8px 10px;border-radius:6px;margin-top:6px">'+escHtml(r.denial_reason)+'</div>':''}
+  ${showActions && r.status==='pending' ? `<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+   <button class="btn btn-secondary btn-sm" onclick="denySpaceRequest('${r.id}')">Deny</button>
+   <button class="btn btn-primary btn-sm" onclick="approveSpaceRequest('${r.id}')">Approve</button>
+  </div>` : ''}
+ </div>`
+}
+
+async function approveSpaceRequest(rid){
+ if(!confirm('Approve this request? This creates the calendar events now.')) return
+ var res = await api('/api/space-requests/'+rid+'/approve', 'PUT', {})
+ if(res?.error){ toast(res.error, 'error'); return }
+ toast('Approved — '+res.events_created+' event(s) created'+(res.program_id?' and a draft program was set up':''), 'success')
+ loadSpaceReqQueue()
+}
+
+async function denySpaceRequest(rid){
+ var reason = prompt('Reason for denying (optional):')
+ if(reason === null) return
+ var res = await api('/api/space-requests/'+rid+'/deny', 'PUT', {reason: reason})
+ if(res?.error){ toast(res.error, 'error'); return }
+ toast('Request denied', 'success')
+ loadSpaceReqQueue()
+}
 
 async function loadMyTimePage(){
   const body = document.getElementById('my-time-body')

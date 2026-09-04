@@ -6190,6 +6190,19 @@ def _resolve_audition_context(conn, context_type, context_id):
     return row['id'], row.get('name'), row.get('portal_logo_url'), row.get('slug')
 
 
+def _resolve_audition_context_by_slug(conn, slug):
+    """Like _resolve_audition_context, but for the simple /audition/<slug>
+    URL (matching the existing /register/<slug> pattern) that doesn't
+    carry a context type — checks productions first, then programs."""
+    row = fetchone(conn, 'SELECT id, name, portal_logo_url, slug FROM productions WHERE slug=%s OR id=%s', (slug, slug))
+    if row:
+        return 'production', row['id'], row.get('name'), row.get('portal_logo_url'), row.get('slug')
+    row = fetchone(conn, 'SELECT id, name, portal_logo_url, slug FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    if row:
+        return 'program', row['id'], row.get('name'), row.get('portal_logo_url'), row.get('slug')
+    return None, None, None, None, None
+
+
 def _normalize_audition_roles(raw, simple=False):
     """Roles used to be a flat list of strings; now they're
     {name, description} objects so families can see what a role involves.
@@ -27585,13 +27598,25 @@ def public_partnership_interest_page():
     """Public-facing artistic partnership interest form."""
     return send_from_directory('static', 'partnership-interest.html')
 
+@app.route('/audition/<slug>')
+def public_audition_page_by_slug(slug):
+    """Public-facing audition submission form, matching the same simple
+    /register/<slug> URL style already used elsewhere — no context type
+    in the URL. The page resolves the slug against productions/programs
+    itself via the by-slug settings endpoint."""
+    return send_from_directory('static', 'audition-form.html')
+
 @app.route('/audition/<context_type>/<context_id>')
 def public_audition_page(context_type, context_id):
-    """Public-facing audition submission form — its own standalone page,
-    not tucked inside the family portal. No login/passphrase needed to
-    reach it; it fetches settings and submits via the existing public
-    audition API using the context_type/context_id in the URL."""
+    """Older /audition/<type>/<id> form of the link — kept working for
+    any link already shared using it, alongside the simpler /audition/<slug>."""
     return send_from_directory('static', 'audition-form.html')
+
+@app.route('/audition/<slug>/schedule')
+def public_audition_schedule_page_by_slug(slug):
+    """The rehearsal-schedule link, in the same simple /audition/<slug>
+    style as the submission page itself."""
+    return send_from_directory('static', 'audition-schedule.html')
 
 @app.route('/audition-schedule/<context_type>/<context_id>')
 def public_audition_schedule_page(context_type, context_id):
@@ -27599,6 +27624,24 @@ def public_audition_schedule_page(context_type, context_id):
     auto-generated overview of this show's actual scheduled events, not a
     manually-typed URL, so it can never go stale."""
     return send_from_directory('static', 'audition-schedule.html')
+
+@app.route('/api/public/audition-settings-by-slug/<slug>')
+def get_audition_settings_by_slug(slug):
+    conn = get_db()
+    context_type, context_id, ctx_name, ctx_logo, ctx_slug = _resolve_audition_context_by_slug(conn, slug)
+    conn.close()
+    if not context_type:
+        return jsonify({'error': 'Not found'}), 404
+    return get_audition_settings(context_type, context_id)
+
+@app.route('/api/public/audition-schedule-by-slug/<slug>')
+def public_audition_schedule_data_by_slug(slug):
+    conn = get_db()
+    context_type, context_id, ctx_name, ctx_logo, ctx_slug = _resolve_audition_context_by_slug(conn, slug)
+    conn.close()
+    if not context_type:
+        return jsonify({'error': 'Not found'}), 404
+    return public_audition_schedule_data(context_type, context_id)
 
 @app.route('/api/public/audition-schedule/<context_type>/<context_id>')
 def public_audition_schedule_data(context_type, context_id):

@@ -1138,7 +1138,24 @@ def init_db():
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_pronouns BOOLEAN DEFAULT FALSE",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_phone BOOLEAN DEFAULT FALSE",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_how_heard BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS custom_questions TEXT DEFAULT '[]'",
+         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS custom_questions TEXT DEFAULT '[]'",
+        # Richer info-card fields for the public form — splitting the old
+        # single "location" into a name + address, plus production-level
+        # context (director, performance dates/location, a rehearsal
+        # schedule link) that families want to see before auditioning.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS location_name TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS location_address TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS director TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS performance_dates TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS performance_location TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS rehearsal_schedule_url TEXT",
+        # One-time backfill: anything already saved in the old single
+        # `location` field moves into location_address (the more specific
+        # of the two new fields), so existing productions don't lose what
+        # they already typed in.
+        """UPDATE audition_settings SET location_address = location
+           WHERE (location_address IS NULL OR location_address = '')
+             AND location IS NOT NULL AND location != ''""",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS is_minor BOOLEAN",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS birthday TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS pronouns TEXT",
@@ -6211,6 +6228,12 @@ def save_audition_settings(context_type, context_id):
     collect_phone_ = bool(d.get('collect_phone', False))
     collect_heard  = bool(d.get('collect_how_heard', False))
     custom_q_json  = json.dumps(d.get('custom_questions') or [])
+    location_name = (d.get('location_name') or '').strip() or None
+    location_address = (d.get('location_address') or '').strip() or None
+    director = (d.get('director') or '').strip() or None
+    performance_dates = (d.get('performance_dates') or '').strip() or None
+    performance_location = (d.get('performance_location') or '').strip() or None
+    rehearsal_schedule_url = (d.get('rehearsal_schedule_url') or '').strip() or None
     # Cast list reveal countdown — a datetime-local string like
     # "2026-05-16T19:00", or None/'' to clear it.
     reveal_raw = d.get('cast_list_reveal_at')
@@ -6222,11 +6245,14 @@ def save_audition_settings(context_type, context_id):
             allow_slots=%s, tab_visible=%s, cast_list_reveal_at=%s,
             allow_crew_interest=%s, crew_roles=%s, crew_instructions=%s,
             collect_age_check=%s, collect_pronouns=%s, collect_phone=%s, collect_how_heard=%s,
-            custom_questions=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            custom_questions=%s, location_name=%s, location_address=%s, director=%s,
+            performance_dates=%s, performance_location=%s, rehearsal_schedule_url=%s,
+            updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
              email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
              allow_crew,crew_roles_json,crew_instructions,
              collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
+             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
              context_id,context_type))
     else:
         sid = str(uuid.uuid4())
@@ -6234,12 +6260,14 @@ def save_audition_settings(context_type, context_id):
             (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
              location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible,cast_list_reveal_at,
              allow_crew_interest,crew_roles,crew_instructions,
-             collect_age_check,collect_pronouns,collect_phone,collect_how_heard,custom_questions)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             collect_age_check,collect_pronouns,collect_phone,collect_how_heard,custom_questions,
+             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
              location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
              allow_crew,crew_roles_json,crew_instructions,
-             collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json))
+             collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
+             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

@@ -6449,7 +6449,10 @@ def generate_audition_slots():
     open_time = d.get('open_time', '10:00')
     close_time = d.get('close_time', '17:00')
     slot_duration = int(d.get('slot_duration_minutes') or 15)
-    gap_minutes = int(d.get('gap_minutes') or 5)
+     # `or 5` would silently override an intentional 0 (0 is falsy in Python),
+    # so this checks for "not provided" explicitly instead — a 0-minute gap
+    # (back-to-back slots) is a valid, meaningful choice, not a missing value.
+    gap_minutes = int(d.get('gap_minutes')) if d.get('gap_minutes') is not None else 5
     capacity = int(d.get('capacity') or 1)
     slot_type = d.get('slot_type', 'in_person')
     location = (d.get('location') or '').strip()
@@ -6501,6 +6504,23 @@ def delete_audition_slot(sid):
     execute(conn, 'DELETE FROM audition_slots WHERE id=%s', (sid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/slots/bulk-delete', methods=['POST'])
+def bulk_delete_audition_slots():
+    """Delete many slots at once instead of one at a time — mainly for
+    clearing out a batch generated with the wrong settings."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    slot_ids = d.get('slot_ids') or []
+    if not slot_ids:
+        return jsonify({'error': 'No slots selected'}), 400
+    conn = get_db()
+    ph = ','.join(['%s']*len(slot_ids))
+    execute(conn, f'DELETE FROM audition_slots WHERE id IN ({ph})', tuple(slot_ids))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'deleted': len(slot_ids)})
 
 
 # ── Audition materials (sides, sheet music, tracks) — staff upload, ──

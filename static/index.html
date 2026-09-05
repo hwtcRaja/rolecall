@@ -12740,12 +12740,12 @@ function openAuditionSettingsModal(contextType, contextId, containerId, startTab
  <label>Also notify this email on submissions <span style="font-weight:400;color:var(--text-muted)">(in addition to admins)</span></label>
  <input type="email" id="aud-s-email" value="${escHtml(settings.email_submissions||'')}" placeholder="director@hwtco.org"/>
  </div>
- <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px">
- <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">Allow families to submit</div>
- <div style="display:flex;flex-direction:column;gap:8px">
- <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
+ <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;background:var(--bg);border-radius:var(--radius);padding:12px 14px">
  <input type="checkbox" id="aud-s-video" ${settings.allow_video_link!==false?'checked':''} style="accent-color:var(--teal)">
- Video (upload a short clip, or link a full video)</label>
+ <span><strong>Allow virtual auditions</strong><br><span style="font-weight:400;color:var(--text-muted)">Families can upload a short clip or link a full video instead of coming in person. Turn off for an in-person-only audition.</span></span></label>
+ <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px">
+ <div style="font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:10px">Also allow families to submit</div>
+ <div style="display:flex;flex-direction:column;gap:8px">
  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer">
  <input type="checkbox" id="aud-s-resume" ${settings.allow_resume_link!==false?'checked':''} style="accent-color:var(--teal)">
  Resume (upload or link)</label>
@@ -12819,9 +12819,10 @@ function openAuditionSettingsModal(contextType, contextId, containerId, startTab
 
  <div id="aud-stab-slots" style="display:none;flex-direction:column;gap:14px">
  <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;background:var(--bg);border-radius:var(--radius);padding:12px 14px">
- <input type="checkbox" id="aud-s-slots" ${settings.allow_slots?'checked':''} style="accent-color:var(--teal)" onchange="toggleAudSlotSection(this.checked)">
+ <input type="checkbox" id="aud-s-slots" ${settings.allow_slots?'checked':''} style="accent-color:var(--teal)">
  <span><strong>In-person audition slots</strong><br><span style="font-weight:400;color:var(--text-muted)">Families book a specific time instead of submitting virtually.</span></span></label>
- <div id="aud-slots-section" style="${settings.allow_slots?'':'display:none'}">
+ <div id="aud-slots-section">
+ <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">You can build out slots here any time — the checkbox above only controls whether families see a slot picker on the public form.</div>
  <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Audition Slots</div>
  <div id="aud-slots-list" style="margin-bottom:8px">${(settings.slots||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No slots yet.</div>':(settings.slots||[]).map(s=>{
    var booked=s.booked_count||0; var cap=s.capacity||1; var full=booked>=cap;

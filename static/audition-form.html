@@ -269,13 +269,16 @@ function render(){
     <div class="form-group"><label>Your Name *</label><input type="text" id="f-name"/></div>
     <div class="form-group"><label>Email (for confirmation)</label><input type="email" id="f-email"/></div>`
 
-  // Roles
-  if((s.roles||[]).length){
-    html += '<div class="form-group"><label>Roles Interested In</label><div class="role-grid">'
-    html += s.roles.map(r=>`<label><input type="checkbox" class="role-cb" value="${escH(r.name)}"/> <span><strong>${escH(r.name)}</strong>${r.description?'<br><span style="font-weight:400;color:#78716c;font-size:12px">'+escH(r.description)+'</span>':''}</span></label>`).join('')
-    html += '<label><input type="checkbox" class="role-cb" value="Other / Not sure yet"/> Other / Not sure yet</label></div></div>'
-  } else {
-    html += '<div class="form-group"><label>Roles Interested In</label><input type="text" id="f-role-text" placeholder="e.g. Lead, Ensemble"/></div>'
+   // Roles — staff can turn this whole section off for shows with no
+  // distinct roles to ask about
+  if(s.ask_roles!==false){
+    if((s.roles||[]).length){
+      html += '<div class="form-group"><label>Roles Interested In <span style="font-weight:400;text-transform:none;color:#a8a29e">(optional)</span></label><div class="role-grid">'
+      html += s.roles.map(r=>`<label><input type="checkbox" class="role-cb" value="${escH(r.name)}"/> <span><strong>${escH(r.name)}</strong>${r.description?'<br><span style="font-weight:400;color:#78716c;font-size:12px">'+escH(r.description)+'</span>':''}</span></label>`).join('')
+      html += '<label><input type="checkbox" class="role-cb" value="Other / Not sure yet"/> Other / Not sure yet</label></div></div>'
+    } else {
+      html += '<div class="form-group"><label>Roles Interested In <span style="font-weight:400;text-transform:none;color:#a8a29e">(optional)</span></label><input type="text" id="f-role-text" placeholder="e.g. Lead, Ensemble"/></div>'
+    }
   }
 
   // Age check

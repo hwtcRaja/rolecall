@@ -12757,6 +12757,10 @@ function openAuditionSettingsModal(contextType, contextId, containerId, startTab
  </div>
 
  <div id="aud-stab-roles" style="display:none;flex-direction:column;gap:16px">
+ <label style="display:flex;align-items:center;gap:10px;cursor:pointer;background:var(--bg);border-radius:var(--radius);padding:12px 14px">
+ <input type="checkbox" id="aud-s-ask-roles" ${settings.ask_roles!==false?'checked':''} style="accent-color:var(--teal);width:16px;height:16px" onchange="document.getElementById('aud-roles-section').style.display=this.checked?'':'none'">
+ <span style="font-size:13px"><strong>Ask about cast roles on the form</strong><br><span style="font-weight:400;color:var(--text-muted)">Turn off entirely for a show with no distinct roles to ask about (a talent showcase, for example) — this hides the whole section, not just makes it optional.</span></span></label>
+ <div id="aud-roles-section" style="${settings.ask_roles!==false?'':'display:none'};flex-direction:column;gap:16px">
  <div>
  <div style="font-size:13px;font-weight:700;margin-bottom:4px">Cast Roles</div>
  <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">Each role can have a description, so families see what it involves before picking it on the form.</div>
@@ -12764,6 +12768,7 @@ function openAuditionSettingsModal(contextType, contextId, containerId, startTab
  ${roles.map((r,i)=>audRoleRowHtml(i, r.name||'', r.description||'')).join('')}
  </div>
  <button type="button" class="btn btn-secondary btn-sm" onclick="addAudRoleRow()">+ Add Role</button>
+ </div>
  </div>
  <div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px">
  <label style="display:flex;align-items:center;gap:10px;cursor:pointer;margin-bottom:${settings.allow_crew_interest!==false?'10px':'0'}">
@@ -12952,7 +12957,8 @@ async function saveAuditionSettings(contextType, contextId, containerId){
    performance_dates: document.getElementById('aud-s-perf-dates')?.value.trim()||'',
    performance_location: document.getElementById('aud-s-perf-location')?.value.trim()||'',
    audition_time_end: document.getElementById('aud-s-time-end')?.value||null,
-   show_rehearsal_schedule: !!document.getElementById('aud-s-show-rehearsal')?.checked,
+    show_rehearsal_schedule: !!document.getElementById('aud-s-show-rehearsal')?.checked,
+   ask_roles: !!document.getElementById('aud-s-ask-roles')?.checked,
    roles,
    instructions: document.getElementById('aud-s-instructions')?.value.trim()||'',
    email_submissions: document.getElementById('aud-s-email')?.value.trim()||'',
@@ -18913,19 +18919,25 @@ function renderCalendar(events){
  // the light tints all read as "off-white" and the different event types
  // become impossible to tell apart at a glance. A solid color block reads
  // instantly, the way most calendar apps do it.
- const[, boldCol]=isCancelled ? ['#FEE2E2','#DC2626']: typeColorPair(e.event_type_color)
+  const[, boldCol]=isCancelled ? ['#FEE2E2','#DC2626']: typeColorPair(e.event_type_color)
  const bg = isCancelled ? '#DC2626' : boldCol
  const col = '#fff'
  const isAdminCal=canEdit('events')
  const calTimeStr=e.start_time?(' '+fmtTime(e.start_time)):''
+ // Off-site events (anything not at the home venue — a performance at an
+ // outside theater, for example) get a dashed border on top of their
+ // normal type color, so "this isn't happening here" is visible at a
+ // glance without needing a whole separate color scheme.
+ const isOffSite = !!(e.location && e.location !== 'HWTC')
+ const chipBorder = isOffSite ? `border:1.5px dashed rgba(255,255,255,0.85);` : ''
  // A "Rehearsal"/"Performance" chip alone doesn't say which show — prefix
  // with the production (or program) name so multiple shows rehearsing in
  // the same week don't look identical on the grid. Rising Stars gets a
  // small tag too, since its rehearsals otherwise look just like a
  // mainstage show's of the same event type.
  const showLabel = e.production_name ? e.production_name+(e.production_stage==='rising_stars'?' (RS)':e.production_stage==='teen_show'?' (Teen)':'') : (e.program_name||'')
- const chipText = showLabel ? `${showLabel}: ${e.name}` : e.name
- return`<div onclick="openEventChip('${e.id}')" title="${escHtml(e.name+calTimeStr+(e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:''))}${isCancelled?' [CANCELLED]':''}" style="background:${bg};color:${col};border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;margin-bottom:2px;cursor:pointer;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block;min-width:0;${isCancelled?'text-decoration:line-through;opacity:0.7;':''}">
+  const chipText = showLabel ? `${showLabel}: ${e.name}` : e.name
+ return`<div onclick="openEventChip('${e.id}')" title="${escHtml(e.name+calTimeStr+(e.production_name?' — '+e.production_name:e.program_name?' — '+e.program_name:'')+(isOffSite?' — '+e.location:''))}${isCancelled?' [CANCELLED]':''}" style="background:${bg};color:${col};${chipBorder}border-radius:4px;padding:2px 5px;font-size:10px;font-weight:600;margin-bottom:2px;cursor:pointer;line-height:1.4;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;display:block;min-width:0;${isCancelled?'text-decoration:line-through;opacity:0.7;':''}">
  ${isCancelled?' ':''}${escHtml(chipText)}<span style="opacity:0.7;font-weight:400">${calTimeStr}</span>
  </div>`
  }).join('')}

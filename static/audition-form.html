@@ -544,7 +544,7 @@ async function submitAudition(){
       <div class="wrap"><div class="card confirm-box">
         <div class="check">✓</div>
         <h2>You're all set!</h2>
-        <p>Thanks, ${escH(name)} — we've received your audition submission.${document.getElementById('f-email')?.value.trim()?" We'll be in touch by email.":''}</p>
+        <p>Thank you for submitting${document.getElementById('f-email')?.value.trim()?' — a confirmation email has been sent to you.':'.'}</p>
       </div></div>`
   } catch(e){
     statusEl.textContent = 'Something went wrong — please try again.'

@@ -3324,7 +3324,7 @@ def get_recipient_emails(settings=None):
 
 def build_hwtc_email_html(subject, body_html, footer_note=''):
     """Wrap content in the standard HWTC branded email template."""
-    footer_note = footer_note or 'You are receiving this email because you are enrolled in our Volunteer Management System, RoleCall. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'
+    footer_note = footer_note or 'You are receiving this email from Horizon West Theater Company. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'
     logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_white.png'
     return f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/>
@@ -3336,7 +3336,7 @@ body{{font-family:Georgia,'Times New Roman',serif;background:#f5f4f0;color:#1a1a
 .wrapper{{max-width:620px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,0.08)}}
 .header{{background:#0d3d4d;padding:28px 40px;text-align:center}}
 .header-logo{{margin-bottom:12px}}
-.header-logo img{{height:48px;display:inline-block}}
+.header-logo img{{height:48px;display:inline-block;mix-blend-mode:screen}}
 .header h1{{font-size:22px;font-weight:400;color:#fff;line-height:1.35;margin-bottom:0}}
 .header-rule{{width:40px;height:2px;background:#1b708d;margin:14px auto 0}}
 .body{{padding:36px 40px}}
@@ -6785,20 +6785,48 @@ def submit_audition():
             send_email(recipients, 'New Audition: ' + name + ' for ' + ctx_name, build_hwtc_email_html('New Audition: ' + name + ' for ' + ctx_name, html))
     except Exception as e:
         app.logger.warning(f'Audition notification failed: {e}')
-    # Confirmation to submitter
+    # Confirmation to submitter — in-person and virtual get meaningfully
+    # different content (arrival/location logistics vs. a simple "we'll be
+    # in touch"), since an in-person auditioner actually needs to know
+    # where to go and when.
     try:
         sub_email = (d.get('submitter_email') or '').strip()
         if sub_email:
-            conf = (
-                '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
-                '<h2 style="color:#145466">Audition Received: ' + ctx_name + '</h2>'
-                '<p>Hi ' + name + ', we received your audition for <strong>' + ctx_name + '</strong>.</p>'
-                '<p><strong>Role requested:</strong> ' + (d.get('role_requested') or 'Not specified') + '</p>'
-                '<p>We will be in touch soon.</p>'
-                '<p style="color:#9ca3af;font-size:13px">Horizon West Theater Company</p></div>'
-            )
-            send_email([sub_email], 'Audition Received: ' + ctx_name, build_hwtc_email_html('Audition Received: ' + ctx_name, conf))
-    except Exception: pass
+            first_name = name.split(' ')[0] if name else name
+            roles_list = d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])
+            if isinstance(roles_list, str):
+                try: roles_list = json.loads(roles_list)
+                except Exception: roles_list = [roles_list] if roles_list else []
+            roles_list = [r for r in roles_list if r and r != 'Other / Not sure yet']
+
+            if audition_type == 'in_person' and slot_id and slot:
+                subject = f'Audition Confirmed: {ctx_name}'
+                slot_date_fmt = slot.get('slot_date') or ''
+                slot_time_fmt = slot.get('start_time') or ''
+                if slot.get('end_time'): slot_time_fmt += f' – {slot["end_time"]}'
+                conf = (
+                    f'<p>Hi {first_name}, thanks for submitting your audition for <strong>{ctx_name}</strong>!</p>'
+                    f'<div style="background:#f0f8fa;border-radius:8px;padding:14px 18px;margin:16px 0">'
+                    f'<div style="font-size:12px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Your Time Slot</div>'
+                    f'<div style="font-size:16px;font-weight:700">{slot_date_fmt}{" at " + slot_time_fmt if slot_time_fmt else ""}</div>'
+                    f'</div>'
+                    f'<p><strong>Location:</strong><br>HWTC Studio<br>1220 Winter Garden Vineland Rd, Suite 108<br>Winter Garden, FL 34787</p>'
+                    + (f'<p><strong>Role(s) interested in:</strong> {", ".join(roles_list)}</p>' if roles_list else '')
+                    + '<p>Please arrive a few minutes before your audition time and check in with a member of our team. '
+                    'To help us manage capacity in the building, please don\'t arrive more than 20 minutes early.</p>'
+                    '<p>Having trouble finding our studio, or have any other questions? Reach out to '
+                    '<a href="mailto:info@hwtco.org">info@hwtco.org</a> or 407.554.9152 (text or call).</p>'
+                )
+            else:
+                subject = f'Audition Received: {ctx_name}'
+                conf = (
+                    f'<p>Hi {first_name}, thank you for submitting your audition for <strong>{ctx_name}</strong>! We will be in touch soon.</p>'
+                    '<p>Questions in the meantime? Reach out to <a href="mailto:info@hwtco.org">info@hwtco.org</a> or 407.554.9152 (text or call).</p>'
+                )
+            send_email([sub_email], subject, build_hwtc_email_html(subject, conf,
+                footer_note='You are receiving this email because you submitted an audition through our website. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'))
+    except Exception as e:
+        app.logger.warning(f'Audition confirmation email failed: {e}')
     conn.close()
     return jsonify({'ok': True, 'submission_id': sid})
 

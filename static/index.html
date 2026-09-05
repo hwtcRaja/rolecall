@@ -12823,17 +12823,24 @@ function openAuditionSettingsModal(contextType, contextId, containerId, startTab
  <span><strong>In-person audition slots</strong><br><span style="font-weight:400;color:var(--text-muted)">Families book a specific time instead of submitting virtually.</span></span></label>
  <div id="aud-slots-section">
  <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">You can build out slots here any time — the checkbox above only controls whether families see a slot picker on the public form.</div>
- <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Audition Slots</div>
+ <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+ <span>Audition Slots</span>
+ ${(settings.slots||[]).length?`<label style="display:flex;align-items:center;gap:5px;font-weight:400;font-size:11px;cursor:pointer"><input type="checkbox" id="aud-slots-selectall" onchange="toggleAudSlotSelectAll(this.checked)" style="accent-color:var(--teal)"> Select all</label>`:''}
+ </div>
  <div id="aud-slots-list" style="margin-bottom:8px">${(settings.slots||[]).length===0?'<div style="font-size:12px;color:var(--text-muted)">No slots yet.</div>':(settings.slots||[]).map(s=>{
    var booked=s.booked_count||0; var cap=s.capacity||1; var full=booked>=cap;
    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:7px 10px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:5px;font-size:12px">
-   <div><span style="font-weight:700">${escHtml(s.slot_date||'')} ${s.start_time?s.start_time+(s.end_time?' – '+s.end_time:''):''}</span><span style="color:var(--text-muted);margin-left:8px">${booked}/${cap} booked</span>${s.location?`<span style="color:var(--text-muted);margin-left:8px">${escHtml(s.location)}</span>`:''}</div>
+   <label style="display:flex;align-items:center;gap:8px;cursor:pointer;flex:1">
+   <input type="checkbox" class="aud-slot-cb" value="${s.id}" style="accent-color:var(--teal)">
+   <span><span style="font-weight:700">${escHtml(s.slot_date||'')} ${s.start_time?s.start_time+(s.end_time?' – '+s.end_time:''):''}</span><span style="color:var(--text-muted);margin-left:8px">${booked}/${cap} booked</span>${s.location?`<span style="color:var(--text-muted);margin-left:8px">${escHtml(s.location)}</span>`:''}</span>
+   </label>
    <button onclick="deleteAudSlot('${s.id}','${contextType}','${contextId}','${containerId}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:0 4px">×</button>
    </div>`
  }).join('')}</div>
- <div style="display:flex;gap:6px;margin-bottom:8px">
- <button type="button" class="btn btn-secondary btn-sm" onclick="openAddAudSlotForm('${contextType}','${contextId}')" style="font-size:12px">+ Add Slot</button>
+ <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+ <button type="button" class="btn btn-secondary btn-sm" onclick="openAddAudSlotForm('${contextType}','${contextId}','${containerId}')" style="font-size:12px">+ Add Slot</button>
  <button type="button" class="btn btn-secondary btn-sm" id="aud-gen-slots-btn" onclick="toggleAudGenForm()" style="font-size:12px">Generate Slots</button>
+ ${(settings.slots||[]).length?`<button type="button" class="btn btn-secondary btn-sm" style="color:#991b1b" onclick="deleteSelectedAudSlots('${contextType}','${contextId}','${containerId}')" id="aud-slots-bulk-delete-btn">Delete Selected</button>`:''}
  </div>
  <div id="aud-gen-form" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:8px">
  <div style="font-size:12px;font-weight:700;color:var(--teal-dark);margin-bottom:8px">Bulk Slot Generator</div>
@@ -12845,6 +12852,11 @@ function openAuditionSettingsModal(contextType, contextId, containerId, startTab
  <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Slot (min)</label><input type="number" id="ag-duration" value="15" min="5" max="120" step="5" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
  <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Gap (min)</label><input type="number" id="ag-gap" value="5" min="0" max="30" step="5" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
  <div style="grid-column:1/-1"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Capacity / slot</label><input type="number" id="ag-capacity" value="1" min="1" max="20" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/><div style="font-size:10px;color:var(--text-muted);margin-top:2px">How many people can book each slot</div></div>
+ </div>
+ <div style="margin-bottom:8px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Only on these days <span style="font-weight:400;text-transform:none">(leave all checked for every day in range)</span></label>
+ <div style="display:flex;gap:5px;flex-wrap:wrap">
+ ${['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(function(d){ return '<label style="display:flex;align-items:center;gap:3px;font-size:11px;background:var(--surface);border:1px solid var(--border-md);padding:5px 8px;border-radius:20px;cursor:pointer"><input type="checkbox" class="ag-day-cb" value="'+d+'" checked style="accent-color:var(--teal)">'+d.slice(0,3)+'</label>' }).join('')}
+ </div>
  </div>
  <div style="margin-bottom:8px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Location (optional)</label><input type="text" id="ag-location" placeholder="Studio, room, etc." style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:12px;font-family:inherit;box-sizing:border-box"/></div>
  <button type="button" class="btn btn-primary btn-sm" id="ag-submit-btn" onclick="generateAudSlots('${contextType}','${contextId}','${containerId}')" style="font-size:12px">Generate</button>
@@ -13052,14 +13064,34 @@ function toggleAudGenForm(){
  if(el) el.style.display = el.style.display==='none' ? '' : 'none'
 }
 
+function toggleAudSlotSelectAll(checked){
+ document.querySelectorAll('.aud-slot-cb').forEach(function(cb){ cb.checked = checked })
+}
+
+async function deleteSelectedAudSlots(contextType, contextId, containerId){
+ var ids = Array.from(document.querySelectorAll('.aud-slot-cb:checked')).map(function(cb){ return cb.value })
+ if(!ids.length){ toast('Select at least one slot','error'); return }
+ if(!confirm('Delete '+ids.length+' slot'+(ids.length===1?'':'s')+'? This can\'t be undone.')) return
+ var btn = document.getElementById('aud-slots-bulk-delete-btn')
+ if(btn){ btn.disabled = true; btn.textContent = 'Deleting…' }
+ var res = await api('/api/auditions/slots/bulk-delete', 'POST', {slot_ids: ids})
+ if(res&&res.ok){
+   toast(res.deleted+' slot(s) deleted','success')
+   openAuditionSettingsModal(contextType, contextId, containerId, 'slots')
+ } else {
+   toast((res&&res.error)||'Error','error')
+   if(btn){ btn.disabled = false; btn.textContent = 'Delete Selected' }
+ }
+}
+
 async function deleteAudSlot(sid, contextType, contextId, containerId){
  if(!confirm('Delete this slot?')) return
  var res = await api('/api/auditions/slots/'+sid, 'DELETE')
- if(res&&res.ok){ toast('Slot deleted','success'); openAuditionSettingsModal(contextType, contextId, containerId) }
+ if(res&&res.ok){ toast('Slot deleted','success'); openAuditionSettingsModal(contextType, contextId, containerId, 'slots') }
  else toast('Error','error')
 }
 
-async function openAddAudSlotForm(contextType, contextId){
+async function openAddAudSlotForm(contextType, contextId, containerId){
  var date = prompt('Slot date (YYYY-MM-DD):')
  if(!date) return
  var start = prompt('Start time (HH:MM, 24h):')
@@ -13072,13 +13104,14 @@ async function openAddAudSlotForm(contextType, contextId){
    slot_date:date, start_time:start, end_time:end,
    location:location, capacity:1, slot_type:'in_person'
  })
- if(res&&res.ok) toast('Slot added','success')
+ if(res&&res.ok){ toast('Slot added','success'); openAuditionSettingsModal(contextType, contextId, containerId, 'slots') }
  else toast((res&&res.error)||'Error','error')
 }
 
 async function generateAudSlots(contextType, contextId, containerId){
  var btn = document.getElementById('ag-submit-btn')
  if(btn){ btn.disabled=true; btn.textContent='Generating...' }
+ var checkedDays = Array.from(document.querySelectorAll('.ag-day-cb:checked')).map(function(cb){ return cb.value })
  var res = await api('/api/auditions/slots/generate','POST',{
    context_type:contextType, context_id:contextId,
    start_date:(document.getElementById('ag-date')||{}).value||'',
@@ -13089,11 +13122,12 @@ async function generateAudSlots(contextType, contextId, containerId){
    gap_minutes:parseInt((document.getElementById('ag-gap')||{}).value||5),
    location:(document.getElementById('ag-location')||{}).value||'',
    capacity:parseInt((document.getElementById('ag-capacity')||{}).value||1), slot_type:'in_person',
+   days_of_week: checkedDays,
  })
  if(btn){ btn.disabled=false; btn.textContent='Generate' }
  if(res&&res.ok){
    toast('Created '+res.created+' slot'+(res.created===1?'':'s'),'success')
-   openAuditionSettingsModal(contextType, contextId, containerId)
+   openAuditionSettingsModal(contextType, contextId, containerId, 'slots')
  } else toast((res&&res.error)||'Error','error')
 }
 

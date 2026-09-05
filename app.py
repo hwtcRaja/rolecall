@@ -1172,7 +1172,12 @@ def init_db():
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_age_check BOOLEAN DEFAULT FALSE",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_pronouns BOOLEAN DEFAULT FALSE",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_phone BOOLEAN DEFAULT FALSE",
-        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_how_heard BOOLEAN DEFAULT FALSE",
+         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_how_heard BOOLEAN DEFAULT FALSE",
+        # Roles asked about by default (matching existing behavior) but
+        # some shows — a talent showcase, for instance — don't have
+        # distinct roles to ask about at all, so this can turn the whole
+        # section off rather than just making it optional to answer.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS ask_roles BOOLEAN DEFAULT TRUE",
          "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS custom_questions TEXT DEFAULT '[]'",
         # Richer info-card fields for the public form — splitting the old
         # single "location" into a name + address, plus production-level
@@ -6313,6 +6318,7 @@ def save_audition_settings(context_type, context_id):
     rehearsal_schedule_url = (d.get('rehearsal_schedule_url') or '').strip() or None
     aud_time_end = d.get('audition_time_end') or None
     show_rehearsal = bool(d.get('show_rehearsal_schedule', False))
+    ask_roles = bool(d.get('ask_roles', True))
     # Cast list reveal countdown — a datetime-local string like
     # "2026-05-16T19:00", or None/'' to clear it.
     reveal_raw = d.get('cast_list_reveal_at')
@@ -6326,14 +6332,14 @@ def save_audition_settings(context_type, context_id):
             collect_age_check=%s, collect_pronouns=%s, collect_phone=%s, collect_how_heard=%s,
             custom_questions=%s, location_name=%s, location_address=%s, director=%s,
             performance_dates=%s, performance_location=%s, rehearsal_schedule_url=%s,
-            audition_time_end=%s, show_rehearsal_schedule=%s,
+            audition_time_end=%s, show_rehearsal_schedule=%s, ask_roles=%s,
             updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
              email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
              allow_crew,crew_roles_json,crew_instructions,
              collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
              location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
-             aud_time_end,show_rehearsal,
+             aud_time_end,show_rehearsal,ask_roles,
              context_id,context_type))
     else:
         sid = str(uuid.uuid4())
@@ -6343,14 +6349,14 @@ def save_audition_settings(context_type, context_id):
              allow_crew_interest,crew_roles,crew_instructions,
              collect_age_check,collect_pronouns,collect_phone,collect_how_heard,custom_questions,
              location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
-             audition_time_end,show_rehearsal_schedule)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             audition_time_end,show_rehearsal_schedule,ask_roles)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
              location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
              allow_crew,crew_roles_json,crew_instructions,
              collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
              location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
-             aud_time_end,show_rehearsal))
+             aud_time_end,show_rehearsal,ask_roles))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

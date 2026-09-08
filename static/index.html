@@ -670,6 +670,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <select class="filter-select" id="filter-status" onchange="renderVolunteers()"><option value="">All Statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
  <select class="filter-select" id="filter-waiver" onchange="renderVolunteers()"><option value="">All Waivers</option><option value="valid">Valid</option><option value="expiring">Expiring</option><option value="expired">Expired</option><option value="none">No Waiver</option></select>
  <select class="filter-select" id="filter-tag" onchange="renderVolunteers()"><option value="">All Interests</option></select>
+ <select class="filter-select" id="sort-vols" onchange="renderVolunteers()">
+ <option value="name">Sort: Name (A–Z)</option>
+ <option value="hours_desc">Sort: Hours (All-time) High → Low</option>
+ <option value="hours_asc">Sort: Hours (All-time) Low → High</option>
+ <option value="hours_ytd_desc">Sort: Hours (YTD) High → Low</option>
+ <option value="hours_ytd_asc">Sort: Hours (YTD) Low → High</option>
+ </select>
  </div>
  <div class="card">
  <table>
@@ -4119,6 +4126,15 @@ function bgcBadgeHTML(status, compact=false){
 : '<span style="background:#fef2f2;color:#dc2626;border:1.5px solid #fca5a5;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700"> No BGC on file</span>'
 }
 
+function handIconSVG(color, outline=false){
+ // Simple palm+fingers glyph, sized to sit inline next to a name exactly
+ // like employerProgramIcons' logo images (14x14, vertical-align:middle).
+ // outline=true (filled but lighter) marks "eligible, not yet added";
+ // solid marks a confirmed Wall of Fame handprint.
+ const fillOpacity = outline ? '0.45' : '1'
+ return `<svg width="14" height="14" viewBox="0 0 24 24" style="vertical-align:middle;margin-left:2px" xmlns="http://www.w3.org/2000/svg"><path fill="${color}" fill-opacity="${fillOpacity}" d="M9 1.75A1.5 1.5 0 0 1 10.5 3.25V11h.5V3.75a1.5 1.5 0 0 1 3 0V11h.5V5.75a1.5 1.5 0 0 1 3 0V11h.5V8a1.5 1.5 0 0 1 3 0v5.5c0 4.42-3.58 8-8 8h-.75c-3.31 0-6.24-2.02-7.44-4.9l-2.02-3.7a1.5 1.5 0 0 1 2.5-1.66L7.5 15V3.25A1.5 1.5 0 0 1 9 1.75z"/></svg>`
+}
+
 function verifiedBadgeHTML(vol, compact=false){
  // "Verified Volunteer" stamp — Admin/Volunteer Coordinator has vetted or
  // worked with this person directly. Purely a positive marker, so unlike
@@ -4139,14 +4155,14 @@ function wallBadgeHTML(vol, compact=false){
  if(vol.wall_added_at){
  const title = 'On the Wall of Fame' + (vol.wall_added_by ? ' — added by '+vol.wall_added_by : '') + (vol.wall_added_at ? ' on '+formatDate(vol.wall_added_at.slice(0,10)) : '')
  return compact
- ? `<span title="${escHtml(title)}" style="font-size:13px"></span>`
- : `<span title="${escHtml(title)}" style="background:#fff7ed;color:#9a3412;border:1.5px solid #fdba74;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:4px"> On the Wall</span>`
+ ? `<span title="${escHtml(title)}">${handIconSVG('#9a3412')}</span>`
+ : `<span title="${escHtml(title)}" style="background:#fff7ed;color:#9a3412;border:1.5px solid #fdba74;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:5px">${handIconSVG('#9a3412')} On the Wall</span>`
  }
  if(vol.wall_eligible_at){
  const title = 'Eligible for the Wall of Fame since '+formatDate(vol.wall_eligible_at.slice(0,10))+' — handprint not yet added'
  return compact
- ? `<span title="${escHtml(title)}" style="font-size:13px;color:var(--amber-600)"></span>`
- : `<span title="${escHtml(title)}" style="background:#fefce8;color:#a16207;border:1.5px solid #fde047;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:4px"> Wall-Eligible</span>`
+ ? `<span title="${escHtml(title)}">${handIconSVG('#a16207', true)}</span>`
+ : `<span title="${escHtml(title)}" style="background:#fefce8;color:#a16207;border:1.5px solid #fde047;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:5px">${handIconSVG('#a16207', true)} Wall-Eligible</span>`
  }
  return ''
 }
@@ -5138,6 +5154,12 @@ function renderVolunteers(){
  if(ft&&!interests.includes(ft)) return false
  return true
  })
+ const sortBy = document.getElementById('sort-vols')?.value || 'name'
+ if(sortBy==='hours_desc') filtered.sort((a,b)=>(parseFloat(b.total_hours)||0)-(parseFloat(a.total_hours)||0))
+ else if(sortBy==='hours_asc') filtered.sort((a,b)=>(parseFloat(a.total_hours)||0)-(parseFloat(b.total_hours)||0))
+ else if(sortBy==='hours_ytd_desc') filtered.sort((a,b)=>(parseFloat(b.hours_ytd)||0)-(parseFloat(a.hours_ytd)||0))
+ else if(sortBy==='hours_ytd_asc') filtered.sort((a,b)=>(parseFloat(a.hours_ytd)||0)-(parseFloat(b.hours_ytd)||0))
+ else filtered.sort((a,b)=>(a.name||'').localeCompare(b.name||''))
  document.getElementById('vol-count-label').textContent=`${filtered.length} of ${volunteers.length} volunteers`
  const tbody=document.getElementById('vol-table-body')
  if(!filtered.length){
@@ -5147,7 +5169,7 @@ function renderVolunteers(){
  tbody.innerHTML=filtered.map(v=>{
  const interests=JSON.parse(v.interests||'[]')
  const checked=selectedVolIds.has(v.id)
- return `<tr style="cursor:pointer" onclick="openProfile('${v.id}')" class="vol-row-hover">
+ return `<tr style="cursor:pointer${v.verified_at?';background:var(--teal-50)':''}" onclick="openProfile('${v.id}')" class="vol-row-hover">
  <td onclick="event.stopPropagation()" style="width:32px">
  <input type="checkbox" style="width:16px;height:16px;accent-color:var(--teal-400)" ${checked?'checked':''}
  onchange="toggleVolSelect('${v.id}',this.checked)"/>
@@ -5165,7 +5187,7 @@ function renderVolunteers(){
  <td>${waiverBadgeHTML(waiverStatus(v))}</td>
  <td><span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?' Active':' Inactive'}</span></td>
  <td style="text-align:center">${bgcBadgeHTML(v.background_check_status, true)}</td>
- <td style="font-weight:700;color:var(--teal-600);font-size:13px">${v.total_hours||0}h</td>
+ <td style="font-weight:700;color:var(--teal-600);font-size:13px">${sortBy.startsWith('hours_ytd')?(v.hours_ytd||0)+'h YTD':(v.total_hours||0)+'h'}</td>
  <td onclick="event.stopPropagation()">
  <a href="mailto:${v.email}" class="btn btn-secondary btn-sm" title="Email ${v.name}" style="padding:4px 8px;font-size:11px">Email</a>
  </td>
@@ -5556,7 +5578,7 @@ function renderWallOfFameSection(v, isAdmin){
  if(v.wall_added_at){
  return `<hr class="divider"/>
  <div class="card" style="padding:12px 14px;background:#fff7ed;border-color:#fdba74">
- <div style="font-size:12px;font-weight:700;color:#9a3412"> On the Wall of Fame</div>
+ <div style="font-size:12px;font-weight:700;color:#9a3412">${handIconSVG('#9a3412')} On the Wall of Fame</div>
  <div style="font-size:11px;color:#9a3412;margin-top:2px">Added ${formatDate(v.wall_added_at.slice(0,10))}${v.wall_added_by?' by '+escHtml(v.wall_added_by):''}</div>
  ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="removeFromWallOfFame('${v.id}')">Undo</button>`:''}
  </div>`
@@ -5564,7 +5586,7 @@ function renderWallOfFameSection(v, isAdmin){
  // Eligible but not yet added — the physical ceremony hasn't happened yet.
  return `<hr class="divider"/>
  <div class="card" style="padding:12px 14px;background:#fefce8;border-color:#fde047">
- <div style="font-size:12px;font-weight:700;color:#a16207"> Eligible for the Wall of Fame</div>
+ <div style="font-size:12px;font-weight:700;color:#a16207">${handIconSVG('#a16207', true)} Eligible for the Wall of Fame</div>
  <div style="font-size:11px;color:#a16207;margin-top:2px">Eligible since ${formatDate(v.wall_eligible_at.slice(0,10))} — handprint not yet added</div>
  ${isAdmin?`<button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%" onclick="addToWallOfFame('${v.id}')">Confirm Handprint Added</button>`:''}
  </div>`

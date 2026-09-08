@@ -2840,6 +2840,24 @@ def init_db():
             read_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW())""",
         'CREATE INDEX IF NOT EXISTS ix_rental_messages_request ON rental_messages(request_id)',
+
+        # Verified Volunteer badge — staff-applied stamp (Admin / Volunteer
+        # Coordinator only, enforced at the route level via require_permission)
+        # marking someone as vetted/known-good. Timestamp+name rather than a
+        # plain boolean so the profile can show who verified them and when.
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS verified_by TEXT",
+
+        # Wall of Fame — hand-on-the-wall recognition. wall_eligible_at is
+        # auto-set (see sync_wall_of_fame_eligibility) the first time someone
+        # crosses 52 lifetime hours OR completes at least one production;
+        # once set it's never cleared even if hours are later corrected down,
+        # since it records a milestone that was genuinely reached. wall_added_at
+        # is a separate, manual confirmation staff set once the physical
+        # handprint actually goes up.
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS wall_eligible_at TIMESTAMP",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS wall_added_at TIMESTAMP",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS wall_added_by TEXT",
 ]:
         try:
             c.execute(col_sql)
@@ -3225,6 +3243,52 @@ def waiver_applies_to_age(waiver_row, age):
     if max_age is not None and age > max_age:
         return False
     return True
+
+
+WALL_OF_FAME_HOURS_THRESHOLD = 52
+
+def sync_wall_of_fame_eligibility(conn):
+    """One-shot, idempotent bulk check: flags any volunteer who has crossed
+    52 lifetime hours OR completed at least one production (production
+    status 'completed'/'archived', and not a 'dropped' membership) as
+    Wall of Fame eligible, by stamping wall_eligible_at the first time this
+    is true. Only ever sets the timestamp — never clears it — so an
+    eligibility already earned is never taken back by a later hours
+    correction. Safe to call on every volunteers list/detail load; cheap at
+    nonprofit scale and wrapped so a failure here never blocks the request
+    it was called from."""
+    try:
+        execute(conn, f"""
+            UPDATE volunteers v SET wall_eligible_at = NOW()
+            WHERE wall_eligible_at IS NULL
+              AND (
+                COALESCE((SELECT SUM(h.hours) FROM hours h WHERE h.volunteer_id = v.id), 0) >= {WALL_OF_FAME_HOURS_THRESHOLD}
+                OR EXISTS (
+                    SELECT 1 FROM production_members pm
+                    JOIN productions p ON p.id = pm.production_id
+                    WHERE pm.volunteer_id = v.id
+                      AND pm.status != 'dropped'
+                      AND p.status IN ('completed', 'archived')
+                )
+              )
+        """)
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+
+
+def get_volunteer_hours_summary(conn, vol_id):
+    """All-time / YTD / by-year hours breakdown for one volunteer. Dates in
+    the hours table are stored as 'YYYY-MM-DD' text, so the year is just the
+    first 4 characters — no date parsing needed."""
+    this_year = str(date.today().year)
+    all_time = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
+    ytd = fetchone(conn, "SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s AND LEFT(date,4)=%s", (vol_id, this_year))['t']
+    year_rows = fetchall(conn, """SELECT LEFT(date,4) as year, COALESCE(SUM(hours),0) as hours
+        FROM hours WHERE volunteer_id=%s GROUP BY LEFT(date,4) ORDER BY year DESC""", (vol_id,))
+    by_year = {r['year']: float(r['hours']) for r in year_rows if r['year']}
+    return {'all_time': float(all_time), 'ytd': float(ytd), 'by_year': by_year}
 
 
 def require_permission(section, level='edit'):
@@ -4281,12 +4345,81 @@ def get_volunteers():
     err = require_auth()
     if err: return err
     conn = get_db()
+    sync_wall_of_fame_eligibility(conn)
     vols = fetchall(conn, '''SELECT *, COALESCE(background_check_status,'none') as background_check_status FROM volunteers ORDER BY name''')
     for v in vols:
         v['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (v['id'],))['t']
         v['waiver_status'], v['waivers'] = get_waiver_summary(conn, v['id'])
     conn.close()
     return jsonify(vols)
+
+@app.route('/api/volunteers/wall-of-fame/pending')
+def get_wall_of_fame_pending():
+    """Volunteers who've earned the Wall of Fame handprint (52+ hours or a
+    completed production) but haven't had it physically added yet — the
+    staff to-do queue so nobody gets missed."""
+    err = require_permission('volunteers', level='view')
+    if err: return err
+    conn = get_db()
+    sync_wall_of_fame_eligibility(conn)
+    rows = fetchall(conn, '''SELECT v.id, v.name, v.email, v.wall_eligible_at,
+        COALESCE((SELECT SUM(h.hours) FROM hours h WHERE h.volunteer_id=v.id),0) as total_hours
+        FROM volunteers v
+        WHERE v.wall_eligible_at IS NOT NULL AND v.wall_added_at IS NULL
+        ORDER BY v.wall_eligible_at ASC''')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/volunteers/<vol_id>/verify', methods=['POST'])
+def verify_volunteer(vol_id):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    execute(conn, 'UPDATE volunteers SET verified_at=NOW(), verified_by=%s WHERE id=%s',
+            ((me or {}).get('name', ''), vol_id))
+    conn.commit()
+    vol = fetchone(conn, 'SELECT id, verified_at, verified_by FROM volunteers WHERE id=%s', (vol_id,))
+    conn.close()
+    return jsonify(vol)
+
+@app.route('/api/volunteers/<vol_id>/verify', methods=['DELETE'])
+def unverify_volunteer(vol_id):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE volunteers SET verified_at=NULL, verified_by=NULL WHERE id=%s', (vol_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/volunteers/<vol_id>/wall-of-fame', methods=['POST'])
+def add_to_wall_of_fame(vol_id):
+    """Manual confirmation that the physical handprint has been added.
+    Does not require wall_eligible_at to already be set — staff can
+    recognize someone off-cycle if needed, and this call itself is
+    sufficient evidence they've been added."""
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    execute(conn, '''UPDATE volunteers SET wall_added_at=NOW(), wall_added_by=%s,
+        wall_eligible_at=COALESCE(wall_eligible_at, NOW()) WHERE id=%s''',
+            ((me or {}).get('name', ''), vol_id))
+    conn.commit()
+    vol = fetchone(conn, 'SELECT id, wall_eligible_at, wall_added_at, wall_added_by FROM volunteers WHERE id=%s', (vol_id,))
+    conn.close()
+    return jsonify(vol)
+
+@app.route('/api/volunteers/<vol_id>/wall-of-fame', methods=['DELETE'])
+def remove_from_wall_of_fame(vol_id):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE volunteers SET wall_added_at=NULL, wall_added_by=NULL WHERE id=%s', (vol_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/volunteers/<vol_id>/communications')
 def get_volunteer_communications(vol_id):
@@ -4303,9 +4436,11 @@ def get_volunteer(vol_id):
     err = require_auth()
     if err: return err
     conn = get_db()
+    sync_wall_of_fame_eligibility(conn)
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     if not vol: conn.close(); return jsonify({'error': 'Not found'}), 404
     vol['hours']   = fetchall(conn, 'SELECT * FROM hours WHERE volunteer_id=%s ORDER BY date DESC', (vol_id,))
+    vol['hours_summary'] = get_volunteer_hours_summary(conn, vol_id)
     vol['notes']   = fetchall(conn, 'SELECT * FROM notes WHERE volunteer_id=%s ORDER BY created_at DESC', (vol_id,))
     vol['history'] = fetchall(conn, 'SELECT * FROM volunteer_history WHERE volunteer_id=%s ORDER BY date DESC', (vol_id,))
     vol['files']   = fetchall(conn, 'SELECT * FROM volunteer_files WHERE volunteer_id=%s ORDER BY created_at DESC', (vol_id,))

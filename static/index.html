@@ -477,6 +477,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <!-- INSTRUCTOR (restricted role) -->
         <div class="nav-section" id="nav-section-instructor" style="display:none">My Teaching</div>
         <div class="nav-item" id="nav-instructor-dashboard" onclick="navTo('instructor-dashboard',this)" style="display:none"><span class="nav-icon" id="ni-instructor-dashboard"></span>My Programs</div>
+        <div class="nav-item" id="nav-director-dashboard" onclick="navTo('director-dashboard',this)" style="display:none"><span class="nav-icon" id="ni-director-dashboard"></span>My Productions</div>
 
         <!-- YOUTH EDUCATION -->
         <div class="nav-section">Education &amp; Programming</div>
@@ -1303,6 +1304,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </section>
 
+ <section class="page" id="page-director-dashboard">
+ <div class="page-header">
+ <div><div class="page-title">My Productions</div><div class="page-subtitle">Your production schedule and auditions</div></div>
+ </div>
+ <div class="page-body" id="director-dashboard-body">
+ <div style="padding:30px;text-align:center;color:var(--text-muted)">Loading…</div>
+ </div>
+ </section>
+
  <section class="page" id="page-youth-programs-page">
  <div class="page-header">
  <div><div class="page-title">Programs &amp; Classes</div><div class="page-subtitle" id="youth-programs-subtitle">Classes, workshops, and summer camps</div></div>
@@ -1937,6 +1947,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <select id="new-user-role">
  <option value="staff">Staff (set permissions below)</option>
  <option value="instructor">Instructor (their own programs only)</option>
+ <option value="director">Director (their own productions only)</option>
  <option value="admin">Administrator (full access)</option>
  </select>
  </div>
@@ -2625,7 +2636,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="display:flex;align-items:center;gap:8px">
  <input type="text" id="ni-input-instructor-dashboard" placeholder="graduation-cap" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
- oninput="previewNavIcon('instructor-dashboard',this.value)"/>
+  oninput="previewNavIcon('instructor-dashboard',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-director-dashboard">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">My Productions <span style="font-weight:400;color:var(--text-muted)">(director view)</span></div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-director-dashboard" placeholder="clapperboard" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('director-dashboard',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rising-stars-page">
@@ -4217,10 +4238,14 @@ async function loginSuccess(user){
  // notifications) should actually land there instead of always dumping
  // everyone on the dashboard regardless of what URL they followed.
  var hashPage = (window.location.hash || '').replace('#','').trim()
- if(hashPage && document.getElementById('page-'+hashPage)){
+  if(hashPage && document.getElementById('page-'+hashPage)){
   navTo(hashPage)
+ } else if(user.role==='instructor'){
+  navTo('instructor-dashboard', document.getElementById('nav-instructor-dashboard'))
+ } else if(user.role==='director'){
+  navTo('director-dashboard', document.getElementById('nav-director-dashboard'))
  } else {
-  navTo(user.role==='instructor' ? 'instructor-dashboard' : 'dashboard', user.role==='instructor' ? document.getElementById('nav-instructor-dashboard') : null)
+  navTo('dashboard', null)
  }
  pollPendingCount()
  setInterval(pollPendingCount, 60000)
@@ -4384,9 +4409,19 @@ function applyPermissionUI(){
  // see when other things are happening, not just their own classes) —
  // this only grants visibility, canEdit('events') still gates any actual
  // edit actions on that page since instructors have no 'events' permission.
- if(isInstructor){
+  if(isInstructor){
    var calNav = document.querySelector(".nav-item[onclick*=\"navTo('events'\"]")
    if(calNav) calNav.style.display = ''
+ }
+
+ // Director role — same idea as instructor above, but scoped to
+ // production_members instead of program instructor_id.
+ var isDirector = currentUser?.role==='director'
+ var dirNav = document.getElementById('nav-director-dashboard')
+ if(dirNav) dirNav.style.display = (isDirector || isAdmin) ? '' : 'none'
+ if(isDirector){
+   var calNav2 = document.querySelector(".nav-item[onclick*=\"navTo('events'\"]")
+   if(calNav2) calNav2.style.display = ''
  }
 
  // admin-only elements — map each to its section so staff with edit can see them too
@@ -4481,7 +4516,8 @@ function navTo(page,el){
   if(page==='my-time') loadMyTimePage()
  if(page==='space-requests') loadSpaceRequestsPage()
  if(page==='rentals') loadRentalsPage()
- if(page==='instructor-dashboard') loadInstructorDashboard()
+  if(page==='instructor-dashboard') loadInstructorDashboard()
+ if(page==='director-dashboard') loadDirectorDashboard()
  if(page==='responsibility') loadResponsibilityPage()
 }
 
@@ -10230,8 +10266,8 @@ const NAV_ICON_DEFAULTS = {
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
   board:'', directors:'', 'my-time':'', 'space-requests':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
- oncall:'', 'hours-store':'', responsibility:'', licensing:'', inbox:'',
- 'instructor-dashboard':''
+  oncall:'', 'hours-store':'', responsibility:'', licensing:'', inbox:'',
+ 'instructor-dashboard':'', 'director-dashboard':''
 }
 
 let _currentNavIcons = {}
@@ -16847,7 +16883,8 @@ function renderUsersManagement(users){
  + users.map(u=>{
  const isSelf = u.id === currentUser?.id
  const isAdmin = u.role === 'admin'
- const isInstructor = u.role === 'instructor'
+  const isInstructor = u.role === 'instructor'
+ const isDirector = u.role === 'director'
  let perms = {}
  try { perms = JSON.parse(u.role_permissions||'{}') } catch(e){}
  const editCount = PERM_SECTIONS.filter(s=>perms[s.key]==='edit').length
@@ -16856,7 +16893,9 @@ function renderUsersManagement(users){
  ? '<span style="background:#0d3d4d;color:#fff;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">Admin</span>'
  : isInstructor
  ? '<span style="background:#0d9488;color:#fff;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">Instructor</span>'
-: (editCount===0&&viewCount===0
+ : isDirector
+ ? '<span style="background:#7c3aed;color:#fff;padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">Director</span>'
+ : (editCount===0&&viewCount===0
  ? '<span style="background:var(--red-50);color:var(--red-600);border:1px solid var(--red-200);padding:2px 8px;border-radius:20px;font-size:10px;font-weight:700">No access</span>'
 : '<span style="font-size:11px;color:var(--text-muted)">'+editCount+' edit · '+viewCount+' view</span>')
  const statusDot = u.active!==false
@@ -16918,6 +16957,7 @@ function openUserEditModal(uid){
  <select id="ue-role-${uid}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none" ${isSelf?'disabled title="You can\'t change your own role"':''}>
  <option value="staff" ${u.role==='staff'?'selected':''}>Staff (set permissions below)</option>
  <option value="instructor" ${u.role==='instructor'?'selected':''}>Instructor (their own programs only)</option>
+ <option value="director" ${u.role==='director'?'selected':''}>Director (their own productions only)</option>
  <option value="admin" ${isAdmin?'selected':''}>Administrator (full access)</option>
  </select>
  ${isSelf?'<div style="font-size:10.5px;color:var(--text-muted);margin-top:3px">You can\'t change your own role.</div>':''}
@@ -22849,7 +22889,80 @@ async function loadInstructorDashboard(){
      }).join('') : '<div style="font-size:12px;color:var(--text-muted)">No registrations yet.</div>')
    + '</div>'
 
- body.innerHTML = programsHTML + scheduleHTML + regsHTML
+  body.innerHTML = programsHTML + scheduleHTML + regsHTML
+}
+
+function openProductionDetailToTab(prodId, tabName){
+ openProductionDetail(prodId)
+ setTimeout(function(){ switchProductionTab(tabName) }, 0)
+}
+
+async function loadDirectorDashboard(){
+ var body = document.getElementById('director-dashboard-body')
+ if(!body) return
+ body.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted)">Loading…</div>'
+ var data = await api('/api/director/dashboard')
+ if(!data || data.error){
+   body.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load your productions. Contact an admin if this seems wrong.</div>'
+   return
+ }
+ var productions = data.productions||[]
+ var schedule = data.schedule||[]
+ var recentSubs = data.recent_submissions||[]
+
+ if(!productions.length){
+   body.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No productions are assigned to you yet. An admin needs to add you to a production\'s cast/crew list with a role containing "Director" for it to show up here.</div>'
+   return
+ }
+
+ function fmtEvTime(t){ if(!t) return ''; try{ var p=t.split(':'),h=parseInt(p[0]),m=p[1],a=h>=12?'PM':'AM'; h=h%12||12; return h+(m&&m!=='00'?':'+m:'')+' '+a }catch(e){ return t } }
+ function fmtEvDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) }catch(e){ return d } }
+
+ var todayStr = todayLocalISO()
+ var todayCount = schedule.filter(function(s){ return s.event_date === todayStr }).length
+
+ var prodsHTML = '<div class="card" style="padding:20px;margin-bottom:20px">'
+   + '<div style="font-size:14px;font-weight:700;margin-bottom:14px">Your Productions</div>'
+   + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">'
+   + productions.map(function(p){
+       return '<div style="border:1.5px solid var(--border);border-radius:10px;padding:14px">'
+         + '<div onclick="openProductionDetail(\''+p.id+'\')" style="cursor:pointer;margin-bottom:10px">'
+         + '<div style="font-size:13.5px;font-weight:700;margin-bottom:4px">'+escHtml(p.name)+'</div>'
+         + '<div style="font-size:11.5px;color:var(--text-muted)">'+(p.status?escHtml(p.status):'')+'</div>'
+         + '</div>'
+         + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+          + '<button class="btn btn-secondary btn-sm" style="font-size:11.5px" onclick="event.stopPropagation();openProductionDetailToTab(\''+p.id+'\',\'auditions\')">Auditions'+(p.pending_audition_count?' <span style="background:#dc2626;color:#fff;border-radius:20px;padding:0 6px;margin-left:3px">'+p.pending_audition_count+'</span>':'')+'</button>'
+         + '<button class="btn btn-secondary btn-sm" style="font-size:11.5px" onclick="event.stopPropagation();openProductionDetailToTab(\''+p.id+'\',\'portal\')">Portal</button>'
+         + '</div>'
+         + '</div>'
+     }).join('')
+   + '</div></div>'
+
+ var scheduleHTML = '<div class="card" style="padding:20px;margin-bottom:20px">'
+   + '<div style="font-size:14px;font-weight:700;margin-bottom:4px">Your Schedule'+(todayCount?' <span style="font-size:11px;font-weight:700;background:#0d9488;color:#fff;padding:2px 8px;border-radius:20px;margin-left:6px">'+todayCount+' today</span>':'')+'</div>'
+   + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:14px">'+schedule.length+' upcoming event'+(schedule.length!==1?'s':'')+'</div>'
+   + (schedule.length ? '<div style="max-height:400px;overflow-y:auto">' + schedule.slice(0,150).map(function(s){
+       var isToday = s.event_date === todayStr
+       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:'+(isToday?'#f0fdfa':'var(--bg)')+';border-left:3px solid '+(isToday?'#0d9488':'transparent')+'">'
+         + '<div><div style="font-size:12.5px;font-weight:700">'+escHtml(s.name)+'</div>'
+         + '<div style="font-size:11px;color:var(--text-muted)">'+escHtml(s.production_name)+' · '+fmtEvDate(s.event_date)+(s.start_time?' · '+fmtEvTime(s.start_time)+(s.end_time?'–'+fmtEvTime(s.end_time):''):'')+(s.location?' · '+escHtml(s.location):'')+'</div></div>'
+         + '</div>'
+     }).join('') + '</div>' : '<div style="font-size:12px;color:var(--text-muted)">No upcoming events scheduled.</div>')
+   + '</div>'
+
+ var subsHTML = '<div class="card" style="padding:20px">'
+   + '<div style="font-size:14px;font-weight:700;margin-bottom:14px">Recent Audition Submissions</div>'
+   + (recentSubs.length ? recentSubs.map(function(s){
+       var isNew = s.submitted_at && (new Date() - new Date(s.submitted_at)) < 7*24*60*60*1000
+        return '<div onclick="openProductionDetailToTab(\''+s.production_id+'\',\'auditions\')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:var(--bg);cursor:pointer">'
+         + '<div><div style="font-size:12.5px;font-weight:700">'+escHtml(s.submitter_name||'')+(isNew?' <span style="font-size:9.5px;font-weight:700;background:#dc2626;color:#fff;padding:1px 6px;border-radius:20px;margin-left:4px">NEW</span>':'')+'</div>'
+         + '<div style="font-size:11px;color:var(--text-muted)">'+escHtml(s.production_name)+' · '+escHtml(s.status||'')+'</div></div>'
+         + '<div style="font-size:10.5px;color:var(--text-muted);white-space:nowrap">'+(s.submitted_at?s.submitted_at.slice(0,10):'')+'</div>'
+         + '</div>'
+     }).join('') : '<div style="font-size:12px;color:var(--text-muted)">No submissions yet.</div>')
+   + '</div>'
+
+ body.innerHTML = prodsHTML + scheduleHTML + subsHTML
 }
 
 async function openProgramDetail(programId){

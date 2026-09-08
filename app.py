@@ -2858,6 +2858,25 @@ def init_db():
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS wall_eligible_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS wall_added_at TIMESTAMP",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS wall_added_by TEXT",
+
+        # On-Call Schedule self-signup — staff mark a shift "Open" (blank
+        # person_name/phone, already allowed by the existing create/update
+        # routes) and post it publicly; members request to claim it here.
+        # Kept as a review queue rather than an instant claim since on-call
+        # shifts drive live Twilio call routing — staff still confirms who
+        # actually gets assigned.
+        """CREATE TABLE IF NOT EXISTS oncall_signup_requests (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            shift_id TEXT NOT NULL REFERENCES on_call_schedule(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            email TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            reviewed_by TEXT DEFAULT '',
+            reviewed_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_oncall_signup_shift ON oncall_signup_requests(shift_id)",
 ]:
         try:
             c.execute(col_sql)
@@ -26597,7 +26616,7 @@ def set_call_thread_ts(call_sid, thread_ts):
     weekday = now.weekday()  # 0=Monday, 6=Sunday
     conn = get_db()
     rows = fetchall(conn, '''SELECT * FROM on_call_schedule
-        WHERE start_date <= %s AND end_date >= %s
+        WHERE start_date <= %s AND end_date >= %s AND person_name != ''
         ORDER BY start_date DESC''', (today, today))
     conn.close()
     for row in (rows or []):
@@ -26629,7 +26648,7 @@ def get_oncall_now():
 
         conn = get_db()
         rows = fetchall(conn, '''SELECT * FROM on_call_schedule
-            WHERE start_date <= %s AND (end_date IS NULL OR end_date >= %s)
+            WHERE start_date <= %s AND (end_date IS NULL OR end_date >= %s) AND person_name != ''
             ORDER BY start_date DESC''', (today_str, today_str)) or []
         conn.close()
 
@@ -27433,6 +27452,126 @@ def delete_oncall(oid):
     conn = get_db()
     execute(conn, 'DELETE FROM on_call_schedule WHERE id=%s', (oid,))
     conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  ON-CALL SIGNUP — public claim requests for "Open" shifts
+# ─────────────────────────────────────────────
+
+def get_oncall_managers_emails(conn):
+    """Everyone who should hear about a new on-call signup request: admins
+    plus anyone explicitly granted edit/view on the 'oncall' section.
+    Mirrors the youth-notification lookup pattern used elsewhere."""
+    rows = fetchall(conn, """SELECT email FROM users
+        WHERE email IS NOT NULL AND email != ''
+          AND (role='admin' OR role_permissions::text LIKE '%"oncall"%')""") or []
+    return [r['email'] for r in rows if r.get('email')]
+
+@app.route('/on-call-signup')
+def oncall_signup_page():
+    return send_from_directory('static', 'oncall-signup.html')
+
+@app.route('/api/public/oncall/open-shifts')
+def public_oncall_open_shifts():
+    """Upcoming shifts staff have left unassigned (blank person_name),
+    for the public signup page. Each shift also reports whether it
+    already has a pending request, so the page can show 'Requested'
+    instead of a Sign Up button without exposing who requested it."""
+    conn = get_db()
+    today_str = today_eastern().isoformat()
+    shifts = fetchall(conn, """SELECT id, start_date, end_date, start_time, end_time, days_of_week, notes
+        FROM on_call_schedule
+        WHERE person_name = '' AND end_date >= %s
+        ORDER BY start_date ASC""", (today_str,)) or []
+    pending = fetchall(conn, "SELECT DISTINCT shift_id FROM oncall_signup_requests WHERE status='pending'") or []
+    pending_ids = {p['shift_id'] for p in pending}
+    conn.close()
+    for s in shifts:
+        s['has_pending_request'] = s['id'] in pending_ids
+    return jsonify(shifts)
+
+@app.route('/api/public/oncall/signup', methods=['POST'])
+def public_oncall_signup():
+    d = request.get_json(silent=True) or {}
+    shift_id = d.get('shift_id')
+    name = (d.get('name') or '').strip()
+    phone = (d.get('phone') or '').strip()
+    email = (d.get('email') or '').strip().lower()
+    notes = (d.get('notes') or '').strip()
+    if not shift_id or not name or not phone:
+        return jsonify({'error': 'Name, phone, and a shift are required'}), 400
+    conn = get_db()
+    shift = fetchone(conn, 'SELECT * FROM on_call_schedule WHERE id=%s', (shift_id,))
+    if not shift:
+        conn.close(); return jsonify({'error': 'That shift no longer exists'}), 404
+    if (shift.get('person_name') or '').strip():
+        conn.close(); return jsonify({'error': 'That shift has already been claimed'}), 400
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO oncall_signup_requests (id, shift_id, name, phone, email, notes, status)
+        VALUES (%s,%s,%s,%s,%s,%s,'pending')''', (rid, shift_id, name, phone, email, notes))
+    conn.commit()
+    try:
+        managers = get_oncall_managers_emails(conn)
+        if managers:
+            date_str = str(shift.get('start_date'))
+            html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:560px">
+                <h2 style="color:#145466">On-Call Shift Signup Request</h2>
+                <table style="width:100%;border-collapse:collapse;font-size:14px">
+                  <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Name</td><td style="padding:8px">{name}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{phone}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{email or '-'}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Shift</td><td style="padding:8px">{date_str} &middot; {shift.get('start_time','')}&ndash;{shift.get('end_time','')}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{notes or '-'}</td></tr>
+                </table>
+                <p style="margin-top:16px"><a href="{APP_BASE_URL}/#oncall" style="color:#145466;font-weight:700">Review in RoleCall</a></p>
+            </div>'''
+            send_email(managers, f'On-Call Signup Request — {name}', build_hwtc_email_html(f'On-Call Signup Request — {name}', html_body))
+    except Exception as e:
+        app.logger.warning(f'oncall signup notify failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'id': rid})
+
+@app.route('/api/oncall/signups')
+def get_oncall_signups():
+    err = require_permission('oncall', level='view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT r.*, s.start_date, s.end_date, s.start_time, s.end_time
+        FROM oncall_signup_requests r JOIN on_call_schedule s ON s.id = r.shift_id
+        ORDER BY (r.status='pending') DESC, r.created_at DESC''')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/oncall/signups/<rid>/approve', methods=['POST'])
+def approve_oncall_signup(rid):
+    err = require_permission('oncall')
+    if err: return err
+    conn = get_db()
+    req = fetchone(conn, 'SELECT * FROM oncall_signup_requests WHERE id=%s', (rid,))
+    if not req: conn.close(); return jsonify({'error': 'Not found'}), 404
+    me = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    reviewer = (me or {}).get('name', '')
+    execute(conn, "UPDATE on_call_schedule SET person_name=%s, phone=%s WHERE id=%s",
+            (req['name'], req['phone'], req['shift_id']))
+    execute(conn, "UPDATE oncall_signup_requests SET status='approved', reviewed_by=%s, reviewed_at=NOW() WHERE id=%s",
+            (reviewer, rid))
+    # Any other pending request for the same now-claimed shift is moot.
+    execute(conn, "UPDATE oncall_signup_requests SET status='auto_declined', reviewed_by=%s, reviewed_at=NOW() WHERE shift_id=%s AND status='pending' AND id!=%s",
+            (reviewer, req['shift_id'], rid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/oncall/signups/<rid>/decline', methods=['POST'])
+def decline_oncall_signup(rid):
+    err = require_permission('oncall')
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    execute(conn, "UPDATE oncall_signup_requests SET status='declined', reviewed_by=%s, reviewed_at=NOW() WHERE id=%s",
+            ((me or {}).get('name', ''), rid))
+    conn.commit()
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/twilio/callback', methods=['POST'])

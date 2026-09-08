@@ -4247,11 +4247,46 @@ function quickLogin(email,pw){
  document.getElementById('login-password').value=pw
  handleLogin()
 }
+async function impersonateUser(userId, userName){
+ if(!confirm('Log in as '+userName+'? You\'ll see the app exactly as they do. You can return to your own account anytime from the banner at the top.')) return
+ const res = await api('/api/admin/impersonate', 'POST', {user_id: userId})
+ if(res && res.id){
+  location.reload()
+ } else {
+  toast((res && res.error) || 'Could not log in as that user', 'error')
+ }
+}
+
+async function stopImpersonating(){
+ const res = await api('/api/admin/stop-impersonating', 'POST')
+ if(res && res.id){
+  location.reload()
+ } else {
+  toast((res && res.error) || 'Could not return to your account', 'error')
+ }
+}
+
+function renderImpersonationBanner(user){
+ var existing = document.getElementById('impersonation-banner')
+ if(existing) existing.remove()
+ if(!user || !user.impersonating) return
+ var banner = document.createElement('div')
+ banner.id = 'impersonation-banner'
+ banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:10001;background:#7c3aed;color:#fff;padding:9px 16px;display:flex;align-items:center;justify-content:center;gap:14px;font-size:13px;font-weight:600;box-shadow:0 2px 8px rgba(0,0,0,0.15)'
+ banner.innerHTML = ' Viewing as <strong>'+escHtml(user.name)+'</strong> ('+escHtml(user.role)+') — logged in by '+escHtml(user.real_admin_name||'an admin')
+  + '<button onclick="stopImpersonating()" style="background:#fff;color:#7c3aed;border:none;padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer">Return to my account</button>'
+ document.body.appendChild(banner)
+ // Push the app down so the banner doesn't cover the top nav/header.
+ var appEl = document.getElementById('app')
+ if(appEl) appEl.style.marginTop = '38px'
+}
+
 async function loginSuccess(user){
  currentUser=user
  document.getElementById('auth-screen').style.display='none'
  document.getElementById('app').style.display='block'
  document.getElementById('auth-error').style.display='none'
+ renderImpersonationBanner(user)
  document.getElementById('sidebar-avatar').textContent=initials(user.name)
  document.getElementById('sidebar-name').textContent=user.name
  const isAdmin = user.role==='admin'
@@ -16849,7 +16884,16 @@ function openProductionDetail(prodId, fromPage){
  prodDetailFromPage = fromPage||(['rising_stars','teen_show'].includes(allProductions.find(p=>p.id===prodId)?.stage)?'rising-stars-page':'productions')
  const p=allProductions.find(p=>p.id===prodId)
  if(!p) return
- const isAdmin=canEdit('productions')||canEdit('rising_stars')
+ // A director gets full management rights on a production only when
+ // they're actually listed on it (production_members, role containing
+ // "Director") — matched by their login email against the volunteer
+ // record, same rule the backend's require_own_production enforces.
+ // This keeps "all the things under my production" scoped to productions
+ // that are actually theirs, not every production in the system.
+ const isMyProductionAsDirector = currentUser?.role==='director' && (p.members||[]).some(function(m){
+   return (m.role||'').toLowerCase().includes('director') && (m.volunteer_email||'').toLowerCase()===(currentUser.email||'').toLowerCase()
+ })
+ const isAdmin=canEdit('productions')||canEdit('rising_stars')||isMyProductionAsDirector
  const canSeePortal=isAdmin||canEdit('portal_admin')||canEdit('rising_stars')
  const [bg,col]=PROD_STATUS_COLORS[p.status]||['#EFEFEC','#5F5E5A']
 
@@ -17188,6 +17232,7 @@ function renderUsersManagement(users){
  <div>${permSummary}</div>
  <div style="display:flex;gap:6px">
  <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openUserEditModal('${u.id}')">Edit</button>
+ ${(!isSelf && !isAdmin && u.active!==false)?`<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="impersonateUser('${u.id}','${u.name.replace(/'/g,"\\'")}')" title="Log in as this user for testing, no password needed"> Log In As</button>`:''}
  ${!isSelf?`<button class="btn btn-danger btn-sm" style="font-size:11px;padding:4px 8px" onclick="confirmDeleteUser('${u.id}','${u.name.replace(/'/g,"\\'")}')">Delete</button>`:''}
  </div>
  </div>`
@@ -23170,8 +23215,8 @@ async function loadInstructorDashboard(){
   body.innerHTML = programsHTML + scheduleHTML + regsHTML
 }
 
-function openProductionDetailToTab(prodId, tabName){
- openProductionDetail(prodId)
+function openProductionDetailToTab(prodId, tabName, fromPage){
+ openProductionDetail(prodId, fromPage)
  setTimeout(function(){ switchProductionTab(tabName) }, 0)
 }
 
@@ -23204,13 +23249,13 @@ async function loadDirectorDashboard(){
    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">'
    + productions.map(function(p){
        return '<div style="border:1.5px solid var(--border);border-radius:10px;padding:14px">'
-         + '<div onclick="openProductionDetail(\''+p.id+'\')" style="cursor:pointer;margin-bottom:10px">'
+         + '<div onclick="openProductionDetail(\''+p.id+'\',\'director-dashboard\')" style="cursor:pointer;margin-bottom:10px">'
          + '<div style="font-size:13.5px;font-weight:700;margin-bottom:4px">'+escHtml(p.name)+'</div>'
          + '<div style="font-size:11.5px;color:var(--text-muted)">'+(p.status?escHtml(p.status):'')+'</div>'
          + '</div>'
          + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
-          + '<button class="btn btn-secondary btn-sm" style="font-size:11.5px" onclick="event.stopPropagation();openProductionDetailToTab(\''+p.id+'\',\'auditions\')">Auditions'+(p.pending_audition_count?' <span style="background:#dc2626;color:#fff;border-radius:20px;padding:0 6px;margin-left:3px">'+p.pending_audition_count+'</span>':'')+'</button>'
-         + '<button class="btn btn-secondary btn-sm" style="font-size:11.5px" onclick="event.stopPropagation();openProductionDetailToTab(\''+p.id+'\',\'portal\')">Portal</button>'
+          + '<button class="btn btn-secondary btn-sm" style="font-size:11.5px" onclick="event.stopPropagation();openProductionDetailToTab(\''+p.id+'\',\'auditions\',\'director-dashboard\')">Auditions'+(p.pending_audition_count?' <span style="background:#dc2626;color:#fff;border-radius:20px;padding:0 6px;margin-left:3px">'+p.pending_audition_count+'</span>':'')+'</button>'
+         + '<button class="btn btn-secondary btn-sm" style="font-size:11.5px" onclick="event.stopPropagation();openProductionDetailToTab(\''+p.id+'\',\'portal\',\'director-dashboard\')">Portal</button>'
          + '</div>'
          + '</div>'
      }).join('')
@@ -23232,7 +23277,7 @@ async function loadDirectorDashboard(){
    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px">Recent Audition Submissions</div>'
    + (recentSubs.length ? recentSubs.map(function(s){
        var isNew = s.submitted_at && (new Date() - new Date(s.submitted_at)) < 7*24*60*60*1000
-        return '<div onclick="openProductionDetailToTab(\''+s.production_id+'\',\'auditions\')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:var(--bg);cursor:pointer">'
+        return '<div onclick="openProductionDetailToTab(\''+s.production_id+'\',\'auditions\',\'director-dashboard\')" style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-radius:8px;margin-bottom:4px;background:var(--bg);cursor:pointer">'
          + '<div><div style="font-size:12.5px;font-weight:700">'+escHtml(s.submitter_name||'')+(isNew?' <span style="font-size:9.5px;font-weight:700;background:#dc2626;color:#fff;padding:1px 6px;border-radius:20px;margin-left:4px">NEW</span>':'')+'</div>'
          + '<div style="font-size:11px;color:var(--text-muted)">'+escHtml(s.production_name)+' · '+escHtml(s.status||'')+'</div></div>'
          + '<div style="font-size:10.5px;color:var(--text-muted);white-space:nowrap">'+(s.submitted_at?s.submitted_at.slice(0,10):'')+'</div>'

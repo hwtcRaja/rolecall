@@ -2923,6 +2923,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <button class="btn btn-secondary" id="oncall-view-month" onclick="setOncallView('month')">Month</button>
    <button class="btn btn-secondary" onclick="copyOncallSignupLink()"> Copy Signup Link</button>
    <button class="btn btn-secondary" onclick="sendOncallReport(this)"> Post to Slack</button>
+   <button class="btn btn-secondary" onclick="openOncallOpenWeekModal()"> Post Open Week</button>
    <button class="btn btn-primary" onclick="openOncallModal()">+ Add Shift</button>
   </div>
  </div>
@@ -11340,7 +11341,7 @@ async function loadOncallSignupRequests(){
     '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #fde047">'
     + '<div><div style="font-size:13px;font-weight:600">'+escHtml(r.name)+'</div>'
     + '<div style="font-size:11px;color:#a16207">'+escHtml(r.phone)+(r.email?' · '+escHtml(r.email):'')+'</div>'
-    + '<div style="font-size:11px;color:#a16207">'+formatDate(r.start_date)+' · '+fmt12h(r.start_time)+'–'+fmt12h(r.end_time)+(r.notes?' · '+escHtml(r.notes):'')+'</div></div>'
+    + '<div style="font-size:11px;color:#a16207">Week of '+formatDate(r.start_date)+' – '+formatDate(r.end_date)+(r.notes?' · '+escHtml(r.notes):'')+'</div></div>'
     + '<div style="display:flex;gap:6px;flex-shrink:0">'
     + '<button class="btn btn-primary btn-sm" onclick="reviewOncallSignup(\''+r.id+'\',\'approve\')">Approve</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="reviewOncallSignup(\''+r.id+'\',\'decline\')">Decline</button>'
@@ -11427,22 +11428,43 @@ function renderOncallNow(){
 
 function openOncallModalForDate(dateStr,hour){openOncallModal(null,dateStr,hour)}
 
-function openOncallModal(id,prefillDate,prefillHour){
+function mondayOnOrAfter(dateStr){
+ var d=new Date(dateStr+'T12:00:00')
+ var dow=d.getDay()===0?7:d.getDay() // 1=Mon...7=Sun
+ if(dow>1) d.setDate(d.getDate()+(8-dow))
+ return d.toISOString().slice(0,10)
+}
+function addDaysISO(dateStr,n){
+ var d=new Date(dateStr+'T12:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10)
+}
+function nextOpenWeekStart(){
+ // Suggest the Monday right after the latest shift already on the
+ // schedule, so repeatedly clicking "Post Open Week" naturally queues
+ // up consecutive weeks instead of always defaulting to this week.
+ var latestEnd = _oncallList.reduce(function(max,r){ return r.end_date>max?r.end_date:max }, todayLocalISO())
+ return mondayOnOrAfter(addDaysISO(latestEnd,1))
+}
+function openOncallOpenWeekModal(){
+ var monday=nextOpenWeekStart()
+ openOncallModal(null, monday, null, true)
+}
+
+function openOncallModal(id,prefillDate,prefillHour,weekMode){
  var item=id?_oncallList.find(function(r){return r.id===id}):null
  var today=prefillDate||todayLocalISO()
- var nextWeek=new Date(new Date(today+'T12:00:00').getTime()+6*86400000).toISOString().slice(0,10)
+ var nextWeek=weekMode?addDaysISO(today,6):new Date(new Date(today+'T12:00:00').getTime()+6*86400000).toISOString().slice(0,10)
  var defaultStart=prefillHour!=null?String(prefillHour).padStart(2,'0')+':00':(item?item.start_time||'08:00':'08:00')
  var defaultEnd=prefillHour!=null?String(Math.min((prefillHour||8)+2,22)).padStart(2,'0')+':00':(item?item.end_time||'22:00':'22:00')
  var days=[0,1,2,3,4,5,6];try{if(item&&item.days_of_week)days=JSON.parse(item.days_of_week)}catch(e){}
  var dayL=['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
- var isOpen = item ? !(item.person_name||'').trim() : false
+ var isOpen = weekMode ? true : (item ? !(item.person_name||'').trim() : false)
  var overlay=document.createElement('div')
  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
  overlay.innerHTML='<div style="background:var(--surface);border-radius:14px;width:100%;max-width:480px;padding:24px;max-height:90vh;overflow-y:auto">'
   +'<div style="font-size:16px;font-weight:800;margin-bottom:20px">'+(item?'Edit':'Add')+' On-Call Shift</div>'
   +'<label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 10px;background:#fefce8;border:1px solid #fde047;border-radius:8px;cursor:pointer">'
   +'<input type="checkbox" id="oc-open" '+(isOpen?'checked':'')+' onchange="toggleOncallOpenFields(this.checked)" style="accent-color:var(--teal)"/>'
-  +'<span style="font-size:12px;font-weight:600;color:#a16207">Leave this shift Open for members to sign up for</span></label>'
+  +'<span style="font-size:12px;font-weight:600;color:#a16207">Leave this shift Open for members to sign up for a full week</span></label>'
   +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px" id="oc-person-fields">'
   +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Person Name</label><input type="text" id="oc-name" value="'+escHtml(item?item.person_name||'':'')+'" placeholder="e.g. Raja" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Phone (+1...)</label><input type="tel" id="oc-phone" value="'+escHtml(item?item.phone||'':'')+'" placeholder="+14075550100" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
@@ -11451,13 +11473,14 @@ function openOncallModal(id,prefillDate,prefillHour){
   +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Start Date</label><input type="date" id="oc-start" value="'+(item?item.start_date:today)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">End Date</label><input type="date" id="oc-end" value="'+(item?item.end_date:nextWeek)+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'</div>'
-  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px" id="oc-time-fields">'
   +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Start Time</label><input type="time" id="oc-stime" value="'+defaultStart+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">End Time</label><input type="time" id="oc-etime" value="'+defaultEnd+'" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'</div>'
-  +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px">Days of Week</label><div style="display:flex;gap:8px">'
+  +'<div style="margin-bottom:12px" id="oc-days-field"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:6px">Days of Week</label><div style="display:flex;gap:8px">'
   +dayL.map(function(d,i){return '<label style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;font-size:11px;font-weight:600"><input type="checkbox" id="oc-day-'+i+'"'+(days.includes(i)?' checked':'')+' style="accent-color:var(--teal)"/>'+d+'</label>'}).join('')
   +'</div></div>'
+  +'<div id="oc-week-note" style="display:none;margin-bottom:12px;font-size:12px;color:#a16207;background:#fefce8;border:1px solid #fde047;border-radius:8px;padding:8px 10px">Open weeks cover all 7 days during standard coverage hours (8:00 AM – 10:00 PM). Whoever signs up takes the full week.</div>'
   +'<div style="margin-bottom:12px"><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Recurrence</label>'
   +'<select id="oc-recur" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
   +'<option value="once"'+(!item||item.recurrence==='once'?' selected':'')+'>One-time (date range above)</option>'
@@ -11471,17 +11494,39 @@ function openOncallModal(id,prefillDate,prefillHour){
   +'</div></div>'
  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
  document.body.appendChild(overlay)
- if(isOpen) toggleOncallOpenFields(true)
+ if(isOpen) toggleOncallOpenFields(true, false)
 }
 
-function toggleOncallOpenFields(open){
+function toggleOncallOpenFields(open, snapDates){
+ if(snapDates===undefined) snapDates=true
  var wrap=document.getElementById('oc-person-fields')
+ var timeFields=document.getElementById('oc-time-fields')
+ var daysField=document.getElementById('oc-days-field')
+ var weekNote=document.getElementById('oc-week-note')
  if(!wrap) return
  wrap.style.display = open ? 'none' : 'grid'
+ if(timeFields) timeFields.style.display = open ? 'none' : 'grid'
+ if(daysField) daysField.style.display = open ? 'none' : 'block'
+ if(weekNote) weekNote.style.display = open ? 'block' : 'none'
  if(open){
   var n=document.getElementById('oc-name'), p=document.getElementById('oc-phone')
   if(n) n.value=''
   if(p) p.value=''
+  if(!snapDates) return
+  // Snap to a clean Monday–Sunday week and standard coverage hours —
+  // open slots are signed up for by the week, not by custom hours.
+  // Only done when the person actively checks the box, not when we're
+  // just re-rendering an existing open shift's current state.
+  var startEl=document.getElementById('oc-start'), endEl=document.getElementById('oc-end')
+  var stimeEl=document.getElementById('oc-stime'), etimeEl=document.getElementById('oc-etime')
+  if(startEl){
+   var monday=mondayOnOrAfter(startEl.value||todayLocalISO())
+   startEl.value=monday
+   if(endEl) endEl.value=addDaysISO(monday,6)
+  }
+  if(stimeEl) stimeEl.value='08:00'
+  if(etimeEl) etimeEl.value='22:00'
+  for(var i=0;i<7;i++){var dEl=document.getElementById('oc-day-'+i); if(dEl) dEl.checked=true}
  }
 }
 
@@ -11490,12 +11535,12 @@ async function saveOncall(id){
  var name=isOpen?'':(document.getElementById('oc-name')||{}).value.trim()
  var phone=isOpen?'':(document.getElementById('oc-phone')||{}).value.trim()
  var start=(document.getElementById('oc-start')||{}).value
- var end=(document.getElementById('oc-end')||{}).value
- var stime=(document.getElementById('oc-stime')||{}).value||'08:00'
- var etime=(document.getElementById('oc-etime')||{}).value||'22:00'
+ var end=isOpen&&start?addDaysISO(start,6):(document.getElementById('oc-end')||{}).value
+ var stime=isOpen?'08:00':((document.getElementById('oc-stime')||{}).value||'08:00')
+ var etime=isOpen?'22:00':((document.getElementById('oc-etime')||{}).value||'22:00')
  var recur=(document.getElementById('oc-recur')||{}).value||'once'
  var notes=(document.getElementById('oc-notes')||{}).value.trim()
- var selDays=[];for(var i=0;i<7;i++){if(document.getElementById('oc-day-'+i)?.checked)selDays.push(i)}
+ var selDays=isOpen?[0,1,2,3,4,5,6]:(function(){var d=[];for(var i=0;i<7;i++){if(document.getElementById('oc-day-'+i)?.checked)d.push(i)}return d})()
  if(!isOpen&&(!name||!phone)){toast('Name and phone are required (or check "Leave this shift Open")','error');return}
  if(!start||!end){toast('Start and end dates are required','error');return}
  if(end<start){toast('End date must be after start date','error');return}

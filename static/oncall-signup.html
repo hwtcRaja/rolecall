@@ -46,7 +46,7 @@ input,textarea{width:100%;padding:9px 12px;border:1.5px solid var(--border-md);b
 <div class="wrap">
  <div class="header">
   <h1>On-Call Signup</h1>
-  <p>Horizon West Theater Company — pick an open shift below and let us know you can cover it.</p>
+  <p>Horizon West Theater Company — pick an open week below and let us know you can cover it.</p>
  </div>
  <div id="content"><div class="empty">Loading open shifts…</div></div>
 </div>
@@ -74,13 +74,13 @@ async function loadShifts(){
  try { rows = await api('/api/public/oncall/open-shifts') } catch(e) { rows = null }
  if(!Array.isArray(rows)){ el.innerHTML = '<div class="empty">Couldn\'t load shifts right now — try refreshing.</div>'; return }
  _shifts = rows
- if(!rows.length){ el.innerHTML = '<div class="empty">No open shifts right now — check back soon!</div>'; return }
+ if(!rows.length){ el.innerHTML = '<div class="empty">No open weeks right now — check back soon!</div>'; return }
  el.innerHTML = rows.map(s => `
   <div class="card">
    <div class="row">
     <div>
-     <div class="shift-date">${formatDate(s.start_date)}${s.end_date && s.end_date!==s.start_date ? ' – '+formatDate(s.end_date) : ''}</div>
-     <div class="shift-time">${fmt12h(s.start_time)} – ${fmt12h(s.end_time)}</div>
+     <div class="shift-date">Week of ${formatDate(s.start_date)} – ${formatDate(s.end_date)}</div>
+     <div class="shift-time">Standard coverage hours (8:00 AM – 10:00 PM)</div>
      ${s.notes ? `<div class="shift-notes">${escHtml(s.notes)}</div>` : ''}
     </div>
     ${s.has_pending_request
@@ -98,8 +98,8 @@ function openSignupModal(shiftId){
  overlay.className = 'overlay'
  overlay.innerHTML = `
   <div class="modal">
-   <h2>Sign Up for This Shift</h2>
-   <div class="sub">${formatDate(shift.start_date)} · ${fmt12h(shift.start_time)}–${fmt12h(shift.end_time)}</div>
+   <h2>Sign Up for This Week</h2>
+   <div class="sub">Week of ${formatDate(shift.start_date)} – ${formatDate(shift.end_date)}</div>
    <label>Your Name</label>
    <input type="text" id="su-name" placeholder="e.g. Raja Patel">
    <label>Your Phone (+1...)</label>
@@ -110,7 +110,7 @@ function openSignupModal(shiftId){
    <textarea id="su-notes" rows="2" placeholder="Anything staff should know"></textarea>
    <div class="modal-actions">
     <button class="btn btn-secondary" onclick="this.closest('.overlay').remove()">Cancel</button>
-    <button class="btn btn-primary" id="su-submit" onclick="submitSignup('${shiftId}')">Request This Shift</button>
+    <button class="btn btn-primary" id="su-submit" onclick="submitSignup('${shiftId}')">Request This Week</button>
    </div>
   </div>`
  overlay.addEventListener('click', e => { if(e.target === overlay) overlay.remove() })
@@ -135,7 +135,7 @@ async function submitSignup(shiftId){
     <div style="font-size:13px;color:var(--text-muted)">Staff will confirm your shift shortly. Thanks for covering for HWTC!</div>
    </div>`
  } else {
-  btn.disabled = false; btn.textContent = 'Request This Shift'
+  btn.disabled = false; btn.textContent = 'Request This Week'
   alert((res && res.error) || 'Something went wrong — please try again.')
  }
 }

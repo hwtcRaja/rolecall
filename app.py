@@ -4347,8 +4347,10 @@ def get_volunteers():
     conn = get_db()
     sync_wall_of_fame_eligibility(conn)
     vols = fetchall(conn, '''SELECT *, COALESCE(background_check_status,'none') as background_check_status FROM volunteers ORDER BY name''')
+    this_year = str(date.today().year)
     for v in vols:
         v['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (v['id'],))['t']
+        v['hours_ytd'] = fetchone(conn, "SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s AND LEFT(date,4)=%s", (v['id'], this_year))['t']
         v['waiver_status'], v['waivers'] = get_waiver_summary(conn, v['id'])
     conn.close()
     return jsonify(vols)

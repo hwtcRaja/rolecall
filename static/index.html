@@ -2921,6 +2921,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div class="page-actions" style="display:flex;gap:8px;align-items:center">
    <button class="btn btn-secondary" id="oncall-view-week" onclick="setOncallView('week')">Week</button>
    <button class="btn btn-secondary" id="oncall-view-month" onclick="setOncallView('month')">Month</button>
+   <button class="btn btn-secondary" onclick="copyOncallSignupLink()"> Copy Signup Link</button>
    <button class="btn btn-secondary" onclick="sendOncallReport(this)"> Post to Slack</button>
    <button class="btn btn-primary" onclick="openOncallModal()">+ Add Shift</button>
   </div>
@@ -2928,8 +2929,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="page-body">
   <div class="card" style="padding:16px;margin-bottom:16px;background:#eff6ff;border:1px solid #bfdbfe">
    <div style="font-size:13px;font-weight:700;color:#1e40af;margin-bottom:4px">Coverage Hours: 8:00 AM – 10:00 PM</div>
-   <div style="font-size:13px;color:#1e3a8a">Outside these hours, callers hear your after-hours message. Gaps in the schedule (shown in red) mean calls fall through to your fallback number.</div>
+   <div style="font-size:13px;color:#1e3a8a">Outside these hours, callers hear your after-hours message. Gaps in the schedule (shown in red) mean calls fall through to your fallback number. Leave a shift's Person Name blank (or check "Leave this shift Open") to post it for members to sign up for.</div>
   </div>
+  <div id="oncall-signup-requests"></div>
   <div id="oncall-now" style="margin-bottom:16px"></div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
    <button class="btn btn-secondary btn-sm" onclick="oncallNav(-1)">← Prev</button>
@@ -4844,6 +4846,7 @@ async function renderDashboardOncall(){
  }
  // Current on-call
  const current = _oncallList.find(function(r){
+  if(!(r.person_name||'').trim()) return false
   if(r.start_date>today||r.end_date<today) return false
   if((r.start_time||'08:00')>nowTime||(r.end_time||'22:00')<=nowTime) return false
   try{var d=JSON.parse(r.days_of_week||'[0,1,2,3,4,5,6]');if(!d.includes(nowDow))return false}catch(e){}
@@ -4874,11 +4877,11 @@ async function renderDashboardOncall(){
  if(todayShifts.length){
   html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);margin-bottom:6px">Today\'s Schedule</div>'
   html += todayShifts.map(function(s){
-   var col2 = getPersonColor ? getPersonColor(s.person_name) : '#0d3d4d'
+   var col2 = getPersonColor ? oncallShiftColor(s) : '#0d3d4d'
    var isNow = s===current
    return '<div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border)">'
     +'<div style="width:3px;align-self:stretch;background:'+col2+';border-radius:2px;flex-shrink:0"></div>'
-    +'<div style="flex:1"><div style="font-size:13px;font-weight:'+(isNow?'800':'600')+'">'+escHtml(s.person_name)+'</div>'
+    +'<div style="flex:1"><div style="font-size:13px;font-weight:'+(isNow?'800':'600')+'">'+oncallShiftLabel(s)+'</div>'
     +'<div style="font-size:11px;color:var(--text-muted)">'+fmt12h(s.start_time||'08:00')+' – '+fmt12h(s.end_time||'22:00')+'</div></div>'
     +(isNow?'<span style="font-size:10px;font-weight:700;color:'+col2+';background:'+col2+'20;padding:2px 6px;border-radius:10px">NOW</span>':'')
     +'</div>'
@@ -11205,6 +11208,15 @@ function getPersonColor(name){
  return OC_COLORS[names.indexOf(name)%OC_COLORS.length]
 }
 
+function oncallShiftLabel(s){
+ if((s.person_name||'').trim()) return escHtml(s.person_name)
+ var requested = (_oncallPendingSignupShiftIds||new Set()).has(s.id)
+ return 'Open'+(requested?' · Requested':'')
+}
+function oncallShiftColor(s){
+ return (s.person_name||'').trim() ? getPersonColor(s.person_name) : '#a16207'
+}
+
 function timeToMins(t){var p=(t||'00:00').split(':');return parseInt(p[0])*60+parseInt(p[1]||0)}
 function fmt12h(t){var p=(t||'00:00').split(':'),h=parseInt(p[0]),m=parseInt(p[1]||0),ap=h>=12?'PM':'AM';h=h%12||12;return h+(m?':'+String(m).padStart(2,'0'):'')+' '+ap}
 
@@ -11247,15 +11259,17 @@ function renderWeekView(){
    var isToday=d===todayStr
    var shifts=shiftsForDate(d).filter(function(s){var st=timeToMins(s.start_time||'08:00'),en=timeToMins(s.end_time||'22:00');return st<=h*60&&en>h*60})
    html+='<td style="border:1px solid var(--border);padding:2px;vertical-align:top;min-height:28px;background:'+(isToday?'rgba(13,61,77,0.04)':'')+'" onclick="openOncallModalForDate(\''+d+'\','+h+')">'
-   if(shifts.length){shifts.forEach(function(s){var c=getPersonColor(s.person_name);html+='<div style="padding:2px 4px;border-radius:3px;font-size:10px;font-weight:700;background:'+c+'20;color:'+c+';border-left:2px solid '+c+';cursor:pointer;margin:1px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="event.stopPropagation();openOncallModal(\''+s.id+'\')" title="'+s.person_name+' '+fmt12h(s.start_time)+'-'+fmt12h(s.end_time)+'">'+s.person_name+'</div>'})}
+   if(shifts.length){shifts.forEach(function(s){var c=oncallShiftColor(s),lbl=oncallShiftLabel(s);html+='<div style="padding:2px 4px;border-radius:3px;font-size:10px;font-weight:700;background:'+c+'20;color:'+c+';border-left:2px solid '+c+(s.person_name?'':';border-left-style:dashed')+';cursor:pointer;margin:1px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" onclick="event.stopPropagation();openOncallModal(\''+s.id+'\')" title="'+lbl+' '+fmt12h(s.start_time)+'-'+fmt12h(s.end_time)+'">'+lbl+'</div>'})}
    else html+='<div style="font-size:9px;color:#fca5a5;font-style:italic">gap</div>'
    html+='</td>'
   })
   html+='</tr>'
  }
  html+='</tbody></table>'
- var people=[...new Set(_oncallList.map(function(r){return r.person_name}))]
- if(people.length){html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">'+people.map(function(n){var c=getPersonColor(n);return '<div style="display:flex;align-items:center;gap:5px;font-size:12px"><span style="width:9px;height:9px;border-radius:50%;background:'+c+'"></span>'+escHtml(n)+'</div>'}).join('')+'</div>'}
+ var people=[...new Set(_oncallList.map(function(r){return r.person_name}).filter(function(n){return (n||'').trim()}))]
+ var legendHtml = people.map(function(n){var c=getPersonColor(n);return '<div style="display:flex;align-items:center;gap:5px;font-size:12px"><span style="width:9px;height:9px;border-radius:50%;background:'+c+'"></span>'+escHtml(n)+'</div>'}).join('')
+ if(_oncallList.some(function(r){return !(r.person_name||'').trim()})) legendHtml += '<div style="display:flex;align-items:center;gap:5px;font-size:12px"><span style="width:9px;height:9px;border-radius:50%;background:#a16207"></span>Open</div>'
+ if(legendHtml){html+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">'+legendHtml+'</div>'}
  document.getElementById('oncall-calendar').innerHTML=html
 }
 
@@ -11278,7 +11292,7 @@ function renderMonthView(){
     html+='<td style="border:1px solid var(--border);vertical-align:top;padding:5px;min-height:72px;background:'+bg+';cursor:pointer" onclick="openOncallModalForDate(\''+ds+'\')">'
     html+='<div style="font-size:13px;font-weight:'+(isToday?800:500)+';color:'+(isToday?'var(--teal)':'inherit')+';margin-bottom:3px">'+day+'</div>'
     if(!shifts.length){html+='<div style="font-size:9px;color:#fca5a5;font-style:italic">no coverage</div>'}
-    else{shifts.forEach(function(s){var c=getPersonColor(s.person_name);html+='<div style="font-size:10px;font-weight:700;padding:1px 4px;border-radius:3px;background:'+c+'20;color:'+c+';border-left:2px solid '+c+';margin:1px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="event.stopPropagation();openOncallModal(\''+s.id+'\')">'+s.person_name+'</div>'});if(hasGap)html+='<div style="font-size:9px;color:#f59e0b;font-style:italic">partial gap</div>'}
+    else{shifts.forEach(function(s){var c=oncallShiftColor(s),lbl=oncallShiftLabel(s);html+='<div style="font-size:10px;font-weight:700;padding:1px 4px;border-radius:3px;background:'+c+'20;color:'+c+';border-left:2px solid '+c+(s.person_name?'':';border-left-style:dashed')+';margin:1px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="event.stopPropagation();openOncallModal(\''+s.id+'\')">'+lbl+'</div>'});if(hasGap)html+='<div style="font-size:9px;color:#f59e0b;font-style:italic">partial gap</div>'}
     html+='</td>'
    }
   }
@@ -11301,11 +11315,54 @@ async function initMaskedCallback(toNumber){
  }
 }
 
+var _oncallPendingSignupShiftIds = new Set()
+
 async function loadOncallPage(){
  const res=await api('/api/oncall')
  _oncallList=Array.isArray(res)?res:[]
+ await loadOncallSignupRequests()
  setOncallView('week')
  loadCallLog()
+}
+
+async function loadOncallSignupRequests(){
+ const el = document.getElementById('oncall-signup-requests')
+ if(!el) return
+ let rows
+ try { rows = await api('/api/oncall/signups') } catch(e) { rows = null }
+ if(!Array.isArray(rows)){ el.innerHTML=''; return }
+ const pending = rows.filter(r=>r.status==='pending')
+ _oncallPendingSignupShiftIds = new Set(pending.map(r=>r.shift_id))
+ if(!pending.length){ el.innerHTML=''; return }
+ el.innerHTML = '<div class="card" style="padding:16px;margin-bottom:16px;background:#fefce8;border:1px solid #fde047">'
+  + '<div style="font-size:13px;font-weight:700;color:#a16207;margin-bottom:10px">'+pending.length+' Signup Request'+(pending.length>1?'s':'')+' Awaiting Review</div>'
+  + pending.map(r=>(
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-top:1px solid #fde047">'
+    + '<div><div style="font-size:13px;font-weight:600">'+escHtml(r.name)+'</div>'
+    + '<div style="font-size:11px;color:#a16207">'+escHtml(r.phone)+(r.email?' · '+escHtml(r.email):'')+'</div>'
+    + '<div style="font-size:11px;color:#a16207">'+formatDate(r.start_date)+' · '+fmt12h(r.start_time)+'–'+fmt12h(r.end_time)+(r.notes?' · '+escHtml(r.notes):'')+'</div></div>'
+    + '<div style="display:flex;gap:6px;flex-shrink:0">'
+    + '<button class="btn btn-primary btn-sm" onclick="reviewOncallSignup(\''+r.id+'\',\'approve\')">Approve</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="reviewOncallSignup(\''+r.id+'\',\'decline\')">Decline</button>'
+    + '</div></div>'
+  )).join('')
+  + '</div>'
+}
+
+async function reviewOncallSignup(id, action){
+ const res = await api('/api/oncall/signups/'+id+'/'+action, 'POST')
+ if(res&&res.ok){
+  toast(action==='approve'?'Shift assigned!':'Request declined')
+  const reloaded=await api('/api/oncall'); _oncallList=Array.isArray(reloaded)?reloaded:_oncallList
+  await loadOncallSignupRequests()
+  renderOncallCalendar()
+ } else toast((res&&res.error)||'Error','error')
+}
+
+function copyOncallSignupLink(){
+ const url = window.location.origin + '/on-call-signup'
+ navigator.clipboard.writeText(url)
+ toast('Signup link copied — share it with members','success')
 }
 
 async function loadCallLog(){
@@ -11354,6 +11411,7 @@ function renderOncallNow(){
  var today=new Date(),todayStr=today.toISOString().slice(0,10),nowTime=today.toTimeString().slice(0,5)
  var nowDow=today.getDay()===0?6:today.getDay()-1
  var current=_oncallList.find(function(r){
+  if(!(r.person_name||'').trim())return false
   if(r.start_date>todayStr||r.end_date<todayStr)return false
   if((r.start_time||'08:00')>nowTime||(r.end_time||'22:00')<=nowTime)return false
   try{var d=JSON.parse(r.days_of_week||'[0,1,2,3,4,5,6]');if(!d.includes(nowDow))return false}catch(e){}
@@ -11377,11 +11435,15 @@ function openOncallModal(id,prefillDate,prefillHour){
  var defaultEnd=prefillHour!=null?String(Math.min((prefillHour||8)+2,22)).padStart(2,'0')+':00':(item?item.end_time||'22:00':'22:00')
  var days=[0,1,2,3,4,5,6];try{if(item&&item.days_of_week)days=JSON.parse(item.days_of_week)}catch(e){}
  var dayL=['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+ var isOpen = item ? !(item.person_name||'').trim() : false
  var overlay=document.createElement('div')
  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
  overlay.innerHTML='<div style="background:var(--surface);border-radius:14px;width:100%;max-width:480px;padding:24px;max-height:90vh;overflow-y:auto">'
   +'<div style="font-size:16px;font-weight:800;margin-bottom:20px">'+(item?'Edit':'Add')+' On-Call Shift</div>'
-  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px">'
+  +'<label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;padding:8px 10px;background:#fefce8;border:1px solid #fde047;border-radius:8px;cursor:pointer">'
+  +'<input type="checkbox" id="oc-open" '+(isOpen?'checked':'')+' onchange="toggleOncallOpenFields(this.checked)" style="accent-color:var(--teal)"/>'
+  +'<span style="font-size:12px;font-weight:600;color:#a16207">Leave this shift Open for members to sign up for</span></label>'
+  +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px" id="oc-person-fields">'
   +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Person Name</label><input type="text" id="oc-name" value="'+escHtml(item?item.person_name||'':'')+'" placeholder="e.g. Raja" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'<div><label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px">Phone (+1...)</label><input type="tel" id="oc-phone" value="'+escHtml(item?item.phone||'':'')+'" placeholder="+14075550100" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>'
   +'</div>'
@@ -11409,11 +11471,24 @@ function openOncallModal(id,prefillDate,prefillHour){
   +'</div></div>'
  overlay.addEventListener('click',function(e){if(e.target===overlay)overlay.remove()})
  document.body.appendChild(overlay)
+ if(isOpen) toggleOncallOpenFields(true)
+}
+
+function toggleOncallOpenFields(open){
+ var wrap=document.getElementById('oc-person-fields')
+ if(!wrap) return
+ wrap.style.display = open ? 'none' : 'grid'
+ if(open){
+  var n=document.getElementById('oc-name'), p=document.getElementById('oc-phone')
+  if(n) n.value=''
+  if(p) p.value=''
+ }
 }
 
 async function saveOncall(id){
- var name=(document.getElementById('oc-name')||{}).value.trim()
- var phone=(document.getElementById('oc-phone')||{}).value.trim()
+ var isOpen=(document.getElementById('oc-open')||{}).checked
+ var name=isOpen?'':(document.getElementById('oc-name')||{}).value.trim()
+ var phone=isOpen?'':(document.getElementById('oc-phone')||{}).value.trim()
  var start=(document.getElementById('oc-start')||{}).value
  var end=(document.getElementById('oc-end')||{}).value
  var stime=(document.getElementById('oc-stime')||{}).value||'08:00'
@@ -11421,7 +11496,8 @@ async function saveOncall(id){
  var recur=(document.getElementById('oc-recur')||{}).value||'once'
  var notes=(document.getElementById('oc-notes')||{}).value.trim()
  var selDays=[];for(var i=0;i<7;i++){if(document.getElementById('oc-day-'+i)?.checked)selDays.push(i)}
- if(!name||!phone||!start||!end){toast('Name, phone, and dates are required','error');return}
+ if(!isOpen&&(!name||!phone)){toast('Name and phone are required (or check "Leave this shift Open")','error');return}
+ if(!start||!end){toast('Start and end dates are required','error');return}
  if(end<start){toast('End date must be after start date','error');return}
  if(!selDays.length){toast('Select at least one day','error');return}
  var payload={person_name:name,phone:phone,start_date:start,end_date:end,start_time:stime,end_time:etime,days_of_week:JSON.stringify(selDays),recurrence:recur,notes:notes}
@@ -11429,7 +11505,7 @@ async function saveOncall(id){
  if(res&&(res.ok||res.id)){
   var reloaded=await api('/api/oncall'); _oncallList=Array.isArray(reloaded)?reloaded:_oncallList
   document.querySelector('[style*=fixed][style*=z-index]')?.remove()
-  renderOncallCalendar(); toast(id?'Shift updated!':'Shift added!','success')
+  renderOncallCalendar(); toast(id?'Shift updated!':(isOpen?'Open shift posted!':'Shift added!'),'success')
  } else toast((res&&res.error)||'Error saving','error')
 }
 

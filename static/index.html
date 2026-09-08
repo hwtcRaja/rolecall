@@ -4119,6 +4119,38 @@ function bgcBadgeHTML(status, compact=false){
 : '<span style="background:#fef2f2;color:#dc2626;border:1.5px solid #fca5a5;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700"> No BGC on file</span>'
 }
 
+function verifiedBadgeHTML(vol, compact=false){
+ // "Verified Volunteer" stamp — Admin/Volunteer Coordinator has vetted or
+ // worked with this person directly. Purely a positive marker, so unlike
+ // bgcBadgeHTML there's no "missing" state to render — it just shows
+ // nothing at all until someone applies it.
+ if(!vol || !vol.verified_at) return ''
+ const title = 'HWTC Verified' + (vol.verified_by ? ' by '+vol.verified_by : '') + (vol.verified_at ? ' on '+formatDate(vol.verified_at.slice(0,10)) : '')
+ return compact
+ ? `<span title="${escHtml(title)}" style="font-size:13px;color:var(--blue-600)"></span>`
+ : `<span title="${escHtml(title)}" style="background:var(--blue-50);color:var(--blue-600);border:1.5px solid var(--blue-200);padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:4px"> HWTC Verified</span>`
+}
+
+function wallBadgeHTML(vol, compact=false){
+ // Wall of Fame status. Three states: not eligible (nothing shown),
+ // eligible-but-not-yet-added (amber, staff still owes them the ceremony),
+ // and confirmed-on-the-wall (the actual recognition badge).
+ if(!vol) return ''
+ if(vol.wall_added_at){
+ const title = 'On the Wall of Fame' + (vol.wall_added_by ? ' — added by '+vol.wall_added_by : '') + (vol.wall_added_at ? ' on '+formatDate(vol.wall_added_at.slice(0,10)) : '')
+ return compact
+ ? `<span title="${escHtml(title)}" style="font-size:13px"></span>`
+ : `<span title="${escHtml(title)}" style="background:#fff7ed;color:#9a3412;border:1.5px solid #fdba74;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:4px"> On the Wall</span>`
+ }
+ if(vol.wall_eligible_at){
+ const title = 'Eligible for the Wall of Fame since '+formatDate(vol.wall_eligible_at.slice(0,10))+' — handprint not yet added'
+ return compact
+ ? `<span title="${escHtml(title)}" style="font-size:13px;color:var(--amber-600)"></span>`
+ : `<span title="${escHtml(title)}" style="background:#fefce8;color:#a16207;border:1.5px solid #fde047;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:4px"> Wall-Eligible</span>`
+ }
+ return ''
+}
+
 function bgcYouthWarning(vol){
  // Returns a prominent banner if this volunteer hasn't cleared a BGC
  // Use this wherever volunteers interact with youth
@@ -5124,7 +5156,7 @@ function renderVolunteers(){
  <div style="display:flex;align-items:center;gap:10px">
  ${avatarHTML(v.name)}
  <div>
- <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(v.name)}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}${employerProgramIcons(v)}</div>
+ <div style="font-weight:600;font-size:13px;color:var(--teal-600)">${escHtml(v.name)}${v.pronouns?` <span style="font-size:11px;color:var(--text-hint);font-weight:400">(${escHtml(v.pronouns)})</span>`:''}${employerProgramIcons(v)}${verifiedBadgeHTML(v,true)}${wallBadgeHTML(v,true)}</div>
  <div style="font-size:11px;color:var(--text-muted)">${escHtml(v.email)}${v.phone?` · ${escHtml(v.phone)}`:''}</div>
  </div>
  </div>
@@ -5228,6 +5260,8 @@ async function openProfile(volId){
  v.background_check_status==='pending'?{label:' BGC Pending',bg:'rgba(212,131,10,0.4)'}:null,
  (v.employer_program||'').toLowerCase().indexOf('disney')>-1?{label:' Disney Cast Member',bg:'rgba(30,64,175,0.4)'}:null,
  (v.employer_program||'').toLowerCase().indexOf('universal')>-1?{label:' Universal Team Member',bg:'rgba(124,45,18,0.4)'}:null,
+ v.verified_at?{label:' HWTC Verified',bg:'rgba(24,95,165,0.4)'}:null,
+ v.wall_added_at?{label:' On the Wall',bg:'rgba(154,52,18,0.4)'}:null,
  {label:(v.total_hours||0)+'h total',bg:'rgba(255,255,255,0.15)'}
  ].filter(Boolean),
  actions: []
@@ -5261,6 +5295,11 @@ async function openProfile(volId){
  }
  mkBtn(' ID Card', function(){ printVolIdCard(v.id, safeName) })
  mkBtn(' Link Participant', function(){ openLinkModal('volunteer', v.id, '') })
+ if(v.verified_at){
+ mkBtn(' Unverify', function(){ unverifyVolunteer(v.id, safeName) })
+ } else {
+ mkBtn(' Verify Volunteer', function(){ verifyVolunteer(v.id, safeName) })
+ }
  mkBtn('Delete', function(){ deleteVol(v.id) }, true)
  if(banner) banner.appendChild(actDiv)
  }
@@ -5274,7 +5313,7 @@ async function openProfile(volId){
  <div style="text-align:center;margin-bottom:16px">
  <span class="status-badge ${v.status==='active'?'status-active':'status-inactive'}">${v.status==='active'?' Active':' Inactive'}</span>
  </div>
- <div style="text-align:center;margin-bottom:16px">${bgcBadgeHTML(v.background_check_status, false)}</div>
+ <div style="text-align:center;margin-bottom:16px;display:flex;flex-wrap:wrap;gap:6px;justify-content:center">${bgcBadgeHTML(v.background_check_status, false)}${verifiedBadgeHTML(v, false)}${wallBadgeHTML(v, false)}</div>
  <hr class="divider"/>
  <div style="font-size:13px;color:var(--text-muted);display:flex;flex-direction:column;gap:6px">
  <div> <a href="mailto:${v.email}" style="color:var(--teal-600)">${v.email}</a></div>
@@ -5320,6 +5359,7 @@ async function openProfile(volId){
   <div style="flex:1;text-align:center;background:var(--gray-50);border-radius:8px;padding:6px"><div style="font-size:15px;font-weight:700;color:var(--teal-dark)">${v.volunteer_hours}h</div><div style="font-size:10px;color:var(--text-muted);text-transform:uppercase">Volunteering</div></div>
   <div style="flex:1;text-align:center;background:#fff7ed;border-radius:8px;padding:6px"><div style="font-size:15px;font-weight:700;color:#9a3412">${v.paid_instruction_hours}h</div><div style="font-size:10px;color:#9a3412;text-transform:uppercase">Paid Instruction</div></div>
  </div>`:''}
+ ${renderWallOfFameSection(v, isAdmin)}
  ${renderContractorPaySection(v, isAdmin)}
  ${isAdmin?`
  <hr class="divider"/>
@@ -5345,7 +5385,17 @@ async function openProfile(volId){
  <div style="padding:0 0 20px">
  <div class="tab-pane active" id="tab-hours">
  ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openLogTimeModal('${v.id}')">+ Log Time</button></div>`:''}
+ ${(v.hours||[]).length?`<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+ <select id="hours-filter-${v.id}" style="padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--bg)" onchange="renderHoursTabFiltered('${v.id}')">
+ <option value="all">All-time</option>
+ <option value="ytd">This Year (YTD)</option>
+ ${Object.keys(v.hours_summary?.by_year||{}).map(y=>`<option value="${y}">${y}</option>`).join('')}
+ </select>
+ <div id="hours-filter-total-${v.id}" style="font-size:13px;font-weight:700;color:var(--teal-600)"></div>
+ </div>`:''}
+ <div id="hours-rows-${v.id}">
  ${!(v.hours||[]).length?'<div style="color:var(--text-muted);font-size:13px">No time logged yet</div>':v.hours.map(h=>renderHoursRow(h,v.id,isAdmin)).join('')}
+ </div>
  </div>
  <div class="tab-pane" id="tab-history">
  ${isAdmin?`<div style="margin-bottom:16px"><button class="btn btn-primary btn-sm" onclick="openHistoryModal('${v.id}')">+ Add Entry</button></div>`:''}
@@ -5416,7 +5466,38 @@ async function openProfile(volId){
  </div>`
  navTo('profile')
  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
+ if((v.hours||[]).length) renderHoursTabFiltered(v.id)
  } catch(err) { console.error('openProfile error:', err); toast('Error: '+err.message+' — check console for details','error') }
+}
+
+function renderHoursTabFiltered(volId){
+ // Filters the already-loaded profile's hours list client-side by the
+ // selected All-time/YTD/Year option — no extra API round-trip needed
+ // since /api/volunteers/<id> already returns the full hours list and
+ // hours_summary (all_time/ytd/by_year totals) in one payload.
+ const v = window._currentProfileData
+ if(!v || v.id !== volId) return
+ const sel = document.getElementById(`hours-filter-${volId}`)
+ const filter = sel ? sel.value : 'all'
+ const isAdmin = canEdit('volunteers')
+ let rows = v.hours || []
+ let total
+ if(filter === 'ytd'){
+ const thisYear = String(new Date().getFullYear())
+ rows = rows.filter(h => (h.date||'').slice(0,4) === thisYear)
+ total = v.hours_summary?.ytd ?? rows.reduce((s,h)=>s+parseFloat(h.hours||0),0)
+ } else if(filter !== 'all'){
+ rows = rows.filter(h => (h.date||'').slice(0,4) === filter)
+ total = v.hours_summary?.by_year?.[filter] ?? rows.reduce((s,h)=>s+parseFloat(h.hours||0),0)
+ } else {
+ total = v.hours_summary?.all_time ?? (v.total_hours || 0)
+ }
+ const totalEl = document.getElementById(`hours-filter-total-${volId}`)
+ if(totalEl) totalEl.textContent = `${parseFloat(total||0).toFixed(1)}h`
+ const rowsEl = document.getElementById(`hours-rows-${volId}`)
+ if(rowsEl) rowsEl.innerHTML = rows.length
+ ? rows.map(h=>renderHoursRow(h,volId,isAdmin)).join('')
+ : '<div style="color:var(--text-muted);font-size:13px">No time logged in this period</div>'
 }
 
 function openBonusCreditModal(volId){
@@ -5468,6 +5549,26 @@ async function removeBonusCredit(volId, bid){
 }
 
 // ── BloomBooks contractor pay-cap visibility ──────────────────────────────
+
+function renderWallOfFameSection(v, isAdmin){
+ // Nothing to show if they're neither eligible nor already on the wall.
+ if(!v.wall_eligible_at && !v.wall_added_at) return ''
+ if(v.wall_added_at){
+ return `<hr class="divider"/>
+ <div class="card" style="padding:12px 14px;background:#fff7ed;border-color:#fdba74">
+ <div style="font-size:12px;font-weight:700;color:#9a3412"> On the Wall of Fame</div>
+ <div style="font-size:11px;color:#9a3412;margin-top:2px">Added ${formatDate(v.wall_added_at.slice(0,10))}${v.wall_added_by?' by '+escHtml(v.wall_added_by):''}</div>
+ ${isAdmin?`<button class="btn btn-secondary btn-sm" style="margin-top:8px;width:100%" onclick="removeFromWallOfFame('${v.id}')">Undo</button>`:''}
+ </div>`
+ }
+ // Eligible but not yet added — the physical ceremony hasn't happened yet.
+ return `<hr class="divider"/>
+ <div class="card" style="padding:12px 14px;background:#fefce8;border-color:#fde047">
+ <div style="font-size:12px;font-weight:700;color:#a16207"> Eligible for the Wall of Fame</div>
+ <div style="font-size:11px;color:#a16207;margin-top:2px">Eligible since ${formatDate(v.wall_eligible_at.slice(0,10))} — handprint not yet added</div>
+ ${isAdmin?`<button class="btn btn-primary btn-sm" style="margin-top:8px;width:100%" onclick="addToWallOfFame('${v.id}')">Confirm Handprint Added</button>`:''}
+ </div>`
+}
 
 function renderContractorPaySection(v, isAdmin){
   const s = v.contractor_pay_status
@@ -10175,6 +10276,38 @@ async function deleteVol(volId){
  await loadAllData()
  navTo('volunteers')
  renderVolunteers()
+}
+
+async function verifyVolunteer(volId, name){
+ if(!confirm(`Mark ${name} as an HWTC Verified volunteer?`)) return
+ await api(`/api/volunteers/${volId}/verify`,'POST')
+ toast('Volunteer verified','success')
+ await loadAllData()
+ openProfile(volId)
+}
+
+async function unverifyVolunteer(volId, name){
+ if(!confirm(`Remove the Verified badge from ${name}?`)) return
+ await api(`/api/volunteers/${volId}/verify`,'DELETE')
+ toast('Verification removed')
+ await loadAllData()
+ openProfile(volId)
+}
+
+async function addToWallOfFame(volId){
+ if(!confirm('Confirm the handprint has been physically added to the wall?')) return
+ await api(`/api/volunteers/${volId}/wall-of-fame`,'POST')
+ toast('Added to the Wall of Fame ','success')
+ await loadAllData()
+ openProfile(volId)
+}
+
+async function removeFromWallOfFame(volId){
+ if(!confirm('Undo Wall of Fame confirmation for this volunteer?')) return
+ await api(`/api/volunteers/${volId}/wall-of-fame`,'DELETE')
+ toast('Wall of Fame status reverted')
+ await loadAllData()
+ openProfile(volId)
 }
 
 // ═══════════════════════════════════════════════════════════════

@@ -35,7 +35,7 @@ body{margin:0;font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg
 .modal h2{font-size:16px;font-weight:800;margin:0 0 6px;color:var(--teal-dark)}
 .modal .sub{font-size:13px;color:var(--text-muted);margin-bottom:16px}
 label{font-size:12px;font-weight:600;display:block;margin-bottom:4px;color:var(--text)}
-input,textarea{width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:13px;margin-bottom:12px}
+input,textarea,select{width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:13px;margin-bottom:12px;background:#fff}
 .modal-actions{display:flex;gap:8px;justify-content:flex-end}
 .btn-secondary{background:var(--gray-50);color:var(--text);border:1.5px solid var(--border-md)}
 .success-box{text-align:center;padding:32px 16px}
@@ -46,7 +46,7 @@ input,textarea{width:100%;padding:9px 12px;border:1.5px solid var(--border-md);b
 <div class="wrap">
  <div class="header">
   <h1>On-Call Signup</h1>
-  <p>Horizon West Theater Company — pick an open week below and let us know you can cover it.</p>
+  <p>Horizon West Theater Company Board — pick an open week below and let us know you can cover it.</p>
  </div>
  <div id="content"><div class="empty">Loading open shifts…</div></div>
 </div>
@@ -67,6 +67,12 @@ function formatDate(d){
 }
 
 let _shifts = []
+let _boardMembers = []
+
+async function loadBoardMembers(){
+ try { _boardMembers = await api('/api/public/oncall/board-members') } catch(e) { _boardMembers = [] }
+ if(!Array.isArray(_boardMembers)) _boardMembers = []
+}
 
 async function loadShifts(){
  const el = document.getElementById('content')
@@ -94,6 +100,7 @@ async function loadShifts(){
 function openSignupModal(shiftId){
  const shift = _shifts.find(s => s.id === shiftId)
  if(!shift) return
+ if(!_boardMembers.length){ alert('The board roster isn\'t available right now — please try again in a moment.'); return }
  const overlay = document.createElement('div')
  overlay.className = 'overlay'
  overlay.innerHTML = `
@@ -101,11 +108,15 @@ function openSignupModal(shiftId){
    <h2>Sign Up for This Week</h2>
    <div class="sub">Week of ${formatDate(shift.start_date)} – ${formatDate(shift.end_date)}</div>
    <label>Your Name</label>
-   <input type="text" id="su-name" placeholder="e.g. Raja Patel">
-   <label>Your Phone (+1...)</label>
-   <input type="tel" id="su-phone" placeholder="+14075550100">
-   <label>Email (optional)</label>
-   <input type="email" id="su-email" placeholder="you@example.com">
+   <select id="su-board-member" onchange="onBoardMemberChange()">
+    <option value="">Select your name…</option>
+    ${_boardMembers.map(m => `<option value="${m.id}" data-has-phone="${m.has_phone?'1':'0'}">${escHtml(m.name)}</option>`).join('')}
+   </select>
+   <div id="su-phone-note" style="display:none;font-size:12px;color:var(--text-muted);margin:-8px 0 12px">We'll use the phone number already on file for you.</div>
+   <div id="su-phone-wrap" style="display:none">
+    <label>Your Phone (+1...)</label>
+    <input type="tel" id="su-phone" placeholder="+14075550100">
+   </div>
    <label>Notes (optional)</label>
    <textarea id="su-notes" rows="2" placeholder="Anything staff should know"></textarea>
    <div class="modal-actions">
@@ -117,22 +128,34 @@ function openSignupModal(shiftId){
  document.body.appendChild(overlay)
 }
 
+function onBoardMemberChange(){
+ const sel = document.getElementById('su-board-member')
+ const member = _boardMembers.find(m => m.id === sel.value)
+ const phoneWrap = document.getElementById('su-phone-wrap')
+ const note = document.getElementById('su-phone-note')
+ if(!member){ phoneWrap.style.display='none'; note.style.display='none'; return }
+ if(member.has_phone){ phoneWrap.style.display='none'; note.style.display='block' }
+ else { phoneWrap.style.display='block'; note.style.display='none' }
+}
+
 async function submitSignup(shiftId){
- const name = document.getElementById('su-name').value.trim()
- const phone = document.getElementById('su-phone').value.trim()
- const email = document.getElementById('su-email').value.trim()
+ const boardMemberId = document.getElementById('su-board-member').value
+ const member = _boardMembers.find(m => m.id === boardMemberId)
+ const phoneEl = document.getElementById('su-phone')
+ const phone = phoneEl ? phoneEl.value.trim() : ''
  const notes = document.getElementById('su-notes').value.trim()
- if(!name || !phone){ alert('Name and phone are required'); return }
+ if(!boardMemberId){ alert('Please select your name'); return }
+ if(member && !member.has_phone && !phone){ alert('Please enter a phone number'); return }
  const btn = document.getElementById('su-submit')
  btn.disabled = true; btn.textContent = 'Submitting…'
- const res = await api('/api/public/oncall/signup', 'POST', { shift_id: shiftId, name, phone, email, notes })
+ const res = await api('/api/public/oncall/signup', 'POST', { shift_id: shiftId, board_member_id: boardMemberId, phone, notes })
  if(res && res.ok){
   document.querySelector('.overlay')?.remove()
   document.getElementById('content').innerHTML = `
    <div class="card success-box">
     <div class="check">✓</div>
     <div style="font-size:16px;font-weight:700;margin-bottom:6px">Request sent!</div>
-    <div style="font-size:13px;color:var(--text-muted)">Staff will confirm your shift shortly. Thanks for covering for HWTC!</div>
+    <div style="font-size:13px;color:var(--text-muted)">Staff will confirm your week shortly. Thanks for covering for HWTC!</div>
    </div>`
  } else {
   btn.disabled = false; btn.textContent = 'Request This Week'
@@ -140,6 +163,7 @@ async function submitSignup(shiftId){
  }
 }
 
+loadBoardMembers()
 loadShifts()
 </script>
 </body>

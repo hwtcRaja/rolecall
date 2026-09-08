@@ -3036,6 +3036,7 @@ PERM_LEGACY_FALLBACK = {
     'donor_tiers': 'donors',
     'donor_templates': 'donors',
     'daily_overview': 'productions',
+    'space_requests': 'rentals',
 }
 
 
@@ -30946,18 +30947,31 @@ def check_space_request_availability():
 
 @app.route('/api/space-requests', methods=['GET'])
 def list_space_requests():
-    err = require_permission('rentals', 'view')
+    mine_only = request.args.get('mine') == '1'
+    if mine_only:
+        # Seeing your own submitted requests is open to any logged-in
+        # staff member — submitting a request itself was never gated,
+        # so viewing what you submitted shouldn't be either.
+        err = require_auth()
+    else:
+        err = require_permission('space_requests', 'view')
     if err: return err
     status = request.args.get('status')
     conn = get_db()
     q = '''SELECT sr.*, rs.name AS space_name FROM space_requests sr
         LEFT JOIN rental_spaces rs ON rs.id=sr.space_id'''
-    params = ()
+    conditions = []
+    params = []
+    if mine_only:
+        conditions.append('sr.requester_user_id=%s')
+        params.append(session.get('user_id'))
     if status:
-        q += ' WHERE sr.status=%s'
-        params = (status,)
+        conditions.append('sr.status=%s')
+        params.append(status)
+    if conditions:
+        q += ' WHERE ' + ' AND '.join(conditions)
     q += ' ORDER BY sr.created_at DESC'
-    rows = fetchall(conn, q, params) or []
+    rows = fetchall(conn, q, tuple(params)) or []
     conn.close()
     for r in rows:
         try: r['meeting_days'] = json.loads(r.get('meeting_days') or '[]')
@@ -31019,7 +31033,7 @@ def create_space_request():
 
 @app.route('/api/space-requests/<rid>/deny', methods=['PUT'])
 def deny_space_request(rid):
-    err = require_permission('rentals')
+    err = require_permission('space_requests')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -31051,7 +31065,7 @@ def approve_space_request(rid):
     itself (in draft registration status, so staff still finish pricing/
     registration details before it goes live) with its schedule already
     filled in from the request."""
-    err = require_permission('rentals')
+    err = require_permission('space_requests')
     if err: return err
     conn = get_db()
     req = fetchone(conn, 'SELECT * FROM space_requests WHERE id=%s', (rid,))

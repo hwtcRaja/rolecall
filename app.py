@@ -1463,7 +1463,7 @@ def init_db():
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
-        "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff','instructor')",
+         "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff','instructor','director')",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS body_draft TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS title_draft TEXT",
         """CREATE TABLE IF NOT EXISTS kiosk_sessions (
@@ -3288,6 +3288,33 @@ def require_own_program(pid, fallback_section='youth'):
         return None
     return require_permission(fallback_section)
 
+
+def require_own_production(pid, fallback_section='productions'):
+    """Same idea as require_own_program, for the 'director' role — a
+    director is scoped to whichever production(s) they're listed on in
+    production_members with a role containing 'director' (Director,
+    Co-Director, Assistant Director, etc. — matched loosely rather than
+    requiring an exact title), matched by their login email against the
+    volunteer record. Admins and anyone with normal section permission
+    pass through as before; this only adds a new restricted path."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if session.get('role') == 'admin':
+        return None
+    if session.get('role') == 'director':
+        conn = get_db()
+        me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+        my_email = (me or {}).get('email', '').strip().lower()
+        match = fetchone(conn, '''SELECT 1 FROM production_members pm
+            JOIN volunteers v ON v.id=pm.volunteer_id
+            WHERE pm.production_id=%s AND lower(v.email)=%s AND pm.role ILIKE %s''',
+            (pid, my_email, '%director%'))
+        conn.close()
+        if not my_email or not match:
+            return jsonify({'error': 'You can only manage your own productions'}), 403
+        return None
+    return require_permission(fallback_section)
+
 # ─────────────────────────────────────────────
 #  EMAIL HELPERS
 # ─────────────────────────────────────────────
@@ -3981,9 +4008,14 @@ def get_events():
 
 @app.route('/api/events', methods=['POST'])
 def create_event():
-    err = require_permission('events')
-    if err: return err
     d = request.json or {}
+    if session.get('role') == 'director':
+        if not d.get('production_id'):
+            return jsonify({'error': 'Directors can only create events tied to their own production'}), 403
+        err = require_own_production(d.get('production_id'))
+    else:
+        err = require_permission('events')
+    if err: return err
     if not (d.get('name') or '').strip():
         return jsonify({'error': 'Event name is required'}), 400
     if not (d.get('event_date') or '').strip():
@@ -4081,10 +4113,18 @@ def set_event_status(eid):
 
 @app.route('/api/events/<eid>', methods=['PUT'])
 def update_event(eid):
-    err = require_permission('events')
-    if err: return err
-    d = request.json or {}
     conn = get_db()
+    existing_event = fetchone(conn, 'SELECT production_id FROM events WHERE id=%s', (eid,))
+    if session.get('role') == 'director':
+        pid_to_check = (existing_event or {}).get('production_id')
+        if not pid_to_check:
+            conn.close()
+            return jsonify({'error': 'Directors can only manage events tied to their own production'}), 403
+        err = require_own_production(pid_to_check)
+    else:
+        err = require_permission('events')
+    if err: conn.close(); return err
+    d = request.json or {}
     prev = fetchone(conn, 'SELECT status FROM events WHERE id=%s', (eid,))
     prev_status = prev.get('status') if prev else None
     new_status = d.get('status','draft')
@@ -4210,9 +4250,17 @@ def bulk_update_event_type():
 
 @app.route('/api/events/<eid>', methods=['DELETE'])
 def delete_event(eid):
-    err = require_permission('events')
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        existing_event = fetchone(conn, 'SELECT production_id FROM events WHERE id=%s', (eid,))
+        pid_to_check = (existing_event or {}).get('production_id')
+        if not pid_to_check:
+            conn.close()
+            return jsonify({'error': 'Directors can only manage events tied to their own production'}), 403
+        err = require_own_production(pid_to_check)
+    else:
+        err = require_permission('events')
+    if err: conn.close(); return err
     try:
         _delete_event_cascade(conn, eid)
         conn.close()
@@ -6282,7 +6330,10 @@ def _normalize_audition_roles(raw, simple=False):
 
 @app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['PUT'])
 def save_audition_settings(context_type, context_id):
-    err = require_auth()
+    if session.get('role') == 'director' and context_type == 'production':
+        err = require_own_production(context_id)
+    else:
+        err = require_auth()
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -6363,7 +6414,10 @@ def save_audition_settings(context_type, context_id):
 
 @app.route('/api/auditions/list/<context_type>/<context_id>', methods=['GET'])
 def get_audition_submissions(context_type, context_id):
-    err = require_auth()
+    if session.get('role') == 'director' and context_type == 'production':
+        err = require_own_production(context_id)
+    else:
+        err = require_auth()
     if err: return err
     conn = get_db()
     try:
@@ -6833,10 +6887,16 @@ def submit_audition():
 
 @app.route('/api/auditions/submissions/<sid>/status', methods=['PUT'])
 def update_audition_status(sid):
-    err = require_auth()
-    if err: return err
-    d = request.json or {}
     conn = get_db()
+    if session.get('role') == 'director':
+        sub = fetchone(conn, 'SELECT context_type, context_id FROM audition_submissions WHERE id=%s', (sid,))
+        if not sub or sub.get('context_type') != 'production':
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(sub['context_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
+    d = request.json or {}
     execute(conn, 'UPDATE audition_submissions SET status=%s,admin_notes=%s,updated_at=NOW() WHERE id=%s',
         (d.get('status','pending'), d.get('admin_notes',''), sid))
     conn.commit(); conn.close()
@@ -6857,9 +6917,15 @@ def delete_audition_submission(sid):
 @app.route('/api/auditions/submissions/<sid>/decline', methods=['POST'])
 def decline_audition_submission(sid):
     """Soft-delete — marks as declined so portal shows the form again."""
-    err = require_auth()
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        sub = fetchone(conn, 'SELECT context_type, context_id FROM audition_submissions WHERE id=%s', (sid,))
+        if not sub or sub.get('context_type') != 'production':
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(sub['context_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
     execute(conn, "UPDATE audition_submissions SET status='declined', updated_at=NOW() WHERE id=%s", (sid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -6904,10 +6970,16 @@ def get_my_audition_submission():
 
 @app.route('/api/auditions/submissions/<sid>/cast-role', methods=['PUT'])
 def update_submission_cast_role(sid):
-    err = require_auth()
-    if err: return err
-    d = request.json or {}
     conn = get_db()
+    if session.get('role') == 'director':
+        sub = fetchone(conn, 'SELECT context_type, context_id FROM audition_submissions WHERE id=%s', (sid,))
+        if not sub or sub.get('context_type') != 'production':
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(sub['context_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
+    d = request.json or {}
     execute(conn, '''UPDATE audition_submissions SET cast_role=%s, cast_section=%s, cast_title=%s,
         status=%s, updated_at=NOW() WHERE id=%s''',
         (d.get('cast_role','').strip() or None, (d.get('cast_section') or '').strip(),
@@ -9433,7 +9505,10 @@ def list_approved_unlinked_licensing_requests():
 
 @app.route('/api/productions/<pid>', methods=['PUT'])
 def update_production(pid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -11238,7 +11313,7 @@ def update_user(uid):
     else:
         execute(conn, 'UPDATE users SET name=%s, email=%s WHERE id=%s',
             (d.get('name',''), d.get('email',''), uid))
-    if 'role' in d and d.get('role') in ('admin', 'staff', 'instructor'):
+    if 'role' in d and d.get('role') in ('admin', 'staff', 'instructor', 'director'):
         if uid == session.get('user_id') and d.get('role') != 'admin':
             conn.close()
             return jsonify({'error': "You can't remove your own admin access"}), 400
@@ -15779,9 +15854,14 @@ def remove_family_member(fid, yid):
 # ── Portal announcements (admin manage) ──
 @app.route('/api/portal/announcements', methods=['POST'])
 def create_portal_announcement_admin():
-    err = require_auth()
-    if err: return err
     d = request.json or {}
+    if session.get('role') == 'director':
+        if not d.get('production_id'):
+            return jsonify({'error': 'Directors can only post to their own production'}), 403
+        err = require_own_production(d.get('production_id'))
+    else:
+        err = require_auth()
+    if err: return err
     aid = str(uuid.uuid4())
     conn = get_db()
     try:
@@ -15802,10 +15882,16 @@ def create_portal_announcement_admin():
 
 @app.route('/api/portal/announcements/<aid>', methods=['PUT'])
 def update_portal_announcement_admin(aid):
-    err = require_auth()
-    if err: return err
-    d = request.json or {}
     conn = get_db()
+    if session.get('role') == 'director':
+        existing = fetchone(conn, 'SELECT production_id FROM portal_announcements WHERE id=%s', (aid,))
+        if not existing or not existing.get('production_id'):
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(existing['production_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
+    d = request.json or {}
     execute(conn, 'UPDATE portal_announcements SET title=%s, body=%s, status=%s WHERE id=%s',
         (d.get('title',''), d.get('body',''), d.get('status','published'), aid))
     conn.commit()
@@ -15815,9 +15901,15 @@ def update_portal_announcement_admin(aid):
 
 @app.route('/api/portal/announcements/<aid>', methods=['DELETE'])
 def delete_portal_announcement_admin(aid):
-    err = require_auth()
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        existing = fetchone(conn, 'SELECT production_id FROM portal_announcements WHERE id=%s', (aid,))
+        if not existing or not existing.get('production_id'):
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(existing['production_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
     execute(conn, 'DELETE FROM portal_announcements WHERE id=%s', (aid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -19853,6 +19945,54 @@ def instructor_dashboard():
 
     conn.close()
     return jsonify({'programs': programs, 'schedule': schedule, 'recent_registrations': recent_regs})
+
+
+@app.route('/api/director/dashboard', methods=['GET'])
+def director_dashboard():
+    """Same idea as the instructor dashboard, for the 'director' role —
+    scoped to whichever production(s) they're listed on in
+    production_members with a role containing 'director', matched by
+    their login email against the volunteer record."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+    my_email = (me or {}).get('email', '').strip().lower()
+    if not my_email:
+        conn.close()
+        return jsonify({'productions': [], 'schedule': [], 'recent_submissions': []})
+
+    productions = fetchall(conn, '''SELECT DISTINCT p.id, p.name, p.status, p.stage,
+        p.start_date, p.end_date, p.production_type
+        FROM productions p
+        JOIN production_members pm ON pm.production_id=p.id
+        JOIN volunteers v ON v.id=pm.volunteer_id
+        WHERE lower(v.email)=%s AND pm.role ILIKE %s
+        ORDER BY p.start_date DESC NULLS LAST''', (my_email, '%director%')) or []
+    prod_ids = [p['id'] for p in productions]
+    if not prod_ids:
+        conn.close()
+        return jsonify({'productions': [], 'schedule': [], 'recent_submissions': []})
+
+    placeholders = ','.join(['%s'] * len(prod_ids))
+    schedule = fetchall(conn, f'''SELECT e.id, e.name, e.event_date, e.start_time, e.end_time,
+        e.location, p.name AS production_name, p.id AS production_id
+        FROM events e JOIN productions p ON p.id=e.production_id
+        WHERE e.production_id IN ({placeholders}) AND e.event_date >= %s
+        ORDER BY e.event_date ASC, e.start_time ASC NULLS LAST LIMIT 150''',
+        tuple(prod_ids) + (today_eastern().isoformat(),)) or []
+
+    recent_submissions = fetchall(conn, f'''SELECT s.id, s.submitter_name, s.submitter_email, s.status,
+        s.submitted_at, s.context_id AS production_id, p.name AS production_name
+        FROM audition_submissions s JOIN productions p ON p.id=s.context_id
+        WHERE s.context_type='production' AND s.context_id IN ({placeholders})
+        ORDER BY s.submitted_at DESC LIMIT 40''', tuple(prod_ids)) or []
+
+    for p in productions:
+        p['pending_audition_count'] = sum(1 for s in recent_submissions if s['production_id']==p['id'] and s['status']=='pending')
+
+    conn.close()
+    return jsonify({'productions': productions, 'schedule': schedule, 'recent_submissions': recent_submissions})
 
 
 @app.route('/api/admin/backfill-custom-field-values', methods=['POST'])

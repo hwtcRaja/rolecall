@@ -2882,6 +2882,18 @@ def init_db():
         # board_members row it was picked from (name/email come from there,
         # not from client-supplied text).
         "ALTER TABLE oncall_signup_requests ADD COLUMN IF NOT EXISTS board_member_id TEXT REFERENCES board_members(id) ON DELETE SET NULL",
+
+        # Admin "log in as" impersonation — lets an admin test the app as
+        # another user without their password. Every session is logged here
+        # (who, as whom, when it started/ended) for accountability.
+        """CREATE TABLE IF NOT EXISTS impersonation_log (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            admin_user_id TEXT NOT NULL,
+            admin_name TEXT DEFAULT '',
+            target_user_id TEXT NOT NULL,
+            target_name TEXT DEFAULT '',
+            started_at TIMESTAMP DEFAULT NOW(),
+            ended_at TIMESTAMP)""",
 ]:
         try:
             c.execute(col_sql)
@@ -3830,6 +3842,9 @@ def login():
     conn.close()
     if not user: return jsonify({'error': 'Invalid email or password'}), 401
     if not user.get('active', True): return jsonify({'error': 'Your account has been deactivated. Contact an administrator.'}), 403
+    session.pop('real_admin_id', None)
+    session.pop('real_admin_name', None)
+    session.pop('impersonation_log_id', None)
     session['user_id'] = user['id']
     session['user_name'] = user['name']
     session['role'] = user['role']
@@ -3847,6 +3862,81 @@ def logout():
     session.clear()
     return jsonify({'ok': True})
 
+@app.route('/api/admin/impersonate', methods=['POST'])
+def start_impersonation():
+    """Let a genuine admin act as another user for testing, without their
+    password. 'Genuine admin' is checked against real_admin_id if already
+    impersonating (so switching targets mid-session doesn't require
+    dropping back to yourself first), or the live session role otherwise —
+    either way it's re-verified against the users table, not just trusted
+    from the session, since role_permissions/role can change underneath a
+    long-lived session."""
+    real_admin_id = session.get('real_admin_id') or session.get('user_id')
+    if not real_admin_id:
+        return jsonify({'error': 'Not logged in'}), 401
+    conn = get_db()
+    admin_row = fetchone(conn, 'SELECT id, name, role FROM users WHERE id=%s', (real_admin_id,))
+    if not admin_row or admin_row['role'] != 'admin':
+        conn.close()
+        return jsonify({'error': 'Admin access required'}), 403
+    d = request.get_json(silent=True) or {}
+    target_id = d.get('user_id')
+    if not target_id:
+        conn.close(); return jsonify({'error': 'user_id is required'}), 400
+    if target_id == real_admin_id:
+        conn.close(); return jsonify({'error': "That's your own account — just use it directly"}), 400
+    target = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (target_id,))
+    if not target:
+        conn.close(); return jsonify({'error': 'User not found'}), 404
+    if not target.get('active', True):
+        conn.close(); return jsonify({'error': 'That account is deactivated'}), 400
+    # Switching targets mid-impersonation closes out the previous log entry
+    # rather than leaving it open forever.
+    prev_log_id = session.get('impersonation_log_id')
+    if prev_log_id:
+        execute(conn, 'UPDATE impersonation_log SET ended_at=NOW() WHERE id=%s', (prev_log_id,))
+    log_id = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO impersonation_log (id, admin_user_id, admin_name, target_user_id, target_name)
+        VALUES (%s,%s,%s,%s,%s)''', (log_id, real_admin_id, admin_row['name'], target_id, target['name']))
+    conn.commit()
+    session['real_admin_id'] = real_admin_id
+    session['real_admin_name'] = admin_row['name']
+    session['impersonation_log_id'] = log_id
+    session['user_id'] = target['id']
+    session['user_name'] = target['name']
+    session['role'] = target['role']
+    session['permissions'] = '{}' if target['role'] == 'admin' else (target.get('role_permissions') or '{}')
+    result = {'id': target['id'], 'name': target['name'], 'email': target['email'],
+              'role': target['role'], 'permissions': json.loads(session['permissions'] or '{}'),
+              'impersonating': True, 'real_admin_name': admin_row['name']}
+    conn.close()
+    return jsonify(result)
+
+@app.route('/api/admin/stop-impersonating', methods=['POST'])
+def stop_impersonation():
+    real_admin_id = session.get('real_admin_id')
+    if not real_admin_id:
+        return jsonify({'error': 'Not currently impersonating anyone'}), 400
+    conn = get_db()
+    log_id = session.get('impersonation_log_id')
+    if log_id:
+        execute(conn, 'UPDATE impersonation_log SET ended_at=NOW() WHERE id=%s', (log_id,))
+        conn.commit()
+    admin = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (real_admin_id,))
+    conn.close()
+    if not admin:
+        session.clear()
+        return jsonify({'error': 'Your admin account could not be found — please log in again'}), 401
+    session.pop('real_admin_id', None)
+    session.pop('real_admin_name', None)
+    session.pop('impersonation_log_id', None)
+    session['user_id'] = admin['id']
+    session['user_name'] = admin['name']
+    session['role'] = admin['role']
+    session['permissions'] = '{}'
+    return jsonify({'id': admin['id'], 'name': admin['name'], 'email': admin['email'],
+                     'role': admin['role'], 'permissions': {}})
+
 @app.route('/api/auth/me')
 def me():
     if 'user_id' not in session: return jsonify({'user': None})
@@ -3858,8 +3948,12 @@ def me():
     if u['role'] != 'admin':
         try: perms = json.loads(u.get('role_permissions') or '{}')
         except Exception: perms = {}
-    return jsonify({'user': {'id': u['id'], 'name': u['name'], 'email': u['email'],
-                             'role': u['role'], 'permissions': perms}})
+    result = {'id': u['id'], 'name': u['name'], 'email': u['email'],
+              'role': u['role'], 'permissions': perms}
+    if session.get('real_admin_id'):
+        result['impersonating'] = True
+        result['real_admin_name'] = session.get('real_admin_name', '')
+    return jsonify({'user': result})
 
 @app.route('/api/auth/change-password', methods=['POST'])
 def change_password():
@@ -9700,7 +9794,10 @@ def delete_production(pid):
 
 @app.route('/api/productions/<pid>/members', methods=['POST'])
 def add_production_member(pid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     d = request.json or {}
     mid = str(uuid.uuid4())
@@ -9738,9 +9835,13 @@ def update_production_member(mid, pid=None):
 
 @app.route('/api/productions/members/<mid>', methods=['DELETE'])
 def remove_production_member(mid):
-    err = require_permission('productions')
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        member = fetchone(conn, 'SELECT production_id FROM production_members WHERE id=%s', (mid,))
+        err = require_own_production(member['production_id']) if member else require_permission('productions')
+    else:
+        err = require_permission('productions')
+    if err: conn.close(); return err
     execute(conn, 'DELETE FROM production_members WHERE id=%s', (mid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -12731,7 +12832,10 @@ def remove_program_required_waiver(pid, wid):
 
 @app.route('/api/productions/<pid>/waivers', methods=['POST'])
 def add_prod_waiver(pid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     d = request.json or {}
     rid = str(uuid.uuid4())
@@ -12747,7 +12851,10 @@ def add_prod_waiver(pid):
 
 @app.route('/api/productions/<pid>/waivers/<wid>', methods=['DELETE'])
 def remove_prod_waiver(pid, wid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_required_waivers WHERE production_id=%s AND waiver_type_id=%s', (pid, wid))
@@ -12758,7 +12865,10 @@ def remove_prod_waiver(pid, wid):
 def set_production_callout_recipients(pid):
     """Set which added crew members get a text when someone calls out for this
     production. Texts go to whatever phone number is on their volunteer profile."""
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     d = request.json or {}
     volunteer_ids = d.get('volunteer_ids') or []
@@ -31748,7 +31858,10 @@ This is an internal reference tool, not legal advice. If a question touches on s
 
 @app.route('/api/productions/<pid>/contracts')
 def get_production_contracts(pid):
-    err = require_permission('productions', 'view')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions', 'view')
     if err: return err
     conn = get_db()
     docs = fetchall(conn, '''SELECT id, filename, uploaded_at, LENGTH(extracted_text) AS char_count
@@ -31758,7 +31871,10 @@ def get_production_contracts(pid):
 
 @app.route('/api/productions/<pid>/contracts/upload', methods=['POST'])
 def upload_production_contract(pid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     try:
         if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
@@ -31782,16 +31898,23 @@ def upload_production_contract(pid):
 
 @app.route('/api/productions/contracts/<cid>', methods=['DELETE'])
 def delete_production_contract(cid):
-    err = require_permission('productions')
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        doc = fetchone(conn, 'SELECT production_id FROM production_contracts WHERE id=%s', (cid,))
+        err = require_own_production(doc['production_id']) if doc else require_permission('productions')
+    else:
+        err = require_permission('productions')
+    if err: conn.close(); return err
     execute(conn, 'DELETE FROM production_contracts WHERE id=%s', (cid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/productions/<pid>/contract-qa')
 def get_production_contract_qa(pid):
-    err = require_permission('productions', 'view')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions', 'view')
     if err: return err
     conn = get_db()
     rows = fetchall(conn, '''SELECT * FROM production_contract_qa WHERE production_id=%s
@@ -31801,7 +31924,10 @@ def get_production_contract_qa(pid):
 
 @app.route('/api/productions/<pid>/contract-qa', methods=['POST'])
 def create_production_contract_qa(pid):
-    err = require_permission('productions', 'view')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions', 'view')
     if err: return err
     try:
         d = request.json or {}
@@ -31823,9 +31949,13 @@ def create_production_contract_qa(pid):
 
 @app.route('/api/productions/contract-qa/<qid>', methods=['DELETE'])
 def delete_production_contract_qa(qid):
-    err = require_permission('productions')
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        qa = fetchone(conn, 'SELECT production_id FROM production_contract_qa WHERE id=%s', (qid,))
+        err = require_own_production(qa['production_id']) if qa else require_permission('productions')
+    else:
+        err = require_permission('productions')
+    if err: conn.close(); return err
     execute(conn, 'DELETE FROM production_contract_qa WHERE id=%s', (qid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})

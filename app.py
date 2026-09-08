@@ -2877,6 +2877,11 @@ def init_db():
             reviewed_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW())""",
         "CREATE INDEX IF NOT EXISTS ix_oncall_signup_shift ON oncall_signup_requests(shift_id)",
+        # Signups are now picked from the Board of Directors roster rather
+        # than free-typed — this traces a request back to the actual
+        # board_members row it was picked from (name/email come from there,
+        # not from client-supplied text).
+        "ALTER TABLE oncall_signup_requests ADD COLUMN IF NOT EXISTS board_member_id TEXT REFERENCES board_members(id) ON DELETE SET NULL",
 ]:
         try:
             c.execute(col_sql)
@@ -27471,6 +27476,21 @@ def get_oncall_managers_emails(conn):
 def oncall_signup_page():
     return send_from_directory('static', 'oncall-signup.html')
 
+@app.route('/api/public/oncall/board-members')
+def public_oncall_board_members():
+    """Active board roster for the signup picker. Only a has_phone flag is
+    exposed for each member — never the actual number — so the page can
+    decide whether to ask for one; the real lookup happens server-side at
+    submit time from the board member's linked volunteer record."""
+    conn = get_db()
+    rows = fetchall(conn, """SELECT b.id, b.name,
+        (v.phone IS NOT NULL AND v.phone != '') as has_phone
+        FROM board_members b
+        LEFT JOIN volunteers v ON v.id = b.volunteer_id
+        WHERE b.status='active' ORDER BY b.name""") or []
+    conn.close()
+    return jsonify(rows)
+
 @app.route('/api/public/oncall/open-shifts')
 def public_oncall_open_shifts():
     """Upcoming shifts staff have left unassigned (blank person_name),
@@ -27494,33 +27514,47 @@ def public_oncall_open_shifts():
 def public_oncall_signup():
     d = request.get_json(silent=True) or {}
     shift_id = d.get('shift_id')
-    name = (d.get('name') or '').strip()
-    phone = (d.get('phone') or '').strip()
-    email = (d.get('email') or '').strip().lower()
+    board_member_id = d.get('board_member_id')
+    phone_input = (d.get('phone') or '').strip()
     notes = (d.get('notes') or '').strip()
-    if not shift_id or not name or not phone:
-        return jsonify({'error': 'Name, phone, and a shift are required'}), 400
+    if not shift_id or not board_member_id:
+        return jsonify({'error': 'Please select your name and a shift'}), 400
     conn = get_db()
     shift = fetchone(conn, 'SELECT * FROM on_call_schedule WHERE id=%s', (shift_id,))
     if not shift:
         conn.close(); return jsonify({'error': 'That shift no longer exists'}), 404
     if (shift.get('person_name') or '').strip():
         conn.close(); return jsonify({'error': 'That shift has already been claimed'}), 400
+    # Name, email, and (when on file) phone come from the board roster and
+    # its linked volunteer record — not client-supplied text. The picker
+    # only lets someone select an existing active member in the first place.
+    board_member = fetchone(conn, """SELECT b.id, b.name, b.email, v.phone as volunteer_phone
+        FROM board_members b
+        LEFT JOIN volunteers v ON v.id = b.volunteer_id
+        WHERE b.id=%s AND b.status='active'""", (board_member_id,))
+    if not board_member:
+        conn.close(); return jsonify({'error': 'That board member could not be found'}), 400
+    name = board_member['name']
+    email = board_member.get('email') or ''
+    phone = (board_member.get('volunteer_phone') or '').strip() or phone_input
+    if not phone:
+        conn.close(); return jsonify({'error': "We don't have a phone number on file for you — please enter one"}), 400
     rid = str(uuid.uuid4())
-    execute(conn, '''INSERT INTO oncall_signup_requests (id, shift_id, name, phone, email, notes, status)
-        VALUES (%s,%s,%s,%s,%s,%s,'pending')''', (rid, shift_id, name, phone, email, notes))
+    execute(conn, '''INSERT INTO oncall_signup_requests (id, shift_id, board_member_id, name, phone, email, notes, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,'pending')''', (rid, shift_id, board_member_id, name, phone, email, notes))
     conn.commit()
     try:
         managers = get_oncall_managers_emails(conn)
         if managers:
             date_str = str(shift.get('start_date'))
+            end_str = str(shift.get('end_date'))
             html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:560px">
-                <h2 style="color:#145466">On-Call Shift Signup Request</h2>
+                <h2 style="color:#145466">On-Call Week Signup Request</h2>
                 <table style="width:100%;border-collapse:collapse;font-size:14px">
-                  <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Name</td><td style="padding:8px">{name}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Board Member</td><td style="padding:8px">{name}</td></tr>
                   <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{phone}</td></tr>
                   <tr><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{email or '-'}</td></tr>
-                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Shift</td><td style="padding:8px">{date_str} &middot; {shift.get('start_time','')}&ndash;{shift.get('end_time','')}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Week</td><td style="padding:8px">{date_str} &ndash; {end_str}</td></tr>
                   <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{notes or '-'}</td></tr>
                 </table>
                 <p style="margin-top:16px"><a href="{APP_BASE_URL}/#oncall" style="color:#145466;font-weight:700">Review in RoleCall</a></p>

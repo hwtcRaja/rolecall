@@ -21022,7 +21022,7 @@ def survey_page(slug):
 
 @app.route('/api/surveys', methods=['GET'])
 def get_surveys():
-    err = require_auth()
+    err = require_permission('surveys', 'view')
     if err: return err
     conn = get_db()
     rows = fetchall(conn, 'SELECT * FROM surveys ORDER BY created_at DESC') or []
@@ -21034,7 +21034,7 @@ def get_surveys():
 
 @app.route('/api/surveys', methods=['POST'])
 def create_survey():
-    err = require_auth()
+    err = require_permission('surveys')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -21063,7 +21063,7 @@ def create_survey():
 
 @app.route('/api/surveys/<sid>', methods=['PUT'])
 def update_survey(sid):
-    err = require_auth()
+    err = require_permission('surveys')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -21092,7 +21092,7 @@ def update_survey(sid):
 
 @app.route('/api/surveys/<sid>', methods=['DELETE'])
 def delete_survey(sid):
-    err = require_auth()
+    err = require_permission('surveys')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM surveys WHERE id=%s', (sid,))
@@ -21101,7 +21101,7 @@ def delete_survey(sid):
 
 @app.route('/api/surveys/<sid>/questions', methods=['POST'])
 def save_survey_questions(sid):
-    err = require_auth()
+    err = require_permission('surveys')
     if err: return err
     d = request.json or {}
     questions = d.get('questions', [])
@@ -21119,7 +21119,7 @@ def save_survey_questions(sid):
 
 @app.route('/api/surveys/<sid>/results', methods=['GET'])
 def get_survey_results(sid):
-    err = require_auth()
+    err = require_permission('surveys', 'view')
     if err: return err
     conn = get_db()
     survey = fetchone(conn, 'SELECT * FROM surveys WHERE id=%s', (sid,))

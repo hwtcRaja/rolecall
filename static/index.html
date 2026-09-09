@@ -29526,6 +29526,19 @@ async function checkRentalPaymentStatus(paymentId){
   }
 }
 
+async function markRentalPaymentPaid(paymentId, agreementId){
+  if(!confirm('Mark this invoice as paid? Use this when payment came in outside Square — check, cash, Venmo, etc. This also flips the agreement to Active if it isn\'t already.')) return
+  const res = await api('/api/rental/payments/'+paymentId+'/mark-paid','POST')
+  if(res && res.id){
+    toast('Marked as paid!','success')
+    document.getElementById('rental-payments-list-modal')?.remove()
+    openRentalPaymentsListModal(agreementId)
+    loadRentalsPage()
+  } else {
+    toast((res&&res.error)||'Could not mark as paid','error')
+  }
+}
+
 async function sendScheduledRentalInvoice(paymentId, agreementId){
   const res = await api('/api/rental/payments/'+paymentId+'/send-invoice','POST')
   if(res && res.ok){
@@ -29692,6 +29705,7 @@ async function openRentalPaymentsListModal(agreementId){
       + '<div style="margin-top:6px;display:flex;gap:10px;align-items:center">'
       + (p.public_url?'<a href="'+p.public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice </a>':'')
       + (!paid && !scheduled?'<span style="font-size:11px;color:#145466;font-weight:600;cursor:pointer" onclick="checkRentalPaymentStatus(\''+p.id+'\').then(()=>openRentalPaymentsListModal(\''+agreementId+'\'))">Check Status</span>':'')
+      + (!paid?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="markRentalPaymentPaid(\''+p.id+'\',\''+agreementId+'\')">Mark as Paid</button>':'')
       + (scheduled?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendScheduledRentalInvoice(\''+p.id+'\',\''+agreementId+'\')">Send Now</button>':'')
       + (scheduled && p.payment_type==='installment'?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openEditRentalInstallmentModal(\''+p.id+'\',\''+agreementId+'\')">Edit</button>':'')
       + '</div></div>'

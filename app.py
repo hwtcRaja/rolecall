@@ -32532,6 +32532,9 @@ def marquee_overview():
     #    A Step Up hold only counts here once it's actually been charged
     #    (hold_status='charged') — a pending hold is a promise, not money in
     #    hand yet. Comp'd enrollments are $0 by design, not an unpaid gap.
+    #    Any amount refunded (pr.refund_amount_cents) is subtracted back out
+    #    regardless of how the registration was priced, since a refund can
+    #    happen without unenrolling (status stays 'confirmed').
     #  - expected_revenue: confirmed_revenue plus what's still outstanding —
     #    pending (uncharged) Step Up holds, and waitlisted registrations that
     #    could still convert. This is the optimistic "if everything comes
@@ -32550,7 +32553,7 @@ def marquee_overview():
                 ELSE COALESCE(pr.amount_paid_cents,
                     COALESCE(yp.price, prod.price, 0) * COALESCE(pr.participant_count,1)
                     - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
-            END AS confirmed_amount,
+            END - COALESCE(pr.refund_amount_cents,0) AS confirmed_amount,
             CASE WHEN NOT pr.is_comped AND su.hold_status = 'pending' THEN su.amount ELSE 0 END AS pending_step_up_amount
         FROM program_registrations pr
         LEFT JOIN youth_programs yp ON yp.id=pr.program_id
@@ -32645,7 +32648,7 @@ def marquee_overview():
                 ELSE COALESCE(pr.amount_paid_cents,
                     COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
                     - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
-            END AS confirmed_amount,
+            END - COALESCE(pr.refund_amount_cents,0) AS confirmed_amount,
             CASE WHEN NOT pr.is_comped AND su.hold_status = 'pending' THEN su.amount ELSE 0 END AS pending_step_up_amount,
             CASE WHEN pr.is_comped THEN 'comped'
                 WHEN su.hold_status = 'charged' THEN 'step_up'
@@ -32711,7 +32714,7 @@ def marquee_overview():
                 ELSE COALESCE(pr.amount_paid_cents,
                     COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
                     - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
-            END AS confirmed_amount,
+            END - COALESCE(pr.refund_amount_cents,0) AS confirmed_amount,
             CASE WHEN NOT pr.is_comped AND su.hold_status = 'pending' THEN su.amount ELSE 0 END AS pending_step_up_amount,
             CASE WHEN pr.is_comped THEN 'comped'
                 WHEN su.hold_status = 'charged' THEN 'step_up'
@@ -32802,6 +32805,7 @@ def marquee_overview():
         except Exception: pass
         session_rev_regs = fetchall(conn, '''SELECT pr.id, pr.session_ids, pr.square_order_id,
             pr.amount_paid_cents, pr.is_comped, pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
+            pr.refund_amount_cents,
             yp.price AS program_price, yp.bundle_price,
             su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
             FROM program_registrations pr
@@ -32834,6 +32838,7 @@ def marquee_overview():
                 base_price = r.get('bundle_price') if (len(sids) > 1 and r.get('bundle_price')) else r.get('program_price')
                 amount = ((base_price or 0) * (r.get('participant_count') or 1)
                     - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+            amount = max(0, amount - (r.get('refund_amount_cents') or 0))
             per_session_share = amount / len(sids)
             for sid in sids:
                 session_rev_by_id[sid] = session_rev_by_id.get(sid, 0) + per_session_share
@@ -32880,6 +32885,7 @@ def marquee_overview():
             pr.child_first_name, pr.child_last_name,
             pr.guardian_name, pr.status, pr.amount_paid_cents, pr.is_comped,
             pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
+            pr.refund_amount_cents,
             COALESCE(yp.price, prod.price, 0) AS list_price,
             (SELECT h.amount FROM step_up_child_holds h
                 WHERE h.registration_id = pr.id ORDER BY h.created_at DESC LIMIT 1) AS step_up_amount,
@@ -32915,6 +32921,12 @@ def marquee_overview():
             else:
                 r['effective_amount_cents'] = estimate
                 r['amount_source'] = 'estimate'
+            # A refund can land on any of the above without changing status
+            # (see process_square_refund) — net it out here so the roster's
+            # per-registrant figure and the dashboard totals always agree.
+            if r.get('refund_amount_cents'):
+                r['effective_amount_cents'] = max(0, r['effective_amount_cents'] - r['refund_amount_cents'])
+                if r['amount_source'] != 'comped': r['amount_source'] = 'refunded'
             regs_by_program[pid2].append({k:v for k,v in r.items() if k!='group_id'})
     except Exception as e:
         app.logger.warning(f'Flat program registrants query failed: {e}')

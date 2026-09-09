@@ -452,6 +452,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon" id="ni-dashboard"></span>Dashboard</div>
         <div class="nav-item" onclick="navTo('my-time',this)"><span class="nav-icon" id="ni-my-time"></span>My Time &amp; Attendance</div>
         <div class="nav-item" onclick="navTo('space-requests',this)"><span class="nav-icon" id="ni-space-requests"></span>Request a Space</div>
+        <div class="nav-item" onclick="navTo('surveys',this)"><span class="nav-icon" id="ni-surveys"></span>Surveys</div>
         <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers"></span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors"></span>Directors</div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
@@ -558,6 +559,18 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="sr-tab-new"></div>
    <div id="sr-tab-mine" style="display:none"></div>
    <div id="sr-tab-queue" style="display:none"></div>
+  </div>
+ </section>
+
+ <section class="page" id="page-surveys">
+  <div class="page-header">
+   <div><div class="page-title"> Surveys</div><div class="page-subtitle">Build surveys, share the link, and see what came back</div></div>
+   <div class="page-actions">
+    <button class="btn btn-primary" onclick="openSurveyEditor()">+ New Survey</button>
+   </div>
+  </div>
+  <div class="page-body">
+   <div id="surveys-list"></div>
   </div>
  </section>
 
@@ -2853,6 +2866,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-surveys">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Surveys</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-surveys" placeholder="clipboard-list" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('surveys',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-rentals">
  <span style="font-size:16px"></span>
  </div>
@@ -4413,6 +4437,7 @@ const NAV_PERM_MAP = {
  'dashboard': null,
   'my-time': null,
  'space-requests': null,
+ 'surveys': 'surveys',
  'rentals': 'rentals', // always visible
  'volunteers': 'volunteers',
  'directors': 'directors',
@@ -4602,6 +4627,7 @@ function navTo(page,el){
  if(page==='refund-requests') loadRefundRequestsPage()
   if(page==='my-time') loadMyTimePage()
  if(page==='space-requests') loadSpaceRequestsPage()
+ if(page==='surveys') loadSurveysPage()
  if(page==='rentals') loadRentalsPage()
   if(page==='instructor-dashboard') loadInstructorDashboard()
  if(page==='director-dashboard') loadDirectorDashboard()
@@ -5209,7 +5235,7 @@ function renderVolunteers(){
  tbody.innerHTML=filtered.map(v=>{
  const interests=JSON.parse(v.interests||'[]')
  const checked=selectedVolIds.has(v.id)
- return `<tr style="cursor:pointer${v.verified_at?';background:rgba(24,95,165,0.07)':''}" onclick="openProfile('${v.id}')" class="vol-row-hover">
+ return `<tr style="cursor:pointer${v.verified_at?';background:rgba(99,102,241,0.12)':''}" onclick="openProfile('${v.id}')" class="vol-row-hover">
  <td onclick="event.stopPropagation()" style="width:32px">
  <input type="checkbox" style="width:16px;height:16px;accent-color:var(--teal-400)" ${checked?'checked':''}
  onchange="toggleVolSelect('${v.id}',this.checked)"/>
@@ -10459,7 +10485,7 @@ const NAV_ICON_DEFAULTS = {
  'rising-stars-page':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
-  board:'', directors:'', 'my-time':'', 'space-requests':'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
+  board:'', directors:'', 'my-time':'', 'space-requests':'', surveys:'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
   oncall:'', 'hours-store':'', responsibility:'', licensing:'', inbox:'',
  'instructor-dashboard':'', 'director-dashboard':''
@@ -17515,6 +17541,7 @@ const PERM_SECTIONS = [
  {key:'responsibility_grid', label:'Responsibility Grid', desc:'RACI grid, process flows, and org chart across all board & committee roles'},
  {key:'licensing', label:'Licensing Requests', desc:'Show licensing requests & contract/renewal tracking (falls back to Productions access if not set)'},
  {key:'space_requests', label:'Request a Space', desc:'Review, approve, and deny staff space/date requests (submitting a request stays open to all staff; falls back to Artistic Partnership access if not set)'},
+ {key:'surveys', label:'Surveys', desc:'Create surveys, manage questions, and view response results'},
 ]
 
 
@@ -34321,6 +34348,233 @@ async function tkSavePerfTicketTypes(){
 
 </script>
 <!-- ═══════════════ END TICKETING UI ═══════════════ -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// SURVEYS
+// ═══════════════════════════════════════════════════════════════
+var _surveysList = []
+
+async function loadSurveysPage(){
+ var el = document.getElementById('surveys-list')
+ el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Loading…</div>'
+ var rows = await api('/api/surveys')
+ if(!Array.isArray(rows)){ el.innerHTML = '<div class="card" style="padding:20px;color:var(--red-600)">'+((rows&&rows.error)||'Could not load surveys')+'</div>'; return }
+ _surveysList = rows
+ renderSurveysList()
+}
+
+function surveyStatusBadge(status){
+ var map = {
+  draft:   {bg:'var(--bg)', color:'var(--text-muted)', label:'Draft'},
+  open:    {bg:'#f0fdf4', color:'#16a34a', label:'Open'},
+  closed:  {bg:'#fef2f2', color:'#dc2626', label:'Closed'}
+ }
+ var s = map[status] || map.draft
+ return '<span style="background:'+s.bg+';color:'+s.color+';border:1px solid '+s.color+'33;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:700">'+s.label+'</span>'
+}
+
+function renderSurveysList(){
+ var el = document.getElementById('surveys-list')
+ if(!_surveysList.length){
+  el.innerHTML = '<div class="card" style="text-align:center;padding:50px 20px;color:var(--text-muted)">No surveys yet. Click "+ New Survey" to build one.</div>'
+  return
+ }
+ el.innerHTML = _surveysList.map(function(s){
+  return '<div class="card" style="padding:16px 18px;margin-bottom:12px">'
+   + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'
+   + '<div style="flex:1;min-width:200px">'
+   + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">'
+   + '<div style="font-size:14.5px;font-weight:700">'+escHtml(s.title)+'</div>'+surveyStatusBadge(s.status)
+   + '</div>'
+   + (s.description?'<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:4px">'+escHtml(s.description)+'</div>':'')
+   + '<div style="font-size:11.5px;color:var(--text-hint)">'+(s.questions?s.questions.length:0)+' question'+((s.questions&&s.questions.length===1)?'':'s')+' · '+(s.response_count||0)+' response'+(s.response_count===1?'':'s')+' · /survey/'+escHtml(s.slug)+'</div>'
+   + '</div>'
+   + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+   + '<button class="btn btn-secondary btn-sm" onclick="copySurveyLink(\''+s.slug+'\')">Copy Link</button>'
+   + '<button class="btn btn-secondary btn-sm" onclick="openSurveyResults(\''+s.id+'\')">Results</button>'
+   + '<button class="btn btn-secondary btn-sm" onclick="openSurveyEditor(\''+s.id+'\')">Edit</button>'
+   + '<button class="btn btn-danger btn-sm" onclick="deleteSurveyConfirm(\''+s.id+'\',\''+s.title.replace(/'/g,"\\'")+'\')">Delete</button>'
+   + '</div>'
+   + '</div>'
+   + '</div>'
+ }).join('')
+}
+
+function copySurveyLink(slug){
+ var url = window.location.origin + '/survey/' + slug
+ navigator.clipboard.writeText(url)
+ toast('Survey link copied','success')
+}
+
+async function deleteSurveyConfirm(sid, title){
+ if(!confirm('Delete "'+title+'"? This also deletes all of its questions and responses. This cannot be undone.')) return
+ var res = await api('/api/surveys/'+sid, 'DELETE')
+ if(res && res.ok){ toast('Survey deleted'); loadSurveysPage() }
+ else toast((res&&res.error)||'Error deleting survey','error')
+}
+
+// ── Editor (survey settings + question builder in one modal) ──
+var _surveyEditorQuestions = []
+var _surveyEditorId = null
+
+function newSurveyQuestion(){
+ return {id:null, question_text:'', question_type:'text', options:[], required:false, allow_other:false}
+}
+
+function openSurveyEditor(sid){
+ var survey = sid ? _surveysList.find(function(s){ return s.id===sid }) : null
+ _surveyEditorId = sid || null
+ _surveyEditorQuestions = survey ? JSON.parse(JSON.stringify(survey.questions||[])) : []
+ if(!_surveyEditorQuestions.length) _surveyEditorQuestions.push(newSurveyQuestion())
+
+ var overlay = document.createElement('div')
+ overlay.id = 'survey-editor-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:640px;max-height:90vh;overflow-y:auto;padding:24px">'
+  + '<div style="font-size:16px;font-weight:800;margin-bottom:18px">'+(survey?'Edit Survey':'New Survey')+'</div>'
+  + '<div class="form-group"><label>Title</label><input type="text" id="sv-title" value="'+escHtml(survey?survey.title:'')+'" placeholder="e.g. Class & Program Interest Survey"/></div>'
+  + '<div class="form-group"><label>Description</label><textarea id="sv-description" rows="2" style="resize:vertical">'+escHtml(survey?survey.description||'':'')+'</textarea></div>'
+  + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px" class="form-group">'
+  + '<div><label>Status</label><select id="sv-status" style="width:100%;box-sizing:border-box">'
+  + ['draft','open','closed'].map(function(st){ return '<option value="'+st+'"'+(survey&&survey.status===st?' selected':(!survey&&st==='draft'?' selected':''))+'>'+st.charAt(0).toUpperCase()+st.slice(1)+'</option>' }).join('')
+  + '</select></div>'
+  + '<div><label>Closes (optional)</label><input type="date" id="sv-closes" value="'+(survey&&survey.closes_at?String(survey.closes_at).slice(0,10):'')+'" style="width:100%;box-sizing:border-box"/></div>'
+  + '</div>'
+  + '<div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:16px">'
+  + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="sv-allow-anon" '+((!survey||survey.allow_anonymous)?'checked':'')+' style="accent-color:var(--teal)"/>Allow anonymous responses</label>'
+  + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="sv-require-name" '+(survey&&survey.require_name?'checked':'')+' style="accent-color:var(--teal)"/>Require name</label>'
+  + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="sv-require-email" '+(survey&&survey.require_email?'checked':'')+' style="accent-color:var(--teal)"/>Require email</label>'
+  + '</div>'
+  + '<hr class="divider"/>'
+  + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="font-size:13px;font-weight:700">Questions</div><button type="button" class="btn btn-secondary btn-sm" onclick="addSurveyQuestionRow()">+ Add Question</button></div>'
+  + '<div id="sv-questions-list"></div>'
+  + '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:18px">'
+  + '<button class="btn btn-secondary" onclick="document.getElementById(\'survey-editor-overlay\').remove()">Cancel</button>'
+  + '<button class="btn btn-primary" onclick="saveSurveyEditor()">Save Survey</button>'
+  + '</div>'
+  + '</div>'
+ document.body.appendChild(overlay)
+ renderSurveyQuestionsList()
+}
+
+function renderSurveyQuestionsList(){
+ var wrap = document.getElementById('sv-questions-list')
+ if(!wrap) return
+ wrap.innerHTML = _surveyEditorQuestions.map(function(q, i){
+  var needsOptions = q.question_type==='radio' || q.question_type==='checkbox'
+  return '<div style="border:1.5px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px;background:var(--bg)">'
+   + '<div style="display:flex;gap:8px;margin-bottom:8px">'
+   + '<input type="text" value="'+escHtml(q.question_text)+'" placeholder="Question text" oninput="_surveyEditorQuestions['+i+'].question_text=this.value" style="flex:1;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:13px"/>'
+   + '<select onchange="_surveyEditorQuestions['+i+'].question_type=this.value;renderSurveyQuestionsList()" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:12.5px">'
+   + ['text','radio','checkbox'].map(function(t){ return '<option value="'+t+'"'+(q.question_type===t?' selected':'')+'>'+(t==='text'?'Short Text':t==='radio'?'Single Choice':'Multiple Choice')+'</option>' }).join('')
+   + '</select>'
+   + '<button type="button" class="btn btn-danger btn-sm" onclick="removeSurveyQuestionRow('+i+')" title="Remove question">✕</button>'
+   + '</div>'
+   + (needsOptions
+     ? '<div style="margin-bottom:8px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Options (one per line)</label>'
+       + '<textarea rows="3" style="width:100%;box-sizing:border-box;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical" oninput="_surveyEditorQuestions['+i+'].options=this.value.split(String.fromCharCode(10)).map(function(s){return s.trim()}).filter(Boolean)" placeholder="Option A'+String.fromCharCode(10)+'Option B">'+escHtml((q.options||[]).join(String.fromCharCode(10)))+'</textarea></div>'
+     : '')
+   + '<div style="display:flex;gap:14px">'
+   + '<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" '+(q.required?'checked':'')+' onchange="_surveyEditorQuestions['+i+'].required=this.checked" style="accent-color:var(--teal)"/>Required</label>'
+   + (needsOptions?'<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" '+(q.allow_other?'checked':'')+' onchange="_surveyEditorQuestions['+i+'].allow_other=this.checked" style="accent-color:var(--teal)"/>Allow "Other"</label>':'')
+   + '</div>'
+   + '</div>'
+ }).join('')
+}
+
+function addSurveyQuestionRow(){
+ _surveyEditorQuestions.push(newSurveyQuestion())
+ renderSurveyQuestionsList()
+}
+
+function removeSurveyQuestionRow(i){
+ _surveyEditorQuestions.splice(i, 1)
+ if(!_surveyEditorQuestions.length) _surveyEditorQuestions.push(newSurveyQuestion())
+ renderSurveyQuestionsList()
+}
+
+async function saveSurveyEditor(){
+ var title = document.getElementById('sv-title').value.trim()
+ if(!title){ toast('Give the survey a title first', 'error'); return }
+ var payload = {
+  title: title,
+  description: document.getElementById('sv-description').value.trim(),
+  status: document.getElementById('sv-status').value,
+  closes_at: document.getElementById('sv-closes').value || null,
+  allow_anonymous: document.getElementById('sv-allow-anon').checked,
+  require_name: document.getElementById('sv-require-name').checked,
+  require_email: document.getElementById('sv-require-email').checked,
+ }
+ var sid = _surveyEditorId
+ var res = sid ? await api('/api/surveys/'+sid, 'PUT', payload) : await api('/api/surveys', 'POST', payload)
+ if(!res || (!res.ok && !res.id)){ toast((res&&res.error)||'Error saving survey', 'error'); return }
+ if(!sid) sid = res.id
+ var cleanQuestions = _surveyEditorQuestions.filter(function(q){ return q.question_text.trim() })
+ var qres = await api('/api/surveys/'+sid+'/questions', 'POST', {questions: cleanQuestions})
+ if(!qres || !qres.ok){ toast((qres&&qres.error)||'Survey saved, but questions failed to save', 'error'); return }
+ document.getElementById('survey-editor-overlay')?.remove()
+ toast('Survey saved!', 'success')
+ loadSurveysPage()
+}
+
+// ── Results ──
+async function openSurveyResults(sid){
+ var data = await api('/api/surveys/'+sid+'/results')
+ if(!data || data.error){ toast((data&&data.error)||'Could not load results', 'error'); return }
+ var overlay = document.createElement('div')
+ overlay.id = 'survey-results-overlay'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
+
+ var responses = data.responses || []
+ var questionsHtml = (data.questions||[]).map(function(q){
+  var answers = responses.map(function(r){ var a=(r.answers||{}); return a[q.id] }).filter(function(a){ return a!==undefined && a!==null && a!=='' })
+  var body = ''
+  if(q.question_type==='text'){
+   body = answers.length
+    ? '<div style="display:flex;flex-direction:column;gap:6px">'+answers.map(function(a){ return '<div style="background:var(--bg);border-radius:8px;padding:8px 10px;font-size:12.5px">'+escHtml(String(a))+'</div>' }).join('')+'</div>'
+    : '<div style="font-size:12px;color:var(--text-hint)">No answers yet</div>'
+  } else {
+   var tally = {}
+   answers.forEach(function(a){
+    var vals = Array.isArray(a) ? a : [a]
+    vals.forEach(function(v){ tally[v] = (tally[v]||0) + 1 })
+   })
+   var max = Math.max.apply(null, Object.values(tally).concat([1]))
+   var options = (q.options||[]).slice()
+   Object.keys(tally).forEach(function(k){ if(!options.includes(k)) options.push(k) })
+   body = options.length
+    ? options.map(function(opt){
+       var count = tally[opt]||0
+       var pct = Math.round((count/max)*100)
+       return '<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>'+escHtml(opt)+'</span><span style="color:var(--text-muted)">'+count+'</span></div><div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden"><div style="width:'+pct+'%;background:var(--teal-400);height:100%"></div></div></div>'
+      }).join('')
+    : '<div style="font-size:12px;color:var(--text-hint)">No answers yet</div>'
+  }
+  return '<div style="margin-bottom:18px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">'+escHtml(q.question_text)+'</div>'+body+'</div>'
+ }).join('')
+
+ var responseListHtml = responses.length
+  ? '<div style="max-height:180px;overflow-y:auto;border-top:1px solid var(--border);padding-top:10px">'
+    + responses.map(function(r){
+       return '<div style="font-size:11.5px;color:var(--text-muted);padding:4px 0">'+escHtml(r.respondent_name||'Anonymous')+(r.respondent_email?' · '+escHtml(r.respondent_email):'')+' · '+new Date(r.submitted_at).toLocaleString()+'</div>'
+      }).join('')
+    + '</div>'
+  : ''
+
+ overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;padding:24px">'
+  + '<div style="font-size:16px;font-weight:800;margin-bottom:4px">'+escHtml(data.survey.title)+'</div>'
+  + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:18px">'+responses.length+' response'+(responses.length===1?'':'s')+'</div>'
+  + (questionsHtml || '<div style="font-size:13px;color:var(--text-muted)">No questions on this survey yet.</div>')
+  + responseListHtml
+  + '<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-secondary" onclick="document.getElementById(\'survey-results-overlay\').remove()">Close</button></div>'
+  + '</div>'
+ document.body.appendChild(overlay)
+}
+</script>
 
 <script>
 // ═══════════════════════════════════════════════════════════════

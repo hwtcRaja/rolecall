@@ -12711,7 +12711,7 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
       const [bg,col] = AS_COLORS[sub.status] || AS_COLORS['pending']
       html += `<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 10px;background:var(--bg);border-radius:8px">`
       html += `<div style="flex:1;min-width:0">`
-      html += `<div style="font-size:13px;font-weight:700">${escHtml(sub.submitter_name||'')}</div>`
+      html += `<div style="font-size:13px;font-weight:700">${escHtml(sub.submitter_name||'')}${sub.age!=null?` <span style="font-weight:400;color:#6b7280">(Age ${sub.age})</span>`:''}</div>`
       if(sub.submitter_email) html += `<div style="font-size:11px;color:#6b7280">${escHtml(sub.submitter_email)}</div>`
       const roleList = (function(){ try{ return JSON.parse(sub.roles_requested||'[]') }catch(e){ return [] } })()
       if(roleList.length) html += `<div style="font-size:11px;color:var(--teal-dark);margin-top:2px">${roleList.map(function(r){ return escHtml(r) }).join(', ')}</div>`
@@ -12814,7 +12814,8 @@ function renderAuditionList(submissions, contextId, filterStatus){
  let bits = []
  if(s.pronouns) bits.push(escHtml(s.pronouns))
  if(s.phone) bits.push(escHtml(s.phone))
- if(s.is_minor===true) bits.push('Under 18'+(s.birthday?' · DOB '+escHtml(s.birthday):''))
+ if(s.age!=null) bits.push('Age '+s.age+(s.is_minor?' (Minor)':''))
+ else if(s.is_minor===true) bits.push('Under 18'+(s.birthday?' · DOB '+escHtml(s.birthday):''))
  else if(s.is_minor===false) bits.push('18+')
  if(s.how_heard) bits.push('Heard via: '+escHtml(s.how_heard))
  return bits.length ? `<div style="font-size:12px;color:var(--text-muted);margin-top:2px">${bits.join(' · ')}</div>` : ''

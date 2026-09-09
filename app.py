@@ -6684,7 +6684,7 @@ def get_audition_submissions(context_type, context_id):
             COALESCE(s.roles_requested, '[]') as roles_requested,
             COALESCE(s.cast_role, '') as cast_role,
             COALESCE(s.audition_type, 'virtual') as audition_type,
-            s.slot_id,
+            s.slot_id, s.birthday, s.is_minor, s.pronouns, s.phone, s.how_heard,
             sl.slot_date, sl.start_time, sl.end_time, sl.location as slot_location
             FROM audition_submissions s
             LEFT JOIN audition_slots sl ON sl.id=s.slot_id
@@ -6704,6 +6704,10 @@ def get_audition_submissions(context_type, context_id):
             app.logger.error(f'get_audition_submissions fallback error: {e2}')
             return jsonify([])
     conn.close()
+    # Age is computed here rather than stored, so it's always current as of
+    # today rather than frozen at submission time.
+    for r in rows:
+        r['age'] = compute_age(r.get('birthday'))
     return jsonify(rows)
 
 

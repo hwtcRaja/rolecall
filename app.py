@@ -30898,6 +30898,27 @@ def _apply_rental_invoice_update(conn, payment, invoice):
             except Exception as e:
                 app.logger.warning(f'Rental payment-paid notify error: {e}')
 
+@app.route('/api/rental/payments/<pid>/mark-paid', methods=['POST'])
+def mark_rental_payment_paid(pid):
+    """Manual override for when a payment came in outside Square — check,
+    cash, Venmo, etc. — or an invoice was never sent through Square at all.
+    Reuses the exact same paid-transition side effects as the Square-driven
+    path (agreement flips to Active on first payment, staff get the same
+    notification email) by feeding it a synthetic PAID status."""
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    payment = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (pid,))
+    if not payment:
+        conn.close(); return jsonify({'error': 'Payment not found'}), 404
+    if payment.get('square_invoice_status') == 'PAID':
+        conn.close(); return jsonify({'error': 'This invoice is already marked paid'}), 400
+    _apply_rental_invoice_update(conn, payment, {'status': 'PAID'})
+    conn.commit()
+    updated = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (pid,))
+    conn.close()
+    return jsonify(updated)
+
 @app.route('/api/rental/occurrences/<request_id>', methods=['GET'])
 def get_rental_occurrences(request_id):
     err = require_auth()

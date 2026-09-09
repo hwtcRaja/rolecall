@@ -5209,7 +5209,7 @@ function renderVolunteers(){
  tbody.innerHTML=filtered.map(v=>{
  const interests=JSON.parse(v.interests||'[]')
  const checked=selectedVolIds.has(v.id)
- return `<tr style="cursor:pointer${v.verified_at?';background:var(--teal-50)':''}" onclick="openProfile('${v.id}')" class="vol-row-hover">
+ return `<tr style="cursor:pointer${v.verified_at?';background:rgba(24,95,165,0.07)':''}" onclick="openProfile('${v.id}')" class="vol-row-hover">
  <td onclick="event.stopPropagation()" style="width:32px">
  <input type="checkbox" style="width:16px;height:16px;accent-color:var(--teal-400)" ${checked?'checked':''}
  onchange="toggleVolSelect('${v.id}',this.checked)"/>

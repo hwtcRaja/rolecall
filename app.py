@@ -1440,6 +1440,21 @@ def init_db():
             sender_name TEXT,
             body TEXT NOT NULL,
             sent_at TIMESTAMP DEFAULT NOW())""",
+        # One-time backfill: message threads only ever resolved family_id
+        # by matching the shared family-level passphrase — but a parent can
+        # just as validly log into the portal with one specific child's own
+        # passphrase (see portal_auth), and doing so left family_id NULL on
+        # any thread they started. That broke the reply notification email
+        # (family lookup came up empty) and made the thread invisible from
+        # any other login for that same family. This resolves those old
+        # threads the same way portal_auth itself would. Only touches rows
+        # where family_id is still NULL, so it's a no-op once repaired.
+        """UPDATE portal_message_threads t
+           SET family_id = COALESCE(
+               (SELECT f.id FROM families f WHERE LOWER(f.passphrase) = LOWER(t.family_passphrase)),
+               (SELECT y.family_id FROM youth_participants y WHERE LOWER(y.passphrase) = LOWER(t.family_passphrase))
+           )
+           WHERE t.family_id IS NULL AND t.family_passphrase IS NOT NULL AND t.family_passphrase != ''""",
         "UPDATE board_meeting_attendance SET attendance_type='in_person' WHERE attended=TRUE AND (attendance_type IS NULL OR attendance_type='absent')",
         "UPDATE board_meeting_attendance SET attendance_type='absent' WHERE attended=FALSE AND (attendance_type IS NULL OR attendance_type='in_person')",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
@@ -6227,6 +6242,50 @@ def get_welcome_recipients(pid):
 #  PORTAL MESSAGING THREADS
 # ─────────────────────────────────────────────────────────────
 
+def _resolve_family_id_from_passphrase(conn, passphrase):
+    """A parent can log into the portal with either the one shared family
+    passphrase OR any one individual child's own passphrase (see
+    portal_auth — both are valid, independent login paths). The messaging
+    feature only ever checked the family-level passphrase, so a parent who
+    logs in as one specific kid could send a message that never resolved
+    to an actual family record — meaning no notification email went out,
+    and the thread couldn't be found again under a different login (e.g.
+    the other kid's passphrase, or the family passphrase itself). This
+    always resolves to the real family_id regardless of which credential
+    was used, so a message thread behaves the same no matter how the
+    parent is logged in."""
+    if not passphrase:
+        return None
+    fam = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s', (passphrase.lower(),))
+    if fam:
+        return fam['id']
+    youth = fetchone(conn, 'SELECT family_id FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase.lower(),))
+    if youth and youth.get('family_id'):
+        return youth['family_id']
+    return None
+
+
+def _family_notification_emails(conn, family_id):
+    """Best-effort recipient list for notifying a family: the family
+    record's own email if set, plus every linked child's guardian emails —
+    since families.email isn't always filled in depending on how the
+    family was set up, but guardian emails on file are more consistently
+    present."""
+    emails = []
+    if not family_id:
+        return emails
+    fam = fetchone(conn, 'SELECT email FROM families WHERE id=%s', (family_id,))
+    if fam and fam.get('email'):
+        emails.append(fam['email'])
+    guardians = fetchall(conn, '''SELECT DISTINCT g.email FROM youth_guardians g
+        JOIN youth_participants y ON y.id=g.youth_id
+        WHERE y.family_id=%s AND g.email IS NOT NULL AND g.email != \'\'''', (family_id,)) or []
+    for g in guardians:
+        if g['email'] and g['email'] not in emails:
+            emails.append(g['email'])
+    return emails
+
+
 @app.route('/api/portal/messages/start', methods=['POST'])
 def portal_start_message_thread():
     d = request.json or {}
@@ -6238,9 +6297,9 @@ def portal_start_message_thread():
     if not subject or not body:
         return jsonify({'error': 'Subject and message are required'}), 400
     conn = get_db()
-    family = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
+    family_id = _resolve_family_id_from_passphrase(conn, passphrase)
+    family = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (family_id,)) if family_id else None
     sender_name = d.get('sender_name','').strip() or (family.get('name') if family else 'Family')
-    family_id   = family['id'] if family else None
     tid = str(uuid.uuid4())
     execute(conn, """INSERT INTO portal_message_threads
         (id, family_id, program_id, production_id, subject, status, unread_admin, unread_family, family_passphrase)
@@ -6301,7 +6360,9 @@ def portal_get_thread(tid):
     if not thread:
         conn.close(); return jsonify({'error': 'Not found'}), 404
     is_admin  = session.get('user_id') is not None
-    is_family = passphrase and thread.get('family_passphrase') == passphrase
+    resolved_family_id = _resolve_family_id_from_passphrase(conn, passphrase) if passphrase else None
+    is_family = (resolved_family_id is not None and resolved_family_id == thread.get('family_id')) \
+        or (passphrase and thread.get('family_passphrase') == passphrase)
     if not is_admin and not is_family:
         conn.close(); return jsonify({'error': 'Unauthorized'}), 403
     messages = fetchall(conn, 'SELECT * FROM portal_messages WHERE thread_id=%s ORDER BY sent_at', (tid,))
@@ -6330,7 +6391,9 @@ def portal_reply_thread(tid):
         conn.close(); return jsonify({'error': 'Not found'}), 404
     is_admin  = session.get('user_id') is not None
     passphrase = d.get('passphrase','')
-    is_family  = passphrase and thread.get('family_passphrase') == passphrase
+    resolved_family_id = _resolve_family_id_from_passphrase(conn, passphrase) if passphrase else None
+    is_family = (resolved_family_id is not None and resolved_family_id == thread.get('family_id')) \
+        or (passphrase and thread.get('family_passphrase') == passphrase)
     if not is_admin and not is_family:
         conn.close(); return jsonify({'error': 'Unauthorized'}), 403
     side = 'admin' if is_admin else 'family'
@@ -6343,13 +6406,22 @@ def portal_reply_thread(tid):
         execute(conn, 'UPDATE portal_message_threads SET unread_admin=unread_admin+1, updated_at=NOW() WHERE id=%s', (tid,))
     conn.commit()
     s = get_email_settings()
-    if is_admin and thread.get('family_passphrase'):
+    if is_admin:
         try:
-            family = fetchone(conn, 'SELECT email FROM families WHERE passphrase=%s', (thread['family_passphrase'],))
-            if family and family.get('email'):
+            recipients = _family_notification_emails(conn, thread.get('family_id'))
+            if not recipients and thread.get('family_passphrase'):
+                # Legacy fallback for threads created before this fix, where
+                # family_id never resolved — the raw passphrase string is
+                # still the best link back to who this is from.
+                fam = fetchone(conn, 'SELECT email FROM families WHERE passphrase=%s', (thread['family_passphrase'],))
+                if fam and fam.get('email'): recipients = [fam['email']]
+            if recipients:
                 html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New reply: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p><a href="https://rolecall.hwtco.org/portal.html" style="background:#145466;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">View in Portal</a></p></div>'
-                send_email([family['email']], f'Re: {thread["subject"]}', build_hwtc_email_html(f'Re: {thread["subject"]}', html))
-        except Exception: pass
+                send_email(recipients, f'Re: {thread["subject"]}', build_hwtc_email_html(f'Re: {thread["subject"]}', html))
+            else:
+                app.logger.warning(f'portal_reply_thread {tid}: no family email found to notify (family_id={thread.get("family_id")})')
+        except Exception as e:
+            app.logger.warning(f'portal reply family-notify failed: {e}')
     elif is_family:
         recipients = list(get_recipient_emails(s))
         try:
@@ -6464,6 +6536,7 @@ def portal_family_threads():
     passphrase = request.args.get('passphrase','').strip()
     if not passphrase: return jsonify([])
     conn = get_db()
+    family_id = _resolve_family_id_from_passphrase(conn, passphrase)
     threads = fetchall(conn, """
         SELECT t.*,
             (SELECT COUNT(*) FROM portal_messages WHERE thread_id=t.id) as message_count,
@@ -6473,8 +6546,8 @@ def portal_family_threads():
         FROM portal_message_threads t
         LEFT JOIN youth_programs yp ON yp.id=t.program_id
         LEFT JOIN productions p ON p.id=t.production_id
-        WHERE t.family_passphrase=%s
-        ORDER BY t.updated_at DESC""", (passphrase,))
+        WHERE (%s IS NOT NULL AND t.family_id=%s) OR t.family_passphrase=%s
+        ORDER BY t.updated_at DESC""", (family_id, family_id, passphrase))
     conn.close()
     return jsonify(threads)
 

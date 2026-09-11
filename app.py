@@ -11921,14 +11921,19 @@ def portal_youth_profile(yid):
     youth['waivers'] = fetchall(conn, '''SELECT yw.*, wt.name as type_name, wt.template_body, wt.can_sign_online
         FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id
         WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC''', (yid,))
-    # Get signable waivers not yet signed  -  includes program-required ones
+    # Get signable waivers not yet signed  -  includes program- and
+    # production-required ones.
     signed_ids = [w['waiver_type_id'] for w in youth['waivers']]
     age = compute_age(youth.get('dob'))
     all_signable = fetchall(conn, "SELECT * FROM waiver_types WHERE can_sign_online=TRUE ORDER BY name")
     all_signable = [w for w in all_signable if waiver_applies_to_age(w, age)]
-    # Also include program-required waivers even if not marked can_sign_online (show as required)
+    # Also include program- and production-required waivers even if not
+    # marked can_sign_online (show as required), scoped to what this
+    # participant is actually enrolled/cast in.
     prog_ids = [e['program_id'] for e in fetchall(conn,
         'SELECT program_id FROM youth_program_enrollments WHERE youth_id=%s', (yid,))]
+    prod_ids_for_waivers = [m['production_id'] for m in fetchall(conn,
+        'SELECT production_id FROM youth_production_members WHERE youth_id=%s', (yid,))]
     prog_required = []
     if prog_ids:
         placeholders = ','.join(['%s']*len(prog_ids))
@@ -11936,9 +11941,28 @@ def portal_youth_profile(yid):
             JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.program_id IN ({placeholders})''', tuple(prog_ids))
         prog_required = [w for w in prog_required if waiver_applies_to_age(w, age)]
-    # Merge: signable + program-required not yet signed, deduplicated
+    prod_required = []
+    if prod_ids_for_waivers:
+        placeholders = ','.join(['%s']*len(prod_ids_for_waivers))
+        prod_required = fetchall(conn, f'''SELECT wt.* FROM production_required_waivers prw
+            JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+            WHERE prw.production_id IN ({placeholders})''', tuple(prod_ids_for_waivers))
+        prod_required = [w for w in prod_required if waiver_applies_to_age(w, age)]
+    # A waiver type tied to SOME specific program or production requirement
+    # anywhere in the system is "scoped" — it should only ever show as
+    # needed for a participant actually in one of those programs/
+    # productions, not for every family member just because it's marked
+    # can_sign_online. A waiver type with no such link at all is general
+    # (liability, media release, code of conduct, etc.) and keeps applying
+    # to everyone as before. Without this split, a production-specific
+    # waiver that happens to be online-signable was showing up for kids
+    # who were never in that production at all.
+    scoped_waiver_ids = {r['waiver_type_id'] for r in fetchall(conn, 'SELECT DISTINCT waiver_type_id FROM program_required_waivers')} \
+        | {r['waiver_type_id'] for r in fetchall(conn, 'SELECT DISTINCT waiver_type_id FROM production_required_waivers')}
+    all_signable = [w for w in all_signable if w['id'] not in scoped_waiver_ids]
+    # Merge: general signable + this participant's own program/production-required, deduplicated
     all_needed = {w['id']: w for w in all_signable}
-    for w in prog_required:
+    for w in prog_required + prod_required:
         if w['id'] not in all_needed:
             w = dict(w); w['required_by_program'] = True
             all_needed[w['id']] = w

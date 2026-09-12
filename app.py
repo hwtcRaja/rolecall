@@ -2898,6 +2898,16 @@ def init_db():
         # not from client-supplied text).
         "ALTER TABLE oncall_signup_requests ADD COLUMN IF NOT EXISTS board_member_id TEXT REFERENCES board_members(id) ON DELETE SET NULL",
 
+        # Trust Mode — lets a permitted ELIC skip the authorized-pickup
+        # name/selection step at drop-off and pick-up for a specific event
+        # (staff know the families and the extra step is pure friction),
+        # toggled live on the kiosk itself rather than from an admin
+        # settings screen. Scoped per-event (not global) so it naturally
+        # resets for events where verification still matters, and gated by
+        # can_toggle_trust_mode so not just any ELIC PIN can flip it.
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS trust_mode BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE elics ADD COLUMN IF NOT EXISTS can_toggle_trust_mode BOOLEAN DEFAULT FALSE",
+
         # Admin "log in as" impersonation — lets an admin test the app as
         # another user without their password. Every session is logged here
         # (who, as whom, when it started/ended) for accountability.
@@ -11027,10 +11037,11 @@ def create_elic():
     d = request.json or {}
     eid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO elics (id, volunteer_id, pin, is_master, assigned_events)
-        VALUES (%s,%s,%s,%s,%s)''',
+    execute(conn, '''INSERT INTO elics (id, volunteer_id, pin, is_master, assigned_events, can_toggle_trust_mode)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('volunteer_id'), d.get('pin','0000'),
-         d.get('is_master', False), json.dumps(d.get('assigned_events',[]))))
+         d.get('is_master', False), json.dumps(d.get('assigned_events',[])),
+         d.get('can_toggle_trust_mode', False)))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*, v.name as volunteer_name
         FROM elics e LEFT JOIN volunteers v ON e.volunteer_id=v.id WHERE e.id=%s''', (eid,))
@@ -11043,9 +11054,10 @@ def update_elic(eid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE elics SET volunteer_id=%s, pin=%s, is_master=%s, assigned_events=%s WHERE id=%s',
+    execute(conn, 'UPDATE elics SET volunteer_id=%s, pin=%s, is_master=%s, assigned_events=%s, can_toggle_trust_mode=%s WHERE id=%s',
         (d.get('volunteer_id'), d.get('pin','0000'),
-         d.get('is_master',False), json.dumps(d.get('assigned_events',[])), eid))
+         d.get('is_master',False), json.dumps(d.get('assigned_events',[])),
+         d.get('can_toggle_trust_mode', False), eid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -11057,6 +11069,36 @@ def delete_elic(eid):
     execute(conn, 'DELETE FROM elics WHERE id=%s', (eid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/kiosk/toggle-trust-mode', methods=['POST'])
+def kiosk_toggle_trust_mode():
+    """Re-verifies the PIN live (not just trusting whatever ELIC is already
+    logged into the kiosk session) so flipping Trust Mode always requires
+    someone to actually punch in a PIN at that moment — and only if that
+    PIN belongs to a master ELIC or one specifically flagged
+    can_toggle_trust_mode. Scoped to one event; does not affect any other
+    event running trust mode independently."""
+    d = request.json or {}
+    pin = (d.get('pin') or '').strip()
+    event_id = d.get('event_id')
+    if not event_id:
+        return jsonify({'error': 'Missing event_id'}), 400
+    conn = get_db()
+    elic = fetchone(conn, '''SELECT e.*, v.name as volunteer_name
+        FROM elics e LEFT JOIN volunteers v ON e.volunteer_id=v.id
+        WHERE e.pin=%s AND e.active=TRUE''', (pin,))
+    if not elic:
+        conn.close(); return jsonify({'error': 'Invalid PIN'}), 401
+    if not elic.get('is_master') and not elic.get('can_toggle_trust_mode'):
+        conn.close(); return jsonify({'error': 'This PIN is not authorized to toggle Trust Mode'}), 403
+    evt = fetchone(conn, 'SELECT trust_mode FROM events WHERE id=%s', (event_id,))
+    if not evt:
+        conn.close(); return jsonify({'error': 'Event not found'}), 404
+    new_state = not evt.get('trust_mode')
+    execute(conn, 'UPDATE events SET trust_mode=%s WHERE id=%s', (new_state, event_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'trust_mode': new_state, 'elic_name': elic.get('volunteer_name', 'ELIC')})
 
 @app.route('/api/kiosk/elic-auth', methods=['POST'])
 @app.route('/api/kiosk/elic-login', methods=['POST'])
@@ -14813,31 +14855,19 @@ def kiosk_production_signout():
         conn.close()
         return jsonify({'error': 'No active sign-in found'}), 404
 
-    # Use full event duration, not elapsed time
+    # Actual elapsed time from when they really signed in to when they
+    # really signed out — this used to default to the event's full
+    # scheduled duration whenever start/end times were set, which counted
+    # staff as present the whole show even if they arrived late or left
+    # early. Elapsed time is now always what's logged.
     evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
     evt_name = evt['name'] if evt else 'Production'
-    event_hours = None
-    if evt and evt.get('start_time') and evt.get('end_time'):
-        try:
-            from datetime import datetime as _dt
-            fmt = '%H:%M'
-            start = _dt.strptime(str(evt['start_time'])[:5], fmt)
-            end   = _dt.strptime(str(evt['end_time'])[:5], fmt)
-            diff  = (end - start).seconds / 3600
-            if diff > 0:
-                event_hours = round(diff, 2)
-        except Exception:
-            pass
-    # Fall back to elapsed time if event has no start/end times set
-    if not event_hours:
-        time_row = fetchone(conn,
-            'SELECT EXTRACT(EPOCH FROM (NOW() - signed_in_at)) as secs FROM prod_attendance WHERE id=%s',
-            (att['id'],))
-        elapsed_secs  = float(time_row['secs']) if time_row and time_row['secs'] else 0
-        event_hours   = round(max(0.25, elapsed_secs / 3600), 2)
-        hours_source  = 'elapsed time (no event times set)'
-    else:
-        hours_source = f'full event duration ({evt.get("start_time","")}–{evt.get("end_time","")})'
+    time_row = fetchone(conn,
+        'SELECT EXTRACT(EPOCH FROM (NOW() - signed_in_at)) as secs FROM prod_attendance WHERE id=%s',
+        (att['id'],))
+    elapsed_secs = float(time_row['secs']) if time_row and time_row['secs'] else 0
+    event_hours  = round(max(0.25, elapsed_secs / 3600), 2)
+    hours_source = 'elapsed time (actual sign-in to sign-out)'
 
     today_row = fetchone(conn, 'SELECT CURRENT_DATE::text as today')
     today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()

@@ -2097,6 +2097,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="min-width:100px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">4-Digit PIN *</div><input type="text" id="new-elic-pin" maxlength="4" placeholder="e.g. 1234" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"/></div>
  <div style="display:flex;align-items:flex-end;gap:6px">
  <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-elic-master" style="accent-color:var(--teal-400)"/> Master ELIC</label>
+ <label class="form-check" style="padding:8px 0"><input type="checkbox" id="new-elic-trust" style="accent-color:var(--teal-400)"/> Can toggle Trust Mode</label>
  <button class="btn btn-primary btn-sm" onclick="addElic()">Add ELIC</button>
  </div>
  </div>
@@ -18060,11 +18061,13 @@ function renderElicsSettings(){
  <div>
  <div class="setting-item-label" style="display:flex;align-items:center;gap:8px">
  ${escHtml(e.volunteer_name)} ${e.is_master?'<span style="font-size:10px;background:var(--teal-50);color:var(--teal-600);padding:1px 6px;border-radius:8px;font-weight:700">MASTER</span>':''}
+ ${e.can_toggle_trust_mode?'<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 6px;border-radius:8px;font-weight:700">TRUST MODE</span>':''}
  ${bgcBadgeHTML(bgcStatus, true)}
  </div>
  <div class="setting-item-sub">PIN: ${e.pin} · ${e.active?'Active':'Inactive'}</div>
  </div>
  <div style="display:flex;gap:6px">
+ <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicTrustMode('${e.id}',${!!e.can_toggle_trust_mode})">${e.can_toggle_trust_mode?'Revoke Trust Toggle':'Allow Trust Toggle'}</button>
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
  <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">Delete</button>
  </div>
@@ -18080,16 +18083,34 @@ async function addElic(){
  const volId=document.getElementById('new-elic-vol').value
  const pin=document.getElementById('new-elic-pin').value.trim()
  const isMaster=document.getElementById('new-elic-master').checked
+ const canToggleTrust=document.getElementById('new-elic-trust').checked
  if(!volId||!pin){toast('Volunteer and PIN are required','error');return}
- const res=await api('/api/elics','POST',{volunteer_id:volId,pin,is_master:isMaster})
+ const res=await api('/api/elics','POST',{volunteer_id:volId,pin,is_master:isMaster,can_toggle_trust_mode:canToggleTrust})
  if(res.error){toast(res.error,'error');return}
  allElics.push(res)
  document.getElementById('new-elic-pin').value=''
  document.getElementById('new-elic-master').checked=false
+ document.getElementById('new-elic-trust').checked=false
  renderElicsSettings()
  populateElicVolSelect()
  renderEventsSettings()
  toast('ELIC added!','success')
+}
+
+async function toggleElicTrustMode(eid, currently){
+ const res = await api('/api/elics/'+eid, 'PUT', {
+  volunteer_id: allElics.find(e=>e.id===eid)?.volunteer_id,
+  pin: allElics.find(e=>e.id===eid)?.pin,
+  is_master: allElics.find(e=>e.id===eid)?.is_master,
+  assigned_events: JSON.parse(allElics.find(e=>e.id===eid)?.assigned_events||'[]'),
+  can_toggle_trust_mode: !currently
+ })
+ if(res && res.ok){
+  const e = allElics.find(e=>e.id===eid)
+  if(e) e.can_toggle_trust_mode = !currently
+  renderElicsSettings()
+  toast(!currently?'Can now toggle Trust Mode':'Trust Mode toggle permission removed','success')
+ } else toast((res&&res.error)||'Error updating ELIC','error')
 }
 
 async function toggleElicActive(eid,currently){

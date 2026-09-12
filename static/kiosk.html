@@ -1117,6 +1117,53 @@ async function submitUpdate(){
   showConfirm('','Updates Submitted!',`${updates.length} update${updates.length>1?'s':''} submitted for review.`,'An admin will review and apply your changes.',()=>showScreen('screen-vol-menu'))
 }
 
+// ── TRUST MODE (per-event, PIN-gated toggle on the sign-in screen itself) ──
+function renderEysTrustSwitch(){
+  const on = !!(eysEventData && eysEventData.trust_mode)
+  const sw = document.getElementById('eys-trust-switch')
+  const knob = document.getElementById('eys-trust-knob')
+  const sub = document.getElementById('eys-trust-sub')
+  if(!sw) return
+  sw.style.background = on ? 'var(--green)' : 'var(--border)'
+  knob.style.left = on ? '21px' : '3px'
+  sub.textContent = on ? 'On — verification skipped' : 'Skip pickup verification'
+}
+
+function onEysTrustToggleClick(){
+  pinMode='trust_toggle'
+  pinVal=''
+  document.getElementById('pin-screen-title').textContent = (eysEventData&&eysEventData.trust_mode) ? 'Turn Off Trust Mode' : 'Turn On Trust Mode'
+  document.getElementById('pin-screen-sub').textContent='Enter your ELIC PIN to confirm'
+  document.getElementById('pin-card-label').textContent='Your PIN'
+  document.getElementById('pin-display').textContent='____'
+  document.getElementById('pin-error').textContent=''
+  showScreen('screen-pin')
+}
+
+async function submitTrustTogglePin(){
+  document.getElementById('pin-error').textContent=''
+  try {
+    const r = await fetch('/api/kiosk/toggle-trust-mode',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pin:pinVal, event_id:eysEventId})})
+    const d = await r.json()
+    if(d.error){
+      document.getElementById('pin-error').textContent=d.error
+      pinVal=''
+      document.getElementById('pin-display').textContent='____'
+      return
+    }
+    eysEventData.trust_mode = d.trust_mode
+    renderEysTrustSwitch()
+    showConfirm('', d.trust_mode?'Trust Mode On':'Trust Mode Off',
+      d.trust_mode?`${d.elic_name} turned on Trust Mode for this event — pickup verification will be skipped.`:`${d.elic_name} turned off Trust Mode — pickup verification is back on.`,
+      '', ()=>showScreen('screen-elic-youth-signin'))
+  } catch(err){
+    document.getElementById('pin-error').textContent='Network error — please try again'
+    pinVal=''
+    document.getElementById('pin-display').textContent='____'
+  }
+}
+
 // ── ELIC FLOW ──
 function goElicPin(){
   pinMode='elic'
@@ -1158,6 +1205,7 @@ function updatePinDisplay(){
 
 async function submitPin(){
   if(pinMode==='paid_instruction') return submitPaidInstructionCode()
+  if(pinMode==='trust_toggle') return submitTrustTogglePin()
   document.getElementById('pin-error').textContent=''
   const r=await fetch('/api/kiosk/elic-login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:pinVal})})
   const d=await r.json()
@@ -1631,6 +1679,7 @@ async function openEysSignIn(evt, mode){
   const isProgram = !evt.production_id && evt.program_id
   document.getElementById('eys-prod-name').textContent = evt.production_name || evt.program_name || evt.name
   document.getElementById('eys-event-name').textContent = (isProgram ? ' ' : ' Rising Stars · ') + evt.name
+  renderEysTrustSwitch()
   document.getElementById('eys-roster').innerHTML='<div style="text-align:center;padding:32px;color:var(--muted)">Loading…</div>'
   showScreen('screen-elic-youth-signin')
 
@@ -1851,6 +1900,10 @@ async function eysStartDropOff(btn){
     await eysDoSignInWithName('Self sign-in')
     return
   }
+  if(eysEventData && eysEventData.trust_mode){
+    await eysDoSignInWithName('Trust Mode (staff verified)')
+    return
+  }
   // Load authorized pickups
   const r=await fetch(`/api/kiosk/authorized-pickups/${yid}`)
   eysAuthPickups=await r.json()
@@ -1870,6 +1923,10 @@ async function eysStartPickUp(btn){
   eysDropOffTarget={yid,yname}
   if(eysMode==='quick'){
     await eysDoSignOutWithName('Self sign-in')
+    return
+  }
+  if(eysEventData && eysEventData.trust_mode){
+    await eysDoSignOutWithName('Trust Mode (staff verified)')
     return
   }
   const r=await fetch(`/api/kiosk/authorized-pickups/${yid}`)
@@ -2173,9 +2230,20 @@ function showConfirm(icon,title,sub,note,onBack){
 <!-- YOUTH SIGN-IN (ELIC kiosk) -->
 <div class="screen hidden" id="screen-elic-youth-signin">
   <button class="back-btn" onclick="showScreen('screen-elic-menu')">← Back</button>
-  <div class="screen-heading">
-    <div class="screen-title" id="eys-prod-name">Participant Sign-In</div>
-    <div class="screen-sub" id="eys-event-name"> Rising Stars</div>
+  <div class="screen-heading" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+    <div>
+      <div class="screen-title" id="eys-prod-name">Participant Sign-In</div>
+      <div class="screen-sub" id="eys-event-name"> Rising Stars</div>
+    </div>
+    <div id="eys-trust-toggle-wrap" onclick="onEysTrustToggleClick()" style="cursor:pointer;display:flex;align-items:center;gap:10px;background:var(--surface);border:2px solid var(--border);border-radius:20px;padding:8px 16px;user-select:none">
+      <div style="text-align:right">
+        <div style="font-size:12px;font-weight:700;color:var(--text)">Trust Mode</div>
+        <div style="font-size:10.5px;color:var(--muted)" id="eys-trust-sub">Skip pickup verification</div>
+      </div>
+      <div id="eys-trust-switch" style="width:44px;height:26px;border-radius:14px;background:var(--border);position:relative;transition:background 0.15s;flex-shrink:0">
+        <div id="eys-trust-knob" style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:3px;left:3px;transition:left 0.15s;box-shadow:0 1px 3px rgba(0,0,0,0.3)"></div>
+      </div>
+    </div>
   </div>
   <div style="width:100%;max-width:720px">
     <!-- Tabs -->

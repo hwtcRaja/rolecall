@@ -1194,6 +1194,11 @@ def init_db():
         # single start time.
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS banner_image_url TEXT",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS audition_time_end TEXT",
+        # Multiple audition dates — audition_date/audition_time/audition_time_end
+        # (singular) are kept in sync with the first entry here for backward
+        # compatibility with anything still reading those directly; this is
+        # the field that actually supports more than one date/time.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS audition_dates TEXT DEFAULT '[]'",
         # Rehearsal schedule is no longer a manually-typed external URL —
         # it's an auto-generated link to a live overview of this show's
         # actual scheduled events, so it can't go stale. This just tracks
@@ -6604,6 +6609,7 @@ def get_audition_settings(context_type, context_id):
             'materials': materials, 'allow_crew_interest': True, 'crew_roles': [],
             'crew_instructions': None, 'collect_age_check': False, 'collect_pronouns': False,
             'collect_phone': False, 'collect_how_heard': False, 'custom_questions': [],
+            'audition_dates': [],
             'cast_list_reveal_at': None})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
@@ -6611,6 +6617,14 @@ def get_audition_settings(context_type, context_id):
     row['crew_roles'] = _normalize_audition_roles(row.get('crew_roles'), simple=True)
     try: row['custom_questions'] = json.loads(row.get('custom_questions') or '[]')
     except Exception: row['custom_questions'] = []
+    try: row['audition_dates'] = json.loads(row.get('audition_dates') or '[]')
+    except Exception: row['audition_dates'] = []
+    # Older settings saved before multi-date support only have the single
+    # audition_date/audition_time/audition_time_end fields — synthesize a
+    # one-entry list so the admin UI has one consistent shape to render.
+    if not row['audition_dates'] and row.get('audition_date'):
+        row['audition_dates'] = [{'date': row.get('audition_date'), 'start_time': row.get('audition_time'),
+            'end_time': row.get('audition_time_end')}]
     row['slots'] = slots
     row['materials'] = materials
     row['context_name'] = ctx_name
@@ -6682,8 +6696,28 @@ def save_audition_settings(context_type, context_id):
     is_open  = bool(d.get('is_open', False))
     title    = (d.get('title') or '').strip() or None
     desc     = (d.get('description') or '').strip() or None
-    aud_date = d.get('audition_date') or None
-    aud_time = d.get('audition_time') or None
+    # Multiple audition dates: audition_dates is the list of {date,
+    # start_time, end_time} entries; the old singular audition_date/
+    # audition_time/audition_time_end are kept in sync with the earliest
+    # entry so anything still reading those directly (e.g. the public
+    # audition page) keeps showing a correct date rather than breaking.
+    aud_dates_list = d.get('audition_dates')
+    if aud_dates_list is not None:
+        aud_dates_list = [a for a in aud_dates_list if a.get('date')]
+        aud_dates_list.sort(key=lambda a: (a.get('date') or '', a.get('start_time') or ''))
+        aud_dates_json = json.dumps(aud_dates_list)
+        first = aud_dates_list[0] if aud_dates_list else {}
+        aud_date = first.get('date') or None
+        aud_time = first.get('start_time') or None
+        aud_time_end_from_list = first.get('end_time') or None
+    else:
+        # Caller didn't send the new field at all — fall back entirely to
+        # the old single-date behavior so nothing breaks.
+        aud_date = d.get('audition_date') or None
+        aud_time = d.get('audition_time') or None
+        aud_time_end_from_list = None
+        aud_dates_json = json.dumps([{'date': aud_date, 'start_time': aud_time,
+            'end_time': d.get('audition_time_end') or None}]) if aud_date else '[]'
     location = (d.get('location') or '').strip() or None
     instructions = (d.get('instructions') or '').strip() or None
     email_sub    = (d.get('email_submissions') or '').strip() or None
@@ -6706,7 +6740,7 @@ def save_audition_settings(context_type, context_id):
     performance_dates = (d.get('performance_dates') or '').strip() or None
     performance_location = (d.get('performance_location') or '').strip() or None
     rehearsal_schedule_url = (d.get('rehearsal_schedule_url') or '').strip() or None
-    aud_time_end = d.get('audition_time_end') or None
+    aud_time_end = d.get('audition_time_end') or aud_time_end_from_list
     show_rehearsal = bool(d.get('show_rehearsal_schedule', False))
     ask_roles = bool(d.get('ask_roles', True))
     # Cast list reveal countdown — a datetime-local string like
@@ -6722,14 +6756,14 @@ def save_audition_settings(context_type, context_id):
             collect_age_check=%s, collect_pronouns=%s, collect_phone=%s, collect_how_heard=%s,
             custom_questions=%s, location_name=%s, location_address=%s, director=%s,
             performance_dates=%s, performance_location=%s, rehearsal_schedule_url=%s,
-            audition_time_end=%s, show_rehearsal_schedule=%s, ask_roles=%s,
+            audition_time_end=%s, show_rehearsal_schedule=%s, ask_roles=%s, audition_dates=%s,
             updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
              email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
              allow_crew,crew_roles_json,crew_instructions,
              collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
              location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
-             aud_time_end,show_rehearsal,ask_roles,
+             aud_time_end,show_rehearsal,ask_roles,aud_dates_json,
              context_id,context_type))
     else:
         sid = str(uuid.uuid4())
@@ -6739,14 +6773,14 @@ def save_audition_settings(context_type, context_id):
              allow_crew_interest,crew_roles,crew_instructions,
              collect_age_check,collect_pronouns,collect_phone,collect_how_heard,custom_questions,
              location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
-             audition_time_end,show_rehearsal_schedule,ask_roles)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             audition_time_end,show_rehearsal_schedule,ask_roles,audition_dates)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
              location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
              allow_crew,crew_roles_json,crew_instructions,
              collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
              location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
-             aud_time_end,show_rehearsal,ask_roles))
+             aud_time_end,show_rehearsal,ask_roles,aud_dates_json))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

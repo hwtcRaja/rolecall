@@ -25,6 +25,7 @@ header h1{color:#fff;font-size:26px;font-weight:800}
 .meta-list{display:flex;flex-direction:column;gap:7px;margin-bottom:16px}
 .meta-line{font-size:14px;color:#44403c;display:flex;gap:8px}
 .meta-line .meta-tag{font-weight:700;color:#78716c;font-size:11px;text-transform:uppercase;letter-spacing:0.4px;min-width:108px;flex-shrink:0;padding-top:2px}
+.aud-dates-multi{display:flex;flex-direction:column;gap:2px}
 .divider{border-top:1px solid #e7e2d9;margin:16px 0}
 .section-label{font-size:11.5px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px}
 .desc-box{font-size:13.5px;line-height:1.65;white-space:pre-wrap;color:#44403c}
@@ -98,6 +99,13 @@ var SELECTED_SLOT = null
 var UPLOADED = { resume: null, headshot: null, video_clip: null }
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+function fmtAudDate(dateStr){
+  if(!dateStr) return ''
+  var d = new Date(dateStr+'T12:00:00')
+  if(isNaN(d.getTime())) return escH(dateStr)
+  return d.toLocaleDateString('en-US', {weekday:'short', month:'short', day:'numeric'})
+}
 
 function fmtTimeRange(start, end){
   function fmt(t){
@@ -215,16 +223,29 @@ function render(){
     + '<div class="status-pill">Open</div></div>'
 
   html += '<div class="meta-list">'
+  var audDateValue = null
+  if(s.audition_dates && s.audition_dates.length){
+    if(s.audition_dates.length===1){
+      var only = s.audition_dates[0]
+      audDateValue = fmtAudDate(only.date)+(only.start_time?' \u00b7 '+fmtTimeRange(only.start_time, only.end_time):'')
+    } else {
+      audDateValue = '<div class="aud-dates-multi">'+s.audition_dates.map(function(ad){
+        return '<div>'+fmtAudDate(ad.date)+(ad.start_time?' \u00b7 '+fmtTimeRange(ad.start_time, ad.end_time):'')+'</div>'
+      }).join('')+'</div>'
+    }
+  } else if(s.audition_date){
+    audDateValue = fmtAudDate(s.audition_date)+(s.audition_time?' \u00b7 '+fmtTimeRange(s.audition_time, s.audition_time_end):'')
+  }
   var metaRows = [
     ['Director', s.director],
-    ['Audition Date', s.audition_date ? escH(s.audition_date)+(s.audition_time?' \u00b7 '+fmtTimeRange(s.audition_time, s.audition_time_end):'') : null],
+    ['Audition Date' + (s.audition_dates && s.audition_dates.length>1 ? 's' : ''), audDateValue],
     ['Location', s.location_name],
     ['Address', s.location_address],
     ['Performance', s.performance_dates],
     ['Show Venue', s.performance_location],
   ]
   metaRows.forEach(function(r){
-    if(r[1]) html += '<div class="meta-line"><span class="meta-tag">'+r[0]+'</span><span>'+(r[0]==='Audition Date'?r[1]:escH(r[1]))+'</span></div>'
+    if(r[1]) html += '<div class="meta-line"><span class="meta-tag">'+r[0]+'</span><span>'+(r[0].indexOf('Audition Date')===0?r[1]:escH(r[1]))+'</span></div>'
   })
   html += '</div>'
 

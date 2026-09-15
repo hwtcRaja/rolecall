@@ -12629,7 +12629,7 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
    <span style="font-size:12px;color:var(--text-muted);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">Public audition form: <strong>${window.location.origin}/audition/${settings.context_slug||contextId}</strong></span>
    <button class="btn btn-secondary btn-sm" onclick="copyAuditionPublicLink('${settings.context_slug||contextId}')" style="flex-shrink:0">Copy Link</button>
   </div>
-  ${settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-top:8px">${formatDate(settings.audition_date)}${settings.audition_time?' at '+fmtTime(settings.audition_time):''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:''}
+  ${(settings.audition_dates&&settings.audition_dates.length)?`<div style="font-size:13px;color:var(--text-muted);margin-top:8px">${settings.audition_dates.map(ad=>formatDate(ad.date)+(ad.start_time?' at '+fmtTime(ad.start_time):'')).join(' · ')}${settings.location?' · '+escHtml(settings.location):''}</div>`:(settings.audition_date?`<div style="font-size:13px;color:var(--text-muted);margin-top:8px">${formatDate(settings.audition_date)}${settings.audition_time?' at '+fmtTime(settings.audition_time):''} ${settings.location?'· '+escHtml(settings.location):''}</div>`:'')}
   ${settings.description?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;line-height:1.5">${escHtml(settings.description)}</div>`:''}
   ${roles.length?`<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:10px">${roles.map(r=>'<span style="background:var(--teal-50);color:var(--teal-dark);padding:2px 9px;border-radius:20px;font-size:12px;font-weight:600">'+escHtml(r)+'</span>').join('')}</div>`:''}
  </div>`
@@ -13073,13 +13073,10 @@ function openAuditionSettingsModal(contextType, contextId, containerId, startTab
  <label>Description / What to Prepare</label>
  <textarea id="aud-s-desc" rows="3" style="resize:vertical">${escHtml(settings.description||'')}</textarea>
  </div>
- <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px">
- <div class="form-group"><label>Audition Date</label>
- <input type="date" id="aud-s-date" value="${settings.audition_date||''}"/></div>
- <div class="form-group"><label>Start Time</label>
- <input type="time" id="aud-s-time" value="${settings.audition_time||''}"/></div>
- <div class="form-group"><label>End Time</label>
- <input type="time" id="aud-s-time-end" value="${settings.audition_time_end||''}"/></div>
+ <div class="form-group">
+ <label>Audition Date(s) &amp; Time(s)</label>
+ <div id="aud-s-dates-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+ <button type="button" class="btn btn-secondary btn-sm" onclick="addAudDateRow()" style="font-size:12px">+ Add Another Date</button>
  </div>
  <div class="form-group">
  <label>Audition Location Name</label>
@@ -13261,8 +13258,39 @@ function openAuditionSettingsModal(contextType, contextId, containerId, startTab
  </div>`
  overlay.addEventListener('click', e=>{ if(e.target===overlay) overlay.remove() })
  document.body.appendChild(overlay)
+ _audDatesRows = (settings.audition_dates && settings.audition_dates.length) ? JSON.parse(JSON.stringify(settings.audition_dates)) : [{date:'',start_time:'',end_time:''}]
+ renderAudDateRows()
  if(startTab) switchAudSettingsTab(startTab)
  })
+}
+
+let _audDatesRows = []
+
+function renderAudDateRows(){
+ const wrap = document.getElementById('aud-s-dates-list')
+ if(!wrap) return
+ wrap.innerHTML = _audDatesRows.map((row,i)=>`
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end">
+   <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Date</label>
+   <input type="date" value="${row.date||''}" oninput="_audDatesRows[${i}].date=this.value" style="width:100%;box-sizing:border-box"/></div>
+   <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">Start Time</label>
+   <input type="time" value="${row.start_time||''}" oninput="_audDatesRows[${i}].start_time=this.value" style="width:100%;box-sizing:border-box"/></div>
+   <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:3px">End Time</label>
+   <input type="time" value="${row.end_time||''}" oninput="_audDatesRows[${i}].end_time=this.value" style="width:100%;box-sizing:border-box"/></div>
+   <button type="button" class="btn btn-danger btn-sm" onclick="removeAudDateRow(${i})" title="Remove this date" style="height:38px">✕</button>
+  </div>
+ `).join('')
+}
+
+function addAudDateRow(){
+ _audDatesRows.push({date:'',start_time:'',end_time:''})
+ renderAudDateRows()
+}
+
+function removeAudDateRow(i){
+ _audDatesRows.splice(i,1)
+ if(!_audDatesRows.length) _audDatesRows.push({date:'',start_time:'',end_time:''})
+ renderAudDateRows()
 }
 
 function switchAudSettingsTab(tabId){
@@ -13338,14 +13366,12 @@ async function saveAuditionSettings(contextType, contextId, containerId){
    is_open: isOpen,
    title: document.getElementById('aud-s-title')?.value.trim()||'',
    description: document.getElementById('aud-s-desc')?.value.trim()||'',
-   audition_date: document.getElementById('aud-s-date')?.value||null,
-   audition_time: document.getElementById('aud-s-time')?.value||null,
+   audition_dates: _audDatesRows.filter(r=>r.date),
    location_name: document.getElementById('aud-s-location-name')?.value.trim()||'',
    location_address: document.getElementById('aud-s-location-address')?.value.trim()||'',
    director: document.getElementById('aud-s-director')?.value.trim()||'',
    performance_dates: document.getElementById('aud-s-perf-dates')?.value.trim()||'',
    performance_location: document.getElementById('aud-s-perf-location')?.value.trim()||'',
-   audition_time_end: document.getElementById('aud-s-time-end')?.value||null,
     show_rehearsal_schedule: !!document.getElementById('aud-s-show-rehearsal')?.checked,
    ask_roles: !!document.getElementById('aud-s-ask-roles')?.checked,
    roles,

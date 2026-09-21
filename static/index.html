@@ -3574,7 +3574,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="hidden" id="edit-event-id"/>
  <div class="form-row">
  <div class="form-group"><label>Event Name *</label><input type="text" id="edit-event-name" placeholder="e.g. Opening Night Rehearsal"/></div>
- <div class="form-group"><label>Type</label><select id="edit-event-type"><option value="">— Select type —</option></select></div>
+ <div class="form-group"><label>Type</label><select id="edit-event-type" onchange="onEventTypeSelectChange()"><option value="">— Select type —</option></select></div>
  </div>
  <div class="form-row">
  <div class="form-group"><label>Start Date</label><input type="date" id="edit-event-date"/></div>
@@ -20688,6 +20688,17 @@ function toggleRsvpMessage(){
  const enabled = document.getElementById('edit-event-rsvp')?.checked
  const wrap = document.getElementById('edit-event-rsvp-msg-wrap')
  if(wrap) wrap.style.display = enabled ? '': 'none'
+}
+
+function onEventTypeSelectChange(){
+ const typeId = document.getElementById('edit-event-type')?.value||''
+ const t = allEventTypes.find(x=>x.id===typeId)
+ const rsvpCheckbox = document.getElementById('edit-event-rsvp')
+ if(t && t.name==='Mainstage Production' && rsvpCheckbox && !rsvpCheckbox.checked){
+ rsvpCheckbox.checked = true
+ toggleRsvpMessage()
+ toast('Sign-ups enabled — Mainstage Production events need Role Slots for Front of House shifts','success')
+ }
 }
 
 function toggleHsBonusFields(){

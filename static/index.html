@@ -1511,6 +1511,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <option value="">All</option>
  <option value="inactive">Inactive</option>
  </select>
+ <select class="filter-select" id="donors-filter-last-donated" onchange="renderDonorsList()">
+ <option value="">Last Donated: Any Time</option>
+ <option value="30">Donated in last 30 days</option>
+ <option value="90">Donated in last 90 days</option>
+ <option value="365">Donated in last 12 months</option>
+ <option value="lapsed6">Not donated in 6+ months</option>
+ <option value="lapsed12">Not donated in 12+ months</option>
+ <option value="never">Never donated</option>
+ </select>
  <button class="btn btn-secondary btn-sm" id="donors-filter-dupes-btn" onclick="toggleDupesFilter()" style="white-space:nowrap">Show Duplicates</button>
  </div>
  <div id="donors-list"></div>
@@ -14406,6 +14415,7 @@ function renderDonorsList(){
  const tierF = document.getElementById('donors-filter-tier')?.value||''
  const typeF = document.getElementById('donors-filter-type')?.value||''
  const statusF = document.getElementById('donors-filter-status')?.value||'active'
+ const lastDonatedF = document.getElementById('donors-filter-last-donated')?.value||''
 
  let filtered = allDonors.filter(d=>{
  if(statusF && d.status!== statusF && statusF!== '') return false
@@ -14413,6 +14423,13 @@ function renderDonorsList(){
  if(tierF && d.tier_id!== tierF) return false
  if(typeF && d.type!== typeF) return false
  if(q &&!d.display_name.toLowerCase().includes(q) &&!(d.email||'').toLowerCase().includes(q)) return false
+ if(lastDonatedF){
+ const ageMs = d.last_donation_date ? (new Date() - new Date(d.last_donation_date)) : null
+ if(lastDonatedF==='never'){ if(d.last_donation_date) return false }
+ else if(lastDonatedF==='lapsed6'){ if(ageMs===null || ageMs <= 180*24*3600*1000) return false }
+ else if(lastDonatedF==='lapsed12'){ if(ageMs===null || ageMs <= 365*24*3600*1000) return false }
+ else { const days = parseInt(lastDonatedF); if(ageMs===null || ageMs > days*24*3600*1000) return false }
+ }
  return true
  })
 
@@ -19644,7 +19661,10 @@ function renderEventDetailPage(eid){
  ${isAdmin?`<div style="margin-top:24px">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
  <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'Blocks / Time Slots':'Role Slots'}</div>
+ <div style="display:flex;gap:6px">
+ ${e.event_type_name==='Front of House Shift'?`<button class="btn btn-secondary btn-sm" onclick="openFohTrainingModal()">Manage FOH Training</button>`:''}
  <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add ${e.rsvp_kind==='guest'?'Block':'Role'}</button>
+ </div>
  </div>
  ${e.rsvp_kind==='guest'?`<label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-muted);margin-bottom:12px;cursor:pointer">
  <input type="checkbox" id="hide-block-names-${e.id}" ${e.hide_block_names?'checked':''} onchange="toggleHideBlockNames('${e.id}',this.checked)" style="accent-color:var(--teal-400)"/>
@@ -19652,6 +19672,9 @@ function renderEventDetailPage(eid){
  </label>`:''}
  <div id="event-roles-list-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
  <div id="role-add-form-${e.id}" style="display:none;background:var(--bg);border-radius:var(--radius);padding:14px;margin-top:10px;border:1.5px solid var(--border)">
+ ${e.event_type_name==='Front of House Shift'?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+ ${['House Manager','Concessions','Ticket Scanning','Usher'].map(n=>`<button type="button" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px" onclick="document.getElementById('new-role-name-${e.id}').value='${n}'">+ ${n}</button>`).join('')}
+ </div>`:''}
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
  <div class="form-group" style="margin:0;flex:2;min-width:140px">
  <label style="font-size:11px">Name *</label>
@@ -19673,6 +19696,11 @@ function renderEventDetailPage(eid){
  <label style="font-size:11px">Notes (optional)</label>
  <input type="text" id="new-role-desc-${e.id}" placeholder="Any special notes…" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
  </div>
+ <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-muted);cursor:pointer;margin:0 0 7px">
+ <input type="checkbox" id="new-role-training-${e.id}" ${e.event_type_name==='Front of House Shift'?'checked':''} style="accent-color:var(--teal-400)"/>
+ Require FOH Support Training to sign up
+ </label>
+
  <button class="btn btn-primary btn-sm" onclick="addEventRole('${e.id}')">Add</button>
  <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">Cancel</button>
  </div>
@@ -21322,7 +21350,7 @@ function loadEventRoles(eid, roles){
  return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="display:flex;align-items:center;gap:12px">
  <div style="flex:1;min-width:0">
- <div style="font-weight:600;font-size:13px">${escHtml(r.name)}</div>
+ <div style="font-weight:600;font-size:13px">${escHtml(r.name)} ${r.requires_foh_training?'<span style="font-size:9.5px;font-weight:700;background:#ffedd5;color:#9a3412;border:1px solid #fdba74;padding:1px 6px;border-radius:10px;vertical-align:middle">TRAINING REQUIRED</span>':''}</div>
  ${timeStr?`<div style="font-size:11.5px;color:var(--teal-dark);font-weight:600">${timeStr}</div>`:''}
  ${r.description?`<div style="font-size:11px;color:var(--text-muted)">${escHtml(r.description)}</div>`:''}
  </div>
@@ -21357,14 +21385,16 @@ async function addEventRole(eid){
  const desc = document.getElementById('new-role-desc-'+eid)?.value.trim()
  const blockTime = document.getElementById('new-role-time-'+eid)?.value || ''
  const blockTimeEnd = document.getElementById('new-role-time-end-'+eid)?.value || ''
+ const requiresTraining = document.getElementById('new-role-training-'+eid)?.checked || false
  if(!name){ toast('Role name is required','error'); return }
- const res = await api(`/api/events/${eid}/roles`,'POST',{name, slots:parseInt(slots)||1, description:desc||'', block_time:blockTime, block_time_end:blockTimeEnd})
+ const res = await api(`/api/events/${eid}/roles`,'POST',{name, slots:parseInt(slots)||1, description:desc||'', block_time:blockTime, block_time_end:blockTimeEnd, requires_foh_training:requiresTraining})
  if(res.error){ toast(res.error,'error'); return }
  document.getElementById('new-role-name-'+eid).value=''
  document.getElementById('new-role-slots-'+eid).value='1'
  document.getElementById('new-role-desc-'+eid).value=''
  if(document.getElementById('new-role-time-'+eid)) document.getElementById('new-role-time-'+eid).value=''
  if(document.getElementById('new-role-time-end-'+eid)) document.getElementById('new-role-time-end-'+eid).value=''
+ if(document.getElementById('new-role-training-'+eid)) document.getElementById('new-role-training-'+eid).checked=false
  toggleRoleForm(eid)
  // Refresh roles
  const roles = await api(`/api/events/${eid}/roles`)
@@ -21380,6 +21410,185 @@ async function deleteEventRole(rid, eid){
  loadEventRoles(eid, roles)
  toast('Role deleted')
 }
+
+// ── Front of House Training & Quiz Manager ──
+let _fohData = {training:null, questions:[]}
+
+async function openFohTrainingModal(){
+ const existing = document.getElementById('foh-training-modal')
+ if(existing) existing.remove()
+ const overlay = document.createElement('div')
+ overlay.id = 'foh-training-modal'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:640px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
+ <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+ <div style="font-size:16px;font-weight:700">Front of House Training</div>
+ <button onclick="document.getElementById('foh-training-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button>
+ </div>
+ <div style="display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 24px">
+ <button class="btn-tab active" id="foh-tab-content" onclick="fohSwitchTab('content')" style="padding:10px 14px;background:none;border:none;border-bottom:2px solid var(--teal-500);font-weight:700;font-size:12.5px;cursor:pointer">Content & Quiz</button>
+ <button class="btn-tab" id="foh-tab-results" onclick="fohSwitchTab('results')" style="padding:10px 14px;background:none;border:none;border-bottom:2px solid transparent;font-weight:700;font-size:12.5px;cursor:pointer;color:var(--text-muted)">Who's Passed</button>
+ </div>
+ <div id="foh-modal-body" style="padding:20px 24px">Loading…</div>
+ </div>`
+ document.body.appendChild(overlay)
+ const data = await api('/api/foh-training')
+ _fohData = data
+ fohRenderContentTab()
+}
+
+function fohSwitchTab(tab){
+ document.getElementById('foh-tab-content').style.borderBottomColor = tab==='content' ? 'var(--teal-500)' : 'transparent'
+ document.getElementById('foh-tab-content').style.color = tab==='content' ? '' : 'var(--text-muted)'
+ document.getElementById('foh-tab-results').style.borderBottomColor = tab==='results' ? 'var(--teal-500)' : 'transparent'
+ document.getElementById('foh-tab-results').style.color = tab==='results' ? '' : 'var(--text-muted)'
+ if(tab==='content') fohRenderContentTab()
+ else fohRenderResultsTab()
+}
+
+function fohRenderContentTab(){
+ const t = _fohData.training || {}
+ const body = document.getElementById('foh-modal-body')
+ if(!body) return
+ body.innerHTML = `
+ <div class="form-group">
+ <label>Title</label>
+ <input type="text" id="foh-title" value="${escHtml(t.title||'')}" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box;font-family:inherit;font-size:13px"/>
+ </div>
+ <div class="form-group">
+ <label>Description shown to volunteers</label>
+ <textarea id="foh-desc" rows="2" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box;font-family:inherit;font-size:13px">${escHtml(t.description||'')}</textarea>
+ </div>
+ <div style="display:flex;gap:12px;align-items:flex-end;margin-bottom:14px">
+ <div class="form-group" style="margin:0;width:120px">
+ <label style="font-size:11px">Passing Score %</label>
+ <input type="number" id="foh-pass-percent" value="${t.pass_percent||80}" min="1" max="100" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box;font-family:inherit;font-size:13px"/>
+ </div>
+ <button class="btn btn-primary btn-sm" onclick="fohSaveContent()">Save</button>
+ </div>
+ <div style="background:var(--bg);border-radius:var(--radius);padding:12px;margin-bottom:20px">
+ <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Training Slides</div>
+ ${t.slides_filename?`<div style="font-size:13px;margin-bottom:8px"> ${escHtml(t.slides_original_name||'slides')} <a href="/api/foh-training/slides" target="_blank" style="margin-left:6px">View</a></div>`:'<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">No slides uploaded yet.</div>'}
+ <input type="file" id="foh-slides-input" accept=".ppt,.pptx,.pdf" onchange="fohUploadSlides(this)"/>
+ </div>
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+ <div style="font-size:13px;font-weight:700">Quiz Questions</div>
+ <button class="btn btn-secondary btn-sm" onclick="fohAddQuestionRow()">+ Add Question</button>
+ </div>
+ <div id="foh-questions-list">${(_fohData.questions||[]).map(q=>fohQuestionRowHtml(q)).join('') || '<div style="font-size:12.5px;color:var(--text-muted)">No questions yet.</div>'}</div>
+ `
+}
+
+function fohQuestionRowHtml(q){
+ const opts = q.options||['','']
+ return `<div style="border:1.5px solid var(--border);border-radius:var(--radius);padding:10px;margin-bottom:10px" id="foh-q-${q.id}">
+ <input type="text" value="${escHtml(q.question)}" placeholder="Question" data-role="question" style="padding:6px 8px;border:1.5px solid var(--border-md);border-radius:6px;width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;font-weight:600;margin-bottom:6px"/>
+ ${opts.map((o,i)=>`<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+ <input type="radio" name="foh-correct-${q.id}" data-role="correct" value="${i}" ${q.correct_index===i?'checked':''} style="accent-color:var(--teal-400)"/>
+ <input type="text" value="${escHtml(o)}" placeholder="Option ${i+1}" data-role="option" style="padding:5px 8px;border:1.5px solid var(--border-md);border-radius:6px;flex:1;font-family:inherit;font-size:12.5px"/>
+ </div>`).join('')}
+ <div style="display:flex;gap:6px;margin-top:6px">
+ <button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="fohAddOption('${q.id}')">+ Option</button>
+ <button class="btn btn-primary btn-sm" style="font-size:11px" onclick="fohSaveQuestion('${q.id}')">Save</button>
+ <button class="btn btn-secondary btn-sm" style="font-size:11px;color:var(--red-600)" onclick="fohDeleteQuestion('${q.id}')">Delete</button>
+ </div>
+ </div>`
+}
+
+function fohAddOption(qid){
+ const q = _fohData.questions.find(x=>x.id===qid)
+ if(!q) return
+ q.options.push('')
+ document.getElementById('foh-q-'+qid).outerHTML = fohQuestionRowHtml(q)
+}
+
+function fohAddQuestionRow(){
+ const tempId = 'new-'+Date.now()
+ _fohData.questions.push({id:tempId, question:'', options:['',''], correct_index:0})
+ document.getElementById('foh-questions-list').insertAdjacentHTML('beforeend', fohQuestionRowHtml(_fohData.questions[_fohData.questions.length-1]))
+}
+
+async function fohSaveQuestion(qid){
+ const row = document.getElementById('foh-q-'+qid)
+ if(!row) return
+ const question = row.querySelector('[data-role="question"]').value.trim()
+ const options = Array.from(row.querySelectorAll('[data-role="option"]')).map(i=>i.value.trim()).filter(v=>v)
+ const correctInput = row.querySelector('[data-role="correct"]:checked')
+ const correct_index = correctInput ? parseInt(correctInput.value) : 0
+ if(!question || options.length<2){ toast('Question and at least 2 options are required','error'); return }
+ const isNew = qid.startsWith('new-')
+ const res = isNew
+ ? await api('/api/foh-training/questions','POST',{question, options, correct_index})
+ : await api(`/api/foh-training/questions/${qid}`,'PUT',{question, options, correct_index})
+ if(res.error){ toast(res.error,'error'); return }
+ const data = await api('/api/foh-training')
+ _fohData = data
+ fohRenderContentTab()
+ toast('Saved!','success')
+}
+
+async function fohDeleteQuestion(qid){
+ if(qid.startsWith('new-')){
+ _fohData.questions = _fohData.questions.filter(q=>q.id!==qid)
+ document.getElementById('foh-q-'+qid)?.remove()
+ return
+ }
+ if(!confirm('Delete this question?')) return
+ const res = await api(`/api/foh-training/questions/${qid}`,'DELETE')
+ if(res.error){ toast(res.error,'error'); return }
+ const data = await api('/api/foh-training')
+ _fohData = data
+ fohRenderContentTab()
+}
+
+async function fohSaveContent(){
+ const title = document.getElementById('foh-title')?.value.trim()
+ const description = document.getElementById('foh-desc')?.value.trim()
+ const pass_percent = parseInt(document.getElementById('foh-pass-percent')?.value)||80
+ const res = await api('/api/foh-training','PUT',{title, description, pass_percent})
+ if(res.error){ toast(res.error,'error'); return }
+ _fohData.training = res
+ toast('Saved!','success')
+}
+
+async function fohUploadSlides(input){
+ const file = input.files[0]
+ if(!file) return
+ const fd = new FormData()
+ fd.append('file', file)
+ const res = await fetch('/api/foh-training/slides/upload', {method:'POST', body:fd}).then(r=>r.json())
+ if(res.error){ toast(res.error,'error'); return }
+ _fohData.training = res
+ fohRenderContentTab()
+ toast('Slides uploaded!','success')
+}
+
+async function fohRenderResultsTab(){
+ const body = document.getElementById('foh-modal-body')
+ if(!body) return
+ body.innerHTML = 'Loading…'
+ const results = await api('/api/foh-training/results')
+ if(!results || !results.length){
+ body.innerHTML = `<div style="text-align:center;padding:30px;color:var(--text-muted);font-size:13px">No one has taken the quiz yet.</div>`
+ return
+ }
+ body.innerHTML = `<table style="width:100%;border-collapse:collapse">
+ <thead><tr style="border-bottom:2px solid var(--border)">
+ <th style="text-align:left;padding:6px 8px;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Name</th>
+ <th style="text-align:left;padding:6px 8px;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Email</th>
+ <th style="text-align:center;padding:6px 8px;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Score</th>
+ <th style="text-align:center;padding:6px 8px;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Result</th>
+ <th style="text-align:left;padding:6px 8px;font-size:11px;text-transform:uppercase;color:var(--text-muted)">Date</th>
+ </tr></thead>
+ <tbody>${results.map(r=>`<tr style="border-bottom:1px solid var(--border)">
+ <td style="padding:8px">${escHtml(r.name||'')}</td>
+ <td style="padding:8px;font-size:12.5px;color:var(--text-muted)">${escHtml(r.email||'')}</td>
+ <td style="padding:8px;text-align:center">${r.score}/${r.total}</td>
+ <td style="padding:8px;text-align:center"><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:10px;background:${r.passed?'#dcfce7':'#fee2e2'};color:${r.passed?'#166534':'#991b1b'}">${r.passed?'PASSED':'FAILED'}</span></td>
+ <td style="padding:8px;font-size:12px;color:var(--text-muted)">${formatDate(r.created_at)}</td>
+ </tr>`).join('')}</tbody></table>`
+}
+
 
 async function deleteEventFull(eid){
  const e=allEvents.find(e=>e.id===eid)

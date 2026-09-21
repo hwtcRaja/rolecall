@@ -2354,6 +2354,36 @@ def init_db():
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_date TEXT",
+
+        # ── Front of House shifts: role-level training gate + training module/quiz ──
+        "ALTER TABLE event_roles ADD COLUMN IF NOT EXISTS requires_foh_training BOOLEAN DEFAULT FALSE",
+        """CREATE TABLE IF NOT EXISTS foh_training (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL DEFAULT 'Front of House Support Training',
+            description TEXT DEFAULT '',
+            slides_url TEXT DEFAULT '',
+            slides_filename TEXT DEFAULT '',
+            slides_original_name TEXT DEFAULT '',
+            pass_percent INTEGER NOT NULL DEFAULT 80,
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS foh_quiz_questions (
+            id TEXT PRIMARY KEY,
+            question TEXT NOT NULL,
+            options TEXT NOT NULL DEFAULT '[]',
+            correct_index INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS foh_training_results (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL,
+            name TEXT DEFAULT '',
+            email TEXT NOT NULL,
+            score INTEGER NOT NULL DEFAULT 0,
+            total INTEGER NOT NULL DEFAULT 0,
+            passed BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        'CREATE INDEX IF NOT EXISTS ix_foh_results_email ON foh_training_results(LOWER(email))',
+        "INSERT INTO event_types (id,name,color) VALUES ('"+str(__import__('uuid').uuid4())+"','Front of House Shift','orange') ON CONFLICT (name) DO NOTHING",
         # missing tables
         """CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -2966,6 +2996,35 @@ def init_db():
                 c.execute(
                     "INSERT INTO donor_tiers (id,name,min_amount,max_amount,color,sort_order) VALUES (%s,%s,%s,%s,%s,%s)",
                     (str(_uuid2.uuid4()), name, min_a, max_a, color, sort)
+                )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+
+    # Seed the singleton Front of House training module + a starter quiz, so the
+    # admin UI always has something to edit rather than a blank slate.
+    try:
+        c.execute("SELECT COUNT(*) FROM foh_training")
+        if c.fetchone()[0] == 0:
+            import uuid as _uuid3
+            c.execute(
+                "INSERT INTO foh_training (id,title,description,pass_percent) VALUES (%s,%s,%s,%s)",
+                (str(_uuid3.uuid4()), 'Front of House Support Training',
+                 'Complete this short training before signing up for a House Manager, Concessions, Ticket Scanning, Usher, or other Front of House shift.',
+                 80)
+            )
+            starter_questions = [
+                ('What is the first thing a Front of House volunteer should do when arriving for a shift?',
+                 ['Check in with the House Manager', 'Go straight to their assigned post', 'Wait by the front door', 'Call the box office'], 0),
+                ('If a patron has a question you don\u2019t know the answer to, you should:', 
+                 ['Guess so they don\u2019t feel unhelped', 'Find the House Manager or another staff member', 'Tell them to look it up online', 'Ignore the question'], 1),
+                ('Latecomers during a performance should generally be:', 
+                 ['Seated immediately in their original seats', 'Held until an appropriate pause and seated by an usher', 'Turned away entirely', 'Allowed to stand in the aisle'], 1),
+            ]
+            for i, (q, opts, correct) in enumerate(starter_questions):
+                c.execute(
+                    "INSERT INTO foh_quiz_questions (id,question,options,correct_index,sort_order) VALUES (%s,%s,%s,%s,%s)",
+                    (str(_uuid3.uuid4()), q, json.dumps(opts), correct, i)
                 )
             conn.commit()
     except Exception:
@@ -17134,11 +17193,12 @@ def create_event_role(eid):
         return jsonify({'error': 'Role name is required'}), 400
     rid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO event_roles (id,event_id,name,slots,description,sort_order,block_time,block_time_end)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+    execute(conn, '''INSERT INTO event_roles (id,event_id,name,slots,description,sort_order,block_time,block_time_end,requires_foh_training)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (rid, eid, d['name'].strip(), int(d.get('slots') or 1),
          (d.get('description') or '').strip(), int(d.get('sort_order') or 0),
-         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip()))
+         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip(),
+         bool(d.get('requires_foh_training', False))))
     conn.commit()
     row = fetchone(conn, '''SELECT r.*, 0 as filled FROM event_roles r WHERE r.id=%s''', (rid,))
     conn.close()
@@ -17150,11 +17210,12 @@ def update_event_role(rid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, '''UPDATE event_roles SET name=%s, slots=%s, description=%s, block_time=%s, block_time_end=%s
-        WHERE id=%s''',
+    execute(conn, '''UPDATE event_roles SET name=%s, slots=%s, description=%s, block_time=%s, block_time_end=%s,
+        requires_foh_training=%s WHERE id=%s''',
         ((d.get('name') or '').strip(), int(d.get('slots') or 1),
          (d.get('description') or '').strip(),
-         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip(), rid))
+         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip(),
+         bool(d.get('requires_foh_training', False)), rid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -17582,6 +17643,262 @@ def _role_headcounts_for_event(conn, event_id):
                 pass
         counts[rid] = counts.get(rid, 0) + 1
     return counts
+
+def _foh_training_passed(conn, email):
+    """Whether this email has a passing Front of House training result on file."""
+    if not email:
+        return False
+    row = fetchone(conn, """SELECT id FROM foh_training_results
+        WHERE LOWER(email)=LOWER(%s) AND passed=TRUE ORDER BY created_at DESC LIMIT 1""", (email.strip(),))
+    return bool(row)
+
+# ── Front of House Training & Quiz ──────────────────────────────
+
+@app.route('/api/foh-training')
+def get_foh_training():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    training = fetchone(conn, 'SELECT * FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    questions = fetchall(conn, 'SELECT * FROM foh_quiz_questions ORDER BY sort_order, created_at')
+    for q in questions:
+        try: q['options'] = json.loads(q.get('options') or '[]')
+        except Exception: q['options'] = []
+    conn.close()
+    return jsonify({'training': training, 'questions': questions})
+
+@app.route('/api/foh-training', methods=['PUT'])
+def update_foh_training():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    training = fetchone(conn, 'SELECT id FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    if not training:
+        conn.close()
+        return jsonify({'error': 'Training module not found'}), 404
+    execute(conn, '''UPDATE foh_training SET title=%s, description=%s, pass_percent=%s, updated_at=NOW()
+        WHERE id=%s''',
+        ((d.get('title') or 'Front of House Support Training').strip(),
+         (d.get('description') or '').strip(),
+         int(d.get('pass_percent') or 80), training['id']))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM foh_training WHERE id=%s', (training['id'],))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/foh-training/slides/upload', methods=['POST'])
+def upload_foh_training_slides():
+    err = require_auth()
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.ppt', '.pptx', '.pdf'):
+        return jsonify({'error': 'Please upload a PowerPoint (.ppt/.pptx) or PDF file'}), 400
+    conn = get_db()
+    training = fetchone(conn, 'SELECT id, slides_filename FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    if not training:
+        conn.close()
+        return jsonify({'error': 'Training module not found'}), 404
+    filename = f'foh-training-{str(uuid.uuid4())[:8]}{ext}'
+    f.save(os.path.join(UPLOAD_FOLDER, filename))
+    old_filename = training.get('slides_filename')
+    execute(conn, '''UPDATE foh_training SET slides_url=%s, slides_filename=%s, slides_original_name=%s, updated_at=NOW()
+        WHERE id=%s''', (f'/api/foh-training/slides', filename, f.filename or filename, training['id']))
+    conn.commit()
+    if old_filename:
+        try: os.remove(os.path.join(UPLOAD_FOLDER, old_filename))
+        except Exception: pass
+    row = fetchone(conn, 'SELECT * FROM foh_training WHERE id=%s', (training['id'],))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/foh-training/slides')
+def download_foh_training_slides():
+    conn = get_db()
+    training = fetchone(conn, 'SELECT slides_filename, slides_original_name FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    conn.close()
+    if not training or not training.get('slides_filename'):
+        return jsonify({'error': 'No slides uploaded yet'}), 404
+    filepath = os.path.join(UPLOAD_FOLDER, training['slides_filename'])
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    return send_file(filepath, as_attachment=True, download_name=training.get('slides_original_name') or training['slides_filename'])
+
+@app.route('/api/foh-training/questions', methods=['POST'])
+def create_foh_question():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    options = d.get('options') or []
+    if not (d.get('question') or '').strip() or len(options) < 2:
+        return jsonify({'error': 'Question and at least 2 options are required'}), 400
+    qid = str(uuid.uuid4())
+    conn = get_db()
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),-1) as m FROM foh_quiz_questions')
+    execute(conn, '''INSERT INTO foh_quiz_questions (id,question,options,correct_index,sort_order)
+        VALUES (%s,%s,%s,%s,%s)''',
+        (qid, d['question'].strip(), json.dumps(options), int(d.get('correct_index') or 0), (max_sort['m'] if max_sort else -1) + 1))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM foh_quiz_questions WHERE id=%s', (qid,))
+    row['options'] = json.loads(row['options'])
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/foh-training/questions/<qid>', methods=['PUT'])
+def update_foh_question(qid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    options = d.get('options') or []
+    if not (d.get('question') or '').strip() or len(options) < 2:
+        return jsonify({'error': 'Question and at least 2 options are required'}), 400
+    conn = get_db()
+    execute(conn, '''UPDATE foh_quiz_questions SET question=%s, options=%s, correct_index=%s WHERE id=%s''',
+        (d['question'].strip(), json.dumps(options), int(d.get('correct_index') or 0), qid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM foh_quiz_questions WHERE id=%s', (qid,))
+    row['options'] = json.loads(row['options'])
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/foh-training/questions/<qid>', methods=['DELETE'])
+def delete_foh_question(qid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM foh_quiz_questions WHERE id=%s', (qid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/foh-training/results')
+def get_foh_training_results():
+    """Latest attempt per email, newest first — for admin review of who's cleared to sign up."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT DISTINCT ON (LOWER(email)) *
+        FROM foh_training_results ORDER BY LOWER(email), created_at DESC''')
+    rows.sort(key=lambda r: r['created_at'], reverse=True)
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/foh-training')
+def foh_training_page():
+    """Public training page: shows the slides + quiz. ?redirect=<url> sends the volunteer
+    back to the RSVP link they came from once they pass; ?email=&name= prefill the form."""
+    conn = get_db()
+    training = fetchone(conn, 'SELECT * FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    questions = fetchall(conn, 'SELECT id, question, options FROM foh_quiz_questions ORDER BY sort_order, created_at')
+    conn.close()
+    for q in questions:
+        try: q['options'] = json.loads(q.get('options') or '[]')
+        except Exception: q['options'] = []
+    redirect_url = request.args.get('redirect', '').strip()
+    prefill_email = (request.args.get('email','') or '').strip()
+    prefill_name = (request.args.get('name','') or '').strip()
+    slides_html = ''
+    if training and training.get('slides_url'):
+        slides_html = f'''<div class="gi-details" style="text-align:center">
+          <div style="font-size:13px;color:#6b6b64;margin-bottom:8px">Step 1: review the training slides</div>
+          <a href="{training['slides_url']}" target="_blank" class="gi-btn-secondary" style="display:inline-block;text-decoration:none;width:auto;padding:10px 22px">Download / View Slides</a>
+        </div>'''
+    else:
+        slides_html = '<div class="gi-details" style="color:#8a8477;font-size:13px">No slides have been uploaded yet — please check with your producer, then complete the quiz below.</div>'
+    questions_html = ''.join(f'''<div class="gi-details" style="text-align:left;margin-top:12px">
+      <div style="font-weight:700;font-size:14px;margin-bottom:8px">{i+1}. {q['question']}</div>
+      {''.join(f'<label style="display:flex;gap:8px;align-items:center;padding:6px 0;cursor:pointer;font-size:13.5px"><input type="radio" name="q_{q['id']}" value="{oi}" style="accent-color:#145466"/> {opt}</label>' for oi, opt in enumerate(q['options']))}
+    </div>''' for i, q in enumerate(questions))
+    return f'''<html><head><title>{(training or {}).get('title','Front of House Training')}</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    {_guest_invite_css()}
+    </head>
+    <body class="gi-body">
+      <div class="gi-wrap">
+        <div class="gi-no-image-hero">
+          <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">Front of House</div>
+          <div class="gi-headline-plain">{(training or {}).get('title','Front of House Support Training')}</div>
+        </div>
+        {f'<p class="gi-desc">{training["description"]}</p>' if training and training.get('description') else ''}
+        {slides_html}
+        <div id="foh-alert"></div>
+        <div class="gi-card">
+          <label class="gi-label">Your Name *</label>
+          <input type="text" id="foh-name" required class="gi-input" value="{prefill_name}" placeholder="Full name"/>
+          <label class="gi-label">Email *</label>
+          <input type="email" id="foh-email" required class="gi-input" value="{prefill_email}" placeholder="you@example.com"/>
+          <div style="font-weight:700;font-size:13px;margin:16px 0 4px">Step 2: pass the quiz ({(training or {}).get('pass_percent',80)}% or higher)</div>
+          {questions_html or '<div style="color:#8a8477;font-size:13px">No quiz questions have been set up yet.</div>'}
+          <button type="button" id="foh-submit-btn" onclick="submitFohQuiz()" class="gi-btn" style="margin-top:14px">Submit</button>
+        </div>
+        <div class="gi-footer">Horizon West Theater Company</div>
+      </div>
+      <script>
+      async function submitFohQuiz(){{
+        var name = document.getElementById('foh-name').value.trim()
+        var email = document.getElementById('foh-email').value.trim()
+        if(!name || !email){{
+          document.getElementById('foh-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
+          return
+        }}
+        var answers = {{}}
+        document.querySelectorAll('input[type=radio]:checked').forEach(function(inp){{
+          answers[inp.name.replace('q_','')] = parseInt(inp.value)
+        }})
+        var btn = document.getElementById('foh-submit-btn')
+        btn.disabled = true; btn.textContent = 'Grading…'
+        var r = await fetch('/api/foh-training/submit', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+          body: JSON.stringify({{name:name, email:email, answers:answers}})}})
+        var data = await r.json()
+        btn.disabled = false; btn.textContent = 'Submit'
+        if(data.error){{
+          document.getElementById('foh-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
+          return
+        }}
+        if(data.passed){{
+          var redirectUrl = {json.dumps(redirect_url)}
+          document.body.innerHTML = '<div style="text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;font-family:-apple-system,sans-serif">'
+            + '<div style="font-size:48px;margin-bottom:16px">✓</div><h2 style="color:#145466">You passed! ('+data.score+'/'+data.total+')</h2>'
+            + '<p style="color:#6b7280">You\\'re all set — you can now sign up for Front of House shifts.</p>'
+            + (redirectUrl ? '<p><a href="'+redirectUrl+'" style="color:#145466;font-weight:700">Continue to your shift sign-up →</a></p>' : '')
+            + '</div>'
+        }} else {{
+          document.getElementById('foh-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">Score: '+data.score+'/'+data.total+' — that\\'s below the passing bar. Please review the slides and try again.</div>'
+        }}
+      }}
+      </script>
+    </body></html>'''
+
+@app.route('/api/foh-training/submit', methods=['POST'])
+def submit_foh_training():
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip()
+    answers = d.get('answers') or {}
+    if not name or not email:
+        return jsonify({'error': 'Please provide your name and email.'}), 400
+    conn = get_db()
+    training = fetchone(conn, 'SELECT pass_percent FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    questions = fetchall(conn, 'SELECT id, correct_index FROM foh_quiz_questions')
+    if not questions:
+        conn.close()
+        return jsonify({'error': 'No quiz questions are set up yet — please contact your producer.'}), 400
+    score = 0
+    for q in questions:
+        given = answers.get(q['id'])
+        if given is not None and int(given) == int(q['correct_index']):
+            score += 1
+    total = len(questions)
+    pass_percent = (training or {}).get('pass_percent', 80)
+    passed = (score / total * 100) >= pass_percent if total else False
+    volunteer = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(email)=LOWER(%s)', (email,))
+    execute(conn, '''INSERT INTO foh_training_results (id,volunteer_id,name,email,score,total,passed)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (str(uuid.uuid4()), volunteer['id'] if volunteer else None, name, email, score, total, passed))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'passed': passed, 'score': score, 'total': total})
 
 def _fmt_time(t):
     """Format a 'HH:MM' 24-hour string as '2:30 PM'. Returns '' if unparseable/empty."""
@@ -18203,6 +18520,16 @@ def rsvp_submit(token):
                   <h2 style="color:#dc2626">That {slot_word.lower()} just filled up</h2>
                   <p>Sorry, the <strong>{role["name"]}</strong> {slot_word.lower()} was just taken. <a href="/rsvp/{token}">Go back</a> to choose another.</p>
                 </body></html>''', 409
+            if role.get('requires_foh_training') and not _foh_training_passed(conn, rsvp.get('volunteer_email')):
+                conn.close()
+                training_url = f"/foh-training?redirect=/rsvp/{token}&email={rsvp.get('volunteer_email','')}&name={vol_name}"
+                return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+                  <div style="font-size:48px;margin-bottom:16px"></div>
+                  <h2 style="color:#145466">One more step first</h2>
+                  <p>The <strong>{role["name"]}</strong> shift requires Front of House Support Training before you can sign up.</p>
+                  <p><a href="{training_url}" style="color:#145466;font-weight:700">Complete the training →</a></p>
+                </body></html>''', 403
             role_name = role['name']
 
     execute(conn, "UPDATE event_rsvps SET status='interested', role_id=%s, role_name=%s WHERE token=%s",
@@ -18537,7 +18864,8 @@ def public_rsvp_open_page(event_id):
         var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId, action:action}})}})
         var data = await r.json()
         if(data.error){{
-          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
+          var extraLink = data.training_required ? '<br/><a href="'+data.training_url+'" style="color:#991b1b;font-weight:700;text-decoration:underline">Complete the training →</a>' : ''
+          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+extraLink+'</div>'
           confirmBtn.disabled = false; declineBtn.disabled = false; activeBtn.textContent = originalText
           return
         }}
@@ -18588,6 +18916,13 @@ def public_rsvp_open_submit(event_id):
             if filled_ct >= int(role['slots']):
                 conn.close()
                 return jsonify({'error': 'Sorry, that time slot just filled up — please go back and pick another.'}), 409
+            if role.get('requires_foh_training') and not _foh_training_passed(conn, email):
+                conn.close()
+                training_url = f"/foh-training?redirect=/rsvp-event/{event_id}&email={email}&name={name}"
+                return jsonify({
+                    'error': f'The {role["name"]} shift requires Front of House Support Training first.',
+                    'training_required': True, 'training_url': training_url
+                }), 403
             role_name = role['name']
 
     # If this email already RSVP'd for this event, just update rather than duplicate

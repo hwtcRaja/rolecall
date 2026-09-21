@@ -17798,19 +17798,38 @@ def foh_training_page():
     redirect_url = request.args.get('redirect', '').strip()
     prefill_email = (request.args.get('email','') or '').strip()
     prefill_name = (request.args.get('name','') or '').strip()
-    slides_html = ''
-    if training and training.get('slides_url'):
-        slides_html = f'''<div class="gi-details" style="text-align:center">
-          <div style="font-size:13px;color:#6b6b64;margin-bottom:8px">Step 1: review the training slides</div>
-          <a href="{training['slides_url']}" target="_blank" class="gi-btn-secondary" style="display:inline-block;text-decoration:none;width:auto;padding:10px 22px">Download / View Slides</a>
-        </div>'''
+    slides_url = (training or {}).get('slides_url') or ''
+    if slides_url:
+        slides_html = ('<div class="gi-details" style="text-align:center">'
+          '<div style="font-size:13px;color:#6b6b64;margin-bottom:8px">Step 1: review the training slides</div>'
+          '<a href="' + slides_url + '" target="_blank" class="gi-btn-secondary" style="display:inline-block;text-decoration:none;width:auto;padding:10px 22px">Download / View Slides</a>'
+          '</div>')
     else:
         slides_html = '<div class="gi-details" style="color:#8a8477;font-size:13px">No slides have been uploaded yet — please check with your producer, then complete the quiz below.</div>'
-    questions_html = ''.join(f'''<div class="gi-details" style="text-align:left;margin-top:12px">
-      <div style="font-weight:700;font-size:14px;margin-bottom:8px">{i+1}. {q['question']}</div>
-      {''.join(f'<label style="display:flex;gap:8px;align-items:center;padding:6px 0;cursor:pointer;font-size:13.5px"><input type="radio" name="q_{q['id']}" value="{oi}" style="accent-color:#145466"/> {opt}</label>' for oi, opt in enumerate(q['options']))}
-    </div>''' for i, q in enumerate(questions))
-    return f'''<html><head><title>{(training or {}).get('title','Front of House Training')}</title>
+    question_blocks = []
+    for i, q in enumerate(questions):
+        qid = q.get('id') or ''
+        qtext = q.get('question') or ''
+        opts = q.get('options') or []
+        option_labels = []
+        for oi, opt in enumerate(opts):
+            option_labels.append(
+                '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;cursor:pointer;font-size:13.5px">'
+                '<input type="radio" name="q_' + qid + '" value="' + str(oi) + '" style="accent-color:#145466"/> ' + opt + '</label>'
+            )
+        question_blocks.append(
+            '<div class="gi-details" style="text-align:left;margin-top:12px">'
+            '<div style="font-weight:700;font-size:14px;margin-bottom:8px">' + str(i+1) + '. ' + qtext + '</div>'
+            + ''.join(option_labels) + '</div>'
+        )
+    questions_html = ''.join(question_blocks)
+    training_title = (training or {}).get('title') or 'Front of House Support Training'
+    training_desc = (training or {}).get('description') or ''
+    pass_percent_val = (training or {}).get('pass_percent', 80)
+    desc_html = ('<p class="gi-desc">' + training_desc + '</p>') if training_desc else ''
+    no_questions_html = '<div style="color:#8a8477;font-size:13px">No quiz questions have been set up yet.</div>'
+    questions_or_placeholder = questions_html if questions_html else no_questions_html
+    return f'''<html><head><title>{training_title}</title>
     <meta name="viewport" content="width=device-width,initial-scale=1">
     {_guest_invite_css()}
     </head>
@@ -17818,9 +17837,9 @@ def foh_training_page():
       <div class="gi-wrap">
         <div class="gi-no-image-hero">
           <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">Front of House</div>
-          <div class="gi-headline-plain">{(training or {}).get('title','Front of House Support Training')}</div>
+          <div class="gi-headline-plain">{training_title}</div>
         </div>
-        {f'<p class="gi-desc">{training["description"]}</p>' if training and training.get('description') else ''}
+        {desc_html}
         {slides_html}
         <div id="foh-alert"></div>
         <div class="gi-card">
@@ -17828,8 +17847,8 @@ def foh_training_page():
           <input type="text" id="foh-name" required class="gi-input" value="{prefill_name}" placeholder="Full name"/>
           <label class="gi-label">Email *</label>
           <input type="email" id="foh-email" required class="gi-input" value="{prefill_email}" placeholder="you@example.com"/>
-          <div style="font-weight:700;font-size:13px;margin:16px 0 4px">Step 2: pass the quiz ({(training or {}).get('pass_percent',80)}% or higher)</div>
-          {questions_html or '<div style="color:#8a8477;font-size:13px">No quiz questions have been set up yet.</div>'}
+          <div style="font-weight:700;font-size:13px;margin:16px 0 4px">Step 2: pass the quiz ({pass_percent_val}% or higher)</div>
+          {questions_or_placeholder}
           <button type="button" id="foh-submit-btn" onclick="submitFohQuiz()" class="gi-btn" style="margin-top:14px">Submit</button>
         </div>
         <div class="gi-footer">Horizon West Theater Company</div>

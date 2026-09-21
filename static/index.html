@@ -14356,6 +14356,7 @@ async function createUser(){
 // DONORS & SPONSORS
 // ═══════════════════════════════════════════════════════════════
 let allDonors = [], allDonorTiers = [], allDonorCampaigns = [], allDonorTemplates = []
+let _donorSort = {key:null, dir:'desc'}
 
 const TIER_COLORS = {
  red:'#dc2626', pink:'#be185d', purple:'#7c3aed', orange:'#ea580c',
@@ -14451,6 +14452,21 @@ function renderDonorsList(){
  const dupesOnly = document.getElementById('donors-filter-dupes-btn')?.dataset.active === '1'
  if(dupesOnly) filtered = filtered.filter(d=>hasDuplicate(d.id))
 
+ if(_donorSort.key){
+ const dir = _donorSort.dir==='asc' ? 1 : -1
+ const tierRank = d => { const t = allDonorTiers.find(t=>t.id===d.tier_id); return t ? parseFloat(t.min_amount||0) : -1 }
+ filtered = filtered.slice().sort((a,b)=>{
+ let av, bv
+ if(_donorSort.key==='name'){ av=(a.display_name||'').toLowerCase(); bv=(b.display_name||'').toLowerCase() }
+ else if(_donorSort.key==='tier'){ av=tierRank(a); bv=tierRank(b) }
+ else if(_donorSort.key==='total'){ av=parseFloat(a.total_donated||0); bv=parseFloat(b.total_donated||0) }
+ else if(_donorSort.key==='last_donated'){ av=a.last_donation_date? new Date(a.last_donation_date).getTime(): -Infinity; bv=b.last_donation_date? new Date(b.last_donation_date).getTime(): -Infinity }
+ if(av<bv) return -1*dir
+ if(av>bv) return 1*dir
+ return 0
+ })
+ }
+
  if(!filtered.length){
  el.innerHTML = `<div style="text-align:center;padding:48px;color:var(--text-muted)">
  <div style="font-size:32px;margin-bottom:12px"></div>
@@ -14460,12 +14476,15 @@ function renderDonorsList(){
  return
  }
 
+ const sortArrow = key => _donorSort.key===key ? (_donorSort.dir==='asc'?' ↑':' ↓') : ''
+ const sortableTh = (key, label, align) => `<th onclick="sortDonorsBy('${key}')" style="text-align:${align||'left'};padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:${_donorSort.key===key?'var(--text)':'var(--text-muted)'};cursor:pointer;user-select:none" title="Click to sort">${label}${sortArrow(key)}</th>`
+
  el.innerHTML = `<table style="width:100%;border-collapse:collapse">
  <thead><tr style="border-bottom:2px solid var(--border)">
- <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Donor</th>
- <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Tier</th>
- <th style="text-align:right;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Total Given</th>
- <th style="text-align:left;padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Last Gift</th>
+ ${sortableTh('name','Donor')}
+ ${sortableTh('tier','Tier')}
+ ${sortableTh('total','Total Given','right')}
+ ${sortableTh('last_donated','Last Gift')}
  <th style="padding:8px 12px"></th>
  </tr></thead>
  <tbody>
@@ -14502,6 +14521,12 @@ function renderDonorsList(){
  }).join('')}
  </tbody>
  </table>`
+}
+
+function sortDonorsBy(key){
+ if(_donorSort.key===key){ _donorSort.dir = _donorSort.dir==='asc'?'desc':'asc' }
+ else { _donorSort.key = key; _donorSort.dir = key==='name' ? 'asc' : 'desc' }
+ renderDonorsList()
 }
 
 // ── Add/Edit Donor Modal ──
@@ -19662,7 +19687,7 @@ function renderEventDetailPage(eid){
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
  <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'Blocks / Time Slots':'Role Slots'}</div>
  <div style="display:flex;gap:6px">
- ${e.event_type_name==='Front of House Shift'?`<button class="btn btn-secondary btn-sm" onclick="openFohTrainingModal()">Manage FOH Training</button>`:''}
+ ${e.event_type_name==='Mainstage Production'?`<button class="btn btn-secondary btn-sm" onclick="openFohTrainingModal()">Manage FOH Training</button>`:''}
  <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add ${e.rsvp_kind==='guest'?'Block':'Role'}</button>
  </div>
  </div>
@@ -19672,7 +19697,7 @@ function renderEventDetailPage(eid){
  </label>`:''}
  <div id="event-roles-list-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
  <div id="role-add-form-${e.id}" style="display:none;background:var(--bg);border-radius:var(--radius);padding:14px;margin-top:10px;border:1.5px solid var(--border)">
- ${e.event_type_name==='Front of House Shift'?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+ ${e.event_type_name==='Mainstage Production'?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
  ${['House Manager','Concessions','Ticket Scanning','Usher'].map(n=>`<button type="button" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px" onclick="document.getElementById('new-role-name-${e.id}').value='${n}'">+ ${n}</button>`).join('')}
  </div>`:''}
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -19697,7 +19722,7 @@ function renderEventDetailPage(eid){
  <input type="text" id="new-role-desc-${e.id}" placeholder="Any special notes…" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
  </div>
  <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-muted);cursor:pointer;margin:0 0 7px">
- <input type="checkbox" id="new-role-training-${e.id}" ${e.event_type_name==='Front of House Shift'?'checked':''} style="accent-color:var(--teal-400)"/>
+ <input type="checkbox" id="new-role-training-${e.id}" ${e.event_type_name==='Mainstage Production'?'checked':''} style="accent-color:var(--teal-400)"/>
  Require FOH Support Training to sign up
  </label>
 

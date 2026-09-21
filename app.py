@@ -2383,7 +2383,7 @@ def init_db():
             passed BOOLEAN NOT NULL DEFAULT FALSE,
             created_at TIMESTAMP DEFAULT NOW())""",
         'CREATE INDEX IF NOT EXISTS ix_foh_results_email ON foh_training_results(LOWER(email))',
-        "INSERT INTO event_types (id,name,color) VALUES ('"+str(__import__('uuid').uuid4())+"','Front of House Shift','orange') ON CONFLICT (name) DO NOTHING",
+        "DELETE FROM event_types WHERE name='Front of House Shift' AND id NOT IN (SELECT DISTINCT event_type_id FROM events WHERE event_type_id IS NOT NULL)",
         # missing tables
         """CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,

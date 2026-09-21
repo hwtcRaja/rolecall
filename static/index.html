@@ -504,6 +504,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Admin</div>
         <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page"></span>Email Templates</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
+        <div class="nav-item" onclick="navTo('foh-training',this)"><span class="nav-icon" id="ni-foh-training"></span>FOH Training</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports"></span>Reports</div>
         <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
         <div class="nav-item" onclick="navTo('responsibility',this)"><span class="nav-icon" id="ni-responsibility"></span>Responsibility Grid</div>
@@ -1684,6 +1685,20 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 <section class="page" id="page-event-logs">
  <div class="page-body">
  <div id="event-logs-list"></div>
+ </div>
+ </section>
+
+ <!-- FOH TRAINING -->
+ <section class="page" id="page-foh-training">
+ <div class="page-header">
+ <div><div class="page-title">FOH Training</div><div class="page-subtitle">Front of House support training &amp; quiz — shared across every Production, not tied to a single event</div></div>
+ </div>
+ <div class="page-body">
+ <div style="display:flex;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px">
+ <button class="btn-tab active" id="foh-tab-content" onclick="fohSwitchTab('content')" style="padding:10px 14px;background:none;border:none;border-bottom:2px solid var(--teal-500);font-weight:700;font-size:12.5px;cursor:pointer">Content &amp; Quiz</button>
+ <button class="btn-tab" id="foh-tab-results" onclick="fohSwitchTab('results')" style="padding:10px 14px;background:none;border:none;border-bottom:2px solid transparent;font-weight:700;font-size:12.5px;cursor:pointer;color:var(--text-muted)">Who's Passed</button>
+ </div>
+ <div id="foh-page-body">Loading…</div>
  </div>
  </section>
 
@@ -4483,12 +4498,14 @@ const NAV_PERM_MAP = {
  'oncall': 'oncall',
  'hours-store': 'hours_store',
  'responsibility': 'responsibility_grid',
+ 'foh-training': 'foh_training',
 }
 
 // Mirrors PERM_LEGACY_FALLBACK in app.py - keep the two in sync.
 const PERM_LEGACY_FALLBACK = {
  'licensing': 'productions',
  'space_requests': 'rentals',
+ 'foh_training': 'events',
 }
 
 function resolvePermLevel(section){
@@ -4642,6 +4659,7 @@ function navTo(page,el){
   if(page==='instructor-dashboard') loadInstructorDashboard()
  if(page==='director-dashboard') loadDirectorDashboard()
  if(page==='responsibility') loadResponsibilityPage()
+ if(page==='foh-training') loadFohTrainingPage()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -17612,6 +17630,7 @@ const PERM_SECTIONS = [
  {key:'licensing', label:'Licensing Requests', desc:'Show licensing requests & contract/renewal tracking (falls back to Productions access if not set)'},
  {key:'space_requests', label:'Request a Space', desc:'Review, approve, and deny staff space/date requests (submitting a request stays open to all staff; falls back to Artistic Partnership access if not set)'},
  {key:'surveys', label:'Surveys', desc:'Create surveys, manage questions, and view response results'},
+ {key:'foh_training', label:'FOH Training', desc:'Front of House training content, quiz questions, and who has passed (falls back to Events access if not set)'},
 ]
 
 
@@ -19687,7 +19706,7 @@ function renderEventDetailPage(eid){
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
  <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'Blocks / Time Slots':'Role Slots'}</div>
  <div style="display:flex;gap:6px">
- ${e.event_type_name==='Mainstage Production'?`<button class="btn btn-secondary btn-sm" onclick="openFohTrainingModal()">Manage FOH Training</button>`:''}
+ ${e.event_type_name==='Productions'?`<button class="btn btn-secondary btn-sm" onclick="navTo('foh-training')">Manage FOH Training</button>`:''}
  <button class="btn btn-secondary btn-sm" onclick="toggleRoleForm('${e.id}')">+ Add ${e.rsvp_kind==='guest'?'Block':'Role'}</button>
  </div>
  </div>
@@ -19697,7 +19716,7 @@ function renderEventDetailPage(eid){
  </label>`:''}
  <div id="event-roles-list-${e.id}"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>
  <div id="role-add-form-${e.id}" style="display:none;background:var(--bg);border-radius:var(--radius);padding:14px;margin-top:10px;border:1.5px solid var(--border)">
- ${e.event_type_name==='Mainstage Production'?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+ ${e.event_type_name==='Productions'?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
  ${['House Manager','Concessions','Ticket Scanning','Usher'].map(n=>`<button type="button" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px" onclick="document.getElementById('new-role-name-${e.id}').value='${n}'">+ ${n}</button>`).join('')}
  </div>`:''}
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
@@ -19722,7 +19741,7 @@ function renderEventDetailPage(eid){
  <input type="text" id="new-role-desc-${e.id}" placeholder="Any special notes…" style="padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box"/>
  </div>
  <label style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-muted);cursor:pointer;margin:0 0 7px">
- <input type="checkbox" id="new-role-training-${e.id}" ${e.event_type_name==='Mainstage Production'?'checked':''} style="accent-color:var(--teal-400)"/>
+ <input type="checkbox" id="new-role-training-${e.id}" ${e.event_type_name==='Productions'?'checked':''} style="accent-color:var(--teal-400)"/>
  Require FOH Support Training to sign up
  </label>
 
@@ -19765,26 +19784,34 @@ function renderEventDetailPage(eid){
  <button class="btn btn-primary btn-sm" style="white-space:nowrap" onclick="addManualRsvp('${e.id}')">Add</button>
  </div>
  </div>
- <div style="font-size:15px;font-weight:700;margin-bottom:4px"> Send Invite</div>
- <div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">${e.rsvp_kind==='guest'?'Invite people to RSVP for this event':'Invite volunteers to sign up for this event'}</div>
+
+ <!-- Two ways to invite, side by side, so it's clear up front which one fits -->
+ <div style="font-size:15px;font-weight:700;margin-bottom:2px">How do you want to invite people?</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Pick one — you can always use the other later too.</div>
+ <div style="display:flex;gap:8px;margin-bottom:20px" id="invite-mode-toggle-${e.id}">
+ <button type="button" class="btn btn-primary btn-sm" id="invite-mode-btn-tracked-${e.id}" onclick="setInviteMode('tracked','${e.id}')" style="flex:1;padding:10px">Send a Tracked Invite</button>
+ <button type="button" class="btn btn-secondary btn-sm" id="invite-mode-btn-public-${e.id}" onclick="setInviteMode('public','${e.id}')" style="flex:1;padding:10px">Share a Public Link</button>
+ </div>
+
+ <!-- ── Tracked invite mode: personalized emails, tracks who's coming ── -->
+ <div id="invite-mode-panel-tracked-${e.id}">
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:14px">Sends a personal email to each person and tracks who's coming, so you can follow up with anyone who hasn't responded.</div>
 
  <!-- Recipients -->
- <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Send to</div>
- <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:14px">
- ${[
- ['all', ' All active volunteers'],
- ['interest', ' Filter by interest'],
- ['event', ' Volunteered at past event'],
- ['group', ' Volunteer group'],
-  ['manual', ' Choose manually'],
-  ['adhoc', ' Community members (paste emails)'],
- ].map(([val,label])=>`
- <label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-${val}" onclick="setRsvpFilter('${val}','${e.id}')">
- <input type="radio" name="rsvp-filter" value="${val}" ${val==='all'?'checked':''} style="accent-color:var(--teal);flex-shrink:0"/> ${label}
- </label>`).join('')}
- ${e.rsvp_kind==='guest'?`<label style="display:flex;align-items:center;gap:8px;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:500;transition:all 0.1s" id="rsvp-opt-household" onclick="setRsvpFilter('household','${e.id}')">
- <input type="radio" name="rsvp-filter" value="household" style="accent-color:var(--teal);flex-shrink:0"/> Household / Party (name checklist, like a wedding RSVP)
- </label>`:''}
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Send to</div>
+ <select id="rsvp-filter-select" onchange="setRsvpFilter(this.value,'${e.id}')" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;margin-bottom:12px">
+ <option value="all">All active volunteers</option>
+ <option value="interest">Filter by interest</option>
+ <option value="event">Volunteered at past event</option>
+ <option value="group">Volunteer group</option>
+ <option value="manual">Choose manually</option>
+ <option value="adhoc">Community members (paste emails)</option>
+ ${e.rsvp_kind==='guest'?`<option value="household">Household / Party (name checklist, like a wedding RSVP)</option>`:''}
+ </select>
+ <!-- Kept for setRsvpFilter's selected-row styling; hidden, no longer the picker UI -->
+ <div style="display:none">
+ ${['all','interest','event','group','manual','adhoc'].map(val=>`<div id="rsvp-opt-${val}"></div>`).join('')}
+ ${e.rsvp_kind==='guest'?`<div id="rsvp-opt-household"></div>`:''}
  </div>
 
  <!-- Sub-filters -->
@@ -19862,9 +19889,28 @@ function renderEventDetailPage(eid){
   <div id="household-result-${e.id}" style="margin-top:8px;font-size:13px;text-align:center"></div>
   </div>
 
+ <div id="rsvp-recipient-preview" style="background:var(--teal-50);color:var(--teal-dark);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:6px;text-align:center">
+ Calculating…
+ </div>
+ <div id="rsvp-recipient-names" style="display:none;max-height:120px;overflow-y:auto;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:14px;font-size:12px;color:var(--text-muted);line-height:1.8"></div>
+ <div id="rsvp-skip-warning" style="display:none;background:#fef9c3;border:1.5px solid #fde047;border-radius:8px;padding:8px 12px;font-size:12px;color:#854d0e;margin-bottom:14px"></div>
+
+ <!-- Assign to block -->
+ <div id="rsvp-assign-block-wrap-${e.id}" style="display:none;margin-bottom:14px">
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Assign to ${e.rsvp_kind==='guest'?'Block':'Role'} <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+ <select id="rsvp-assign-block-${e.id}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
+ <option value="">Let them choose from all ${e.rsvp_kind==='guest'?'blocks':'roles'}</option>
+ </select>
+ <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Everyone in this batch will get a link pre-assigned to this ${e.rsvp_kind==='guest'?'block':'role'} instead of a picker.</div>
+ </div>
+
+ <!-- Customize: collapsed by default so the common path stays short -->
+ <details style="margin-bottom:16px" ${(e.invite_image_url||e.rsvp_message)?'open':''}>
+ <summary style="cursor:pointer;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);padding:4px 0">Customize the invite (optional)</summary>
+ <div style="margin-top:10px">
  ${e.rsvp_kind==='guest' ? `
  <!-- Invite design -->
- <div style="border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:16px">
+ <div style="border:1.5px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px">
  <div style="font-size:13px;font-weight:700;margin-bottom:4px"> Invite Design</div>
  <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Upload an image and this becomes a designed invite page instead of a plain form.</div>
  <div id="rsvp-invite-image-preview-${e.id}" style="${e.invite_image_url?'':'display:none'};margin-bottom:10px">
@@ -19883,41 +19929,29 @@ function renderEventDetailPage(eid){
  <a href="${window.location.origin}/rsvp-event/${e.id}" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none;display:inline-block;margin-left:6px"> Preview Invite Page</a>
  </div>
  ` : ''}
-
- <!-- Public RSVP link (untracked, shareable) -->
- <div style="background:var(--teal-50);border:1.5px solid var(--teal-200,#99f6e4);border-radius:10px;padding:12px 14px;margin-bottom:16px">
- <div style="font-size:13px;font-weight:700;color:var(--teal-dark);margin-bottom:4px"> Public RSVP Link</div>
- <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Share this link anywhere (social media, newsletter, etc.) — anyone can RSVP themselves, no personalized invite needed.</div>
- <div style="display:flex;gap:8px">
- <input readonly id="rsvp-public-link-${e.id}" value="${window.location.origin}/rsvp-event/${e.id}" style="flex:1;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--surface)"/>
- <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('rsvp-public-link-${e.id}').value);toast('Link copied!','success')">Copy</button>
- </div>
- </div>
-
- <div id="rsvp-recipient-preview" style="background:var(--teal-50);color:var(--teal-dark);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:600;margin-bottom:6px;text-align:center">
- Calculating…
- </div>
- <div id="rsvp-recipient-names" style="display:none;max-height:120px;overflow-y:auto;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:14px;font-size:12px;color:var(--text-muted);line-height:1.8"></div>
- <div id="rsvp-skip-warning" style="display:none;background:#fef9c3;border:1.5px solid #fde047;border-radius:8px;padding:8px 12px;font-size:12px;color:#854d0e;margin-bottom:14px"></div>
-
- <!-- Assign to block -->
- <div id="rsvp-assign-block-wrap-${e.id}" style="display:none;margin-bottom:14px">
- <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Assign to ${e.rsvp_kind==='guest'?'Block':'Role'} <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
- <select id="rsvp-assign-block-${e.id}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
- <option value="">Let them choose from all ${e.rsvp_kind==='guest'?'blocks':'roles'}</option>
- </select>
- <div style="font-size:11px;color:var(--text-hint);margin-top:4px">Everyone in this batch will get a link pre-assigned to this ${e.rsvp_kind==='guest'?'block':'role'} instead of a picker.</div>
- </div>
-
- <!-- Message -->
- <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Personal message <span style="font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></div>
+ <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:6px">Personal message</div>
  <textarea id="rsvp-message-text" placeholder="Add a personal note to the invite email — e.g. 'We especially need help with setup and teardown this time!'"
- style="width:100%;min-height:80px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box;margin-bottom:14px">${escHtml(e.rsvp_message||'')}</textarea>
+ style="width:100%;min-height:80px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">${escHtml(e.rsvp_message||'')}</textarea>
+ </div>
+ </details>
 
  <button class="btn btn-primary" style="width:100%" id="rsvp-send-btn" onclick="confirmSendRsvp('${e.id}')">
  Send Invites
 </button>
  <div id="rsvp-send-result" style="margin-top:10px;font-size:13px;text-align:center"></div>
+ </div>
+
+ <!-- ── Public link mode: one shareable link, no tracking ── -->
+ <div id="invite-mode-panel-public-${e.id}" style="display:none">
+ <div style="background:var(--teal-50);border:1.5px solid var(--teal-200,#99f6e4);border-radius:10px;padding:14px">
+ <div style="font-size:13px;font-weight:700;color:var(--teal-dark);margin-bottom:4px"> Public RSVP Link</div>
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Share this link anywhere — social media, a newsletter, a group text. Anyone with the link can RSVP themselves. It's not tied to a specific person, so there's no per-person tracking or reminders.</div>
+ <div style="display:flex;gap:8px">
+ <input readonly id="rsvp-public-link-${e.id}" value="${window.location.origin}/rsvp-event/${e.id}" style="flex:1;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;background:var(--surface)"/>
+ <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('rsvp-public-link-${e.id}').value);toast('Link copied!','success')">Copy</button>
+ </div>
+ </div>
+ </div>
  `}
  </div>
  `:`<div style="text-align:center;padding:60px 20px;color:var(--text-muted)">
@@ -20694,10 +20728,10 @@ function onEventTypeSelectChange(){
  const typeId = document.getElementById('edit-event-type')?.value||''
  const t = allEventTypes.find(x=>x.id===typeId)
  const rsvpCheckbox = document.getElementById('edit-event-rsvp')
- if(t && t.name==='Mainstage Production' && rsvpCheckbox && !rsvpCheckbox.checked){
+ if(t && t.name==='Productions' && rsvpCheckbox && !rsvpCheckbox.checked){
  rsvpCheckbox.checked = true
  toggleRsvpMessage()
- toast('Sign-ups enabled — Mainstage Production events need Role Slots for Front of House shifts','success')
+ toast('Sign-ups enabled — Productions need Role Slots for Front of House shifts','success')
  }
 }
 
@@ -20707,6 +20741,17 @@ function toggleHsBonusFields(){
  const flatWrap = document.getElementById('edit-event-hs-flat-wrap')
  if(multWrap) multWrap.style.display = type==='multiplier' ? '': 'none'
  if(flatWrap) flatWrap.style.display = type==='flat' ? '': 'none'
+}
+
+function setInviteMode(mode, eid){
+ const trackedPanel = document.getElementById('invite-mode-panel-tracked-'+eid)
+ const publicPanel = document.getElementById('invite-mode-panel-public-'+eid)
+ const trackedBtn = document.getElementById('invite-mode-btn-tracked-'+eid)
+ const publicBtn = document.getElementById('invite-mode-btn-public-'+eid)
+ if(trackedPanel) trackedPanel.style.display = mode==='tracked' ? '': 'none'
+ if(publicPanel) publicPanel.style.display = mode==='public' ? '': 'none'
+ if(trackedBtn) trackedBtn.className = 'btn btn-sm ' + (mode==='tracked' ? 'btn-primary': 'btn-secondary')
+ if(publicBtn) publicBtn.className = 'btn btn-sm ' + (mode==='public' ? 'btn-primary': 'btn-secondary')
 }
 
 function setRsvpFilter(type, eid){
@@ -20760,7 +20805,7 @@ function parseAdhocContacts(text){
 }
 
 function getRsvpTargetVolunteers(){
- const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
+ const type = document.getElementById('rsvp-filter-select')?.value || 'all'
  const active = volunteers.filter(v=>v.status==='active' && v.email)
  if(type==='adhoc') return [] // handled separately — see getRsvpAdhocContacts()
  if(type==='all') return active
@@ -20798,7 +20843,7 @@ function updateRsvpPreview(eid){
  const namesEl = document.getElementById('rsvp-recipient-names')
  const warnEl = document.getElementById('rsvp-skip-warning')
  if(!preview) return
- const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
+ const type = document.getElementById('rsvp-filter-select')?.value || 'all'
  if(type==='adhoc'){
  const contacts = parseAdhocContacts(document.getElementById('rsvp-adhoc-text')?.value)
  if(!contacts.length){
@@ -21012,7 +21057,7 @@ async function sendAllHouseholds(eid){
 }
 
 async function confirmSendRsvp(eid){
- const type = document.querySelector('input[name="rsvp-filter"]:checked')?.value || 'all'
+ const type = document.getElementById('rsvp-filter-select')?.value || 'all'
  const isAdhoc = type==='adhoc'
  const adhocText = isAdhoc ? (document.getElementById('rsvp-adhoc-text')?.value||'') : ''
  const targets = isAdhoc ? parseAdhocContacts(adhocText) : getRsvpTargetVolunteers()
@@ -21447,28 +21492,16 @@ async function deleteEventRole(rid, eid){
  toast('Role deleted')
 }
 
-// ── Front of House Training & Quiz Manager ──
+// ── Front of House Training & Quiz (own page, under Admin) ──
 let _fohData = {training:null, questions:[]}
 
-async function openFohTrainingModal(){
- const existing = document.getElementById('foh-training-modal')
- if(existing) existing.remove()
- const overlay = document.createElement('div')
- overlay.id = 'foh-training-modal'
- overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
- overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:640px;max-height:90vh;overflow-y:auto;box-shadow:var(--shadow-lg)">
- <div style="padding:20px 24px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
- <div style="font-size:16px;font-weight:700">Front of House Training</div>
- <button onclick="document.getElementById('foh-training-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button>
- </div>
- <div style="display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 24px">
- <button class="btn-tab active" id="foh-tab-content" onclick="fohSwitchTab('content')" style="padding:10px 14px;background:none;border:none;border-bottom:2px solid var(--teal-500);font-weight:700;font-size:12.5px;cursor:pointer">Content & Quiz</button>
- <button class="btn-tab" id="foh-tab-results" onclick="fohSwitchTab('results')" style="padding:10px 14px;background:none;border:none;border-bottom:2px solid transparent;font-weight:700;font-size:12.5px;cursor:pointer;color:var(--text-muted)">Who's Passed</button>
- </div>
- <div id="foh-modal-body" style="padding:20px 24px">Loading…</div>
- </div>`
- document.body.appendChild(overlay)
+async function loadFohTrainingPage(){
  const data = await api('/api/foh-training')
+ if(data.error){
+ const el = document.getElementById('foh-page-body')
+ if(el) el.innerHTML = `<div style="color:var(--text-muted);padding:20px 0">${data.error}</div>`
+ return
+ }
  _fohData = data
  fohRenderContentTab()
 }
@@ -21484,7 +21517,7 @@ function fohSwitchTab(tab){
 
 function fohRenderContentTab(){
  const t = _fohData.training || {}
- const body = document.getElementById('foh-modal-body')
+ const body = document.getElementById('foh-page-body')
  if(!body) return
  body.innerHTML = `
  <div class="form-group">
@@ -21600,7 +21633,7 @@ async function fohUploadSlides(input){
 }
 
 async function fohRenderResultsTab(){
- const body = document.getElementById('foh-modal-body')
+ const body = document.getElementById('foh-page-body')
  if(!body) return
  body.innerHTML = 'Loading…'
  const results = await api('/api/foh-training/results')

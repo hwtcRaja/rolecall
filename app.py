@@ -17652,6 +17652,18 @@ def _role_headcounts_for_event(conn, event_id):
         counts[rid] = counts.get(rid, 0) + 1
     return counts
 
+def _production_producer_contacts(conn, production_id):
+    """Producer(s) on a production's roster, for 'questions? contact...' on sign-up pages.
+    Matches any role containing 'producer' (Producer, Associate Producer, Resident
+    Producer, Executive Producer, etc.) — director-only shows aren't shown here."""
+    if not production_id:
+        return []
+    rows = fetchall(conn, '''SELECT v.name, v.email, v.phone, pm.role
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s AND pm.role ILIKE %s
+        ORDER BY pm.created_at''', (production_id, '%producer%')) or []
+    return rows
+
 def _foh_training_passed(conn, email):
     """Whether this email has a passing Front of House training result on file."""
     if not email:
@@ -17859,7 +17871,7 @@ def foh_training_page():
           {questions_or_placeholder}
           <button type="button" id="foh-submit-btn" onclick="submitFohQuiz()" class="gi-btn" style="margin-top:14px">Submit</button>
         </div>
-        <div class="gi-footer">Horizon West Theater Company</div>
+        <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
       </div>
       <script>
       async function submitFohQuiz(){{
@@ -17976,6 +17988,7 @@ def _guest_invite_css():
       .gi-btn-secondary{width:100%;background:transparent;color:#8a8477;border:1.5px solid #e4ddd0;border-radius:14px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;transition:border-color 0.15s,color 0.15s}
       .gi-btn-secondary:hover{border-color:#c94f4f;color:#c94f4f}
       .gi-footer{text-align:center;font-size:12px;color:#a49f92;margin-top:26px;letter-spacing:0.3px}
+      .gi-footer img{height:28px;display:block;margin:0 auto 8px;opacity:0.85}
       .gi-success{text-align:center;padding:64px 24px;max-width:480px;margin:0 auto}
       .gi-success-icon{width:64px;height:64px;border-radius:50%;background:#e8f5ef;color:#166534;display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 20px}
     </style>'''
@@ -17986,7 +17999,7 @@ def rsvp_page(token):
     conn = get_db()
     rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time,
         e.location, e.address, e.description, e.id as event_id, e.status as event_status, e.rsvp_kind,
-        e.invite_image_url, e.invite_headline, e.hide_block_names
+        e.invite_image_url, e.invite_headline, e.hide_block_names, e.production_id
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
@@ -18038,15 +18051,16 @@ def rsvp_page(token):
             </div>
             <div class="gi-card">{rows_html}</div>
             <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
     # Already signed up (non-party, legacy behavior)
     if rsvp.get('status') == 'interested':
         role_line = f'<p style="color:#16a34a;font-weight:600;margin-top:10px">Your {slot_word.lower()}: {rsvp["role_name"]}</p>' if rsvp.get('role_name') else ''
+        thanks_word = 'RSVP' if is_guest else 'sign-up'
         conn.close()
-        return f'''<html><head><title>RSVP Confirmed</title>
+        return f'''<html><head><title>{"RSVP" if is_guest else "Sign-Up"} Confirmed</title>
         <meta name="viewport" content="width=device-width,initial-scale=1">
         {_guest_invite_css()}
         </head>
@@ -18056,30 +18070,31 @@ def rsvp_page(token):
               <div class="gi-success-icon">✓</div>
               <div class="gi-eyebrow">Already Signed Up</div>
               <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 4px">{rsvp["event_name"]}</h2>
-              <p style="color:#6b6b64;font-size:14px">Thanks {rsvp.get("volunteer_name","")} — we have your RSVP.</p>
+              <p style="color:#6b6b64;font-size:14px">Thanks {rsvp.get("volunteer_name","")} — we have your {thanks_word}.</p>
               {role_line}
               <p style="color:#a49f92;font-size:13px;margin-top:16px">We'll be in touch with more details.</p>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
     # Already declined
     if rsvp.get('status') == 'declined':
         conn.close()
-        return f'''<html><head><title>RSVP Recorded</title>
+        undo_word = 'RSVP' if is_guest else 'sign up'
+        return f'''<html><head><title>{"RSVP" if is_guest else "Response"} Recorded</title>
         <meta name="viewport" content="width=device-width,initial-scale=1">
         {_guest_invite_css()}
         </head>
         <body class="gi-body">
           <div class="gi-wrap">
             <div style="text-align:center;padding:60px 0 20px">
-              <div class="gi-eyebrow">RSVP Recorded</div>
+              <div class="gi-eyebrow">{"RSVP" if is_guest else "Response"} Recorded</div>
               <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 14px">We've noted you can't make it</h2>
               <p style="color:#4a4a45">Thanks for letting us know, {rsvp.get("volunteer_name","")} — we'll miss you at <strong>{rsvp["event_name"]}</strong>!</p>
-              <p style="color:#a49f92;font-size:13px;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Click here</a> to RSVP instead.</p>
+              <p style="color:#a49f92;font-size:13px;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Click here</a> to {undo_word} instead.</p>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -18090,7 +18105,19 @@ def rsvp_page(token):
     _rc = _role_headcounts_for_event(conn, rsvp['event_id'])
     for _r in roles:
         _r['filled'] = _rc.get(_r['id'], 0)
+    producer_contacts = [] if is_guest else _production_producer_contacts(conn, rsvp.get('production_id'))
     conn.close()
+
+    producer_contact_html = ''
+    if producer_contacts:
+        lines = []
+        for p in producer_contacts:
+            phone_part = f' &middot; {p["phone"]}' if p.get('phone') else ''
+            lines.append(f'<div style="font-size:12.5px;color:#4a4a45;margin-top:2px">{p["name"]} — <a href="mailto:{p["email"]}" style="color:#145466">{p["email"]}</a>{phone_part}</div>')
+        producer_contact_html = f'''<div style="text-align:center;font-size:11px;color:#a49f92;margin-top:10px">
+          Questions? Contact {"your producer" if len(producer_contacts)==1 else "a producer"}:
+          {''.join(lines)}
+        </div>'''
 
     # If this invite was pre-assigned to a specific block by an admin, lock the page to
     # just that block instead of showing the full picker — "RSVP to the block we assigned you."
@@ -18167,7 +18194,7 @@ def rsvp_page(token):
                 </button>
               </form>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -18193,10 +18220,12 @@ def rsvp_page(token):
                 <input type="hidden" name="role_id" value="{r["id"]}"/>'''
             else:
                 full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This role is currently full — let us know anyway and we\'ll follow up.</div>' if available <= 0 else ''
+                training_note = '<div style="font-size:11.5px;color:#9a3412;font-weight:700;margin-top:4px"> This role requires additional training</div>' if r.get('requires_foh_training') else ''
                 locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
                   <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Role</div>
                   <div style="font-size:17px;font-weight:700;color:#0d3d4d">{r["name"]}</div>
                   {full_note}
+                  {training_note}
                 </div>
                 <input type="hidden" name="role_id" value="{r["id"]}"/>'''
         else:
@@ -18210,10 +18239,11 @@ def rsvp_page(token):
                 r_bte = _fmt_time(r.get('block_time_end'))
                 time_line = f'<div style="font-size:12.5px;color:#145466;font-weight:600;margin-top:1px">{r_bt}{" – "+r_bte if r_bte else ""}</div>' if r_bt else ''
                 desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+                training_note = '<div style="font-size:11.5px;color:#9a3412;font-weight:700;margin-top:3px"> This role requires additional training</div>' if r.get('requires_foh_training') else ''
                 roles_html += f'''<label class="gi-slot" style="{style}"
                     onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
-                    <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
-                    <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}</div>
+                    <input type="radio" name="role_id" value="{r["id"]}" {disabled} data-requires-training="{1 if r.get('requires_foh_training') else 0}" style="accent-color:#145466;flex-shrink:0" required/>
+                    <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}{training_note}</div>
                 </label>'''
 
         heading = 'You\'re invited!' if is_guest else 'Sign up to volunteer!'
@@ -18224,6 +18254,25 @@ def rsvp_page(token):
 
         image_url = (rsvp.get('invite_image_url') or '').strip()
         headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        eyebrow_text = "You're Invited" if is_guest else 'Volunteer Sign-Up'
+
+        # Confirm-button text: for a single pre-assigned role we know up front whether it
+        # needs training; for a picker with several roles, JS updates it as they choose.
+        default_confirm_label = 'RSVP — Confirm My Spot' if is_guest else 'Sign Up to Volunteer'
+        training_confirm_label = 'Complete Training & Sign Up to Volunteer'
+        if locked_block and locked_block.get('requires_foh_training') and not is_guest:
+            confirm_label = training_confirm_label
+        else:
+            confirm_label = default_confirm_label
+        confirm_btn_script = '' if (is_guest or locked_block) else f'''<script>
+        document.querySelectorAll('input[name="role_id"]').forEach(function(inp){{
+          inp.addEventListener('change', function(){{
+            var btn = document.getElementById('rsvp-confirm-btn')
+            if(!btn) return
+            btn.textContent = (this.dataset.requiresTraining==='1') ? {json.dumps(training_confirm_label)} : {json.dumps(default_confirm_label)}
+          }})
+        }})
+        </script>'''
 
         # ── Polished invite with slot selection (used for both guest and volunteer sign-ups) ──
         if image_url:
@@ -18231,17 +18280,18 @@ def rsvp_page(token):
               <img src="{image_url}"/>
               <div class="gi-hero-overlay"></div>
               <div class="gi-hero-text">
-                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-eyebrow">{eyebrow_text}</div>
                 <div class="gi-headline" style="font-size:28px">{headline}</div>
               </div>
             </div>'''
         else:
             hero_html = f'''<div class="gi-no-image-hero" style="padding:36px 24px">
-              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">{eyebrow_text}</div>
               <div class="gi-headline-plain" style="font-size:28px">{headline}</div>
             </div>'''
 
-        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
+        page_title = f'RSVP — {rsvp["event_name"]}' if is_guest else f'Sign Up — {rsvp["event_name"]}'
+        return f'''<html><head><title>{page_title}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1">
         {_guest_invite_css()}
         </head>
@@ -18260,16 +18310,18 @@ def rsvp_page(token):
             <div class="gi-card">
               <form method="POST" action="/rsvp/{token}">
                 {'' if locked_block else f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}'}
-                <button type="submit" name="rsvp_action" value="confirm" class="gi-btn" style="margin-top:8px">
-                  RSVP — Confirm My Spot
+                <button type="submit" name="rsvp_action" value="confirm" id="rsvp-confirm-btn" class="gi-btn" style="margin-top:8px">
+                  {confirm_label}
                 </button>
                 <button type="submit" name="rsvp_action" value="decline" formnovalidate class="gi-btn-secondary" style="margin-top:10px">
                   Can't Make It
                 </button>
               </form>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            {producer_contact_html}
+            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
+          {confirm_btn_script}
         </body></html>'''
     else:
         # No roles/slots — show a simple confirm/decline landing page.
@@ -18278,6 +18330,10 @@ def rsvp_page(token):
         # is recorded until they actually click a button.)
         image_url = (rsvp.get('invite_image_url') or '').strip()
         headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        eyebrow_text = "You're Invited" if is_guest else 'Volunteer Sign-Up'
+        confirm_label = "RSVP — I'll Be There!" if is_guest else 'Sign Up to Volunteer'
+        prompt_text = f'Hi {vol_name}, will you be joining us?' if is_guest else f'Hi {vol_name}, can you help at this event?'
+        page_title = f'RSVP — {rsvp["event_name"]}' if is_guest else f'Sign Up — {rsvp["event_name"]}'
 
         # ── Polished confirm/decline landing (used for both guest and volunteer sign-ups) ──
         if image_url:
@@ -18285,17 +18341,17 @@ def rsvp_page(token):
               <img src="{image_url}"/>
               <div class="gi-hero-overlay"></div>
               <div class="gi-hero-text">
-                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-eyebrow">{eyebrow_text}</div>
                 <div class="gi-headline" style="font-size:30px">{headline}</div>
               </div>
             </div>'''
         else:
             hero_html = f'''<div class="gi-no-image-hero">
-              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">{eyebrow_text}</div>
               <div class="gi-headline-plain">{headline}</div>
             </div>'''
 
-        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
+        return f'''<html><head><title>{page_title}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1">
         {_guest_invite_css()}
         </head>
@@ -18311,17 +18367,18 @@ def rsvp_page(token):
             {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
             <div class="gi-divider"><span></span></div>
             <div class="gi-card">
-              <p style="text-align:center;color:#6b6b64;margin:0 0 16px;font-size:14px">Hi {vol_name}, will you be joining us?</p>
+              <p style="text-align:center;color:#6b6b64;margin:0 0 16px;font-size:14px">{prompt_text}</p>
               <form method="POST" action="/rsvp/{token}">
                 <button type="submit" name="rsvp_action" value="confirm" class="gi-btn">
-                  RSVP — I'll Be There!
+                  {confirm_label}
                 </button>
                 <button type="submit" name="rsvp_action" value="decline" class="gi-btn-secondary" style="margin-top:10px">
                   Can't Make It
                 </button>
               </form>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            {producer_contact_html}
+            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -18393,7 +18450,7 @@ def rsvp_submit(token):
               <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 14px">Thanks for letting us know</h2>
               <p style="color:#4a4a45">Sorry you can't make it, {vol_name} — we'll miss you at <strong>{rsvp["event_name"]}</strong>.</p>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -18484,7 +18541,7 @@ def rsvp_submit(token):
             </div>
             <div class="gi-card">{rows_html}</div>
             <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -18511,7 +18568,7 @@ def rsvp_submit(token):
                   <div style="font-size:48px;margin-bottom:16px"></div>
                   <h2 style="color:#145466">One more step first</h2>
                   <p>The <strong>{role["name"]}</strong> shift requires Front of House Support Training before you can sign up.</p>
-                  <p><a href="{training_url}" style="color:#145466;font-weight:700">Complete the training →</a></p>
+                  <p><a href="{training_url}" style="color:#145466;font-weight:700">Complete Training & Sign Up to Volunteer →</a></p>
                 </body></html>''', 403
             role_name = role['name']
 
@@ -18576,7 +18633,7 @@ def rsvp_submit(token):
           <p style="color:#4a4a45">Thanks {vol_name}! We've got you down{f' for {date_str}' if date_str else ''}{f' — {role_name}' if role_name else ''}.</p>
           <p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p>
         </div>
-        <div class="gi-footer">Horizon West Theater Company</div>
+        <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
       </div>
     </body></html>'''
 
@@ -18657,7 +18714,19 @@ def public_rsvp_open_page(event_id):
     _rc = _role_headcounts_for_event(conn, event_id)
     for _r in roles:
         _r['filled'] = _rc.get(_r['id'], 0)
+    producer_contacts = [] if is_guest else _production_producer_contacts(conn, evt.get('production_id'))
     conn.close()
+
+    producer_contact_html = ''
+    if producer_contacts:
+        lines = []
+        for p in producer_contacts:
+            phone_part = f' &middot; {p["phone"]}' if p.get('phone') else ''
+            lines.append(f'<div style="font-size:12.5px;color:#4a4a45;margin-top:2px">{p["name"]} — <a href="mailto:{p["email"]}" style="color:#145466">{p["email"]}</a>{phone_part}</div>')
+        producer_contact_html = f'''<div style="text-align:center;font-size:11px;color:#a49f92;margin-top:10px">
+          Questions? Contact {"your producer" if len(producer_contacts)==1 else "a producer"}:
+          {''.join(lines)}
+        </div>'''
 
     # A direct block/session link (?block=<role_id>) scopes the whole page to just that
     # one block instead of showing the full picker — for "RSVP to the block we assigned you."
@@ -18689,10 +18758,11 @@ def public_rsvp_open_page(event_id):
             r_bte = _fmt_time(r.get('block_time_end'))
             time_line = f'<div style="font-size:12.5px;color:#145466;font-weight:600;margin-top:1px">{r_bt}{" – "+r_bte if r_bte else ""}</div>' if r_bt else ''
             desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+            training_note = '<div style="font-size:11.5px;color:#9a3412;font-weight:700;margin-top:3px"> This role requires additional training</div>' if r.get('requires_foh_training') else ''
             roles_html += f'''<label class="gi-slot" style="{style}"
                 onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
-                <input type="radio" name="role_id" value="{r["id"]}" {disabled} required style="accent-color:#145466;flex-shrink:0"/>
-                <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}</div>
+                <input type="radio" name="role_id" value="{r["id"]}" {disabled} data-requires-training="{1 if r.get('requires_foh_training') else 0}" required style="accent-color:#145466;flex-shrink:0"/>
+                <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}{training_note}</div>
             </label>'''
     locked_block_html = ''
     if locked_block:
@@ -18704,10 +18774,12 @@ def public_rsvp_open_page(event_id):
         <input type="hidden" name="role_id" value="{locked_block["id"]}"/>'''
         else:
             full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — you can still let us know you\'d like to come and we\'ll follow up.</div>' if available <= 0 else ''
+            training_note = '<div style="font-size:11.5px;color:#9a3412;font-weight:700;margin-top:4px"> This role requires additional training</div>' if locked_block.get('requires_foh_training') else ''
             locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
           <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Block</div>
           <div style="font-size:17px;font-weight:700;color:#0d3d4d">{locked_block["name"]}</div>
           {full_note}
+          {training_note}
         </div>
         <input type="hidden" name="role_id" value="{locked_block["id"]}"/>'''
 
@@ -18724,7 +18796,10 @@ def public_rsvp_open_page(event_id):
         )
 
     if not is_guest:
-        return f'''<html><head><title>RSVP — {evt["name"]}</title>
+        default_confirm_label = 'Sign Up to Volunteer'
+        training_confirm_label = 'Complete Training & Sign Up to Volunteer'
+        initial_label = training_confirm_label if (locked_block and locked_block.get('requires_foh_training')) else default_confirm_label
+        return f'''<html><head><title>Sign Up — {evt["name"]}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1">
         {_guest_invite_css()}
         </head>
@@ -18750,13 +18825,24 @@ def public_rsvp_open_page(event_id):
                 <input type="email" id="pr-email" required class="gi-input" placeholder="you@example.com"/>
                 {f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}' if roles else ''}
                 <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp()" class="gi-btn" style="margin-top:8px">
-                  I Can Help!
+                  {initial_label}
                 </button>
               </form>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            {producer_contact_html}
+            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
           <script>
+          function currentBtnLabel(){{
+            var sel = document.querySelector('input[name="role_id"]:checked')
+            return (sel && sel.dataset.requiresTraining==='1') ? {json.dumps(training_confirm_label)} : {json.dumps(default_confirm_label)}
+          }}
+          document.querySelectorAll('input[name="role_id"]').forEach(function(inp){{
+            inp.addEventListener('change', function(){{
+              var btn = document.getElementById('pr-submit-btn')
+              if(btn) btn.textContent = currentBtnLabel()
+            }})
+          }})
           async function submitPublicRsvp(){{
             var name = document.getElementById('pr-name').value.trim()
             var email = document.getElementById('pr-email').value.trim()
@@ -18772,8 +18858,9 @@ def public_rsvp_open_page(event_id):
             var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId}})}})
             var data = await r.json()
             if(data.error){{
-              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
-              btn.disabled = false; btn.textContent = "I Can Help!"
+              var extraLink = data.training_required ? '<br/><a href="'+data.training_url+'" style="color:#991b1b;font-weight:700;text-decoration:underline">Complete Training & Sign Up to Volunteer</a>' : ''
+              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+extraLink+'</div>'
+              btn.disabled = false; btn.textContent = currentBtnLabel()
               return
             }}
             document.body.innerHTML = '<div class="gi-success"><div class="gi-success-icon">✓</div><h2 style="font-family:\\'Playfair Display\\',Georgia,serif;color:#0d3d4d;font-size:26px">You\\'re in!</h2><p style="color:#4a4a45">Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p></div>'
@@ -18831,7 +18918,7 @@ def public_rsvp_open_page(event_id):
             </button>
           </form>
         </div>
-        <div class="gi-footer">Horizon West Theater Company</div>
+        <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
       </div>
       <script>
       async function submitPublicRsvp(action){{
@@ -18853,7 +18940,7 @@ def public_rsvp_open_page(event_id):
         var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId, action:action}})}})
         var data = await r.json()
         if(data.error){{
-          var extraLink = data.training_required ? '<br/><a href="'+data.training_url+'" style="color:#991b1b;font-weight:700;text-decoration:underline">Complete the training →</a>' : ''
+          var extraLink = data.training_required ? '<br/><a href="'+data.training_url+'" style="color:#991b1b;font-weight:700;text-decoration:underline">Complete Training & Sign Up to Volunteer</a>' : ''
           document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+extraLink+'</div>'
           confirmBtn.disabled = false; declineBtn.disabled = false; activeBtn.textContent = originalText
           return

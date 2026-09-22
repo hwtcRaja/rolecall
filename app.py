@@ -27146,7 +27146,35 @@ def get_inbox_import_history_status():
     if err: return err
     return jsonify(_get_inbox_import_status())
 
+def _acquire_single_worker_lock():
+    """Gunicorn runs multiple worker processes, each importing this module
+    independently — without this, every worker starts its own scheduler, so a
+    weekly job (like the Monday on-call Slack report) fires once per worker
+    instead of once total. This is an atomic cross-process lock: only the
+    first worker to reach this actually creates the lock file (O_EXCL fails
+    for everyone else), so only that one worker goes on to start the
+    scheduler. The lock lives in /tmp, which is fresh on every deploy (a new
+    container/filesystem), so there's no stale-lock cleanup to do — it can
+    only ever be "already held" by a sibling worker from *this* boot.
+    Trade-off: if the one worker holding the lock later crashes and gets
+    replaced, the replacement won't take over the scheduler (no other worker
+    is watching for that), so the on-call report would silently stop firing
+    until the next full deploy. Rare in practice, and far better than firing
+    twice every week."""
+    import os
+    lock_path = '/tmp/rolecall_scheduler.lock'
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+
 def _start_oncall_scheduler():
+    if not _acquire_single_worker_lock():
+        app.logger.info('Scheduler already running in another worker process — skipping here')
+        return
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger

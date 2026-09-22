@@ -513,6 +513,19 @@ function setVidMode(mode){
   document.getElementById('vid-link-area').style.display = mode==='link' ? '' : 'none'
 }
 
+// Builds what shows inside a file-drop zone once a file exists for it — a
+// real preview (thumbnail for a headshot) where one's practical, or a "view
+// it" link where it isn't (a resume/video can't be thumbnailed inline), so
+// someone editing an existing submission can actually tell what's on file
+// instead of just being told to trust it.
+function fileDropContentHtml(kind, url, label){
+  if(!url) return label
+  if(kind === 'headshot'){
+    return `<img src="${url}" alt="" style="max-height:84px;border-radius:6px;display:block;margin:0 auto 6px;pointer-events:none"/><div>${label}</div>`
+  }
+  return `<div>${label}</div><a href="${url}" target="_blank" onclick="event.stopPropagation()" style="display:inline-block;margin-top:5px;color:#145466;font-weight:700;text-decoration:underline;font-size:11.5px">${kind==='video_clip'?'▶ View current clip':' View current resume'} →</a>`
+}
+
 async function handleFileUpload(kind, inputEl){
   var file = inputEl.files?.[0]
   if(!file) return
@@ -532,7 +545,7 @@ async function handleFileUpload(kind, inputEl){
       return
     }
     UPLOADED[kind] = d.url
-    dropEl.textContent = ' ' + d.filename
+    dropEl.innerHTML = fileDropContentHtml(kind, d.url, ' ' + escH(d.filename) + ' — click to replace')
     dropEl.classList.add('has-file')
   } catch(e){
     dropEl.textContent = originalText
@@ -794,13 +807,14 @@ function prefillFormFromSubmission(sub){
   if(sub.video_clip_url && document.getElementById('vid-tab-clip')) setVidMode('clip')
   else if(sub.video_url && document.getElementById('vid-tab-link')) setVidMode('link')
 
-  // Already-uploaded files — show as on-file without requiring a re-upload;
-  // carried forward in UPLOADED so saving without touching them keeps them.
+  // Already-uploaded files — show as on-file (with an actual preview/link,
+  // not just a claim) without requiring a re-upload; carried forward in
+  // UPLOADED so saving without touching them keeps them.
   var markUploaded = function(kind, url){
     if(!url) return
     UPLOADED[kind] = url
     var dropEl = document.getElementById('drop-'+kind)
-    if(dropEl){ dropEl.textContent = ' On file — click to replace'; dropEl.classList.add('has-file') }
+    if(dropEl){ dropEl.innerHTML = fileDropContentHtml(kind, url, 'On file — click to replace'); dropEl.classList.add('has-file') }
   }
   markUploaded('resume', sub.resume_file_url)
   markUploaded('headshot', sub.headshot_file_url)

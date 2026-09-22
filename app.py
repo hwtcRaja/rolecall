@@ -24732,6 +24732,7 @@ def public_program_sessions(slug):
     sessions = fetchall(conn, '''SELECT ps.id, ps.name, ps.day_of_week, ps.start_time,
         ps.end_time, ps.start_date, ps.end_date, ps.location, ps.capacity,
         ps.price_override, ps.status, ps.sort_order,
+        ps.min_age, ps.max_age, ps.age_grace_days,
         (SELECT COUNT(*) FROM program_registrations
          WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
          AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count

@@ -6982,7 +6982,10 @@ def get_audition_checkins(context_type, context_id):
     conn = get_db()
     rows = fetchall(conn, """SELECT c.*,
         COALESCE(s.submitter_name, c.walk_in_name) AS display_name,
-        s.submitter_email
+        s.submitter_email, s.notes, s.roles_requested, s.role_requested,
+        s.video_url, s.video_clip_url, s.resume_url, s.resume_file_url,
+        s.headshot_url, s.headshot_file_url, s.pronouns, s.phone,
+        s.crew_interest, s.crew_roles_requested, s.crew_experience
         FROM audition_checkins c
         LEFT JOIN audition_submissions s ON s.id=c.submission_id
         WHERE c.context_type=%s AND c.context_id=%s AND c.checkin_date=CURRENT_DATE
@@ -29454,6 +29457,20 @@ def public_audition_queue_page(context_type, context_id):
     """Older /audition-queue/<type>/<id> form of the link, for consistency
     with the other audition pages that support both URL shapes."""
     return send_from_directory('static', 'audition-queue.html')
+
+@app.route('/audition/<slug>/room-control')
+def audition_room_control_page_by_slug(slug):
+    """The in-room kiosk for whoever's running the room (not the front-desk
+    check-in tab, and not the passive lobby display) — shows full detail on
+    whoever's up and lets them call the next person themselves. Calls the
+    same staff-authed endpoints the admin tab uses, so it relies on the
+    browser already having a logged-in RoleCall session; the page itself
+    checks for that and prompts to log in if not."""
+    return send_from_directory('static', 'audition-room-control.html')
+
+@app.route('/audition-room-control/<context_type>/<context_id>')
+def audition_room_control_page(context_type, context_id):
+    return send_from_directory('static', 'audition-room-control.html')
 
 @app.route('/api/public/audition-settings-by-slug/<slug>')
 def get_audition_settings_by_slug(slug):

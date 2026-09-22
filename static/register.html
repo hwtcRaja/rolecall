@@ -426,13 +426,87 @@ function updateAdultDobRequirement(){
   star.style.display = sel.value === 'yes' ? '' : 'none'
 }
 
-// A program's age check needs a real date of birth to work, so once an
-// age restriction is configured we skip the separate "are you under 18?"
-// self-report question and just require DOB directly — asking both is
-// confusing, and DOB could otherwise be left blank for anyone who
-// self-reports as 18+, leaving the restriction unenforceable for them.
+// A program's (or a specific session's) age check needs a real date of
+// birth to work, so once any age restriction is configured — on the
+// program itself, or on any of its sessions — we skip the separate "are
+// you under 18?" self-report question and just require DOB directly.
+// Asking both is confusing, and DOB could otherwise be left blank for
+// anyone who self-reports as 18+, leaving the restriction unenforceable
+// for them (this is exactly what let an 18-year-old check a kids-only
+// "Ages 8-16" session box with nothing stopping them).
 function programHasAgeRestriction(){
-  return (program.min_age != null && program.min_age !== '') || (program.max_age != null && program.max_age !== '')
+  if((program.min_age != null && program.min_age !== '') || (program.max_age != null && program.max_age !== '')) return true
+  var sessions = program._sessions || []
+  for(var i=0;i<sessions.length;i++){
+    var s = sessions[i]
+    if((s.min_age != null && s.min_age !== '') || (s.max_age != null && s.max_age !== '')) return true
+  }
+  return false
+}
+
+function sessionAgeLabel(s){
+  if(s.min_age == null && s.max_age == null) return ''
+  if(s.min_age != null && s.max_age != null) return 'Ages '+s.min_age+'–'+s.max_age
+  if(s.min_age != null) return 'Ages '+s.min_age+'+'
+  return 'Up to age '+s.max_age
+}
+
+// Computed today (not the session's start date, which the backend uses for
+// the authoritative check) — good enough for a live nudge toward the right
+// session; the real, precise check still happens server-side on submit.
+function ageFromDob(dobStr){
+  if(!dobStr) return null
+  var dob = new Date(dobStr+'T12:00:00')
+  if(isNaN(dob.getTime())) return null
+  var today = new Date()
+  var age = today.getFullYear() - dob.getFullYear()
+  var monthDiff = today.getMonth() - dob.getMonth()
+  if(monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) age--
+  return age
+}
+
+function checkAgeMismatch(){
+  var warnEl = document.getElementById('session-age-warning')
+  if(!warnEl) return
+  var dobVal = ((document.getElementById('f-dob')||{}).value||'').trim()
+  var age = ageFromDob(dobVal)
+  if(age == null){
+    // No exact birthdate — if they've told us they're 18+, treat that as
+    // "at least 18" for this live check too, same reasoning the backend
+    // uses: the youngest age consistent with what they've told us so far.
+    var under18Val = ((document.getElementById('f-under18')||{}).value||'')
+    if(under18Val === 'no') age = 18
+  }
+  if(age == null || !program._sessions || !program._sessions.length){
+    warnEl.style.display = 'none'; warnEl.innerHTML = ''
+    return
+  }
+  var mismatches = []
+  var goodFits = []
+  document.querySelectorAll('.session-checkbox:checked').forEach(function(cb){
+    var s = program._sessions.find(function(x){ return x.id === cb.dataset.sid })
+    if(!s) return
+    var label = sessionAgeLabel(s)
+    if(!label) return
+    var tooYoung = s.min_age != null && age < s.min_age
+    var tooOld = s.max_age != null && age > s.max_age
+    if(tooYoung || tooOld) mismatches.push(s.name+' ('+label+')')
+  })
+  if(mismatches.length){
+    // Suggest any currently-unselected session this age *does* fit, if one exists.
+    var fits = program._sessions.filter(function(s){
+      var label = sessionAgeLabel(s)
+      if(!label) return false
+      var tooYoung = s.min_age != null && age < s.min_age
+      var tooOld = s.max_age != null && age > s.max_age
+      return !tooYoung && !tooOld
+    })
+    var suggestion = fits.length ? ' Based on this birthdate, "'+fits[0].name+'" ('+sessionAgeLabel(fits[0])+') looks like the right fit instead.' : ' This age doesn\'t appear to fit any currently available session.'
+    warnEl.style.display = ''
+    warnEl.innerHTML = '<div style="background:#fef3c7;border:1.5px solid #fde68a;border-radius:8px;padding:10px 12px;margin:8px 0;font-size:12.5px;color:#92400e"> This birthdate doesn\'t match the age range for '+mismatches.join(', ')+'.'+suggestion+'</div>'
+  } else {
+    warnEl.style.display = 'none'; warnEl.innerHTML = ''
+  }
 }
 
 function buildRegistrationForm(formType, customFields, showCap, showAlmost){
@@ -600,7 +674,7 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
             return '<label style="display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid '+(isDisabled?'#e5e7eb':isAlmost?'#fbbf24':'#d1d5db')+';border-radius:10px;margin-bottom:8px;cursor:'+(isDisabled?'not-allowed':'pointer')+';opacity:'+(isDisabled?'0.5':'1')+';background:'+(isAlmost?'#fffbeb':'#fff')+'" class="session-label">'
               + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isDisabled?'disabled':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0;margin-top:2px"/>'
               + '<div style="flex:1">'
-              + '<div style="font-weight:700;font-size:14px">'+escHtml(s.name)+'</div>'
+              + '<div style="font-weight:700;font-size:14px">'+escHtml(s.name)+(sessionAgeLabel(s)?' <span style="font-size:10px;font-weight:700;background:#ffedd5;color:#9a3412;border:1px solid #fdba74;padding:1px 7px;border-radius:20px;vertical-align:middle">'+sessionAgeLabel(s)+'</span>':'')+'</div>'
               + (s.start_date ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+new Date(s.start_date+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+(timeStr?' · '+escHtml(timeStr):'')+'</div>' : (timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : ''))
               + (s.location ? '<div style="font-size:12px;color:#6b7280">'+escHtml(s.location)+'</div>' : '')
               + (isPast ? '<div style="font-size:12px;color:#9ca3af;font-weight:600;margin-top:3px">Registration closed — session date has passed</div>'
@@ -614,6 +688,7 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
               + '<div style="font-weight:700;font-size:14px;color:'+(isDisabled?'#9ca3af':'#145466')+';white-space:nowrap">'+(isPast?'Passed':price > 0 ? '$'+(price/100).toFixed(2) : 'Free')+'</div>'
               + '</label>'
           }).join('')
+        + '<div id="session-age-warning" style="display:none"></div>'
         + '<div id="session-total" style="display:none;margin-top:4px;padding:8px 12px;background:#f0f9ff;border-radius:8px;font-size:13px;font-weight:700;color:#0d3d4d;text-align:right"></div>'
     }
   }
@@ -623,7 +698,7 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
       + '<div class="form-row"><div class="form-group"><label>First Name <span class="required">*</span></label><input id="f-first" placeholder="First name"/></div>'
       + '<div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-last" placeholder="Last name"/></div></div>'
       + (on('dob',true)||on('shirt',true) ? '<div class="form-row">'
-          + (on('dob',true) ? '<div class="form-group"><label>Date of Birth</label><input id="f-dob" type="date"/></div>' : '')
+          + (on('dob',true) ? '<div class="form-group"><label>Date of Birth</label><input id="f-dob" type="date" oninput="checkAgeMismatch()"/></div>' : '')
           + (on('shirt',true) ? '<div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option><option>AS</option><option>AM</option><option>AL</option><option>AXL</option></select></div>' : '')
           + '</div>' : '')
       + (on('allergies',false) ? '<div class="form-group"><label>Allergies / Medical Notes</label><input id="f-allergies" placeholder="Any allergies or medical conditions we should know about"/></div>' : '')
@@ -648,10 +723,10 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
       + '<div class="form-group"><label>Last Name <span class="required">*</span></label><input id="f-last" placeholder="Last name"/></div></div>'
       + '<div class="form-row">'
       + (programHasAgeRestriction()
-          ? '<div class="form-group"><label>Date of Birth <span class="required">*</span></label><input id="f-dob" type="date"/></div>'
+          ? '<div class="form-group"><label>Date of Birth <span class="required">*</span></label><input id="f-dob" type="date" oninput="checkAgeMismatch()"/></div>'
           : '<div class="form-group"><label>Are you under 18? <span class="required">*</span></label>'
-            + '<select id="f-under18" onchange="updateAdultDobRequirement()"><option value="">Select...</option><option value="no">No, I am 18 or older</option><option value="yes">Yes, I am under 18</option></select></div>'
-          + '<div class="form-group"><label>Date of Birth <span class="required" id="f-dob-required-star" style="display:none">*</span></label><input id="f-dob" type="date"/></div>')
+            + '<select id="f-under18" onchange="updateAdultDobRequirement();checkAgeMismatch()"><option value="">Select...</option><option value="no">No, I am 18 or older</option><option value="yes">Yes, I am under 18</option></select></div>'
+          + '<div class="form-group"><label>Date of Birth <span class="required" id="f-dob-required-star" style="display:none">*</span></label><input id="f-dob" type="date" oninput="checkAgeMismatch()"/></div>')
       + '</div>'
       + (on('shirt',true) ? '<div class="form-row"><div class="form-group"><label>T-Shirt Size</label><select id="f-shirt"><option value="">Select...</option><option>XS</option><option>S</option><option>M</option><option>L</option><option>XL</option><option>XXL</option></select></div></div>' : '')
       + '<div class="form-group"><label>Email <span class="required">*</span></label><input id="f-email" type="email" placeholder="your@email.com"/></div>'
@@ -995,6 +1070,7 @@ function onPaymentTypeChange(){
 document.addEventListener('change', function(e){
   if(e.target && e.target.classList.contains('session-checkbox')){
     updateSessionPicker()
+    checkAgeMismatch()
   }
 })
 
@@ -1299,7 +1375,7 @@ function buildSessionPicker(){
         return '<label style="display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid '+(isSelected?'#145466':isFull?'#e5e7eb':'#d1d5db')+';border-radius:10px;margin-bottom:8px;cursor:'+(isFull?'not-allowed':'pointer')+';background:'+(isSelected?'#f0f9ff':isFull?'#f9fafb':'#fff')+';">'
           + '<input type="checkbox" class="session-checkbox" data-sid="'+s.id+'" data-price="'+price+'" '+(isSelected?'checked ':'')+' '+(isFull?'disabled ':'')+' style="accent-color:#145466;width:16px;height:16px;flex-shrink:0"/>'
           + '<div style="flex:1">'
-          + '<div style="font-weight:700;font-size:14px;color:'+(isFull?'#9ca3af':'#1a2332')+'">'+escHtml(s.name)+'</div>'
+          + '<div style="font-weight:700;font-size:14px;color:'+(isFull?'#9ca3af':'#1a2332')+'">'+escHtml(s.name)+(sessionAgeLabel(s)?' <span style="font-size:10px;font-weight:700;background:#ffedd5;color:#9a3412;border:1px solid #fdba74;padding:1px 7px;border-radius:20px;vertical-align:middle">'+sessionAgeLabel(s)+'</span>':'')+'</div>'
           + (timeStr ? '<div style="font-size:12px;color:#6b7280;margin-top:2px">'+escHtml(timeStr)+'</div>' : '')
           + (s.location ? '<div style="font-size:12px;color:#6b7280">'+escHtml(s.location)+'</div>' : '')
           + (isFull ? '<div style="font-size:12px;color:#dc2626;font-weight:600;margin-top:2px">Full</div>'

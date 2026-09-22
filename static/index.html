@@ -3462,7 +3462,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group" id="lt-vol-select-wrap"></div>
  <div class="form-group">
  <label>Event *</label>
- <select id="lt-event-select" onchange="onEventSelect()">
+ <input type="text" id="lt-event-search" placeholder=" Search events…" oninput="filterLogTimeEvents(this.value)" style="margin-bottom:6px"/>
+ <select id="lt-event-select" onchange="onEventSelect()" size="1">
  <option value="">— Select an event or type custom —</option>
  <option value="__custom__"> Custom event name…</option>
  </select>
@@ -5806,13 +5807,49 @@ function populateHoursFilters(){
  esel.innerHTML='<option value="">All Events</option>'+eventNames.map(e=>`<option value="${e}">${e}</option>`).join('')
  esel.value=cur
  }
- // Populate log time event dropdown
+ // Populate log time event dropdown — grouped by recency instead of one
+ // giant flat alphabetical/insertion-order list, since orgs with a long
+ // history can easily have hundreds of events to scroll through otherwise.
  const ltsel=document.getElementById('lt-event-select')
  if(ltsel){
  const cur=ltsel.value
- ltsel.innerHTML=`<option value="">— Select an event or type custom —</option>${allEvents.map(e=>`<option value="${e.id}" data-id="${e.id}" data-name="${escHtml(e.name)}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`).join('')}<option value="__custom__"> Custom event name…</option>`
+ const todayStr = todayLocalISO()
+ const withDates = allEvents.filter(e=>e.event_date)
+ const noDates = allEvents.filter(e=>!e.event_date)
+ const upcoming = withDates.filter(e=>e.event_date>=todayStr).sort((a,b)=>a.event_date.localeCompare(b.event_date))
+ const past = withDates.filter(e=>e.event_date<todayStr).sort((a,b)=>b.event_date.localeCompare(a.event_date))
+ const thirtyDaysAgo = new Date(Date.now()-30*24*3600*1000).toISOString().slice(0,10)
+ const recentPast = past.filter(e=>e.event_date>=thirtyDaysAgo)
+ const olderPast = past.filter(e=>e.event_date<thirtyDaysAgo)
+ const opt = e => `<option value="${e.id}" data-id="${e.id}" data-name="${escHtml(e.name)}" data-search="${escHtml((e.name+' '+(e.event_date?formatDate(e.event_date):'')).toLowerCase())}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`
+ const group = (label, list) => list.length ? `<optgroup label="${label}">${list.map(opt).join('')}</optgroup>` : ''
+ ltsel.innerHTML = '<option value="">— Select an event or type custom —</option>'
+ + group('Today & Upcoming', upcoming)
+ + group('Past 30 Days', recentPast)
+ + group('Older Events', olderPast)
+ + group('No Date Set', noDates)
+ + '<option value="__custom__"> Custom event name…</option>'
  if(cur) ltsel.value=cur
  }
+ const searchBox = document.getElementById('lt-event-search')
+ if(searchBox) searchBox.value=''
+}
+
+function filterLogTimeEvents(query){
+ const q = query.trim().toLowerCase()
+ const ltsel = document.getElementById('lt-event-select')
+ if(!ltsel) return
+ let firstVisibleGroup = null
+ ltsel.querySelectorAll('optgroup').forEach(og=>{
+ let anyVisible = false
+ og.querySelectorAll('option').forEach(o=>{
+ const match = !q || (o.dataset.search||'').includes(q)
+ o.style.display = match ? '' : 'none'
+ if(match) anyVisible = true
+ })
+ og.style.display = anyVisible ? '' : 'none'
+ if(anyVisible && !firstVisibleGroup) firstVisibleGroup = og
+ })
 }
 
 function onEventSelect(){
@@ -26678,8 +26715,13 @@ async function loadSessionsInModal(pid){
     var enrolled = s.enrolled_count || 0
     var isBooked = enrolled > 0
     var cap = s.capacity ? enrolled+'/'+s.capacity : enrolled+' enrolled'
+    var ageLabel = (s.min_age!=null || s.max_age!=null)
+      ? (s.min_age!=null && s.max_age!=null ? 'Ages '+s.min_age+'–'+s.max_age
+         : s.min_age!=null ? 'Ages '+s.min_age+'+' : 'Up to age '+s.max_age)
+      : ''
+    var ageBadge = ageLabel ? '<span style="font-size:10px;font-weight:700;background:#ffedd5;color:#9a3412;border:1px solid #fdba74;padding:1px 7px;border-radius:20px;margin-left:6px">'+ageLabel+'</span>' : ''
     return '<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:'+(isBooked?'#f0fdfa':'var(--bg)')+';border:1px solid '+(isBooked?'#5eead4':'var(--border)')+';border-left:3px solid '+(isBooked?'#0d9488':'var(--border)')+';border-radius:8px;margin-bottom:6px">'
-      + '<div><div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px">'+escHtml(s.name)+(isBooked?'<span style="font-size:10px;font-weight:700;background:#0d9488;color:#fff;padding:1px 7px;border-radius:20px">'+enrolled+' booked</span>':'')+'</div>'
+      + '<div><div style="font-size:13px;font-weight:700;display:flex;align-items:center;gap:6px">'+escHtml(s.name)+(isBooked?'<span style="font-size:10px;font-weight:700;background:#0d9488;color:#fff;padding:1px 7px;border-radius:20px">'+enrolled+' booked</span>':'')+ageBadge+'</div>'
       + '<div style="font-size:11px;color:var(--text-muted);margin-top:2px">'+escHtml(timeStr||'No time set')+' &nbsp;·&nbsp; '+escHtml(price)+' &nbsp;·&nbsp; '+cap+'</div></div>'
       + '<div style="display:flex;gap:6px;align-items:center">'
       + '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:'+( statusColors[s.status]||statusColors.open)+'">'+(s.status||'open')+'</span>'
@@ -26773,6 +26815,18 @@ function openAddSessionModal(pid, existing){
     + '</div>'
     + fld('location','Location (optional)','text',s.location,'Leave blank to use program location')
     + fld('capacity','Capacity (optional)','number',s.capacity,'Unlimited')
+    + '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--teal-dark);padding-top:10px;border-top:1px solid var(--border);margin-top:2px;margin-bottom:2px">Age Requirement (optional)</div>'
+    + '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px">Leave blank to use the program\'s age requirement. Set here to override just this session — checked as of this session\'s start date.</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + fld('min-age','Minimum Age','number',s.min_age!=null?s.min_age:'','Use program setting')
+    + fld('max-age','Maximum Age','number',s.max_age!=null?s.max_age:'','Use program setting')
+    + '</div>'
+    + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">If someone is just under the minimum age</label>'
+    + '<select id="sess-age-grace" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+    + '<option value="">Use program setting</option>'
+    + [[0,'Never allow — block registration'],[14,'Waitlist if they turn old enough within 2 weeks'],[30,'Waitlist if they turn old enough within 30 days'],[60,'Waitlist if they turn old enough within 60 days']]
+        .map(function(o){ return '<option value="'+o[0]+'"'+(s.age_grace_days===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('')
+    + '</select></div>'
     + '<div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Price (leave blank to use program price)</label>'
     + '<input type="number" id="sess-price" value="'+(s.price_override!==null&&s.price_override!==undefined?(s.price_override/100).toFixed(2):'')+'" placeholder="Use program price" min="0" step="0.01" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box;outline:none"/></div>'
     + '<div class="form-group" style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Status</label>'
@@ -26790,6 +26844,9 @@ function openAddSessionModal(pid, existing){
   modal.querySelector('#sess-save-btn').addEventListener('click', async function(){
     var btn = this; btn.disabled=true; btn.textContent='Saving...'
     var priceVal = (document.getElementById('sess-price')||{}).value||''
+    var minAgeVal = (document.getElementById('sess-min-age')||{}).value||''
+    var maxAgeVal = (document.getElementById('sess-max-age')||{}).value||''
+    var ageGraceVal = (document.getElementById('sess-age-grace')||{}).value||''
     var payload = {
       name: (document.getElementById('sess-name')||{}).value||'',
       day_of_week: (document.getElementById('sess-day')||{}).value||'',
@@ -26801,6 +26858,9 @@ function openAddSessionModal(pid, existing){
       capacity: parseInt((document.getElementById('sess-capacity')||{}).value)||null,
       price_override: priceVal !== '' ? Math.round(parseFloat(priceVal)*100) : null,
       status: (document.getElementById('sess-status')||{}).value||'open',
+      min_age: minAgeVal !== '' ? parseInt(minAgeVal) : null,
+      max_age: maxAgeVal !== '' ? parseInt(maxAgeVal) : null,
+      age_grace_days: ageGraceVal !== '' ? parseInt(ageGraceVal) : null,
     }
     if(!payload.name){ toast('Session name is required','error'); btn.disabled=false; btn.textContent=existing?'Save Changes':'Add Session'; return }
     var url = existing ? '/api/programs/'+pid+'/sessions/'+existing.id : '/api/programs/'+pid+'/sessions'

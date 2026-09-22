@@ -2106,6 +2106,15 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'""",
+        # Per-session age requirements — same opt-in min/max/grace pattern as the
+        # program level (youth_programs.min_age etc). NULL on a session means
+        # "inherit the program's age requirement"; a session only overrides when
+        # it has its own value set. This is what lets something like "Private
+        # Vocal Workshops" require, say, 16+ for one instructor's session slots
+        # while leaving the program itself open to any age.
+        "ALTER TABLE program_sessions ADD COLUMN IF NOT EXISTS min_age INTEGER",
+        "ALTER TABLE program_sessions ADD COLUMN IF NOT EXISTS max_age INTEGER",
+        "ALTER TABLE program_sessions ADD COLUMN IF NOT EXISTS age_grace_days INTEGER",
         """CREATE TABLE IF NOT EXISTS pending_donations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -21491,6 +21500,43 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             app.logger.error(f'Welcome email send error for registration {reg_id}: {e}')
             import traceback; traceback.print_exc()
 
+    # Make sure any session(s) this registration covers have a real, loggable
+    # event — see _auto_create_events_for_registration for why this matters.
+    _auto_create_events_for_registration(conn, reg, prog)
+
+
+def _auto_create_events_for_registration(conn, reg, prog):
+    """Best-effort: as soon as a registration is confirmed, make sure a real
+    event exists for each session it covers, so an instructor can log paid
+    time against it right away — instead of only the lightweight synthetic
+    calendar entry existing until a staff member notices it and clicks
+    'Create Event' by hand. Safe to call repeatedly: skips any session that
+    already has a linked event, and never raises (a failure here should
+    never block the registration itself)."""
+    if not prog or not reg.get('session_ids'):
+        return
+    try:
+        session_ids = json.loads(reg.get('session_ids') or '[]')
+    except Exception:
+        session_ids = []
+    for sid in session_ids:
+        try:
+            already = fetchone(conn, 'SELECT id FROM events WHERE linked_session_id=%s', (sid,))
+            if already:
+                continue
+            s = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s', (sid,))
+            if not s or not s.get('start_date'):
+                continue
+            eid = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO events
+                (id,name,event_date,start_time,end_time,location,program_id,linked_session_id,status,auto_log_hours)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'draft',TRUE)''',
+                (eid, s.get('name') or (prog.get('name') if prog else '') or 'Class Session',
+                 s['start_date'], s.get('start_time') or None, s.get('end_time') or None,
+                 s.get('location') or '', prog['id'], sid))
+            conn.commit()
+        except Exception as e:
+            app.logger.warning(f'Auto-create event for session {sid} (registration {reg.get("id")}) failed: {e}')
 
 def _registration_not_yet_open(prog):
     """Return (True, message) if this program/production has a scheduled open
@@ -22779,11 +22825,33 @@ def public_submit_registration(slug):
         conn.close()
         return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
 
-    # Age eligibility — opt-in per program via min_age/max_age in
-    # Registration Settings. Checked against the program's own start date
-    # (not today), and before the capacity check, so an age-ineligible
-    # child sees the age-specific message rather than a generic "full"
-    # waitlist message if both happen to apply.
+    # Age eligibility — opt-in per program via min_age/max_age in Registration
+    # Settings, with an optional per-session override (e.g. a program like
+    # "Private Vocal Workshops" might only want an age gate on certain
+    # session slots — a teen-only time, say — while leaving the program
+    # itself open). A session only overrides a field it has its own value
+    # for; anything left blank on the session falls back to the program's
+    # setting. Checked against the program's start date, or the specific
+    # session's start date when a session overrides, and before the
+    # capacity check, so an age-ineligible child sees the age-specific
+    # message rather than a generic "full"/waitlist message if both apply.
+    _age_session_ids = d.get('session_ids') or []
+    if not isinstance(_age_session_ids, list): _age_session_ids = []
+    age_check_specs = []  # (min_age, max_age, grace_days, ref_date, session_label)
+    if _age_session_ids:
+        for _sid in _age_session_ids:
+            _sr = fetchone(conn, '''SELECT name, start_date, min_age, max_age, age_grace_days
+                FROM program_sessions WHERE id=%s AND program_id=%s''', (_sid, p['id']))
+            if not _sr:
+                continue
+            _s_min = _sr['min_age'] if _sr.get('min_age') is not None else p.get('min_age')
+            _s_max = _sr['max_age'] if _sr.get('max_age') is not None else p.get('max_age')
+            _s_grace = _sr['age_grace_days'] if _sr.get('age_grace_days') is not None else p.get('age_grace_days')
+            _s_ref = _sr.get('start_date') or p.get('start_date')
+            age_check_specs.append((_s_min, _s_max, _s_grace, _s_ref, _sr.get('name') or ''))
+    else:
+        age_check_specs.append((p.get('min_age'), p.get('max_age'), p.get('age_grace_days'), p.get('start_date'), ''))
+
     age_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'dob': d.get('child_dob')}]
     for s in (d.get('siblings') or []):
         if isinstance(s, dict):
@@ -22791,13 +22859,16 @@ def public_submit_registration(slug):
     age_grace_note = None
     needs_age_waitlist = False
     for c in age_children:
-        _action, _msg = _check_age_eligibility(c['dob'], p.get('min_age'), p.get('max_age'), p.get('age_grace_days'), p.get('start_date'))
-        if _action == 'reject':
-            conn.close()
-            return jsonify({'error': (f"{c['first_name']}: " if c['first_name'] else '') + _msg}), 400
-        if _action == 'waitlist':
-            needs_age_waitlist = True
-            age_grace_note = _msg
+        for (_c_min, _c_max, _c_grace, _c_ref, _c_label) in age_check_specs:
+            _action, _msg = _check_age_eligibility(c['dob'], _c_min, _c_max, _c_grace, _c_ref)
+            if _action == 'reject':
+                conn.close()
+                prefix = (f"{c['first_name']}: " if c['first_name'] else '')
+                suffix = f' (session: {_c_label})' if _c_label else ''
+                return jsonify({'error': prefix + _msg + suffix}), 400
+            if _action == 'waitlist':
+                needs_age_waitlist = True
+                age_grace_note = _msg
 
     if needs_age_waitlist:
         # Same per-child waitlist pattern as the capacity-full path below,
@@ -24383,13 +24454,20 @@ def create_program_session(pid):
     if capacity is not None:
         try: capacity = int(capacity)
         except Exception: capacity = None
+    min_age = d.get('min_age')
+    min_age = int(min_age) if min_age not in (None, '') else None
+    max_age = d.get('max_age')
+    max_age = int(max_age) if max_age not in (None, '') else None
+    age_grace_days = d.get('age_grace_days')
+    age_grace_days = int(age_grace_days) if age_grace_days not in (None, '') else None
     # Get next sort order
     max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) as m FROM program_sessions WHERE program_id=%s', (pid,))
     sort_order = (max_sort.get('m') or 0) + 1
     execute(conn, '''INSERT INTO program_sessions
         (id, program_id, name, day_of_week, start_time, end_time,
-         start_date, end_date, location, capacity, price_override, status, sort_order)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+         start_date, end_date, location, capacity, price_override, status, sort_order,
+         min_age, max_age, age_grace_days)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (sid, pid,
          (d.get('name') or '').strip(),
          d.get('day_of_week') or None,
@@ -24401,7 +24479,8 @@ def create_program_session(pid):
          capacity,
          price_override,
          d.get('status') or 'open',
-         sort_order))
+         sort_order,
+         min_age, max_age, age_grace_days))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
     conn.close()
@@ -24580,11 +24659,18 @@ def update_program_session(pid, sid):
     err = require_own_program(pid)
     if err: return err
     d = request.json or {}
+    min_age = d.get('min_age')
+    min_age = int(min_age) if min_age not in (None, '') else None
+    max_age = d.get('max_age')
+    max_age = int(max_age) if max_age not in (None, '') else None
+    age_grace_days = d.get('age_grace_days')
+    age_grace_days = int(age_grace_days) if age_grace_days not in (None, '') else None
     conn = get_db()
     execute(conn, '''UPDATE program_sessions SET
         name=%s, day_of_week=%s, start_time=%s, end_time=%s,
         start_date=%s, end_date=%s, location=%s,
-        capacity=%s, price_override=%s, status=%s, sort_order=%s
+        capacity=%s, price_override=%s, status=%s, sort_order=%s,
+        min_age=%s, max_age=%s, age_grace_days=%s
         WHERE id=%s AND program_id=%s''',
         ((d.get('name') or '').strip(),
          (d.get('day_of_week') or '').strip(),
@@ -24597,6 +24683,7 @@ def update_program_session(pid, sid):
          d.get('price_override') if d.get('price_override') is not None else None,
          d.get('status') or 'open',
          int(d.get('sort_order') or 0),
+         min_age, max_age, age_grace_days,
          sid, pid))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
@@ -29314,8 +29401,30 @@ def _backfill_rental_calendar_events():
     except Exception as e:
         app.logger.warning(f'Rental event backfill failed: {e}')
 
+def _backfill_session_registration_events():
+    """One-time (but safely repeatable) backfill: give every already-confirmed
+    registration with sessions a real event, matching what now happens
+    automatically going forward via _auto_create_events_for_registration
+    (called from finalize_registration). Skips anything that already has a
+    linked event, so re-running this on every deploy is cheap and self-healing."""
+    try:
+        conn = get_db()
+        regs = fetchall(conn, """SELECT * FROM program_registrations
+            WHERE status='confirmed' AND session_ids IS NOT NULL
+            AND session_ids != '[]' AND session_ids != ''""") or []
+        for reg in regs:
+            try:
+                prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg.get('program_id'),)) if reg.get('program_id') else None
+                _auto_create_events_for_registration(conn, reg, prog)
+            except Exception as e:
+                app.logger.warning(f'Session registration event backfill error for {reg.get("id")}: {e}')
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Session registration event backfill failed: {e}')
+
 _dedupe_rental_events()
 _backfill_rental_calendar_events()
+_backfill_session_registration_events()
 _fix_rental_event_locations()
 
 def _generate_rental_occurrences(conn, request_id, d):

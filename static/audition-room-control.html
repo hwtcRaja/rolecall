@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Audition Room Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#f7f7f5;color:#1c1917;line-height:1.5;min-height:100vh}
+.topbar{background:linear-gradient(135deg,#0d3d4d,#145466);padding:14px 24px;display:flex;align-items:center;justify-content:space-between;color:#fff}
+.topbar-title{font-size:16px;font-weight:800}
+.topbar-sub{font-size:12px;color:rgba(255,255,255,0.65);margin-top:2px}
+.topbar-user{font-size:12px;color:rgba(255,255,255,0.75)}
+.topbar-user a{color:#5eead4;text-decoration:none;font-weight:600}
+.wrap{max-width:1100px;margin:0 auto;padding:24px}
+.grid{display:grid;grid-template-columns:1.4fr 1fr;gap:20px}
+@media (max-width:820px){.grid{grid-template-columns:1fr}}
+.card{background:#fff;border:1px solid #e7e2d9;border-radius:14px;padding:22px}
+.eyebrow{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#78716c;margin-bottom:8px}
+.current-empty{text-align:center;padding:40px 10px;color:#a8a29e;font-size:15px}
+.current-number{font-size:56px;font-weight:800;color:#0d3d4d;line-height:1}
+.current-name{font-size:22px;font-weight:700;margin-top:4px}
+.current-meta{font-size:13px;color:#57534e;margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{background:#f0f8fa;color:#145466;padding:3px 11px;border-radius:20px;font-size:12px;font-weight:600}
+.crew-chip{background:#f5f3ff;color:#6d28d9}
+.link-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.link-btn{background:#f7f7f5;border:1.5px solid #d6d3ce;border-radius:8px;padding:7px 14px;font-size:12.5px;font-weight:600;color:#145466;text-decoration:none}
+.notes-box{margin-top:12px;background:#faf9f7;border-radius:8px;padding:10px 12px;font-size:13px;color:#57534e;font-style:italic}
+.action-row{display:flex;gap:10px;margin-top:20px}
+.btn-call{flex:1;padding:18px;background:#145466;color:#fff;border:none;border-radius:12px;font-size:18px;font-weight:800;cursor:pointer;font-family:inherit}
+.btn-call:disabled{opacity:0.4;cursor:default}
+.btn-secondary{padding:18px 20px;background:#fff;border:1.5px solid #d6d3ce;border-radius:12px;font-size:13px;font-weight:700;cursor:pointer;color:#57534e;font-family:inherit}
+.queue-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:9px;margin-bottom:6px;background:#faf9f7;cursor:pointer}
+.queue-item:hover{background:#f0f8fa}
+.queue-num{font-size:16px;font-weight:800;color:#145466;min-width:34px}
+.queue-name{font-size:13.5px;font-weight:600}
+.queue-walkin{font-size:11px;color:#a8a29e;font-weight:400}
+.queue-call-hint{font-size:11px;color:#145466;font-weight:700;opacity:0;transition:opacity .1s}
+.queue-item:hover .queue-call-hint{opacity:1}
+.empty-list{text-align:center;padding:20px;color:#a8a29e;font-size:13px}
+.login-gate{max-width:420px;margin:100px auto;text-align:center;padding:40px 30px}
+.login-gate a{display:inline-block;margin-top:16px;background:#145466;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700}
+</style>
+</head>
+<body>
+<div id="app"><div style="padding:60px;text-align:center;color:#a8a29e">Loading…</div></div>
+
+<script>
+var pathParts = window.location.pathname.split('/').filter(Boolean)
+var IS_SLUG_URL = pathParts[0] === 'audition' && pathParts.length === 3
+var CONTEXT_TYPE = IS_SLUG_URL ? null : pathParts[1]
+var CONTEXT_ID = IS_SLUG_URL ? pathParts[1] : pathParts[2]
+var SLUG = IS_SLUG_URL ? pathParts[1] : null
+var pollTimer = null
+
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+async function api(url, method, body){
+  var opts = {method: method||'GET', headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  var res = await fetch(url, opts)
+  try{ return await res.json() } catch(e){ return {error:'Request failed'} }
+}
+
+async function boot(){
+  var me = await api('/api/auth/me')
+  if(!me.user){
+    document.getElementById('app').innerHTML = `<div class="login-gate">
+      <div style="font-size:32px;margin-bottom:10px"></div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">Log In Required</div>
+      <div style="font-size:13.5px;color:#78716c">This screen uses your RoleCall staff login. Log in on this device first, then reopen this link.</div>
+      <a href="/">Go to RoleCall Login</a>
+    </div>`
+    return
+  }
+
+  // Resolve slug -> real context type/id the same way the other audition
+  // pages do, using the settings endpoint (also gets us the show/program
+  // name for the header either way).
+  var settings
+  if(IS_SLUG_URL){
+    var settingsRes = await fetch('/api/public/audition-settings-by-slug/'+encodeURIComponent(SLUG))
+    settings = await settingsRes.json()
+    if(settings.context_type) CONTEXT_TYPE = settings.context_type
+    if(settings.context_id) CONTEXT_ID = settings.context_id
+  } else {
+    var settingsRes2 = await fetch('/api/auditions/settings/'+encodeURIComponent(CONTEXT_TYPE)+'/'+encodeURIComponent(CONTEXT_ID))
+    settings = await settingsRes2.json()
+  }
+
+  document.getElementById('app').innerHTML = `
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Audition Room Control</div>
+        <div class="topbar-sub" id="room-ctx-name"></div>
+      </div>
+      <div class="topbar-user">${escH(me.user.name||me.user.email||'')} &middot; <a href="/">Back to RoleCall</a></div>
+    </div>
+    <div class="wrap">
+      <div class="grid">
+        <div class="card">
+          <div class="eyebrow">Now Auditioning</div>
+          <div id="room-current"></div>
+        </div>
+        <div class="card">
+          <div class="eyebrow">Up Next (tap to call out of order)</div>
+          <div id="room-queue"></div>
+        </div>
+      </div>
+    </div>`
+
+  var ctxNameEl = document.getElementById('room-ctx-name')
+  if(ctxNameEl) ctxNameEl.textContent = settings.context_name || settings.title || ''
+
+  refresh()
+  pollTimer = setInterval(refresh, 4000)
+}
+
+function linkRow(c){
+  var links = []
+  if(c.video_clip_url) links.push('<a class="link-btn" href="'+c.video_clip_url+'" target="_blank">▶ Video Clip</a>')
+  if(c.video_url) links.push('<a class="link-btn" href="'+c.video_url+'" target="_blank">▶ Video Link</a>')
+  if(c.resume_file_url) links.push('<a class="link-btn" href="'+c.resume_file_url+'" target="_blank"> Resume</a>')
+  if(c.resume_url) links.push('<a class="link-btn" href="'+c.resume_url+'" target="_blank"> Resume Link</a>')
+  if(c.headshot_file_url) links.push('<a class="link-btn" href="'+c.headshot_file_url+'" target="_blank"> Headshot</a>')
+  if(c.headshot_url) links.push('<a class="link-btn" href="'+c.headshot_url+'" target="_blank"> Headshot Link</a>')
+  return links.length ? '<div class="link-row">'+links.join('')+'</div>' : ''
+}
+
+function roleChips(c){
+  var roles = []
+  try{ roles = JSON.parse(c.roles_requested||'[]') }catch(e){}
+  if(!roles.length && c.role_requested){ try{ roles = JSON.parse(c.role_requested) }catch(e){ roles = [c.role_requested] } }
+  var html = roles.length ? '<div class="chip-row">'+roles.map(function(r){ return '<span class="chip">'+escH(r)+'</span>' }).join('')+'</div>' : ''
+  if(c.crew_interest){
+    var crewRoles = []
+    try{ crewRoles = JSON.parse(c.crew_roles_requested||'[]') }catch(e){}
+    html += '<div class="chip-row">'+(crewRoles.length?crewRoles.map(function(r){ return '<span class="chip crew-chip">'+escH(r)+'</span>' }).join(''):'<span class="chip crew-chip">Crew/Tech interest</span>')+'</div>'
+  }
+  return html
+}
+
+async function refresh(){
+  var checkins = await api('/api/auditions/checkins/'+CONTEXT_TYPE+'/'+CONTEXT_ID)
+  if(!Array.isArray(checkins)) return
+  var called = checkins.find(function(c){ return c.status==='called' })
+  var waiting = checkins.filter(function(c){ return c.status==='waiting' }).sort(function(a,b){ return a.queue_number-b.queue_number })
+
+  var currentEl = document.getElementById('room-current')
+  if(currentEl){
+    if(called){
+      currentEl.innerHTML = `
+        <div class="current-number">#${called.queue_number}</div>
+        <div class="current-name">${escH(called.display_name||'')}${!called.submission_id?' <span style="font-weight:400;color:#a8a29e;font-size:14px">(walk-in)</span>':''}</div>
+        <div class="current-meta">${called.submitter_email?escH(called.submitter_email):''} ${called.phone?' · '+escH(called.phone):''} ${called.pronouns?' · '+escH(called.pronouns):''}</div>
+        ${roleChips(called)}
+        ${linkRow(called)}
+        ${called.notes?'<div class="notes-box">"'+escH(called.notes)+'"</div>':''}
+        <div class="action-row">
+          <button class="btn-call" onclick="callNext()">${waiting.length?'Complete & Call Next':'Mark Complete'}</button>
+          <button class="btn-secondary" onclick="markComplete('${called.id}')">Just Complete</button>
+        </div>`
+    } else {
+      currentEl.innerHTML = `<div class="current-empty">No one called yet</div>
+        <div class="action-row"><button class="btn-call" onclick="callNext()" ${waiting.length?'':'disabled'}>${waiting.length?'Call Next (#'+waiting[0].queue_number+')':'No one waiting'}</button></div>`
+    }
+  }
+
+  var queueEl = document.getElementById('room-queue')
+  if(queueEl){
+    queueEl.innerHTML = waiting.length ? waiting.map(function(c){
+      return `<div class="queue-item" onclick="callSpecific('${c.id}')">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          <div class="queue-num">#${c.queue_number}</div>
+          <div class="queue-name">${escH(c.display_name||'')}${!c.submission_id?' <span class="queue-walkin">(walk-in)</span>':''}</div>
+        </div>
+        <div class="queue-call-hint">Call →</div>
+      </div>`
+    }).join('') : '<div class="empty-list">No one else waiting</div>'
+  }
+}
+
+async function callNext(){
+  await api('/api/auditions/checkins/call-next','POST',{context_type:CONTEXT_TYPE, context_id:CONTEXT_ID})
+  refresh()
+}
+async function callSpecific(cid){
+  await api('/api/auditions/checkins/'+cid+'/call','POST',{})
+  refresh()
+}
+async function markComplete(cid){
+  await api('/api/auditions/checkins/'+cid+'/complete','POST',{})
+  refresh()
+}
+
+boot()
+</script>
+</body>
+</html>

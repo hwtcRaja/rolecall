@@ -12939,6 +12939,7 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions){
  const onDeck = waiting[0]
  const checkedInIds = new Set(checkins.filter(c=>c.submission_id).map(c=>c.submission_id))
  const queueUrl = `${window.location.origin}/audition-queue/${contextType}/${contextId}`
+ const roomControlUrl = `${window.location.origin}/audition-room-control/${contextType}/${contextId}`
 
  let html = `<div class="card" style="padding:18px 20px;margin-bottom:14px;background:${called?'#f0fdfa':'var(--bg)'};border-color:${called?'#5eead4':'var(--border)'}">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
@@ -12950,6 +12951,7 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions){
    </div>
    <div style="display:flex;gap:8px;flex-wrap:wrap">
     <button class="btn btn-secondary btn-sm" onclick="copyQueueDisplayLink('${queueUrl}')">Copy Lobby Display Link</button>
+    <button class="btn btn-secondary btn-sm" onclick="copyQueueDisplayLink('${roomControlUrl}')">Copy Room Control Link</button>
     <button class="btn btn-primary" onclick="callNextCheckin('${contextType}','${contextId}')" ${waiting.length?'':'disabled style="opacity:0.5"'}>${called?'Complete & Call Next':'Call Next'}</button>
    </div>
   </div>
@@ -13100,7 +13102,7 @@ async function removeCheckin(cid, contextType, contextId){
 
 function copyQueueDisplayLink(url){
  navigator.clipboard.writeText(url)
- toast('Lobby display link copied!','success')
+ toast('Link copied!','success')
 }
 
 function renderAuditionList(submissions, contextId, filterStatus){

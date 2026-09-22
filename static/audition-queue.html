@@ -32,9 +32,20 @@ body{
 .error-box{font-size:22px;color:rgba(255,255,255,0.7)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.55}}
 .now-number:not(.empty){animation:pulse 2.4s ease-in-out infinite}
+@keyframes flash{0%,100%{background:transparent}20%,60%{background:rgba(94,234,212,0.35)}}
+body.flash{animation:flash 1.4s ease-out 1}
+.sound-gate{position:fixed;inset:0;background:#0a2a35;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;z-index:50;cursor:pointer;text-align:center;padding:40px}
+.sound-gate-icon{font-size:56px}
+.sound-gate-title{font-size:22px;font-weight:800}
+.sound-gate-sub{font-size:14px;color:rgba(255,255,255,0.6);max-width:360px}
 </style>
 </head>
 <body>
+<div class="sound-gate" id="sound-gate" onclick="enableSound()">
+  <div class="sound-gate-icon"></div>
+  <div class="sound-gate-title">Tap to Start Display</div>
+  <div class="sound-gate-sub">Enables the announcement sound so this screen can call out numbers as they come up. Leave this running on the lobby TV or tablet.</div>
+</div>
 <div id="app"><div class="error-box">Loading…</div></div>
 
 <script>
@@ -46,8 +57,45 @@ var CONTEXT_TYPE = IS_SLUG_URL ? null : pathParts[1]
 var CONTEXT_ID = IS_SLUG_URL ? pathParts[1] : pathParts[2]
 var SLUG = IS_SLUG_URL ? pathParts[1] : null
 var lastShowName = null
+var lastNowServing = undefined // undefined = haven't polled yet; distinct from null (polled, no one called)
+var soundEnabled = false
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+function enableSound(){
+  soundEnabled = true
+  document.getElementById('sound-gate').style.display = 'none'
+  // Priming utterance, spoken (near-)silently, right on the user's tap —
+  // most browsers only allow speechSynthesis after a real user gesture,
+  // and this "unlocks" it for the rest of the session's unattended polls.
+  try{
+    var primer = new SpeechSynthesisUtterance(' ')
+    primer.volume = 0
+    speechSynthesis.speak(primer)
+  } catch(e){}
+}
+
+function announce(number){
+  document.body.classList.remove('flash')
+  void document.body.offsetWidth // restart the CSS animation
+  document.body.classList.add('flash')
+  if(!soundEnabled) return
+  try{
+    var ctx = new (window.AudioContext||window.webkitAudioContext)()
+    var osc = ctx.createOscillator()
+    var gain = ctx.createGain()
+    osc.connect(gain); gain.connect(ctx.destination)
+    osc.frequency.value = 880
+    gain.gain.setValueAtTime(0.2, ctx.currentTime)
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.5)
+    osc.start(); osc.stop(ctx.currentTime+0.5)
+  } catch(e){}
+  try{
+    var utter = new SpeechSynthesisUtterance('Number '+number+', please come in.')
+    utter.rate = 0.95
+    setTimeout(function(){ speechSynthesis.speak(utter) }, 600)
+  } catch(e){}
+}
 
 function render(data){
   if(data.context_name) lastShowName = data.context_name
@@ -96,6 +144,14 @@ async function poll(){
       document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
       return
     }
+    // Announce only on an actual change to a new, real number — not on the
+    // very first poll (which would announce whoever's already up whenever
+    // this screen happens to load or reload) and not when it goes back to
+    // null (nothing to call out).
+    if(lastNowServing !== undefined && data.now_serving != null && data.now_serving !== lastNowServing){
+      announce(data.now_serving)
+    }
+    lastNowServing = data.now_serving
     render(data)
   } catch(e){
     // Transient network hiccup on an unattended screen — don't blank it out,

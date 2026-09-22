@@ -7207,6 +7207,14 @@ def submit_audition():
     passphrase  = (d.get('passphrase') or '').strip()
     family      = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
     family_id   = family['id'] if family else None
+    # Anyone submitting through the public form (not already logged into the
+    # family portal) has no existing passphrase to manage their submission
+    # with later — generate a short access code for them so "can I see/edit/
+    # cancel my audition afterward?" has an answer. Shown on the confirmation
+    # screen and emailed to them; reused as-is if they already have a family
+    # passphrase, so there's only ever one code per person to remember.
+    if not passphrase:
+        passphrase = secrets.token_hex(4).upper()
     sid = str(uuid.uuid4())
     execute(conn, """INSERT INTO audition_submissions
         (id,context_type,context_id,family_id,participant_id,submitter_name,
@@ -7305,6 +7313,13 @@ def submit_audition():
                 try: roles_list = json.loads(roles_list)
                 except Exception: roles_list = [roles_list] if roles_list else []
             roles_list = [r for r in roles_list if r and r != 'Other / Not sure yet']
+            manage_url = f'https://rolecall.hwtco.org/audition/{context_type}/{context_id}'
+            manage_block = (
+                f'<div style="background:#fdf6e3;border:1px solid #f0e0a8;border-radius:8px;padding:14px 18px;margin:16px 0">'
+                f'<div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Want to update or cancel your audition later?</div>'
+                f'<div style="font-size:14px">Visit <a href="{manage_url}">{manage_url}</a> and click "Manage My Audition" with your access code: '
+                f'<strong style="letter-spacing:1px">{passphrase}</strong></div></div>'
+            )
 
             if audition_type == 'in_person' and slot_id and slot:
                 subject = f'Audition Confirmed: {ctx_name}'
@@ -7323,19 +7338,21 @@ def submit_audition():
                     'To help us manage capacity in the building, please don\'t arrive more than 20 minutes early.</p>'
                     '<p>Having trouble finding our studio, or have any other questions? Reach out to '
                     '<a href="mailto:info@hwtco.org">info@hwtco.org</a> or 407.554.9152 (text or call).</p>'
+                    + manage_block
                 )
             else:
                 subject = f'Audition Received: {ctx_name}'
                 conf = (
                     f'<p>Hi {first_name}, thank you for submitting your audition for <strong>{ctx_name}</strong>! We will be in touch soon.</p>'
                     '<p>Questions in the meantime? Reach out to <a href="mailto:info@hwtco.org">info@hwtco.org</a> or 407.554.9152 (text or call).</p>'
+                    + manage_block
                 )
             send_email([sub_email], subject, build_hwtc_email_html(subject, conf,
                 footer_note='You are receiving this email because you submitted an audition through our website. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'))
     except Exception as e:
         app.logger.warning(f'Audition confirmation email failed: {e}')
     conn.close()
-    return jsonify({'ok': True, 'submission_id': sid})
+    return jsonify({'ok': True, 'submission_id': sid, 'passphrase': passphrase})
 
 
 @app.route('/api/auditions/submissions/<sid>/status', methods=['PUT'])
@@ -7400,13 +7417,13 @@ def get_my_audition_submission():
     if family:
         sub = fetchone(conn, """SELECT * FROM audition_submissions
             WHERE family_id=%s AND context_type=%s AND context_id=%s
-            AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
+            AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
             (family['id'], context_type, context_id))
     # Fallback: check by submitter passphrase stored on the submission
     if not sub:
         sub = fetchone(conn, """SELECT * FROM audition_submissions
             WHERE submitter_passphrase=%s AND context_type=%s AND context_id=%s
-            AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
+            AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
             (passphrase, context_type, context_id))
     conn.close()
     if not sub: 
@@ -7415,10 +7432,108 @@ def get_my_audition_submission():
         return resp
     try: sub['roles_requested'] = json.loads(sub.get('roles_requested') or '[]')
     except Exception: sub['roles_requested'] = []
+    try: sub['crew_roles_requested'] = json.loads(sub.get('crew_roles_requested') or '[]')
+    except Exception: sub['crew_roles_requested'] = []
+    try: sub['custom_answers'] = json.loads(sub.get('custom_answers') or '{}')
+    except Exception: sub['custom_answers'] = {}
     if not sub.get('cast_role'): sub['cast_role'] = ''
     resp = jsonify(sub)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
+
+
+def _find_own_audition_submission(conn, passphrase, context_type, context_id):
+    """Shared lookup for the self-service edit/withdraw endpoints below —
+    same matching rule as get_my_audition_submission (family passphrase
+    first, then the per-submission access code), so someone can only ever
+    reach their own submission, never anyone else's."""
+    if not passphrase or not context_type or not context_id:
+        return None
+    family = fetchone(conn, 'SELECT id FROM families WHERE passphrase=%s', (passphrase,))
+    if family:
+        sub = fetchone(conn, """SELECT * FROM audition_submissions
+            WHERE family_id=%s AND context_type=%s AND context_id=%s
+            AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
+            (family['id'], context_type, context_id))
+        if sub: return sub
+    return fetchone(conn, """SELECT * FROM audition_submissions
+        WHERE submitter_passphrase=%s AND context_type=%s AND context_id=%s
+        AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
+        (passphrase, context_type, context_id))
+
+
+@app.route('/api/auditions/my-submission', methods=['PUT'])
+def update_my_audition_submission():
+    """Self-service edit — anyone who has the access code (or family
+    passphrase) they were given at submission time can update everything
+    they originally filled out. No staff auth: the passphrase match against
+    their own submission is what authorizes this, the same way the GET
+    lookup above works."""
+    d = request.json or {}
+    passphrase   = (d.get('passphrase') or '').strip()
+    context_type = d.get('context_type','')
+    context_id   = d.get('context_id','')
+    conn = get_db()
+    sub = _find_own_audition_submission(conn, passphrase, context_type, context_id)
+    if not sub:
+        conn.close()
+        return jsonify({'error': "We couldn't find a submission with that access code."}), 404
+    name = (d.get('submitter_name') or '').strip()
+    if not name:
+        conn.close()
+        return jsonify({'error': 'Name is required'}), 400
+    execute(conn, """UPDATE audition_submissions SET
+        submitter_name=%s, submitter_email=%s, role_requested=%s, video_url=%s,
+        resume_url=%s, headshot_url=%s, notes=%s, resume_file_url=%s,
+        headshot_file_url=%s, video_clip_url=%s, crew_interest=%s,
+        crew_roles_requested=%s, crew_experience=%s, is_minor=%s, birthday=%s,
+        pronouns=%s, phone=%s, how_heard=%s, custom_answers=%s, updated_at=NOW()
+        WHERE id=%s""", (
+        name,
+        (d.get('submitter_email') or '').strip() or None,
+        json.dumps(d.get('roles_requested') or []),
+        (d.get('video_url') or '').strip() or None,
+        (d.get('resume_url') or '').strip() or None,
+        (d.get('headshot_url') or '').strip() or None,
+        (d.get('notes') or '').strip() or None,
+        (d.get('resume_file_url') or '').strip() or None,
+        (d.get('headshot_file_url') or '').strip() or None,
+        (d.get('video_clip_url') or '').strip() or None,
+        bool(d.get('crew_interest', False)),
+        json.dumps(d.get('crew_roles_requested') or []),
+        (d.get('crew_experience') or '').strip() or None,
+        d.get('is_minor') if d.get('is_minor') is not None else None,
+        (d.get('birthday') or '').strip() or None,
+        (d.get('pronouns') or '').strip() or None,
+        (d.get('phone') or '').strip() or None,
+        (d.get('how_heard') or '').strip() or None,
+        json.dumps(d.get('custom_answers') or {}),
+        sub['id']))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/my-submission/withdraw', methods=['POST'])
+def withdraw_my_audition_submission():
+    """Self-service cancel. A distinct 'withdrawn' status (rather than
+    reusing 'declined', which means a director passed on them) so admin
+    views can tell the two apart — and it's excluded from the "already
+    submitted" duplicate check the same way 'declined' is, so someone who
+    withdraws is free to submit fresh later if they change their mind."""
+    d = request.json or {}
+    passphrase   = (d.get('passphrase') or '').strip()
+    context_type = d.get('context_type','')
+    context_id   = d.get('context_id','')
+    conn = get_db()
+    sub = _find_own_audition_submission(conn, passphrase, context_type, context_id)
+    if not sub:
+        conn.close()
+        return jsonify({'error': "We couldn't find a submission with that access code."}), 404
+    execute(conn, "UPDATE audition_submissions SET status='withdrawn', updated_at=NOW() WHERE id=%s", (sub['id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/auditions/submissions/<sid>/cast-role', methods=['PUT'])

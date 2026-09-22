@@ -22852,7 +22852,26 @@ def public_submit_registration(slug):
     else:
         age_check_specs.append((p.get('min_age'), p.get('max_age'), p.get('age_grace_days'), p.get('start_date'), ''))
 
-    age_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'dob': d.get('child_dob')}]
+    # A self-registering adult (registration_form_type='adult') only has to give
+    # an exact birthdate if they say they're under 18 — otherwise DOB is
+    # optional, since most programs don't need it. But that means a plain "no,
+    # I'm 18+" with no DOB would otherwise sail straight through any age gate
+    # below (an empty DOB is treated as "can't check, allow it" — see
+    # _check_age_eligibility). So for that specific case, stand in the
+    # youngest DOB consistent with what they told us (exactly 18 today) —
+    # correctly clears any minimum up to 18, and correctly still catches a
+    # kids-only maximum, without requiring/assuming an exact age beyond that.
+    primary_dob = d.get('child_dob')
+    if (not primary_dob and p.get('registration_form_type') == 'adult'
+            and (d.get('reported_under_18') or '').strip() == 'no' and age_check_specs
+            and any(spec[0] or spec[1] for spec in age_check_specs)):
+        _today = date.today()
+        try:
+            primary_dob = _today.replace(year=_today.year - 18).isoformat()
+        except ValueError:
+            primary_dob = _today.replace(year=_today.year - 18, day=28).isoformat()
+
+    age_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'dob': primary_dob}]
     for s in (d.get('siblings') or []):
         if isinstance(s, dict):
             age_children.append({'first_name': (s.get('first_name') or '').strip(), 'dob': s.get('dob')})

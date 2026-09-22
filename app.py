@@ -1153,6 +1153,12 @@ def init_db():
             completed_at TIMESTAMP,
             checked_in_by TEXT)""",
         "CREATE INDEX IF NOT EXISTS ix_aud_checkins_ctx_date ON audition_checkins(context_type, context_id, checkin_date)",
+        # A quick snapshot photo taken at check-in (not the same as their
+        # submitted headshot, which may be old, absent, or not obviously
+        # them at a glance from across a room) — shown on the room-control
+        # kiosk so whoever's running the room can visually match a face to
+        # a number, especially useful for a walk-in with no submission at all.
+        "ALTER TABLE audition_checkins ADD COLUMN IF NOT EXISTS checkin_photo_url TEXT",
         # Space/date requests — any staff member can request a space for a
         # one-off date or a recurring class/program schedule, check it
         # against the calendar (reusing the same conflict-checking as
@@ -6985,13 +6991,16 @@ def get_audition_checkins(context_type, context_id):
         s.submitter_email, s.notes, s.roles_requested, s.role_requested,
         s.video_url, s.video_clip_url, s.resume_url, s.resume_file_url,
         s.headshot_url, s.headshot_file_url, s.pronouns, s.phone,
-        s.crew_interest, s.crew_roles_requested, s.crew_experience
+        s.crew_interest, s.crew_roles_requested, s.crew_experience, s.birthday
         FROM audition_checkins c
         LEFT JOIN audition_submissions s ON s.id=c.submission_id
         WHERE c.context_type=%s AND c.context_id=%s AND c.checkin_date=CURRENT_DATE
         ORDER BY c.queue_number ASC""", (context_type, context_id))
     conn.close()
-    return jsonify(rows or [])
+    rows = rows or []
+    for r in rows:
+        r['age'] = compute_age(r.get('birthday'))
+    return jsonify(rows)
 
 
 @app.route('/api/auditions/checkins/<cid>/call', methods=['POST'])
@@ -7080,6 +7089,47 @@ def undo_audition_checkin(cid):
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/checkins/<cid>/photo', methods=['POST'])
+def upload_checkin_photo(cid):
+    """A quick snapshot taken right at check-in — separate from whatever
+    headshot they may have submitted online, which could be old, stylized,
+    or missing entirely for a walk-in. Small JPEG/PNG only, same size limit
+    as the other audition uploads."""
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    if 'file' not in request.files:
+        conn.close()
+        return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename or 'photo.jpg'))[1].lower().lstrip('.') or 'jpg'
+    if ext not in ('jpg', 'jpeg', 'png', 'webp'):
+        conn.close()
+        return jsonify({'error': 'Please use a JPEG, PNG, or WEBP image'}), 400
+    file_bytes = f.read()
+    if len(file_bytes) > AUDITION_SUBMIT_FILE_MAX_BYTES:
+        conn.close()
+        return jsonify({'error': 'Photo is too large'}), 400
+    unique_name = f'checkin-photo-{str(uuid.uuid4())[:8]}.{ext}'
+    url, gh_err = upload_image_to_github(unique_name, file_bytes)
+    if not url:
+        try:
+            with open(os.path.join(app.static_folder, 'images', unique_name), 'wb') as fp:
+                fp.write(file_bytes)
+            url = f'/static/images/{unique_name}'
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': f'Upload failed: {e}'}), 500
+    execute(conn, 'UPDATE audition_checkins SET checkin_photo_url=%s WHERE id=%s', (url, cid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'url': url})
 
 
 @app.route('/api/auditions/checkins/<cid>', methods=['DELETE'])

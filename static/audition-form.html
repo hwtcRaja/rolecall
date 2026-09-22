@@ -230,9 +230,23 @@ function render(){
     <header>
       <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
       <h1>${escH(s.title||'Auditions')}</h1>
-      ${EDIT_MODE ? '' : '<button type="button" class="header-manage-btn" onclick="openManageLookup();scrollToManage()"> Manage My Audition</button>'}
+      ${EDIT_MODE
+        ? '<div style="display:inline-block;margin-top:16px;padding:9px 18px;background:rgba(255,255,255,0.9);border-radius:20px;color:#145466;font-size:12.5px;font-weight:800"> Editing Your Submission</div>'
+        : '<button type="button" class="header-manage-btn" onclick="openManageLookup();scrollToManage()"> Manage My Audition</button>'}
     </header>
     <div class="wrap">`
+
+  if(EDIT_MODE){
+    html += `<div class="card" style="background:#fdf6e3;border-color:#f0e0a8;padding:16px 18px;margin-top:20px">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+        <div>
+          <div style="font-size:12px;font-weight:800;color:#92400e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px"> You're Editing Your Audition</div>
+          <div style="font-size:13px;color:#57534e">Everything below is pre-filled with what you submitted. Make your changes and hit "Save Changes" at the bottom — or withdraw if you can't make it after all.</div>
+        </div>
+        <button type="button" onclick="exitEditMode()" style="flex-shrink:0;padding:8px 16px;background:#fff;border:1.5px solid #d6d3ce;border-radius:8px;font-weight:700;font-size:12.5px;cursor:pointer;color:#57534e;font-family:inherit">Cancel</button>
+      </div>
+    </div>`
+  }
 
   // Hero card — banner photo (if set) at the top of the card, then title +
   // status pill, clean meta lines, a divider, and an About section —

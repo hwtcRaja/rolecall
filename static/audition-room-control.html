@@ -37,7 +37,11 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#f7f7f5;color:#1c
 .queue-item:hover{background:#f0f8fa}
 .queue-num{font-size:16px;font-weight:800;color:#145466;min-width:34px}
 .queue-name{font-size:13.5px;font-weight:600}
+.queue-age{font-weight:400;color:#a8a29e;font-size:12px}
 .queue-walkin{font-size:11px;color:#a8a29e;font-weight:400}
+.queue-photo{width:34px;height:34px;border-radius:50%;object-fit:cover;flex-shrink:0;background:#e7e2d9}
+.queue-photo-placeholder{width:34px;height:34px;border-radius:50%;background:#e7e2d9;color:#a8a29e;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0}
+.current-photo{width:88px;height:88px;border-radius:14px;object-fit:cover;float:right;margin-left:16px;background:#e7e2d9}
 .queue-call-hint{font-size:11px;color:#145466;font-weight:700;opacity:0;transition:opacity .1s}
 .queue-item:hover .queue-call-hint{opacity:1}
 .empty-list{text-align:center;padding:20px;color:#a8a29e;font-size:13px}
@@ -153,15 +157,18 @@ async function refresh(){
   if(currentEl){
     if(called){
       currentEl.innerHTML = `
+        ${called.checkin_photo_url?'<img class="current-photo" src="'+called.checkin_photo_url+'" alt=""/>':''}
         <div class="current-number">#${called.queue_number}</div>
         <div class="current-name">${escH(called.display_name||'')}${!called.submission_id?' <span style="font-weight:400;color:#a8a29e;font-size:14px">(walk-in)</span>':''}</div>
-        <div class="current-meta">${called.submitter_email?escH(called.submitter_email):''} ${called.phone?' · '+escH(called.phone):''} ${called.pronouns?' · '+escH(called.pronouns):''}</div>
+        <div class="current-meta">${called.age!=null?'Age '+called.age:''}${called.submitter_email?(called.age!=null?' · ':'')+escH(called.submitter_email):''} ${called.phone?' · '+escH(called.phone):''} ${called.pronouns?' · '+escH(called.pronouns):''}</div>
         ${roleChips(called)}
         ${linkRow(called)}
         ${called.notes?'<div class="notes-box">"'+escH(called.notes)+'"</div>':''}
         <div class="action-row">
-          <button class="btn-call" onclick="callNext()">${waiting.length?'Complete & Call Next':'Mark Complete'}</button>
-          <button class="btn-secondary" onclick="markComplete('${called.id}')">Just Complete</button>
+          ${waiting.length
+            ? `<button class="btn-call" onclick="callNext()">Complete &amp; Call Next →</button>
+               <button class="btn-secondary" onclick="markComplete('${called.id}')" title="Finishes this person but doesn't call the next one yet — use this for a break">Finish (Don't Call Next)</button>`
+            : `<button class="btn-call" onclick="markComplete('${called.id}')">Mark Done</button>`}
         </div>`
     } else {
       currentEl.innerHTML = `<div class="current-empty">No one called yet</div>
@@ -172,10 +179,15 @@ async function refresh(){
   var queueEl = document.getElementById('room-queue')
   if(queueEl){
     queueEl.innerHTML = waiting.length ? waiting.map(function(c){
+      var initial = (c.display_name||'?').trim().charAt(0).toUpperCase()
+      var photoHtml = c.checkin_photo_url
+        ? '<img class="queue-photo" src="'+c.checkin_photo_url+'" alt=""/>'
+        : '<div class="queue-photo-placeholder">'+initial+'</div>'
       return `<div class="queue-item" onclick="callSpecific('${c.id}')">
         <div style="display:flex;align-items:center;gap:10px;min-width:0">
           <div class="queue-num">#${c.queue_number}</div>
-          <div class="queue-name">${escH(c.display_name||'')}${!c.submission_id?' <span class="queue-walkin">(walk-in)</span>':''}</div>
+          ${photoHtml}
+          <div class="queue-name">${escH(c.display_name||'')}${c.age!=null?' <span class="queue-age">(Age '+c.age+')</span>':''}${!c.submission_id?' <span class="queue-walkin">(walk-in)</span>':''}</div>
         </div>
         <div class="queue-call-hint">Call →</div>
       </div>`

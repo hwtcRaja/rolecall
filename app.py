@@ -6878,6 +6878,9 @@ def get_audition_submissions(context_type, context_id):
             COALESCE(s.cast_role, '') as cast_role,
             COALESCE(s.audition_type, 'virtual') as audition_type,
             s.slot_id, s.birthday, s.is_minor, s.pronouns, s.phone, s.how_heard,
+            s.resume_file_url, s.headshot_file_url, s.video_clip_url,
+            s.crew_interest, COALESCE(s.crew_roles_requested, '[]') as crew_roles_requested, s.crew_experience,
+            s.submitter_passphrase, COALESCE(s.custom_answers, '{}') as custom_answers,
             sl.slot_date, sl.start_time, sl.end_time, sl.location as slot_location
             FROM audition_submissions s
             LEFT JOIN audition_slots sl ON sl.id=s.slot_id
@@ -7592,6 +7595,29 @@ def send_audition_access_code():
     except Exception as e:
         app.logger.warning(f'Audition access code email failed: {e}')
     return generic_response
+
+
+@app.route('/api/auditions/submissions/<sid>/access-code', methods=['GET'])
+def get_submission_access_code(sid):
+    """Staff-facing lookup — someone calls or emails asking for their code, or
+    a director wants to hand it to them directly instead of routing through
+    the public 'email me my code' flow. Generates one on the spot for any
+    submission that predates this feature and never got one, same as the
+    self-service recovery path does."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    sub = fetchone(conn, 'SELECT id, submitter_passphrase FROM audition_submissions WHERE id=%s', (sid,))
+    if not sub:
+        conn.close()
+        return jsonify({'error': 'Submission not found'}), 404
+    code = sub.get('submitter_passphrase')
+    if not code:
+        code = secrets.token_hex(4).upper()
+        execute(conn, 'UPDATE audition_submissions SET submitter_passphrase=%s WHERE id=%s', (code, sid))
+        conn.commit()
+    conn.close()
+    return jsonify({'passphrase': code})
 
 
 @app.route('/api/auditions/submissions/<sid>/cast-role', methods=['PUT'])

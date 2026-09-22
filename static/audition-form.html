@@ -97,6 +97,13 @@ var CONTEXT_ID = IS_SLUG_URL ? pathParts[1] : pathParts[2]
 var SETTINGS = null
 var SELECTED_SLOT = null
 var UPLOADED = { resume: null, headshot: null, video_clip: null }
+// Self-service manage/edit state — set once someone looks up an existing
+// submission with their access code. EDIT_PASSPHRASE authorizes the PUT/
+// withdraw calls; the backend re-checks it against the submission itself,
+// the same way the lookup did, so this isn't just a client-side gate.
+var EDIT_MODE = false
+var EDIT_PASSPHRASE = null
+var EDIT_SUBMISSION = null
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
 
@@ -181,17 +188,23 @@ async function boot(){
     renderError("Couldn't load this audition page.")
     return
   }
-  if(res.error || !res.is_open){
-    renderError(res.is_open===false ? "Auditions aren't currently open." : (res.error || 'Not found.'))
+  if(res.error){
+    renderError(res.error || 'Not found.')
     return
   }
   // The settings response carries the real context_type/context_id (from
   // the audition_settings row itself), which is what submission and file
   // uploads need — important for the slug URL, where we didn't know the
-  // type going in.
+  // type going in. Resolved (and SETTINGS kept) even when auditions are
+  // closed, so someone can still reach "Manage My Audition" from the
+  // closed-auditions message below and look up an existing submission.
   if(res.context_type) CONTEXT_TYPE = res.context_type
   if(res.context_id) CONTEXT_ID = res.context_id
   SETTINGS = res
+  if(!res.is_open){
+    renderError("Auditions aren't currently open.")
+    return
+  }
   render()
 }
 
@@ -201,7 +214,11 @@ function renderError(msg){
       <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
       <h1>Auditions</h1>
     </header>
-    <div class="wrap"><div class="card"><div class="card-body"><div class="empty-msg">${escH(msg)}</div></div></div></div>`
+    <div class="wrap"><div class="card"><div class="card-body">
+      <div class="empty-msg">${escH(msg)}</div>
+      <div id="manage-entry-wrap" style="text-align:center;margin-top:-30px"></div>
+    </div></div></div>`
+  renderManageEntryPoint()
 }
 
 function render(){
@@ -252,6 +269,7 @@ function render(){
   if(s.show_rehearsal_schedule){
     html += '<div style="margin-bottom:14px"><button type="button" onclick="openScheduleModal()" style="background:none;border:none;padding:0;color:#145466;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">View Rehearsal Schedule (subject to change) →</button></div>'
   }
+  html += '<div id="manage-entry-wrap" style="margin-bottom:14px"></div>'
 
   if(s.description || s.instructions){
     html += '<div class="divider"></div>'
@@ -377,7 +395,8 @@ function render(){
   }
 
   html += `<div class="card">
-    <button class="btn-primary" id="submit-btn" onclick="submitAudition()">Submit Audition</button>
+    <button class="btn-primary" id="submit-btn" onclick="${EDIT_MODE ? 'saveAuditionEdits()' : 'submitAudition()'}">${EDIT_MODE ? 'Save Changes' : 'Submit Audition'}</button>
+    ${EDIT_MODE ? '<button type="button" onclick="confirmWithdraw()" style="width:100%;background:none;border:none;padding:12px;margin-top:6px;color:#dc2626;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">Withdraw My Audition</button>' : ''}
     <div class="status-msg" id="submit-status"></div>
   </div></div>`
 
@@ -386,6 +405,11 @@ function render(){
   // (booking a real time is usually the stronger preference) but leave it
   // an explicit, visible choice either way.
   if(document.getElementById('mode-tab-inperson')) setAuditionMode('inperson')
+  if(EDIT_MODE && EDIT_SUBMISSION){
+    prefillFormFromSubmission(EDIT_SUBMISSION)
+  } else {
+    renderManageEntryPoint()
+  }
 }
 
 function selectSlot(id){
@@ -498,11 +522,8 @@ async function handleFileUpload(kind, inputEl){
   }
 }
 
-async function submitAudition(){
-  var statusEl = document.getElementById('submit-status')
+function collectAuditionFormPayload(){
   var name = document.getElementById('f-name')?.value.trim()
-  if(!name){ statusEl.textContent = 'Please enter your name.'; statusEl.className = 'status-msg error'; return }
-
   var rolesRequested = Array.from(document.querySelectorAll('.role-cb:checked')).map(el=>el.value)
   var roleText = document.getElementById('f-role-text')?.value.trim()
   if(roleText) rolesRequested = [roleText]
@@ -510,8 +531,7 @@ async function submitAudition(){
   var crewInterest = !!document.getElementById('f-crew-interest')?.checked
   var crewRoles = Array.from(document.querySelectorAll('.crew-role-cb:checked')).map(el=>el.value)
 
-  var payload = {
-    context_type: CONTEXT_TYPE, context_id: CONTEXT_ID,
+  return {
     submitter_name: name,
     submitter_email: document.getElementById('f-email')?.value.trim()||null,
     roles_requested: rolesRequested,
@@ -541,6 +561,14 @@ async function submitAudition(){
       return out
     })(),
   }
+}
+
+async function submitAudition(){
+  var statusEl = document.getElementById('submit-status')
+  var payload = collectAuditionFormPayload()
+  if(!payload.submitter_name){ statusEl.textContent = 'Please enter your name.'; statusEl.className = 'status-msg error'; return }
+  payload.context_type = CONTEXT_TYPE
+  payload.context_id = CONTEXT_ID
 
   var btn = document.getElementById('submit-btn')
   btn.disabled = true; btn.textContent = 'Submitting…'
@@ -557,6 +585,7 @@ async function submitAudition(){
       btn.disabled = false; btn.textContent = 'Submit Audition'
       return
     }
+    var hasEmail = !!(document.getElementById('f-email')?.value.trim())
     document.getElementById('app').innerHTML = `
       <header>
         <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
@@ -565,12 +594,217 @@ async function submitAudition(){
       <div class="wrap"><div class="card confirm-box">
         <div class="check">✓</div>
         <h2>You're all set!</h2>
-        <p>Thank you for submitting${document.getElementById('f-email')?.value.trim()?' — a confirmation email has been sent to you.':'.'}</p>
+        <p>Thank you for submitting${hasEmail?' — a confirmation email has been sent to you.':'.'}</p>
+        <div style="background:#fdf6e3;border:1px solid #f0e0a8;border-radius:10px;padding:16px 18px;margin-top:20px;text-align:left">
+          <div style="font-size:11.5px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px">Save this to manage your audition later</div>
+          <div style="font-size:20px;font-weight:800;letter-spacing:2px;color:#1c1917;font-family:monospace">${escH(d.passphrase||'')}</div>
+          <div style="font-size:12.5px;color:#78716c;margin-top:6px">${hasEmail?"We've also emailed you this code. ":''}Come back to this page any time and click "Manage My Audition" to view, update, or withdraw your submission.</div>
+        </div>
       </div></div>`
   } catch(e){
     statusEl.textContent = 'Something went wrong — please try again.'
     statusEl.className = 'status-msg error'
     btn.disabled = false; btn.textContent = 'Submit Audition'
+  }
+}
+
+// ── Self-service: view / edit / withdraw an existing submission ──────────
+
+function renderManageEntryPoint(){
+  var wrap = document.getElementById('manage-entry-wrap')
+  if(!wrap) return
+  wrap.innerHTML = '<button type="button" onclick="openManageLookup()" style="background:none;border:none;padding:0;color:#145466;font-weight:700;font-size:13px;cursor:pointer;font-family:inherit">Already submitted? Manage My Audition →</button>'
+}
+
+function openManageLookup(){
+  var wrap = document.getElementById('manage-entry-wrap')
+  if(!wrap) return
+  wrap.innerHTML = `<div class="card" style="text-align:left;padding:16px 18px;margin:0">
+    <div style="font-size:13px;font-weight:700;color:#145466;margin-bottom:8px">Look Up My Audition</div>
+    <div class="hint" style="margin-bottom:10px">Enter the access code you were given when you submitted (also in your confirmation email).</div>
+    <input type="text" id="manage-code-input" placeholder="e.g. 7F3A9C21" style="text-transform:uppercase;margin-bottom:8px" onkeydown="if(event.key==='Enter')lookupMySubmission()"/>
+    <div style="display:flex;gap:8px">
+      <button type="button" class="btn-primary" style="flex:1" onclick="lookupMySubmission()">Look Up</button>
+      <button type="button" onclick="renderManageEntryPoint()" style="padding:10px 16px;background:none;border:1.5px solid #d6d3ce;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;color:#57534e">Cancel</button>
+    </div>
+    <div class="status-msg error" id="manage-lookup-status"></div>
+  </div>`
+  document.getElementById('manage-code-input')?.focus()
+}
+
+async function lookupMySubmission(){
+  var input = document.getElementById('manage-code-input')
+  var code = (input?.value||'').trim()
+  var statusEl = document.getElementById('manage-lookup-status')
+  if(!code){ statusEl.textContent = 'Please enter your access code.'; return }
+  statusEl.textContent = ''
+  try{
+    var url = '/api/auditions/my-submission?passphrase='+encodeURIComponent(code)+'&context_type='+encodeURIComponent(CONTEXT_TYPE)+'&context_id='+encodeURIComponent(CONTEXT_ID)
+    var res = await fetch(url)
+    var sub = await res.json()
+    if(!sub){ statusEl.textContent = "We couldn't find a submission with that code — check for typos, or it may have already been withdrawn."; return }
+    enterEditMode(sub, code)
+  } catch(e){
+    statusEl.textContent = 'Something went wrong — please try again.'
+  }
+}
+
+function enterEditMode(sub, code){
+  EDIT_MODE = true
+  EDIT_PASSPHRASE = code
+  EDIT_SUBMISSION = sub
+  render()
+  window.scrollTo({top:0, behavior:'smooth'})
+}
+
+function exitEditMode(){
+  EDIT_MODE = false
+  EDIT_PASSPHRASE = null
+  EDIT_SUBMISSION = null
+  UPLOADED = { resume: null, headshot: null, video_clip: null }
+  SELECTED_SLOT = null
+  render()
+}
+
+function prefillFormFromSubmission(sub){
+  var setVal = function(id, v){ var el=document.getElementById(id); if(el && v!=null) el.value = v }
+  setVal('f-name', sub.submitter_name)
+  setVal('f-email', sub.submitter_email)
+  setVal('f-notes', sub.notes)
+  setVal('f-pronouns', sub.pronouns)
+  setVal('f-phone', sub.phone)
+  setVal('f-how-heard', sub.how_heard)
+  setVal('f-crew-exp', sub.crew_experience)
+
+  // Roles
+  var roles = sub.roles_requested || []
+  if(document.getElementById('f-role-text')){
+    setVal('f-role-text', roles[0]||'')
+  } else {
+    document.querySelectorAll('.role-cb').forEach(function(cb){ cb.checked = roles.indexOf(cb.value) !== -1 })
+  }
+
+  // Age / birthday
+  if(sub.is_minor != null){
+    var ageSel = document.getElementById('f-age-status')
+    if(ageSel){
+      ageSel.value = sub.is_minor ? 'under' : 'over'
+      var bf = document.getElementById('birthday-field')
+      if(bf) bf.style.display = sub.is_minor ? '' : 'none'
+      setVal('f-birthday', sub.birthday)
+    }
+  }
+
+  // Crew interest
+  var crewCb = document.getElementById('f-crew-interest')
+  if(crewCb && sub.crew_interest){
+    crewCb.checked = true
+    var cf = document.getElementById('crew-fields')
+    if(cf) cf.style.display = ''
+    var crewRoles = sub.crew_roles_requested || []
+    document.querySelectorAll('.crew-role-cb').forEach(function(cb){ cb.checked = crewRoles.indexOf(cb.value) !== -1 })
+  }
+
+  // Custom question answers
+  var answers = sub.custom_answers || {}
+  document.querySelectorAll('.f-custom-answer').forEach(function(el){
+    if(answers[el.dataset.q]) el.value = answers[el.dataset.q]
+  })
+
+  // In-person slot vs virtual — select the mode they used before. This
+  // must happen before the video-area-specific fills below: the virtual
+  // area (video link/clip fields) is only actually built into the DOM the
+  // first time its tab is activated, so filling those fields has to wait
+  // until after this runs.
+  if(sub.audition_type === 'in_person' && sub.slot_id && document.getElementById('mode-tab-inperson')){
+    setAuditionMode('inperson')
+    var slot = (SETTINGS.slots||[]).find(function(s){ return s.id===sub.slot_id })
+    if(slot){
+      selectAuditionDate(slot.slot_date)
+      setTimeout(function(){ selectSlot(sub.slot_id) }, 0)
+    }
+  } else if(document.getElementById('mode-tab-virtual')){
+    setAuditionMode('virtual')
+  }
+  setVal('f-video-link', sub.video_url)
+  if(sub.video_clip_url && document.getElementById('vid-tab-clip')) setVidMode('clip')
+  else if(sub.video_url && document.getElementById('vid-tab-link')) setVidMode('link')
+
+  // Already-uploaded files — show as on-file without requiring a re-upload;
+  // carried forward in UPLOADED so saving without touching them keeps them.
+  var markUploaded = function(kind, url){
+    if(!url) return
+    UPLOADED[kind] = url
+    var dropEl = document.getElementById('drop-'+kind)
+    if(dropEl){ dropEl.textContent = ' On file — click to replace'; dropEl.classList.add('has-file') }
+  }
+  markUploaded('resume', sub.resume_file_url)
+  markUploaded('headshot', sub.headshot_file_url)
+  markUploaded('video_clip', sub.video_clip_url)
+}
+
+async function saveAuditionEdits(){
+  var statusEl = document.getElementById('submit-status')
+  var payload = collectAuditionFormPayload()
+  if(!payload.submitter_name){ statusEl.textContent = 'Please enter your name.'; statusEl.className = 'status-msg error'; return }
+  payload.context_type = CONTEXT_TYPE
+  payload.context_id = CONTEXT_ID
+  payload.passphrase = EDIT_PASSPHRASE
+
+  var btn = document.getElementById('submit-btn')
+  btn.disabled = true; btn.textContent = 'Saving…'
+  statusEl.textContent = ''
+
+  try{
+    var res = await fetch('/api/auditions/my-submission', {
+      method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload)
+    })
+    var d = await res.json()
+    btn.disabled = false; btn.textContent = 'Save Changes'
+    if(!d.ok){
+      statusEl.textContent = d.error || 'Something went wrong — please try again.'
+      statusEl.className = 'status-msg error'
+      return
+    }
+    statusEl.textContent = 'Changes saved!'
+    statusEl.className = 'status-msg success'
+  } catch(e){
+    statusEl.textContent = 'Something went wrong — please try again.'
+    statusEl.className = 'status-msg error'
+    btn.disabled = false; btn.textContent = 'Save Changes'
+  }
+}
+
+function confirmWithdraw(){
+  if(!confirm("Withdraw your audition? You'll be removed from consideration, but you're welcome to submit again later if you change your mind.")) return
+  withdrawMyAudition()
+}
+
+async function withdrawMyAudition(){
+  var statusEl = document.getElementById('submit-status')
+  try{
+    var res = await fetch('/api/auditions/my-submission/withdraw', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ passphrase: EDIT_PASSPHRASE, context_type: CONTEXT_TYPE, context_id: CONTEXT_ID })
+    })
+    var d = await res.json()
+    if(!d.ok){
+      statusEl.textContent = d.error || 'Something went wrong — please try again.'
+      statusEl.className = 'status-msg error'
+      return
+    }
+    document.getElementById('app').innerHTML = `
+      <header>
+        <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
+        <h1>${escH(SETTINGS.title||'Auditions')}</h1>
+      </header>
+      <div class="wrap"><div class="card confirm-box">
+        <h2>Your audition has been withdrawn</h2>
+        <p>You're welcome to submit again any time if you change your mind.</p>
+      </div></div>`
+  } catch(e){
+    statusEl.textContent = 'Something went wrong — please try again.'
+    statusEl.className = 'status-msg error'
   }
 }
 

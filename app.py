@@ -1131,6 +1131,28 @@ def init_db():
             description TEXT DEFAULT '',
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
+        # Day-of check-in queue — a front-desk staffer checks someone in
+        # (either an existing submission or a walk-in who never submitted
+        # online), which hands them a queue number for that day. A single
+        # public, numbers-only display page (no names — privacy, especially
+        # with minors auditioning) can be put up on a lobby screen so people
+        # know where they stand without a staffer having to announce it.
+        # queue_number resets each day (scoped by checkin_date) since
+        # auditions can run over more than one day.
+        """CREATE TABLE IF NOT EXISTS audition_checkins (
+            id TEXT PRIMARY KEY,
+            context_type TEXT NOT NULL,
+            context_id TEXT NOT NULL,
+            submission_id TEXT REFERENCES audition_submissions(id) ON DELETE SET NULL,
+            walk_in_name TEXT,
+            queue_number INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'waiting',
+            checkin_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            checked_in_at TIMESTAMP DEFAULT NOW(),
+            called_at TIMESTAMP,
+            completed_at TIMESTAMP,
+            checked_in_by TEXT)""",
+        "CREATE INDEX IF NOT EXISTS ix_aud_checkins_ctx_date ON audition_checkins(context_type, context_id, checkin_date)",
         # Space/date requests — any staff member can request a space for a
         # one-off date or a recurring class/program schedule, check it
         # against the calendar (reusing the same conflict-checking as
@@ -1560,6 +1582,11 @@ def init_db():
         # background photo behind the hero banner.
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_logo_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT",
+        # youth_programs never got this column even though _resolve_audition_context
+        # (used for both productions and programs) has always queried it —
+        # meaning any program-type audition lookup was broken. Productions
+        # got the column above; this is the same thing for programs.
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS portal_logo_url TEXT",
         # meet the team
         """CREATE TABLE IF NOT EXISTS production_team_members (
             id TEXT PRIMARY KEY,
@@ -6905,6 +6932,217 @@ def get_audition_submissions(context_type, context_id):
     for r in rows:
         r['age'] = compute_age(r.get('birthday'))
     return jsonify(rows)
+
+
+# ── Day-of check-in queue ────────────────────────────────────────────────
+
+def _require_audition_staff_auth(context_type, context_id):
+    """Same director-scoped-to-their-own-production pattern used by the
+    other audition admin endpoints above."""
+    if session.get('role') == 'director' and context_type == 'production':
+        return require_own_production(context_id)
+    return require_auth()
+
+
+@app.route('/api/auditions/checkin', methods=['POST'])
+def checkin_for_audition():
+    d = request.json or {}
+    context_type = d.get('context_type', '')
+    context_id   = d.get('context_id', '')
+    err = _require_audition_staff_auth(context_type, context_id)
+    if err: return err
+    submission_id = d.get('submission_id') or None
+    walk_in_name  = (d.get('walk_in_name') or '').strip() or None
+    if not submission_id and not walk_in_name:
+        return jsonify({'error': 'Pick a submission or enter a walk-in name'}), 400
+    conn = get_db()
+    if submission_id:
+        already = fetchone(conn, """SELECT id FROM audition_checkins
+            WHERE submission_id=%s AND checkin_date=CURRENT_DATE AND status NOT IN ('no_show')""", (submission_id,))
+        if already:
+            conn.close()
+            return jsonify({'error': 'Already checked in today'}), 400
+    next_num = fetchone(conn, """SELECT COALESCE(MAX(queue_number),0)+1 AS n FROM audition_checkins
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE""", (context_type, context_id))
+    qnum = next_num['n']
+    cid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO audition_checkins
+        (id, context_type, context_id, submission_id, walk_in_name, queue_number, checked_in_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+        (cid, context_type, context_id, submission_id, walk_in_name, qnum, session.get('name') or session.get('email') or ''))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'id': cid, 'queue_number': qnum})
+
+
+@app.route('/api/auditions/checkins/<context_type>/<context_id>', methods=['GET'])
+def get_audition_checkins(context_type, context_id):
+    err = _require_audition_staff_auth(context_type, context_id)
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT c.*,
+        COALESCE(s.submitter_name, c.walk_in_name) AS display_name,
+        s.submitter_email
+        FROM audition_checkins c
+        LEFT JOIN audition_submissions s ON s.id=c.submission_id
+        WHERE c.context_type=%s AND c.context_id=%s AND c.checkin_date=CURRENT_DATE
+        ORDER BY c.queue_number ASC""", (context_type, context_id))
+    conn.close()
+    return jsonify(rows or [])
+
+
+@app.route('/api/auditions/checkins/<cid>/call', methods=['POST'])
+def call_audition_checkin(cid):
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    # Only one person "called" (now auditioning) at a time — whoever was
+    # previously called is assumed done and moves to completed.
+    execute(conn, """UPDATE audition_checkins SET status='completed', completed_at=NOW()
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='called'""",
+        (row['context_type'], row['context_id']))
+    execute(conn, "UPDATE audition_checkins SET status='called', called_at=NOW() WHERE id=%s", (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/checkins/call-next', methods=['POST'])
+def call_next_audition_checkin():
+    d = request.json or {}
+    context_type = d.get('context_type', '')
+    context_id   = d.get('context_id', '')
+    err = _require_audition_staff_auth(context_type, context_id)
+    if err: return err
+    conn = get_db()
+    execute(conn, """UPDATE audition_checkins SET status='completed', completed_at=NOW()
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='called'""",
+        (context_type, context_id))
+    nxt = fetchone(conn, """SELECT id FROM audition_checkins
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='waiting'
+        ORDER BY queue_number ASC LIMIT 1""", (context_type, context_id))
+    if nxt:
+        execute(conn, "UPDATE audition_checkins SET status='called', called_at=NOW() WHERE id=%s", (nxt['id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'called_id': nxt['id'] if nxt else None})
+
+
+@app.route('/api/auditions/checkins/<cid>/complete', methods=['POST'])
+def complete_audition_checkin(cid):
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    execute(conn, "UPDATE audition_checkins SET status='completed', completed_at=NOW() WHERE id=%s", (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/checkins/<cid>/no-show', methods=['POST'])
+def no_show_audition_checkin(cid):
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    execute(conn, "UPDATE audition_checkins SET status='no_show' WHERE id=%s", (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/checkins/<cid>/undo', methods=['POST'])
+def undo_audition_checkin(cid):
+    """Puts someone back to 'waiting' — for a misclick, or someone who
+    stepped away and needs to be re-queued rather than marked done/no-show."""
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    execute(conn, "UPDATE audition_checkins SET status='waiting', called_at=NULL, completed_at=NULL WHERE id=%s", (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/checkins/<cid>', methods=['DELETE'])
+def delete_audition_checkin(cid):
+    """Removes a check-in entirely — for a walk-in added by mistake, or
+    someone checked in under the wrong name."""
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    execute(conn, 'DELETE FROM audition_checkins WHERE id=%s', (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+def _public_queue_snapshot(conn, context_type, context_id):
+    """Numbers only, by design (see the audition_checkins table comment) —
+    this is what the lobby-screen display polls, and it should never leak a
+    name, especially with minors auditioning."""
+    called = fetchone(conn, """SELECT queue_number FROM audition_checkins
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='called'
+        ORDER BY called_at DESC LIMIT 1""", (context_type, context_id))
+    waiting = fetchall(conn, """SELECT queue_number FROM audition_checkins
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='waiting'
+        ORDER BY queue_number ASC LIMIT 6""", (context_type, context_id))
+    waiting_nums = [w['queue_number'] for w in waiting]
+    return {
+        'now_serving': called['queue_number'] if called else None,
+        'on_deck': waiting_nums[0] if waiting_nums else None,
+        'next_up': waiting_nums[1:6],
+        'waiting_count': len(waiting_nums),
+    }
+
+
+@app.route('/api/public/audition-queue/<context_type>/<context_id>')
+def public_audition_queue(context_type, context_id):
+    conn = get_db()
+    resolved_id, ctx_name, _, _ = _resolve_audition_context(conn, context_type, context_id)
+    if not resolved_id:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    data = _public_queue_snapshot(conn, context_type, resolved_id)
+    data['context_name'] = ctx_name
+    conn.close()
+    resp = jsonify(data)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/public/audition-queue-by-slug/<slug>')
+def public_audition_queue_by_slug(slug):
+    conn = get_db()
+    context_type, resolved_id, ctx_name, _, _ = _resolve_audition_context_by_slug(conn, slug)
+    if not resolved_id:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    data = _public_queue_snapshot(conn, context_type, resolved_id)
+    data['context_name'] = ctx_name
+    conn.close()
+    resp = jsonify(data)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 @app.route('/api/auditions/slots/<context_type>/<context_id>', methods=['GET'])
@@ -29203,6 +29441,19 @@ def public_audition_schedule_page(context_type, context_id):
     auto-generated overview of this show's actual scheduled events, not a
     manually-typed URL, so it can never go stale."""
     return send_from_directory('static', 'audition-schedule.html')
+
+@app.route('/audition/<slug>/queue')
+def public_audition_queue_page_by_slug(slug):
+    """The lobby-screen check-in queue display, same simple /audition/<slug>
+    style as the submission page itself. Meant to be left open on a TV or
+    tablet at the venue, not visited by auditionees on their own phones."""
+    return send_from_directory('static', 'audition-queue.html')
+
+@app.route('/audition-queue/<context_type>/<context_id>')
+def public_audition_queue_page(context_type, context_id):
+    """Older /audition-queue/<type>/<id> form of the link, for consistency
+    with the other audition pages that support both URL shapes."""
+    return send_from_directory('static', 'audition-queue.html')
 
 @app.route('/api/public/audition-settings-by-slug/<slug>')
 def get_audition_settings_by_slug(slug):

@@ -637,7 +637,7 @@ function openManageLookup(){
       <button type="button" onclick="renderManageEntryPoint()" style="padding:10px 16px;background:none;border:1.5px solid #d6d3ce;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;color:#57534e">Cancel</button>
     </div>
     <div class="status-msg error" id="manage-lookup-status"></div>
-    <button type="button" onclick="openCodeRecovery()" style="background:none;border:none;padding:0;color:#78716c;font-size:12px;text-decoration:underline;cursor:pointer;font-family:inherit">Don't know your code? (e.g. you submitted before this existed)</button>
+    <button type="button" onclick="openCodeRecovery()" style="background:none;border:none;padding:0;color:#78716c;font-size:12px;text-decoration:underline;cursor:pointer;font-family:inherit">Don't know your code? We'll email it to you</button>
   </div>`
   document.getElementById('manage-code-input')?.focus()
 }
@@ -647,7 +647,7 @@ function openCodeRecovery(){
   if(!wrap) return
   wrap.innerHTML = `<div class="card" style="text-align:left;padding:16px 18px;margin:0">
     <div style="font-size:13px;font-weight:700;color:#145466;margin-bottom:8px">Email Me My Access Code</div>
-    <div class="hint" style="margin-bottom:10px">Enter the email you used when you submitted — if we find a matching audition, we'll email you a code to manage it (this also works for submissions from before this feature existed).</div>
+    <div class="hint" style="margin-bottom:10px">Enter the email you used when you submitted — if we find a matching audition, we'll email you a code to manage it.</div>
     <input type="email" id="recovery-email-input" placeholder="you@example.com" style="margin-bottom:8px" onkeydown="if(event.key==='Enter')sendCodeToEmail()"/>
     <div style="display:flex;gap:8px">
       <button type="button" class="btn-primary" style="flex:1" onclick="sendCodeToEmail()">Send My Code</button>

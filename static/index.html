@@ -12960,6 +12960,11 @@ function renderAuditionList(submissions, contextId, filterStatus){
  })()}
  ${s.notes?`<div style="font-size:13px;color:var(--text-muted);margin-top:6px;background:var(--bg);padding:8px 10px;border-radius:6px;font-style:italic">"${escHtml(s.notes)}"</div>`:''}
  <div style="font-size:11px;color:var(--text-hint);margin-top:6px">Submitted ${formatDateTime(s.submitted_at)}</div>
+ <div style="margin-top:6px;font-size:11.5px;color:var(--text-muted)" id="aud-code-row-${s.id}">
+ Access code: ${s.submitter_passphrase
+   ? `<code style="background:var(--bg);padding:1px 6px;border-radius:4px;font-weight:700;letter-spacing:0.5px">${escHtml(s.submitter_passphrase)}</code> <button onclick="copyAuditionAccessCode('${s.id}','${escHtml(s.submitter_passphrase)}')" style="background:none;border:none;color:var(--teal-dark);font-weight:600;font-size:11px;cursor:pointer;padding:0 0 0 4px">Copy</button>`
+   : `<button onclick="generateAuditionAccessCode('${s.id}','${contextId}')" style="background:none;border:none;color:var(--teal-dark);font-weight:600;font-size:11px;cursor:pointer;padding:0;text-decoration:underline">Generate one</button> <span style="color:var(--text-hint)">(this submission predates self-service management)</span>`}
+ </div>
  </div>
  <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;min-width:160px">
  <select onchange="updateAuditionStatus('${s.id}','${contextId}',this.value)"
@@ -12985,6 +12990,21 @@ function renderAuditionList(submissions, contextId, filterStatus){
 function getYouTubeEmbedId(url){
  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/)
  return m ? m[1]: null
+}
+
+function copyAuditionAccessCode(sid, code){
+ navigator.clipboard.writeText(code)
+ toast('Access code copied!','success')
+}
+
+async function generateAuditionAccessCode(sid, contextId){
+ const res = await api(`/api/auditions/submissions/${sid}/access-code`)
+ if(res.error){ toast(res.error,'error'); return }
+ const row = document.getElementById('aud-code-row-'+sid)
+ if(row){
+ row.innerHTML = `Access code: <code style="background:var(--bg);padding:1px 6px;border-radius:4px;font-weight:700;letter-spacing:0.5px">${escHtml(res.passphrase)}</code> <button onclick="copyAuditionAccessCode('${sid}','${escHtml(res.passphrase)}')" style="background:none;border:none;color:var(--teal-dark);font-weight:600;font-size:11px;cursor:pointer;padding:0 0 0 4px">Copy</button>`
+ }
+ toast('Access code generated!','success')
 }
 
 function filterAuditionSubmissions(contextId){

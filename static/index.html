@@ -3460,10 +3460,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="modal-body">
  <input type="hidden" id="lt-vol-id"/>
  <div class="form-group" id="lt-vol-select-wrap"></div>
- <div class="form-group">
+ <div class="form-group" style="position:relative">
  <label>Event *</label>
- <input type="text" id="lt-event-search" placeholder=" Search events…" oninput="filterLogTimeEvents(this.value)" style="margin-bottom:6px"/>
- <select id="lt-event-select" onchange="onEventSelect()" size="1">
+ <input type="text" id="lt-event-search" placeholder=" Search events or click to browse…" autocomplete="off"
+ oninput="filterLogTimeEvents(this.value)" onfocus="openLogTimeResults()" style="margin-bottom:0"/>
+ <div id="lt-event-results" style="display:none;position:absolute;z-index:20;left:0;right:0;top:60px;max-height:280px;overflow-y:auto;background:var(--surface);border:1.5px solid var(--border-md);border-radius:var(--radius);box-shadow:var(--shadow-md);margin-top:2px"></div>
+ <select id="lt-event-select" onchange="onEventSelect()" style="display:none">
  <option value="">— Select an event or type custom —</option>
  <option value="__custom__"> Custom event name…</option>
  </select>
@@ -5810,6 +5812,9 @@ function populateHoursFilters(){
  // Populate log time event dropdown — grouped by recency instead of one
  // giant flat alphabetical/insertion-order list, since orgs with a long
  // history can easily have hundreds of events to scroll through otherwise.
+ // This hidden <select> stays the source of truth (existing code reads its
+ // .value and selected option's data-* attrs); #lt-event-results is the
+ // actual visible, searchable UI built from it.
  const ltsel=document.getElementById('lt-event-select')
  if(ltsel){
  const cur=ltsel.value
@@ -5833,30 +5838,76 @@ function populateHoursFilters(){
  }
  const searchBox = document.getElementById('lt-event-search')
  if(searchBox) searchBox.value=''
+ closeLogTimeResults()
+}
+
+// Renders the visible, clickable event list from the hidden <select>'s
+// optgroups/options — filtered by query against each option's data-search.
+// A real text-matched list the person can scan and click beats a giant
+// native <select> (which is also inconsistent across browsers for hiding
+// non-matching <option>s — Safari in particular ignores that).
+function _renderLogTimeResults(query){
+ const resultsEl = document.getElementById('lt-event-results')
+ const ltsel = document.getElementById('lt-event-select')
+ if(!resultsEl || !ltsel) return
+ const q = query.trim().toLowerCase()
+ let html = '<div onmousedown="event.preventDefault();selectLogTimeEvent(\'__custom__\',\'\')" style="padding:9px 12px;cursor:pointer;font-size:13px;font-weight:600;color:var(--teal-dark);border-bottom:1px solid var(--border)"> Type a custom event name instead</div>'
+ let anyMatch = false
+ ltsel.querySelectorAll('optgroup').forEach(og=>{
+ const rows = []
+ og.querySelectorAll('option').forEach(o=>{
+ if(q && !(o.dataset.search||'').includes(q)) return
+ anyMatch = true
+ rows.push(`<div onmousedown="event.preventDefault();selectLogTimeEvent('${o.value}','${escHtml(o.dataset.name||'').replace(/'/g,"\\'")}')" style="padding:8px 12px;cursor:pointer;font-size:13px" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">${o.innerHTML}</div>`)
+ })
+ if(rows.length) html += `<div style="padding:6px 12px 2px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);background:var(--bg)">${og.label}</div>` + rows.join('')
+ })
+ if(q && !anyMatch) html += '<div style="padding:14px 12px;font-size:12.5px;color:var(--text-muted);text-align:center">No matching events — use "Type a custom event name" above</div>'
+ resultsEl.innerHTML = html
+ resultsEl.style.display = ''
+}
+
+function openLogTimeResults(){
+ _renderLogTimeResults(document.getElementById('lt-event-search')?.value||'')
 }
 
 function filterLogTimeEvents(query){
- const q = query.trim().toLowerCase()
- const ltsel = document.getElementById('lt-event-select')
- if(!ltsel) return
- let firstVisibleGroup = null
- ltsel.querySelectorAll('optgroup').forEach(og=>{
- let anyVisible = false
- og.querySelectorAll('option').forEach(o=>{
- const match = !q || (o.dataset.search||'').includes(q)
- o.style.display = match ? '' : 'none'
- if(match) anyVisible = true
- })
- og.style.display = anyVisible ? '' : 'none'
- if(anyVisible && !firstVisibleGroup) firstVisibleGroup = og
- })
+ _renderLogTimeResults(query)
 }
+
+function closeLogTimeResults(){
+ const resultsEl = document.getElementById('lt-event-results')
+ if(resultsEl){ resultsEl.style.display='none'; resultsEl.innerHTML='' }
+}
+
+function selectLogTimeEvent(eventId, eventName){
+ const ltsel = document.getElementById('lt-event-select')
+ if(ltsel) ltsel.value = eventId
+ onEventSelect()
+}
+
+document.addEventListener('click', function(e){
+ const wrap = document.getElementById('lt-event-search')
+ const results = document.getElementById('lt-event-results')
+ if(!wrap || !results) return
+ if(e.target !== wrap && !results.contains(e.target)) closeLogTimeResults()
+})
 
 function onEventSelect(){
  const sel=document.getElementById('lt-event-select')
  const wrap=document.getElementById('lt-custom-event-wrap')
- if(sel.value==='__custom__') wrap.style.display='block'
- else wrap.style.display='none'
+ const searchBox=document.getElementById('lt-event-search')
+ if(sel.value==='__custom__'){
+ wrap.style.display='block'
+ if(searchBox) searchBox.value=' Custom event name…'
+ } else {
+ wrap.style.display='none'
+ if(searchBox){
+ const opt=sel.options[sel.selectedIndex]
+ searchBox.value = (sel.value && opt) ? (opt.dataset.name||opt.textContent||'') : ''
+ }
+ }
+ closeLogTimeResults()
 }
 
 function openLogTimeModal(volId,prefillHours=null){
@@ -5875,6 +5926,8 @@ function openLogTimeModal(volId,prefillHours=null){
  wrap.innerHTML=`<div class="form-group"><label>Volunteer *</label><select id="lt-vol-select">${volunteers.map(v=>`<option value="${v.id}">${v.name}</option>`).join('')}</select></div>`
  }
  populateHoursFilters()
+ document.getElementById('lt-event-select').value=''
+ onEventSelect()
  openModal('modal-log-time')
 }
 
@@ -22456,6 +22509,7 @@ function psiLogAttendance(volId, volName, prodId, eventId){
  setTimeout(()=>{
  const sel=document.getElementById('lt-event-select')
  if(sel) sel.value = eventId
+ onEventSelect()
  },100)
  }
 }

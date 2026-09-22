@@ -10,9 +10,11 @@
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'DM Sans',-apple-system,sans-serif;background:#f7f7f5;color:#1c1917;line-height:1.5}
 .wrap{max-width:640px;margin:0 auto;padding:0 20px 60px}
-header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:36px 24px;text-align:center;margin-bottom:-1px}
+header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:36px 24px;text-align:center;margin-bottom:-1px;position:relative}
 header img{height:64px;margin-bottom:18px;mix-blend-mode:screen}
 header h1{color:#fff;font-size:26px;font-weight:800}
+.header-manage-btn{display:inline-block;margin-top:16px;padding:9px 18px;background:rgba(255,255,255,0.12);border:1.5px solid rgba(255,255,255,0.5);border-radius:20px;color:#fff;font-family:inherit;font-size:12.5px;font-weight:700;cursor:pointer}
+.header-manage-btn:hover{background:rgba(255,255,255,0.22)}
 .card{background:#fff;border:1px solid #e7e2d9;border-radius:14px;padding:24px;margin-top:20px}
 .card.hero-card{padding:0;overflow:hidden}
 .card-body{padding:22px 24px}
@@ -213,6 +215,7 @@ function renderError(msg){
     <header>
       <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
       <h1>Auditions</h1>
+      <button type="button" class="header-manage-btn" onclick="openManageLookup();scrollToManage()"> Manage My Audition</button>
     </header>
     <div class="wrap"><div class="card"><div class="card-body">
       <div class="empty-msg">${escH(msg)}</div>
@@ -227,6 +230,7 @@ function render(){
     <header>
       <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
       <h1>${escH(s.title||'Auditions')}</h1>
+      ${EDIT_MODE ? '' : '<button type="button" class="header-manage-btn" onclick="openManageLookup();scrollToManage()"> Manage My Audition</button>'}
     </header>
     <div class="wrap">`
 
@@ -610,6 +614,11 @@ async function submitAudition(){
 
 // ── Self-service: view / edit / withdraw an existing submission ──────────
 
+function scrollToManage(){
+  var wrap = document.getElementById('manage-entry-wrap')
+  if(wrap) wrap.scrollIntoView({behavior:'smooth', block:'center'})
+}
+
 function renderManageEntryPoint(){
   var wrap = document.getElementById('manage-entry-wrap')
   if(!wrap) return
@@ -623,13 +632,54 @@ function openManageLookup(){
     <div style="font-size:13px;font-weight:700;color:#145466;margin-bottom:8px">Look Up My Audition</div>
     <div class="hint" style="margin-bottom:10px">Enter the access code you were given when you submitted (also in your confirmation email).</div>
     <input type="text" id="manage-code-input" placeholder="e.g. 7F3A9C21" style="text-transform:uppercase;margin-bottom:8px" onkeydown="if(event.key==='Enter')lookupMySubmission()"/>
-    <div style="display:flex;gap:8px">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
       <button type="button" class="btn-primary" style="flex:1" onclick="lookupMySubmission()">Look Up</button>
       <button type="button" onclick="renderManageEntryPoint()" style="padding:10px 16px;background:none;border:1.5px solid #d6d3ce;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;color:#57534e">Cancel</button>
     </div>
     <div class="status-msg error" id="manage-lookup-status"></div>
+    <button type="button" onclick="openCodeRecovery()" style="background:none;border:none;padding:0;color:#78716c;font-size:12px;text-decoration:underline;cursor:pointer;font-family:inherit">Don't know your code? (e.g. you submitted before this existed)</button>
   </div>`
   document.getElementById('manage-code-input')?.focus()
+}
+
+function openCodeRecovery(){
+  var wrap = document.getElementById('manage-entry-wrap')
+  if(!wrap) return
+  wrap.innerHTML = `<div class="card" style="text-align:left;padding:16px 18px;margin:0">
+    <div style="font-size:13px;font-weight:700;color:#145466;margin-bottom:8px">Email Me My Access Code</div>
+    <div class="hint" style="margin-bottom:10px">Enter the email you used when you submitted — if we find a matching audition, we'll email you a code to manage it (this also works for submissions from before this feature existed).</div>
+    <input type="email" id="recovery-email-input" placeholder="you@example.com" style="margin-bottom:8px" onkeydown="if(event.key==='Enter')sendCodeToEmail()"/>
+    <div style="display:flex;gap:8px">
+      <button type="button" class="btn-primary" style="flex:1" onclick="sendCodeToEmail()">Send My Code</button>
+      <button type="button" onclick="openManageLookup()" style="padding:10px 16px;background:none;border:1.5px solid #d6d3ce;border-radius:9px;font-weight:700;font-size:13px;cursor:pointer;color:#57534e">Back</button>
+    </div>
+    <div class="status-msg" id="recovery-status"></div>
+  </div>`
+  document.getElementById('recovery-email-input')?.focus()
+}
+
+async function sendCodeToEmail(){
+  var input = document.getElementById('recovery-email-input')
+  var email = (input?.value||'').trim()
+  var statusEl = document.getElementById('recovery-status')
+  if(!email){ statusEl.textContent = 'Please enter your email.'; statusEl.className = 'status-msg error'; return }
+  statusEl.textContent = ''
+  var btn = document.querySelector('#recovery-email-input')?.closest('.card')?.querySelector('.btn-primary')
+  if(btn){ btn.disabled = true; btn.textContent = 'Sending…' }
+  try{
+    var res = await fetch('/api/auditions/my-submission/send-code', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ email: email, context_type: CONTEXT_TYPE, context_id: CONTEXT_ID })
+    })
+    var d = await res.json()
+    statusEl.textContent = "If we found a submission with that email, we've sent your access code — check your inbox (and spam folder)."
+    statusEl.className = 'status-msg success'
+    if(btn){ btn.disabled = false; btn.textContent = 'Send My Code' }
+  } catch(e){
+    statusEl.textContent = 'Something went wrong — please try again.'
+    statusEl.className = 'status-msg error'
+    if(btn){ btn.disabled = false; btn.textContent = 'Send My Code' }
+  }
 }
 
 async function lookupMySubmission(){

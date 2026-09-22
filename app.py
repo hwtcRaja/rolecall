@@ -2104,8 +2104,6 @@ def init_db():
             status TEXT DEFAULT 'open',
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
-        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
-        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'""",
         # Per-session age requirements — same opt-in min/max/grace pattern as the
         # program level (youth_programs.min_age etc). NULL on a session means
         # "inherit the program's age requirement"; a session only overrides when
@@ -2171,6 +2169,8 @@ def init_db():
             waitlist_payment_expires_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'""",
         """CREATE TABLE IF NOT EXISTS interest_list_entries (
             id TEXT PRIMARY KEY,
             program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -7216,17 +7216,18 @@ def submit_audition():
     if not passphrase:
         passphrase = secrets.token_hex(4).upper()
     sid = str(uuid.uuid4())
+    roles_json = json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else []))
     execute(conn, """INSERT INTO audition_submissions
         (id,context_type,context_id,family_id,participant_id,submitter_name,
-         submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase,
+         submitter_email,role_requested,roles_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase,
          slot_id,audition_type,resume_file_url,headshot_file_url,video_clip_url,
          crew_interest,crew_roles_requested,crew_experience,
          is_minor,birthday,pronouns,phone,how_heard,custom_answers)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
         sid, context_type, context_id, family_id,
         d.get('participant_id') or None, name,
         (d.get('submitter_email') or '').strip() or None,
-        json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])),
+        roles_json, roles_json,
         (d.get('video_url') or '').strip() or None,
         (d.get('resume_url') or '').strip() or None,
         (d.get('headshot_url') or '').strip() or None,
@@ -7483,7 +7484,7 @@ def update_my_audition_submission():
         conn.close()
         return jsonify({'error': 'Name is required'}), 400
     execute(conn, """UPDATE audition_submissions SET
-        submitter_name=%s, submitter_email=%s, role_requested=%s, video_url=%s,
+        submitter_name=%s, submitter_email=%s, role_requested=%s, roles_requested=%s, video_url=%s,
         resume_url=%s, headshot_url=%s, notes=%s, resume_file_url=%s,
         headshot_file_url=%s, video_clip_url=%s, crew_interest=%s,
         crew_roles_requested=%s, crew_experience=%s, is_minor=%s, birthday=%s,
@@ -7491,6 +7492,7 @@ def update_my_audition_submission():
         WHERE id=%s""", (
         name,
         (d.get('submitter_email') or '').strip() or None,
+        json.dumps(d.get('roles_requested') or []),
         json.dumps(d.get('roles_requested') or []),
         (d.get('video_url') or '').strip() or None,
         (d.get('resume_url') or '').strip() or None,
@@ -7534,6 +7536,62 @@ def withdraw_my_audition_submission():
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/my-submission/send-code', methods=['POST'])
+def send_audition_access_code():
+    """Recovery path for people with no code to enter in the first place —
+    mainly anyone who submitted before self-service management existed, so
+    nothing ever generated a submitter_passphrase for them. Finds their
+    submission by the email they used, mints a code for it right now if it
+    doesn't already have one (making this permanently fixed for them going
+    forward too), and emails it. Always returns the same generic response
+    whether or not a match was found, so this can't be used to probe which
+    email addresses have submitted."""
+    d = request.json or {}
+    email        = (d.get('email') or '').strip()
+    context_type = d.get('context_type','')
+    context_id   = d.get('context_id','')
+    generic_response = jsonify({'ok': True})
+    if not email or not context_type or not context_id:
+        return generic_response
+    conn = get_db()
+    sub = fetchone(conn, """SELECT * FROM audition_submissions
+        WHERE LOWER(submitter_email)=LOWER(%s) AND context_type=%s AND context_id=%s
+        AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
+        (email, context_type, context_id))
+    if not sub:
+        conn.close()
+        return generic_response
+    code = sub.get('submitter_passphrase')
+    if not code:
+        code = secrets.token_hex(4).upper()
+        execute(conn, 'UPDATE audition_submissions SET submitter_passphrase=%s WHERE id=%s', (code, sub['id']))
+        conn.commit()
+    ctx_name = ''
+    if context_type == 'production':
+        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    elif context_type == 'program':
+        p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    conn.close()
+    try:
+        first_name = (sub.get('submitter_name') or '').split(' ')[0] or 'there'
+        manage_url = f'https://rolecall.hwtco.org/audition/{context_type}/{context_id}'
+        subject = f'Your Audition Access Code: {ctx_name}' if ctx_name else 'Your Audition Access Code'
+        body = (
+            f'<p>Hi {first_name}, here\'s the access code to manage your audition submission'
+            f'{" for <strong>" + ctx_name + "</strong>" if ctx_name else ""}:</p>'
+            f'<div style="background:#fdf6e3;border:1px solid #f0e0a8;border-radius:8px;padding:16px 18px;margin:16px 0;text-align:center">'
+            f'<div style="font-size:22px;font-weight:800;letter-spacing:2px;font-family:monospace">{code}</div></div>'
+            f'<p>Visit <a href="{manage_url}">{manage_url}</a> and click "Manage My Audition" to view, update, or withdraw your submission.</p>'
+            "<p>Didn't request this? You can safely ignore this email.</p>"
+        )
+        send_email([sub['submitter_email']], subject, build_hwtc_email_html(subject, body))
+    except Exception as e:
+        app.logger.warning(f'Audition access code email failed: {e}')
+    return generic_response
 
 
 @app.route('/api/auditions/submissions/<sid>/cast-role', methods=['PUT'])

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Audition Check-In</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'DM Sans',-apple-system,sans-serif;
+  background:linear-gradient(160deg,#0d3d4d,#0a2a35 65%);
+  color:#fff;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:100vh;padding:40px 24px;text-align:center
+}
+.eyebrow{font-size:14px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:6px}
+.show-name{font-size:22px;font-weight:700;color:rgba(255,255,255,0.85);margin-bottom:48px}
+.now-label{font-size:20px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#5eead4;margin-bottom:8px}
+.now-number{font-size:min(28vw,220px);font-weight:800;line-height:1;letter-spacing:-0.02em;margin-bottom:56px;font-variant-numeric:tabular-nums}
+.now-number.empty{font-size:44px;font-weight:700;color:rgba(255,255,255,0.4)}
+.row{display:flex;gap:56px;align-items:flex-start;justify-content:center;flex-wrap:wrap}
+.block-label{font-size:14px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:10px}
+.on-deck-number{font-size:80px;font-weight:800;line-height:1;font-variant-numeric:tabular-nums}
+.on-deck-number.empty{font-size:24px;font-weight:600;color:rgba(255,255,255,0.35)}
+.next-up-list{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;max-width:440px}
+.next-up-chip{font-size:26px;font-weight:700;background:rgba(255,255,255,0.1);border-radius:12px;padding:8px 18px;font-variant-numeric:tabular-nums}
+.next-up-empty{font-size:18px;font-weight:600;color:rgba(255,255,255,0.35);padding-top:14px}
+.footer{margin-top:64px;font-size:13px;color:rgba(255,255,255,0.35)}
+.error-box{font-size:22px;color:rgba(255,255,255,0.7)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.55}}
+.now-number:not(.empty){animation:pulse 2.4s ease-in-out infinite}
+</style>
+</head>
+<body>
+<div id="app"><div class="error-box">Loading…</div></div>
+
+<script>
+var pathParts = window.location.pathname.split('/').filter(Boolean)
+// Two URL shapes, matching the rest of the audition pages: /audition/<slug>/queue
+// and /audition-queue/<type>/<id>.
+var IS_SLUG_URL = pathParts[0] === 'audition' && pathParts.length === 3
+var CONTEXT_TYPE = IS_SLUG_URL ? null : pathParts[1]
+var CONTEXT_ID = IS_SLUG_URL ? pathParts[1] : pathParts[2]
+var SLUG = IS_SLUG_URL ? pathParts[1] : null
+var lastShowName = null
+
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+function render(data){
+  if(data.context_name) lastShowName = data.context_name
+  var nowHtml = (data.now_serving != null)
+    ? '<div class="now-number">#'+data.now_serving+'</div>'
+    : '<div class="now-number empty">No one called yet</div>'
+
+  var onDeckHtml = (data.on_deck != null)
+    ? '<div class="on-deck-number">#'+data.on_deck+'</div>'
+    : '<div class="on-deck-number empty">—</div>'
+
+  var nextUpHtml
+  if(data.next_up && data.next_up.length){
+    nextUpHtml = '<div class="next-up-list">' + data.next_up.map(function(n){ return '<div class="next-up-chip">#'+n+'</div>' }).join('') + '</div>'
+  } else {
+    nextUpHtml = '<div class="next-up-empty">—</div>'
+  }
+
+  document.getElementById('app').innerHTML = `
+    <div class="eyebrow">Now Checking In</div>
+    ${lastShowName ? '<div class="show-name">'+escH(lastShowName)+'</div>' : ''}
+    <div class="now-label">Now Auditioning</div>
+    ${nowHtml}
+    <div class="row">
+      <div>
+        <div class="block-label">On Deck</div>
+        ${onDeckHtml}
+      </div>
+      <div>
+        <div class="block-label">Up Next</div>
+        ${nextUpHtml}
+      </div>
+    </div>
+    <div class="footer">${(data.waiting_count||0)} waiting &middot; Horizon West Theater Company</div>
+  `
+}
+
+async function poll(){
+  try{
+    var url = IS_SLUG_URL
+      ? '/api/public/audition-queue-by-slug/'+encodeURIComponent(SLUG)
+      : '/api/public/audition-queue/'+encodeURIComponent(CONTEXT_TYPE)+'/'+encodeURIComponent(CONTEXT_ID)
+    var res = await fetch(url)
+    var data = await res.json()
+    if(data.error){
+      document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
+      return
+    }
+    render(data)
+  } catch(e){
+    // Transient network hiccup on an unattended screen — don't blank it out,
+    // just try again on the next poll.
+  }
+}
+
+poll()
+setInterval(poll, 4000)
+</script>
+</body>
+</html>

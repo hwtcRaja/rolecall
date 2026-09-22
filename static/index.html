@@ -12719,6 +12719,7 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
  // ── Tab strip ──
  const tabs = [
   {id:'overview', label:'Overview'},
+  {id:'checkin', label:' Check-In'},
   {id:'schedule', label:`In-Person Schedule${slots.length?' ('+slots.length+')':''}`, show: slots.length>0},
   {id:'virtual', label:`Virtual (${virtualSubs.length})`},
   {id:'all', label:`All Submissions (${total})`},
@@ -12788,6 +12789,13 @@ function renderAuditionsAdmin(contextType, contextId, containerId, settings, sub
   ${settings.cast_list_published?'✓ Cast List Published':'Publish Cast List'}${castCount>0?' ('+castCount+' cast)':''}</button></div>`
 
  html += `</div>` // end overview panel
+
+ // ── Check-In tab ──
+ html += `<div id="aud-tab-panel-${contextId}-checkin" style="display:none">
+  <div id="checkin-root-${contextId}" data-context-type="${contextType}" data-context-id="${contextId}">
+   <div style="color:var(--text-muted);font-size:13px;padding:16px 0">Loading…</div>
+  </div>
+ </div>`
 
  // ── In-Person Schedule tab ──
  if(slots.length){
@@ -12890,6 +12898,209 @@ function switchAudTab(contextId, tabId){
  })
  const tab = document.getElementById(tprefix+tabId)
  if(tab){ tab.style.fontWeight='700'; tab.style.borderBottomColor='#145466'; tab.style.color='#145466' }
+ // Check-in polls while its tab is open (other front-desk staff may be
+ // checking people in on another device) and stops as soon as you leave it,
+ // so it's not silently polling forever in the background.
+ if(window._checkinPollTimer){ clearInterval(window._checkinPollTimer); window._checkinPollTimer=null }
+ if(tabId==='checkin'){
+  const root = document.getElementById('checkin-root-'+contextId)
+  const ctxType = root?.dataset.contextType, ctxId = root?.dataset.contextId
+  if(ctxType && ctxId){
+   loadCheckinTab(ctxType, ctxId)
+   window._checkinPollTimer = setInterval(()=>loadCheckinTab(ctxType, ctxId, true), 6000)
+  }
+ }
+}
+
+async function loadCheckinTab(contextType, contextId, isPoll){
+ const root = document.getElementById('checkin-root-'+contextId)
+ if(!root) return
+ try{
+  const [checkins, submissions] = await Promise.all([
+   api(`/api/auditions/checkins/${contextType}/${contextId}`),
+   api(`/api/auditions/list/${contextType}/${contextId}`)
+  ])
+  if(!Array.isArray(checkins)){ if(!isPoll) root.innerHTML = '<div style="color:var(--red-600);padding:16px">Could not load check-ins.</div>'; return }
+  renderCheckinTab(root, contextType, contextId, checkins, Array.isArray(submissions)?submissions:[])
+ } catch(e){
+  if(!isPoll) root.innerHTML = '<div style="color:var(--red-600);padding:16px">Failed to load check-in: '+e.message+'</div>'
+ }
+}
+
+function renderCheckinTab(root, contextType, contextId, checkins, submissions){
+ // Preserve the search box's current text and focus across a poll-driven
+ // re-render, so typing isn't interrupted every 6 seconds.
+ const searchBox = document.getElementById('checkin-search-'+contextId)
+ const hadFocus = document.activeElement === searchBox
+ const searchVal = searchBox ? searchBox.value : ''
+
+ const called = checkins.find(c=>c.status==='called')
+ const waiting = checkins.filter(c=>c.status==='waiting').sort((a,b)=>a.queue_number-b.queue_number)
+ const onDeck = waiting[0]
+ const checkedInIds = new Set(checkins.filter(c=>c.submission_id).map(c=>c.submission_id))
+ const queueUrl = `${window.location.origin}/audition-queue/${contextType}/${contextId}`
+
+ let html = `<div class="card" style="padding:18px 20px;margin-bottom:14px;background:${called?'#f0fdfa':'var(--bg)'};border-color:${called?'#5eead4':'var(--border)'}">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+   <div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Now Auditioning</div>
+    ${called
+     ? `<div style="font-size:28px;font-weight:800;color:#0d3d4d;margin-top:2px">#${called.queue_number} — ${escHtml(called.display_name||'')}</div>`
+     : `<div style="font-size:16px;color:var(--text-muted);margin-top:4px">No one called yet${onDeck?' — next up is #'+onDeck.queue_number:''}</div>`}
+   </div>
+   <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-secondary btn-sm" onclick="copyQueueDisplayLink('${queueUrl}')">Copy Lobby Display Link</button>
+    <button class="btn btn-primary" onclick="callNextCheckin('${contextType}','${contextId}')" ${waiting.length?'':'disabled style="opacity:0.5"'}>${called?'Complete & Call Next':'Call Next'}</button>
+   </div>
+  </div>
+ </div>`
+
+ // Check someone in
+ html += `<div class="card" style="padding:16px 18px;margin-bottom:14px">
+  <div style="font-size:13px;font-weight:700;margin-bottom:10px">Check Someone In</div>
+  <div style="display:flex;gap:8px;margin-bottom:8px">
+   <input type="text" id="checkin-search-${contextId}" placeholder=" Search by name…" value="${escHtml(searchVal)}"
+    oninput="filterCheckinSearch('${contextId}')" style="flex:1;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>
+   <button class="btn btn-secondary btn-sm" onclick="openCheckinWalkIn('${contextType}','${contextId}')" style="white-space:nowrap">+ Walk-In</button>
+  </div>
+  <div id="checkin-search-results-${contextId}" style="max-height:220px;overflow-y:auto"></div>
+  <div id="checkin-walkin-wrap-${contextId}" style="display:none;margin-top:10px;padding:12px;background:var(--bg);border-radius:8px">
+   <div style="display:flex;gap:8px">
+    <input type="text" id="checkin-walkin-name-${contextId}" placeholder="Full name" style="flex:1;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px" onkeydown="if(event.key==='Enter')submitCheckinWalkIn('${contextType}','${contextId}')"/>
+    <button class="btn btn-primary btn-sm" onclick="submitCheckinWalkIn('${contextType}','${contextId}')">Check In</button>
+    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('checkin-walkin-wrap-${contextId}').style.display='none'">Cancel</button>
+   </div>
+   <div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">For someone auditioning who didn't submit online ahead of time.</div>
+  </div>
+ </div>`
+
+ // Queue list — waiting first (in order), then called, then completed/no-show at the bottom
+ const displayOrder = [
+  ...checkins.filter(c=>c.status==='called'),
+  ...waiting,
+  ...checkins.filter(c=>c.status==='completed').sort((a,b)=>new Date(b.completed_at)-new Date(a.completed_at)),
+  ...checkins.filter(c=>c.status==='no_show'),
+ ]
+ html += `<div class="card" style="padding:16px 18px">
+  <div style="font-size:13px;font-weight:700;margin-bottom:10px">Today's Queue (${checkins.length})</div>`
+ if(!displayOrder.length){
+  html += `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">No one checked in yet today.</div>`
+ } else {
+  html += displayOrder.map(c=>{
+   const statusMeta = {
+    waiting: ['#f3f4f6','#6b7280','Waiting'],
+    called: ['#dcfce7','#166534','Now Auditioning'],
+    completed: ['#e0f2fe','#0369a1','Completed'],
+    no_show: ['#fee2e2','#991b1b','No-Show'],
+   }[c.status] || ['#f3f4f6','#6b7280',c.status]
+   const [bg,col,label] = statusMeta
+   let actions = ''
+   if(c.status==='waiting') actions = `<button class="btn btn-primary btn-sm" onclick="callSpecificCheckin('${c.id}','${contextType}','${contextId}')">Call</button><button class="btn btn-secondary btn-sm" onclick="noShowCheckin('${c.id}','${contextType}','${contextId}')">No-Show</button>`
+   else if(c.status==='called') actions = `<button class="btn btn-secondary btn-sm" onclick="completeCheckin('${c.id}','${contextType}','${contextId}')">Mark Done</button>`
+   else if(c.status==='completed'||c.status==='no_show') actions = `<button class="btn btn-secondary btn-sm" onclick="undoCheckin('${c.id}','${contextType}','${contextId}')">Undo</button>`
+   actions += `<button onclick="removeCheckin('${c.id}','${contextType}','${contextId}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);padding:4px 6px" title="Remove">×</button>`
+   return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;background:${c.status==='called'?'#f0fdfa':'var(--bg)'};border-radius:8px;margin-bottom:6px">
+    <div style="display:flex;align-items:center;gap:10px;min-width:0">
+     <div style="font-size:16px;font-weight:800;color:#145466;min-width:36px">#${c.queue_number}</div>
+     <div style="min-width:0">
+      <div style="font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escHtml(c.display_name||'')}${!c.submission_id?' <span style="font-weight:400;color:var(--text-muted);font-size:11px">(walk-in)</span>':''}</div>
+      <span style="font-size:10px;font-weight:700;padding:1px 8px;border-radius:20px;background:${bg};color:${col}">${label}</span>
+     </div>
+    </div>
+    <div style="display:flex;gap:6px;flex-shrink:0">${actions}</div>
+   </div>`
+  }).join('')
+ }
+ html += `</div>`
+
+ root.innerHTML = html
+ filterCheckinSearch(contextId, submissions, checkedInIds)
+ const newSearchBox = document.getElementById('checkin-search-'+contextId)
+ if(newSearchBox && hadFocus){ newSearchBox.focus(); newSearchBox.setSelectionRange(searchVal.length, searchVal.length) }
+ root._submissions = submissions
+ root._checkedInIds = checkedInIds
+}
+
+function filterCheckinSearch(contextId, submissions, checkedInIds){
+ const box = document.getElementById('checkin-search-'+contextId)
+ const resultsEl = document.getElementById('checkin-search-results-'+contextId)
+ if(!box || !resultsEl) return
+ const root = document.getElementById('checkin-root-'+contextId)
+ submissions = submissions || root?._submissions || []
+ checkedInIds = checkedInIds || root?._checkedInIds || new Set()
+ const q = box.value.trim().toLowerCase()
+ if(!q){ resultsEl.innerHTML = ''; return }
+ const matches = submissions.filter(s=>(s.submitter_name||'').toLowerCase().includes(q) && !checkedInIds.has(s.id)).slice(0,8)
+ if(!matches.length){ resultsEl.innerHTML = '<div style="font-size:12.5px;color:var(--text-muted);padding:8px 4px">No match — use + Walk-In if they\'re not listed.</div>'; return }
+ resultsEl.innerHTML = matches.map(s=>`<div onclick="checkInSubmission('${s.id}','${document.getElementById('checkin-root-'+contextId).dataset.contextType}','${contextId}')"
+  style="padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px;display:flex;justify-content:space-between;align-items:center" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">
+  <span>${escHtml(s.submitter_name||'')}</span><span style="color:var(--teal-dark);font-weight:600;font-size:11px">Check In →</span>
+ </div>`).join('')
+}
+
+async function checkInSubmission(submissionId, contextType, contextId){
+ const res = await api('/api/auditions/checkin','POST',{context_type:contextType, context_id:contextId, submission_id:submissionId})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Checked in as #'+res.queue_number,'success')
+ const box = document.getElementById('checkin-search-'+contextId); if(box) box.value=''
+ loadCheckinTab(contextType, contextId)
+}
+
+function openCheckinWalkIn(contextType, contextId){
+ const wrap = document.getElementById('checkin-walkin-wrap-'+contextId)
+ if(wrap){ wrap.style.display=''; document.getElementById('checkin-walkin-name-'+contextId)?.focus() }
+}
+
+async function submitCheckinWalkIn(contextType, contextId){
+ const input = document.getElementById('checkin-walkin-name-'+contextId)
+ const name = (input?.value||'').trim()
+ if(!name){ toast('Enter a name','error'); return }
+ const res = await api('/api/auditions/checkin','POST',{context_type:contextType, context_id:contextId, walk_in_name:name})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Checked in as #'+res.queue_number,'success')
+ loadCheckinTab(contextType, contextId)
+}
+
+async function callNextCheckin(contextType, contextId){
+ const res = await api('/api/auditions/checkins/call-next','POST',{context_type:contextType, context_id:contextId})
+ if(res.error){ toast(res.error,'error'); return }
+ loadCheckinTab(contextType, contextId)
+}
+
+async function callSpecificCheckin(cid, contextType, contextId){
+ const res = await api(`/api/auditions/checkins/${cid}/call`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ loadCheckinTab(contextType, contextId)
+}
+
+async function completeCheckin(cid, contextType, contextId){
+ const res = await api(`/api/auditions/checkins/${cid}/complete`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ loadCheckinTab(contextType, contextId)
+}
+
+async function noShowCheckin(cid, contextType, contextId){
+ const res = await api(`/api/auditions/checkins/${cid}/no-show`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ loadCheckinTab(contextType, contextId)
+}
+
+async function undoCheckin(cid, contextType, contextId){
+ const res = await api(`/api/auditions/checkins/${cid}/undo`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ loadCheckinTab(contextType, contextId)
+}
+
+async function removeCheckin(cid, contextType, contextId){
+ if(!confirm('Remove this check-in entirely?')) return
+ const res = await api(`/api/auditions/checkins/${cid}`,'DELETE')
+ if(res.error){ toast(res.error,'error'); return }
+ loadCheckinTab(contextType, contextId)
+}
+
+function copyQueueDisplayLink(url){
+ navigator.clipboard.writeText(url)
+ toast('Lobby display link copied!','success')
 }
 
 function renderAuditionList(submissions, contextId, filterStatus){

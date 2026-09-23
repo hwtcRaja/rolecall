@@ -33,6 +33,8 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#0b0714;color:rgb
 .no-pressure{font-size:16px;color:rgba(255,255,255,0.82);text-align:center;margin-bottom:32px}
 .how-it-works-link{display:block;text-align:center;font-size:15px;font-weight:600;letter-spacing:0.1em;color:#f472b6;text-decoration:underline;text-underline-offset:4px;margin-bottom:20px}
 .how-it-works-body{font-size:15px;color:rgba(255,255,255,0.75);text-align:center;margin-bottom:36px}
+.how-step{display:flex;align-items:flex-start;gap:12px;text-align:left;margin-bottom:16px}
+.how-num{flex-shrink:0;width:24px;height:24px;border-radius:50%;background:rgba(236,72,153,0.18);color:#f472b6;font-size:12.5px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px}
 .tagline{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:700;color:#fff;text-align:center;margin-bottom:36px}
 .card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.14);border-radius:16px;padding:28px 24px;margin-bottom:48px}
 .event-slots{font-size:13px;color:rgba(255,255,255,0.5);text-align:center;margin-bottom:22px}
@@ -73,7 +75,11 @@ footer a{color:#f472b6;text-decoration:none}
  </div>
  <div class="no-pressure">No auditions. No pressure. No expectations.</div>
  <div class="how-it-works-link">HOW IT WORKS</div>
- <div class="how-it-works-body">Each month, attendees sign up in advance as either a <strong style="color:#fff">Performer</strong> or an <strong style="color:#fff">Audience Member</strong>. The day before each SAD, we'll confirm the final attendee list and randomly select the performance order. Then, all that's left to do is show up, support each other, and have a great night.</div>
+ <div class="how-it-works-body">
+  <div class="how-step"><span class="how-num">1</span><span>Enter the lottery as a <strong style="color:#fff">Performer</strong>, an <strong style="color:#fff">Audience Member</strong>, or both.</span></div>
+  <div class="how-step"><span class="how-num">2</span><span>The drawing happens the <strong style="color:#fff">Friday before</strong> the show. If you're selected, we'll email you to confirm you can still make it.</span></div>
+  <div class="how-step"><span class="how-num">3</span><span>Performer order is picked live, at random, <strong style="color:#fff">during the event itself</strong> — so stick around all night, you never know when you'll be called up!</span></div>
+ </div>
  <div class="tagline">The studio is yours after dark.</div>
  <div id="form-area"><div class="card closed-card" style="color:rgba(255,255,255,0.4)">Loading…</div></div>
 </div>
@@ -137,12 +143,12 @@ function renderNotOpenYet(ev){
  var body = ''
  if(ev.scheduled_open_at){
   body += `<div id="countdown-area"></div>
-   <div class="countdown-note">Entries open ${formatFullDateTime(ev.scheduled_open_at)}</div>`
+   <div class="countdown-note">The lottery opens ${formatFullDateTime(ev.scheduled_open_at)}</div>`
  } else {
-  body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">Entries open the Sunday before the show — check back then!</div>`
+  body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">The lottery opens the Sunday before the show — check back then!</div>`
  }
  if(ev.scheduled_draw_at){
-  body += `<div class="draw-note"> Drawing takes place ${formatFullDateTime(ev.scheduled_draw_at)}</div>`
+  body += `<div class="draw-note"> The lottery drawing takes place ${formatFullDateTime(ev.scheduled_draw_at)}</div>`
  }
  document.getElementById('form-area').innerHTML = `<div class="card closed-card">${body}</div>`
  if(ev.scheduled_open_at) startCountdown(ev.scheduled_open_at)
@@ -183,17 +189,17 @@ function renderForm(ev){
  <label>Your Email</label>
  <input type="email" id="entry-email" placeholder="you@example.com" autocomplete="email"/>
  </div>
- <label>I'd like to be considered for…</label>
+ <label>Enter the lottery as…</label>
  <label class="opt-row" for="opt-performer">
  <input type="checkbox" id="opt-performer"/>
- <div><div class="opt-title">Performing</div><div class="opt-desc">You'll be part of the performer pool — if selected and checked in, you may be called up at random during the night.</div></div>
+ <div><div class="opt-title">Performer</div><div class="opt-desc">You'll be part of the performer pool — if selected and checked in, performer order is picked live, at random, during the event itself.</div></div>
  </label>
  <label class="opt-row" for="opt-audience">
  <input type="checkbox" id="opt-audience" checked/>
- <div><div class="opt-title">Just Attending</div><div class="opt-desc">You'd like to be there for the show, no pressure to perform.</div></div>
+ <div><div class="opt-title">Audience Member</div><div class="opt-desc">You'd like to be there for the show, no pressure to perform.</div></div>
  </label>
  <button class="btn" id="submit-btn" onclick="submitEntry()">Enter the Lottery</button>
- <div class="hint">Entering doesn't guarantee a spot — winners are drawn at random, and you'll get an email either way.</div>
+ <div class="hint">Entering doesn't guarantee a spot — the drawing happens the Friday before, at random, and you'll get an email either way.</div>
  </div>`
 }
 
@@ -221,7 +227,7 @@ async function submitEntry(){
   document.getElementById('form-area').innerHTML = `<div class="card confirm-box">
    <div class="check">✓</div>
    <h2>You're entered!</h2>
-   <p>We've sent a confirmation to your email. If you're selected, you'll get another email to confirm you can still make it — keep an eye out!</p>
+   <p>We've sent a confirmation to your email. The lottery drawing happens the Friday before the show — if you're selected, you'll get another email to confirm you can still make it. Keep an eye out!</p>
   </div>`
  } catch(e){
   statusEl.innerHTML = '<div class="status-msg error">Something went wrong — please try again.</div>'

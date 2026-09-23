@@ -7445,12 +7445,15 @@ def _send_sad_confirmation_email(entry, ev):
     event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
     deadline_dt = parse_db_datetime(ev.get('confirm_deadline'))
     deadline_fmt = deadline_dt.strftime('%A, %B %-d at %-I:%M %p') if deadline_dt else str(ev.get('confirm_deadline') or '')
+    performer_note = ('<p>Performer order is picked live, at random, during the event itself — so stick around all night, you never know when you\'ll be called up!</p>'
+                      if category == 'Performer' else '')
     subject = f"You're in the running for Studio After Dark — confirm by {deadline_fmt}"
     body = (
-        f'<p>Hi {first_name}, good news — you were selected in the Studio After Dark lottery '
+        f'<p>Hi {first_name}, good news — the Studio After Dark lottery drawing picked you '
         f'as a <strong>{category}</strong> for <strong>{event_date_fmt}</strong>!</p>'
         f'<p>Being selected doesn\'t automatically hold your spot — you need to confirm you\'re still able to make it, '
         f'by <strong>{deadline_fmt}</strong>. After that, your spot may be given to someone else.</p>'
+        f'{performer_note}'
         f'<p style="text-align:center;margin:28px 0">'
         f'<a href="{confirm_url}" style="background:#145466;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">Confirm My Spot</a></p>'
         f'<p style="color:#78716c;font-size:13px">Once you confirm, you\'ll get a QR code to show at the door — hang onto that link, you can pull it back up any time before the event.</p>'
@@ -7609,8 +7612,8 @@ def sad_enter_lottery():
         event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
         subject = "You're entered for Studio After Dark!"
         body = (f"<p>Hi {first_name}, you're entered in the lottery for Studio After Dark on <strong>{event_date_fmt}</strong>.</p>"
-                "<p>Entering doesn't guarantee a spot — we'll draw at random, and if you're selected you'll get "
-                "another email to confirm you're still interested.</p>")
+                "<p>Entering doesn't guarantee a spot — the drawing happens the Friday before, at random, and if you're "
+                "selected you'll get another email to confirm you're still interested.</p>")
         send_email([volunteer['name'] and email or email], subject, build_hwtc_email_html(subject, body))
     except Exception as e:
         app.logger.warning(f'SAD entry confirmation email failed: {e}')

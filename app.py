@@ -29522,6 +29522,21 @@ def audition_room_control_page_by_slug(slug):
 def audition_room_control_page(context_type, context_id):
     return send_from_directory('static', 'audition-room-control.html')
 
+@app.route('/audition/<slug>/checkin')
+def audition_checkin_kiosk_page_by_slug(slug):
+    """A focused, touch-friendly check-in station — big search box, big
+    walk-in button, big result buttons — meant for a tablet or laptop at the
+    front desk, without the full RoleCall sidebar/nav around it. Separate
+    from the admin Check-In tab (still there for anyone who'd rather work
+    from the main app) and from room-control (that one runs the queue;
+    this one only gets people checked in). Same staff-login gate as
+    room-control."""
+    return send_from_directory('static', 'audition-checkin-kiosk.html')
+
+@app.route('/audition-checkin/<context_type>/<context_id>')
+def audition_checkin_kiosk_page(context_type, context_id):
+    return send_from_directory('static', 'audition-checkin-kiosk.html')
+
 @app.route('/api/public/audition-settings-by-slug/<slug>')
 def get_audition_settings_by_slug(slug):
     conn = get_db()

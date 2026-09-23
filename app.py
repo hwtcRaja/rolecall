@@ -1176,6 +1176,8 @@ def init_db():
             performer_slots INTEGER NOT NULL DEFAULT 15,
             audience_slots INTEGER NOT NULL DEFAULT 40,
             lottery_status TEXT NOT NULL DEFAULT 'not_open',
+            scheduled_open_at TIMESTAMP,
+            scheduled_draw_at TIMESTAMP,
             lottery_opens_at TIMESTAMP,
             lottery_closes_at TIMESTAMP,
             confirm_deadline TIMESTAMP,
@@ -7253,10 +7255,12 @@ def create_sad_event():
         return jsonify({'error': 'Event date is required'}), 400
     conn = get_db()
     eid = str(uuid.uuid4())
-    execute(conn, """INSERT INTO studio_after_dark_events (id, event_date, start_time, end_time, performer_slots, audience_slots)
-        VALUES (%s,%s,%s,%s,%s,%s)""",
+    execute(conn, """INSERT INTO studio_after_dark_events
+        (id, event_date, start_time, end_time, performer_slots, audience_slots, scheduled_open_at, scheduled_draw_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
         (eid, d['event_date'], (d.get('start_time') or '7:30 PM').strip(), (d.get('end_time') or '10:00 PM').strip(),
-         int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40)))
+         int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40),
+         (d.get('scheduled_open_at') or '').strip() or None, (d.get('scheduled_draw_at') or '').strip() or None))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
     conn.close()
@@ -7280,9 +7284,10 @@ def update_sad_event(eid):
     d = request.json or {}
     conn = get_db()
     execute(conn, """UPDATE studio_after_dark_events SET event_date=%s, start_time=%s, end_time=%s,
-        performer_slots=%s, audience_slots=%s WHERE id=%s""",
+        performer_slots=%s, audience_slots=%s, scheduled_open_at=%s, scheduled_draw_at=%s WHERE id=%s""",
         (d.get('event_date'), (d.get('start_time') or '7:30 PM').strip(), (d.get('end_time') or '10:00 PM').strip(),
-         int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40), eid))
+         int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40),
+         (d.get('scheduled_open_at') or '').strip() or None, (d.get('scheduled_draw_at') or '').strip() or None, eid))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
@@ -7546,13 +7551,24 @@ def sad_performer_status(eid):
 
 @app.route('/api/public/sad/current', methods=['GET'])
 def sad_current_lottery():
+    """Backs the entry page. Not just 'is the lottery open' — even when it
+    isn't, the page still needs the next occurrence's date/time and its
+    scheduled open date (for the countdown) so it's never just a blank
+    'check back later' with no information."""
     conn = get_db()
     ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status='open'
         ORDER BY event_date ASC LIMIT 1""")
+    if ev:
+        conn.close()
+        ev['open'] = True
+        return jsonify(ev)
+    ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status != 'completed'
+        ORDER BY event_date ASC LIMIT 1""")
     conn.close()
     if not ev:
-        return jsonify({'open': False})
-    ev['open'] = True
+        return jsonify({'open': False, 'has_event': False})
+    ev['open'] = False
+    ev['has_event'] = True
     return jsonify(ev)
 
 @app.route('/api/public/sad/enter', methods=['POST'])

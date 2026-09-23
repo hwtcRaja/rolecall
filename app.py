@@ -1171,13 +1171,9 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS studio_after_dark_events (
             id TEXT PRIMARY KEY,
             event_date DATE NOT NULL,
-            start_time TEXT DEFAULT '7:30 PM',
-            end_time TEXT DEFAULT '10:00 PM',
             performer_slots INTEGER NOT NULL DEFAULT 15,
             audience_slots INTEGER NOT NULL DEFAULT 40,
             lottery_status TEXT NOT NULL DEFAULT 'not_open',
-            scheduled_open_at TIMESTAMP,
-            scheduled_draw_at TIMESTAMP,
             lottery_opens_at TIMESTAMP,
             lottery_closes_at TIMESTAMP,
             confirm_deadline TIMESTAMP,
@@ -1185,6 +1181,13 @@ def init_db():
             confirmations_sent_at TIMESTAMP,
             linked_event_id TEXT REFERENCES events(id) ON DELETE SET NULL,
             created_at TIMESTAMP DEFAULT NOW())""",
+        # Added after the table's first deploy — CREATE TABLE IF NOT EXISTS
+        # above is a no-op once the table already exists, so new columns
+        # need their own ALTER statements to actually reach a live database.
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS start_time TEXT DEFAULT '7:30 PM'",
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS end_time TEXT DEFAULT '10:00 PM'",
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS scheduled_open_at TIMESTAMP",
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS scheduled_draw_at TIMESTAMP",
         # One entry per volunteer per occurrence — they can ask to be
         # considered for performing, audience, or both. status walks through
         # entered -> selected_performer/selected_audience -> confirmed

@@ -1171,6 +1171,8 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS studio_after_dark_events (
             id TEXT PRIMARY KEY,
             event_date DATE NOT NULL,
+            start_time TEXT DEFAULT '7:30 PM',
+            end_time TEXT DEFAULT '10:00 PM',
             performer_slots INTEGER NOT NULL DEFAULT 15,
             audience_slots INTEGER NOT NULL DEFAULT 40,
             lottery_status TEXT NOT NULL DEFAULT 'not_open',
@@ -7251,9 +7253,10 @@ def create_sad_event():
         return jsonify({'error': 'Event date is required'}), 400
     conn = get_db()
     eid = str(uuid.uuid4())
-    execute(conn, """INSERT INTO studio_after_dark_events (id, event_date, performer_slots, audience_slots)
-        VALUES (%s,%s,%s,%s)""",
-        (eid, d['event_date'], int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40)))
+    execute(conn, """INSERT INTO studio_after_dark_events (id, event_date, start_time, end_time, performer_slots, audience_slots)
+        VALUES (%s,%s,%s,%s,%s,%s)""",
+        (eid, d['event_date'], (d.get('start_time') or '7:30 PM').strip(), (d.get('end_time') or '10:00 PM').strip(),
+         int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40)))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
     conn.close()
@@ -7276,9 +7279,10 @@ def update_sad_event(eid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, """UPDATE studio_after_dark_events SET event_date=%s, performer_slots=%s, audience_slots=%s
-        WHERE id=%s""",
-        (d.get('event_date'), int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40), eid))
+    execute(conn, """UPDATE studio_after_dark_events SET event_date=%s, start_time=%s, end_time=%s,
+        performer_slots=%s, audience_slots=%s WHERE id=%s""",
+        (d.get('event_date'), (d.get('start_time') or '7:30 PM').strip(), (d.get('end_time') or '10:00 PM').strip(),
+         int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40), eid))
     conn.commit()
     conn.close()
     return jsonify({'ok': True})

@@ -14,6 +14,7 @@ from decimal import Decimal
 from werkzeug.utils import secure_filename
 import requests
 import re
+import random
 app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', 'rollcall-dev-key')
 CORS(app, supports_credentials=True)
@@ -1159,6 +1160,51 @@ def init_db():
         # kiosk so whoever's running the room can visually match a face to
         # a number, especially useful for a walk-in with no submission at all.
         "ALTER TABLE audition_checkins ADD COLUMN IF NOT EXISTS checkin_photo_url TEXT",
+        # ── Studio After Dark: monthly volunteer lottery event ──────────────
+        # One row per monthly occurrence (first Saturday). Tracks the whole
+        # lifecycle as a simple status string rather than a scheduler, since
+        # this is a brand-new program — staff trigger each phase (open the
+        # lottery, run the draw, send confirmations) by hand from the admin
+        # panel rather than everything firing automatically on a timer.
+        # Lifecycle: not_open -> open -> closed -> drawn -> confirmations_sent
+        # -> checkin_open -> completed
+        """CREATE TABLE IF NOT EXISTS studio_after_dark_events (
+            id TEXT PRIMARY KEY,
+            event_date DATE NOT NULL,
+            performer_slots INTEGER NOT NULL DEFAULT 15,
+            audience_slots INTEGER NOT NULL DEFAULT 40,
+            lottery_status TEXT NOT NULL DEFAULT 'not_open',
+            lottery_opens_at TIMESTAMP,
+            lottery_closes_at TIMESTAMP,
+            confirm_deadline TIMESTAMP,
+            drawn_at TIMESTAMP,
+            confirmations_sent_at TIMESTAMP,
+            linked_event_id TEXT REFERENCES events(id) ON DELETE SET NULL,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        # One entry per volunteer per occurrence — they can ask to be
+        # considered for performing, audience, or both. status walks through
+        # entered -> selected_performer/selected_audience -> confirmed
+        # (or stays not_selected / expires if they never confirm) ->
+        # checked_in on the night itself. confirm_token authorizes the
+        # public confirm page/link (like every other self-service token in
+        # this app); checkin_code is what the QR code actually encodes.
+        """CREATE TABLE IF NOT EXISTS sad_entries (
+            id TEXT PRIMARY KEY,
+            sad_event_id TEXT NOT NULL REFERENCES studio_after_dark_events(id) ON DELETE CASCADE,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            wants_performer BOOLEAN NOT NULL DEFAULT FALSE,
+            wants_audience BOOLEAN NOT NULL DEFAULT TRUE,
+            status TEXT NOT NULL DEFAULT 'entered',
+            selected_category TEXT,
+            entered_at TIMESTAMP DEFAULT NOW(),
+            selected_at TIMESTAMP,
+            confirm_token TEXT UNIQUE,
+            confirmed_at TIMESTAMP,
+            checkin_code TEXT UNIQUE,
+            checked_in_at TIMESTAMP,
+            performer_called_at TIMESTAMP,
+            UNIQUE(sad_event_id, volunteer_id))""",
+        "CREATE INDEX IF NOT EXISTS ix_sad_entries_event ON sad_entries(sad_event_id, status)",
         # Space/date requests — any staff member can request a space for a
         # one-off date or a recurring class/program schedule, check it
         # against the calendar (reusing the same conflict-checking as
@@ -7147,6 +7193,449 @@ def delete_audition_checkin(cid):
     conn.commit()
     conn.close()
     return jsonify({'ok': True})
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Studio After Dark — monthly volunteer lottery (attend and/or perform)
+# ══════════════════════════════════════════════════════════════════════
+# Lifecycle, driven by staff clicking through the admin panel rather than a
+# scheduler (this is a brand-new program — better to keep a human in the
+# loop on timing until the process is proven out):
+#   not_open -> open -> closed -> drawn -> confirmations_sent -> checkin_open -> completed
+# Entries move: entered -> selected_performer/selected_audience/not_selected
+#            -> confirmed (via the public link) -> checked_in (door scan)
+
+def _sad_entry_with_volunteer(conn, where_clause, params):
+    return fetchall(conn, f"""SELECT e.*, v.name AS volunteer_name, v.email AS volunteer_email
+        FROM sad_entries e JOIN volunteers v ON v.id=e.volunteer_id
+        WHERE {where_clause}""", params)
+
+@app.route('/api/sad/events/current-active', methods=['GET'])
+def get_sad_current_active_event():
+    """Backs the scanner and performer-picker pages, which are meant to be
+    simple bookmarkable links with no event ID to look up — resolves to
+    whichever occurrence staff are most likely mid-running right now."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, """SELECT * FROM studio_after_dark_events
+        WHERE lottery_status IN ('confirmations_sent','checkin_open')
+        ORDER BY event_date ASC LIMIT 1""")
+    if not row:
+        row = fetchone(conn, "SELECT * FROM studio_after_dark_events ORDER BY event_date DESC LIMIT 1")
+    conn.close()
+    if not row:
+        return jsonify({'error': 'No Studio After Dark event has been created yet'}), 404
+    return jsonify(row)
+
+@app.route('/api/sad/events', methods=['GET'])
+def list_sad_events():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT ev.*,
+        (SELECT COUNT(*) FROM sad_entries WHERE sad_event_id=ev.id) AS entry_count,
+        (SELECT COUNT(*) FROM sad_entries WHERE sad_event_id=ev.id AND status IN ('selected_performer','selected_audience')) AS selected_count,
+        (SELECT COUNT(*) FROM sad_entries WHERE sad_event_id=ev.id AND status='confirmed') AS confirmed_count,
+        (SELECT COUNT(*) FROM sad_entries WHERE sad_event_id=ev.id AND status='checked_in') AS checked_in_count
+        FROM studio_after_dark_events ev ORDER BY ev.event_date DESC""")
+    conn.close()
+    return jsonify(rows or [])
+
+@app.route('/api/sad/events', methods=['POST'])
+def create_sad_event():
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    if not (d.get('event_date') or '').strip():
+        return jsonify({'error': 'Event date is required'}), 400
+    conn = get_db()
+    eid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO studio_after_dark_events (id, event_date, performer_slots, audience_slots)
+        VALUES (%s,%s,%s,%s)""",
+        (eid, d['event_date'], int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40)))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/sad/events/<eid>', methods=['GET'])
+def get_sad_event(eid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(row)
+
+@app.route('/api/sad/events/<eid>', methods=['PUT'])
+def update_sad_event(eid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, """UPDATE studio_after_dark_events SET event_date=%s, performer_slots=%s, audience_slots=%s
+        WHERE id=%s""",
+        (d.get('event_date'), int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40), eid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>', methods=['DELETE'])
+def delete_sad_event(eid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM studio_after_dark_events WHERE id=%s', (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/open-lottery', methods=['POST'])
+def open_sad_lottery(eid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    closes_at = (d.get('lottery_closes_at') or '').strip() or None
+    execute(conn, """UPDATE studio_after_dark_events SET lottery_status='open', lottery_opens_at=NOW(),
+        lottery_closes_at=COALESCE(%s, lottery_closes_at) WHERE id=%s""", (closes_at, eid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/close-lottery', methods=['POST'])
+def close_sad_lottery(eid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE studio_after_dark_events SET lottery_status='closed', lottery_closes_at=NOW() WHERE id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/open-checkin', methods=['POST'])
+def open_sad_checkin(eid):
+    """Staff click this day-of, once they're ready to start scanning people
+    in at the door."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE studio_after_dark_events SET lottery_status='checkin_open' WHERE id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/complete', methods=['POST'])
+def complete_sad_event(eid):
+    """Marks the night as wrapped up — mostly just moves it out of the
+    'currently active' resolution so a new occurrence takes its place."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE studio_after_dark_events SET lottery_status='completed' WHERE id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/run-draw', methods=['POST'])
+def run_sad_draw(eid):
+    """The actual lottery draw. Performers are drawn first from anyone who
+    wanted a performer slot; audience is drawn second from anyone who wanted
+    an audience slot and didn't already win a performer slot (a performer
+    slot already gets them in the door — no need to also occupy an audience
+    slot). Anyone entered but not drawn for either becomes not_selected.
+    Safe to re-run only in the sense that it always re-derives from
+    currently 'entered' rows — already-selected/confirmed entries are left
+    alone, so running it twice without new entries just does nothing more."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    if not ev:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+
+    performer_candidates = fetchall(conn, """SELECT id FROM sad_entries
+        WHERE sad_event_id=%s AND wants_performer=TRUE AND status='entered'""", (eid,)) or []
+    random.shuffle(performer_candidates)
+    performer_winners = performer_candidates[:ev['performer_slots']]
+    for w in performer_winners:
+        token = secrets.token_urlsafe(16)
+        execute(conn, "UPDATE sad_entries SET status='selected_performer', selected_category='performer', selected_at=NOW(), confirm_token=%s WHERE id=%s",
+            (token, w['id']))
+
+    audience_candidates = fetchall(conn, """SELECT id FROM sad_entries
+        WHERE sad_event_id=%s AND wants_audience=TRUE AND status='entered'""", (eid,)) or []
+    random.shuffle(audience_candidates)
+    audience_winners = audience_candidates[:ev['audience_slots']]
+    for w in audience_winners:
+        token = secrets.token_urlsafe(16)
+        execute(conn, "UPDATE sad_entries SET status='selected_audience', selected_category='audience', selected_at=NOW(), confirm_token=%s WHERE id=%s",
+            (token, w['id']))
+
+    execute(conn, "UPDATE sad_entries SET status='not_selected' WHERE sad_event_id=%s AND status='entered'", (eid,))
+    execute(conn, "UPDATE studio_after_dark_events SET lottery_status='drawn', drawn_at=NOW() WHERE id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'performer_winners': len(performer_winners), 'audience_winners': len(audience_winners)})
+
+@app.route('/api/sad/events/<eid>/send-confirmations', methods=['POST'])
+def send_sad_confirmations(eid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    deadline = (d.get('confirm_deadline') or '').strip()
+    if not deadline:
+        return jsonify({'error': 'A confirmation deadline is required'}), 400
+    conn = get_db()
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    if not ev:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, "UPDATE studio_after_dark_events SET confirm_deadline=%s, confirmations_sent_at=NOW(), lottery_status='confirmations_sent' WHERE id=%s",
+        (deadline, eid))
+    conn.commit()
+    entries = _sad_entry_with_volunteer(conn, "e.sad_event_id=%s AND e.status IN ('selected_performer','selected_audience')", (eid,))
+    conn.close()
+    sent = 0
+    for entry in entries:
+        try:
+            _send_sad_confirmation_email(entry, ev)
+            sent += 1
+        except Exception as e:
+            app.logger.warning(f'SAD confirmation email failed for {entry.get("id")}: {e}')
+    return jsonify({'ok': True, 'sent': sent})
+
+@app.route('/api/sad/events/<eid>/resend/<entry_id>', methods=['POST'])
+def resend_sad_confirmation(eid, entry_id):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    entries = _sad_entry_with_volunteer(conn, "e.id=%s", (entry_id,))
+    conn.close()
+    if not ev or not entries:
+        return jsonify({'error': 'Not found'}), 404
+    try:
+        _send_sad_confirmation_email(entries[0], ev)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True})
+
+def _send_sad_confirmation_email(entry, ev):
+    category = 'Performer' if entry.get('selected_category') == 'performer' else 'Audience'
+    first_name = (entry.get('volunteer_name') or '').split(' ')[0] or 'there'
+    confirm_url = f'https://rolecall.hwtco.org/studio-after-dark/confirm/{entry["confirm_token"]}'
+    event_dt = parse_db_datetime(ev['event_date'])
+    event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
+    deadline_dt = parse_db_datetime(ev.get('confirm_deadline'))
+    deadline_fmt = deadline_dt.strftime('%A, %B %-d at %-I:%M %p') if deadline_dt else str(ev.get('confirm_deadline') or '')
+    subject = f"You're in the running for Studio After Dark — confirm by {deadline_fmt}"
+    body = (
+        f'<p>Hi {first_name}, good news — you were selected in the Studio After Dark lottery '
+        f'as a <strong>{category}</strong> for <strong>{event_date_fmt}</strong>!</p>'
+        f'<p>Being selected doesn\'t automatically hold your spot — you need to confirm you\'re still able to make it, '
+        f'by <strong>{deadline_fmt}</strong>. After that, your spot may be given to someone else.</p>'
+        f'<p style="text-align:center;margin:28px 0">'
+        f'<a href="{confirm_url}" style="background:#145466;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">Confirm My Spot</a></p>'
+        f'<p style="color:#78716c;font-size:13px">Once you confirm, you\'ll get a QR code to show at the door — hang onto that link, you can pull it back up any time before the event.</p>'
+    )
+    send_email([entry['volunteer_email']], subject, build_hwtc_email_html(subject, body))
+
+@app.route('/api/sad/events/<eid>/entries', methods=['GET'])
+def get_sad_entries(eid):
+    err = require_auth()
+    if err: return err
+    status_filter = request.args.get('status', '').strip()
+    conn = get_db()
+    where = "e.sad_event_id=%s"
+    params = [eid]
+    if status_filter:
+        where += " AND e.status=%s"
+        params.append(status_filter)
+    rows = _sad_entry_with_volunteer(conn, where, tuple(params))
+    conn.close()
+    rows.sort(key=lambda r: (r['volunteer_name'] or '').lower())
+    return jsonify(rows)
+
+@app.route('/api/sad/checkin/scan', methods=['POST'])
+def sad_checkin_scan():
+    """Called by the door-scanner page after it decodes a QR code. Staff-
+    authed (the scanner page itself requires login), not public — the QR
+    code is the visitor's proof of a confirmed spot, but actually admitting
+    them is still a staff action."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    code = (d.get('checkin_code') or '').strip().upper()
+    if not code:
+        return jsonify({'error': 'No code provided'}), 400
+    conn = get_db()
+    entries = _sad_entry_with_volunteer(conn, "e.checkin_code=%s", (code,))
+    if not entries:
+        conn.close()
+        return jsonify({'error': 'Code not recognized'}), 404
+    entry = entries[0]
+    if entry['status'] == 'checked_in':
+        conn.close()
+        return jsonify({'error': f'{entry["volunteer_name"]} is already checked in', 'already_checked_in': True, 'volunteer_name': entry['volunteer_name']}), 400
+    execute(conn, "UPDATE sad_entries SET status='checked_in', checked_in_at=NOW() WHERE id=%s", (entry['id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'volunteer_name': entry['volunteer_name'],
+        'wants_performer': entry['wants_performer'], 'category': 'Performer' if entry['selected_category']=='performer' else 'Audience'})
+
+@app.route('/api/sad/events/<eid>/pick-performer', methods=['POST'])
+def sad_pick_performer(eid):
+    """The live, night-of random draw for who performs next — separate from
+    the earlier lottery draw, which only decided who's in the performer
+    pool at all. Only picks from people already checked in tonight, and
+    never repeats someone within the same night unless the pool is reset."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    candidates = fetchall(conn, """SELECT e.id, v.name AS volunteer_name FROM sad_entries e
+        JOIN volunteers v ON v.id=e.volunteer_id
+        WHERE e.sad_event_id=%s AND e.wants_performer=TRUE AND e.status='checked_in'
+        AND e.performer_called_at IS NULL""", (eid,)) or []
+    if not candidates:
+        conn.close()
+        return jsonify({'ok': False, 'message': 'Everyone checked in has already performed!'})
+    pick = random.choice(candidates)
+    execute(conn, "UPDATE sad_entries SET performer_called_at=NOW() WHERE id=%s", (pick['id'],))
+    conn.commit()
+    remaining = fetchone(conn, """SELECT COUNT(*) AS n FROM sad_entries
+        WHERE sad_event_id=%s AND wants_performer=TRUE AND status='checked_in' AND performer_called_at IS NULL""", (eid,))
+    conn.close()
+    return jsonify({'ok': True, 'volunteer_name': pick['volunteer_name'], 'remaining': remaining['n']})
+
+@app.route('/api/sad/events/<eid>/reset-performer-calls', methods=['POST'])
+def sad_reset_performer_calls(eid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE sad_entries SET performer_called_at=NULL WHERE sad_event_id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/performer-status', methods=['GET'])
+def sad_performer_status(eid):
+    """Backs the live performer-picker screen — who's been called already,
+    who's still in the pool."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT v.name AS volunteer_name, e.performer_called_at FROM sad_entries e
+        JOIN volunteers v ON v.id=e.volunteer_id
+        WHERE e.sad_event_id=%s AND e.wants_performer=TRUE AND e.status='checked_in'
+        ORDER BY e.performer_called_at IS NULL DESC, e.performer_called_at ASC""", (eid,)) or []
+    conn.close()
+    called = [r for r in rows if r['performer_called_at']]
+    waiting = [r for r in rows if not r['performer_called_at']]
+    return jsonify({'called': called, 'waiting_count': len(waiting), 'total': len(rows)})
+
+# ── Public (volunteer-facing) endpoints ──────────────────────────────────
+
+@app.route('/api/public/sad/current', methods=['GET'])
+def sad_current_lottery():
+    conn = get_db()
+    ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status='open'
+        ORDER BY event_date ASC LIMIT 1""")
+    conn.close()
+    if not ev:
+        return jsonify({'open': False})
+    ev['open'] = True
+    return jsonify(ev)
+
+@app.route('/api/public/sad/enter', methods=['POST'])
+def sad_enter_lottery():
+    d = request.json or {}
+    email = (d.get('email') or '').strip()
+    wants_performer = bool(d.get('wants_performer', False))
+    wants_audience = bool(d.get('wants_audience', True))
+    if not email:
+        return jsonify({'error': 'Please enter your email'}), 400
+    if not wants_performer and not wants_audience:
+        return jsonify({'error': 'Please select at least one option'}), 400
+    conn = get_db()
+    volunteer = fetchone(conn, "SELECT id, name FROM volunteers WHERE LOWER(email)=LOWER(%s) AND status='active'", (email,))
+    if not volunteer:
+        conn.close()
+        return jsonify({'error': "We couldn't find an active volunteer with that email. Contact staff if you think this is a mistake."}), 404
+    ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status='open'
+        ORDER BY event_date ASC LIMIT 1""")
+    if not ev:
+        conn.close()
+        return jsonify({'error': 'The lottery is not currently open'}), 400
+    existing = fetchone(conn, 'SELECT id FROM sad_entries WHERE sad_event_id=%s AND volunteer_id=%s', (ev['id'], volunteer['id']))
+    if existing:
+        conn.close()
+        return jsonify({'error': "You've already entered this lottery"}), 400
+    eid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO sad_entries (id, sad_event_id, volunteer_id, wants_performer, wants_audience)
+        VALUES (%s,%s,%s,%s,%s)""", (eid, ev['id'], volunteer['id'], wants_performer, wants_audience))
+    conn.commit()
+    conn.close()
+    try:
+        first_name = (volunteer['name'] or '').split(' ')[0] or 'there'
+        event_dt = parse_db_datetime(ev['event_date'])
+        event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
+        subject = "You're entered for Studio After Dark!"
+        body = (f"<p>Hi {first_name}, you're entered in the lottery for Studio After Dark on <strong>{event_date_fmt}</strong>.</p>"
+                "<p>Entering doesn't guarantee a spot — we'll draw at random, and if you're selected you'll get "
+                "another email to confirm you're still interested.</p>")
+        send_email([volunteer['name'] and email or email], subject, build_hwtc_email_html(subject, body))
+    except Exception as e:
+        app.logger.warning(f'SAD entry confirmation email failed: {e}')
+    return jsonify({'ok': True})
+
+@app.route('/api/public/sad/confirm/<token>', methods=['GET'])
+def sad_confirm_lookup(token):
+    conn = get_db()
+    entries = _sad_entry_with_volunteer(conn, "e.confirm_token=%s", (token,))
+    if not entries:
+        conn.close()
+        return jsonify({'error': 'Link not found or expired'}), 404
+    entry = entries[0]
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (entry['sad_event_id'],))
+    conn.close()
+    expired = False
+    if ev.get('confirm_deadline') and entry['status'] in ('selected_performer', 'selected_audience'):
+        expired = datetime.now() > parse_db_datetime(ev['confirm_deadline'])
+    return jsonify({
+        'volunteer_name': entry['volunteer_name'],
+        'category': 'Performer' if entry['selected_category']=='performer' else 'Audience',
+        'already_confirmed': entry['status'] == 'checked_in' or entry['confirmed_at'] is not None,
+        'checkin_code': entry['checkin_code'],
+        'event_date': ev['event_date'],
+        'confirm_deadline': ev.get('confirm_deadline'),
+        'expired': expired,
+    })
+
+@app.route('/api/public/sad/confirm/<token>', methods=['POST'])
+def sad_confirm_submit(token):
+    conn = get_db()
+    entries = _sad_entry_with_volunteer(conn, "e.confirm_token=%s", (token,))
+    if not entries:
+        conn.close()
+        return jsonify({'error': 'Link not found or expired'}), 404
+    entry = entries[0]
+    if entry['confirmed_at']:
+        conn.close()
+        return jsonify({'ok': True, 'checkin_code': entry['checkin_code']})
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (entry['sad_event_id'],))
+    if ev.get('confirm_deadline') and datetime.now() > parse_db_datetime(ev['confirm_deadline']):
+        conn.close()
+        return jsonify({'error': 'The confirmation deadline has passed'}), 400
+    code = secrets.token_hex(4).upper()
+    execute(conn, "UPDATE sad_entries SET status='confirmed', confirmed_at=NOW(), checkin_code=%s WHERE id=%s", (code, entry['id']))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'checkin_code': code})
 
 
 def _public_queue_snapshot(conn, context_type, context_id):
@@ -29536,6 +30025,30 @@ def audition_checkin_kiosk_page_by_slug(slug):
 @app.route('/audition-checkin/<context_type>/<context_id>')
 def audition_checkin_kiosk_page(context_type, context_id):
     return send_from_directory('static', 'audition-checkin-kiosk.html')
+
+@app.route('/studio-after-dark')
+@app.route('/studio-after-dark/enter')
+def sad_entry_page():
+    """The public lottery entry form — restricted in practice to existing
+    volunteers, since entering requires an email that matches an active
+    row in the volunteers table (checked server-side, not just client
+    trust)."""
+    return send_from_directory('static', 'studio-after-dark-entry.html')
+
+@app.route('/studio-after-dark/confirm/<token>')
+def sad_confirm_page(token):
+    return send_from_directory('static', 'studio-after-dark-confirm.html')
+
+@app.route('/studio-after-dark/scanner')
+def sad_scanner_page():
+    """Staff-only door scanner — same logged-in-RoleCall gate as the
+    audition room-control/check-in kiosk pages."""
+    return send_from_directory('static', 'studio-after-dark-scanner.html')
+
+@app.route('/studio-after-dark/performer-picker')
+def sad_performer_picker_page():
+    """Staff-only live random performer draw, run during the event itself."""
+    return send_from_directory('static', 'studio-after-dark-performer-picker.html')
 
 @app.route('/api/public/audition-settings-by-slug/<slug>')
 def get_audition_settings_by_slug(slug):

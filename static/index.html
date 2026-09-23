@@ -21958,6 +21958,29 @@ let _sadEvents = []
 let _sadCurrentEvent = null
 let _sadCurrentEntries = []
 
+async function deleteSadEventFromDetail(eid){
+ const warn = _sadCurrentEntries.length > 0
+  ? `This will also permanently delete all ${_sadCurrentEntries.length} lottery entries for this occurrence. This can't be undone.`
+  : "This can't be undone."
+ if(!confirm(`Delete this Studio After Dark occurrence? ${warn}`)) return
+ const res = await api(`/api/sad/events/${eid}`,'DELETE')
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Deleted','success')
+ loadSadListPage()
+}
+
+async function deleteSadEvent(eid){
+ const ev = _sadEvents.find(e=>e.id===eid)
+ const warn = ev && ev.entry_count > 0
+  ? `This will also permanently delete all ${ev.entry_count} lottery entries for this occurrence. This can't be undone.`
+  : "This can't be undone."
+ if(!confirm(`Delete this Studio After Dark occurrence? ${warn}`)) return
+ const res = await api(`/api/sad/events/${eid}`,'DELETE')
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Deleted','success')
+ loadSadListPage()
+}
+
 async function loadSadListPage(){
  document.getElementById('sad-page-actions').innerHTML = `<button class="btn btn-primary" onclick="openSadCreateModal()">+ New Occurrence</button>`
  const events = await api('/api/sad/events')
@@ -21990,6 +22013,7 @@ function renderSadList(){
  ${ev.entry_count} entered &middot; ${ev.confirmed_count} confirmed &middot; ${ev.checked_in_count} checked in
  </div>
  <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:${bg};color:${col};white-space:nowrap">${SAD_STATUS_LABELS[ev.lottery_status]||ev.lottery_status}</span>
+ <button onclick="event.stopPropagation();deleteSadEvent('${ev.id}')" title="Delete this occurrence" style="background:none;border:none;cursor:pointer;font-size:15px;color:var(--text-muted);padding:2px 4px">🗑</button>
  </div>
  </div>
  </div>`
@@ -22084,6 +22108,7 @@ function sadPhaseActionsHtml(ev){
  } else if(ev.lottery_status==='completed'){
  phaseHtml = `<div style="color:var(--text-muted);font-size:13px">This occurrence is complete.</div>`
  }
+ phaseHtml += `<button onclick="deleteSadEventFromDetail('${ev.id}')" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:12.5px;color:var(--red-600,#dc2626);text-decoration:underline">Delete Occurrence</button>`
  return phaseHtml
 }
 

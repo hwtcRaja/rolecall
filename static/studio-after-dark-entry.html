@@ -18,6 +18,16 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#0b0714;color:rgb
 .perf-eyebrow{font-family:'Playfair Display',Georgia,serif;font-size:17px;letter-spacing:0.08em;color:rgba(255,255,255,0.75);margin-bottom:10px}
 .perf-date{font-family:'Playfair Display',Georgia,serif;font-size:26px;font-weight:700;letter-spacing:0.03em;color:#fff;margin-bottom:6px}
 .perf-time{font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:700;color:#fff}
+.lottery-status{display:inline-flex;align-items:center;gap:7px;margin-top:16px;font-size:12px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:6px 16px;border-radius:20px}
+.lottery-status.open{background:rgba(94,234,212,0.15);color:#5eead4}
+.lottery-status.closed{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.55)}
+.lottery-status .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.countdown-row{display:flex;gap:10px;justify-content:center;margin-top:18px}
+.countdown-box{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:10px 14px;min-width:56px}
+.countdown-num{font-family:'Playfair Display',Georgia,serif;font-size:22px;font-weight:700;color:#fff}
+.countdown-label{font-size:9.5px;letter-spacing:0.08em;text-transform:uppercase;color:rgba(255,255,255,0.45);margin-top:2px}
+.countdown-note{font-size:12.5px;color:rgba(255,255,255,0.45);margin-top:14px}
+.draw-note{font-size:12.5px;color:rgba(255,255,255,0.45);margin-top:6px}
 .intro{text-align:center;margin-bottom:14px}
 .intro p{font-size:16px;color:rgba(255,255,255,0.82);margin-bottom:20px}
 .no-pressure{font-size:16px;color:rgba(255,255,255,0.82);text-align:center;margin-bottom:32px}
@@ -53,7 +63,6 @@ footer a{color:#f472b6;text-decoration:none}
 <div class="top-bar"></div>
 <div id="app">
 <div class="hero">
- <div class="presents">HWTC PRESENTS</div>
  <img src="https://irp.cdn-website.com/ab1f5fdb/dms3rep/multi/opt/SADLogo-bd629fa1-1920w.png" alt="Studio After Dark"/>
 </div>
 <div class="wrap">
@@ -75,38 +84,95 @@ footer a{color:#f472b6;text-decoration:none}
 </div>
 
 <script>
+var countdownTimer = null
+
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
 function formatEventDate(iso){
  var d = new Date(iso+'T12:00:00')
  return d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'}).toUpperCase()
 }
+function formatFullDateTime(iso){
+ var d = new Date(iso)
+ return d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'}) + ' at ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})
+}
 
 async function boot(){
  var res = await fetch('/api/public/sad/current')
  var data = await res.json()
- if(!data.open){
-  renderClosed()
+ if(!data.has_event && !data.open){
+  renderNoEvent()
   return
  }
  renderPerfBlock(data)
- renderForm(data)
+ if(data.open){
+  renderForm(data)
+ } else {
+  renderNotOpenYet(data)
+ }
 }
 
 function renderPerfBlock(ev){
+ var statusHtml = ev.open
+  ? '<span class="lottery-status open"><span class="dot"></span>Lottery Now Open</span>'
+  : '<span class="lottery-status closed"><span class="dot"></span>Lottery Closed</span>'
  document.getElementById('perf-block').innerHTML = `<div class="perf-block">
   <div class="perf-eyebrow">Next Performance</div>
   <div class="perf-date">${formatEventDate(ev.event_date)}</div>
   <div class="perf-time">${escH(ev.start_time||'')}${ev.end_time?' – '+escH(ev.end_time):''}</div>
+  ${statusHtml}
  </div>`
 }
 
-function renderClosed(){
+function renderNoEvent(){
  document.getElementById('perf-block').innerHTML = `<div class="perf-block">
-  <div class="perf-eyebrow">Sign-ups aren't open right now</div>
+  <div class="perf-eyebrow">Nothing scheduled yet</div>
+  <span class="lottery-status closed"><span class="dot"></span>Lottery Closed</span>
  </div>`
  document.getElementById('form-area').innerHTML = `<div class="card closed-card">
- <div style="font-size:15px;color:rgba(255,255,255,0.6)">Entries open the Sunday before the first Saturday of the month. Check back then!</div>
+ <div style="font-size:15px;color:rgba(255,255,255,0.6)">Check back soon for the next Studio After Dark!</div>
  </div>`
+}
+
+function renderNotOpenYet(ev){
+ var body = ''
+ if(ev.scheduled_open_at){
+  body += `<div id="countdown-area"></div>
+   <div class="countdown-note">Entries open ${formatFullDateTime(ev.scheduled_open_at)}</div>`
+ } else {
+  body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">Entries open the Sunday before the show — check back then!</div>`
+ }
+ if(ev.scheduled_draw_at){
+  body += `<div class="draw-note"> Drawing takes place ${formatFullDateTime(ev.scheduled_draw_at)}</div>`
+ }
+ document.getElementById('form-area').innerHTML = `<div class="card closed-card">${body}</div>`
+ if(ev.scheduled_open_at) startCountdown(ev.scheduled_open_at)
+}
+
+function startCountdown(targetIso){
+ var target = new Date(targetIso).getTime()
+ if(countdownTimer) clearInterval(countdownTimer)
+ function tick(){
+  var diff = target - Date.now()
+  var el = document.getElementById('countdown-area')
+  if(!el) { clearInterval(countdownTimer); return }
+  if(diff <= 0){
+   el.innerHTML = `<div style="font-size:15px;color:rgba(255,255,255,0.7)">Just about to open — refresh the page!</div>`
+   clearInterval(countdownTimer)
+   return
+  }
+  var days = Math.floor(diff/86400000)
+  var hours = Math.floor((diff%86400000)/3600000)
+  var mins = Math.floor((diff%3600000)/60000)
+  var secs = Math.floor((diff%60000)/1000)
+  el.innerHTML = `<div class="countdown-row">
+   <div class="countdown-box"><div class="countdown-num">${days}</div><div class="countdown-label">Days</div></div>
+   <div class="countdown-box"><div class="countdown-num">${hours}</div><div class="countdown-label">Hrs</div></div>
+   <div class="countdown-box"><div class="countdown-num">${mins}</div><div class="countdown-label">Min</div></div>
+   <div class="countdown-box"><div class="countdown-num">${secs}</div><div class="countdown-label">Sec</div></div>
+  </div>`
+ }
+ tick()
+ countdownTimer = setInterval(tick, 1000)
 }
 
 function renderForm(ev){

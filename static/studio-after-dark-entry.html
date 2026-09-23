@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Studio After Dark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#faf7f2;color:#1c1917;line-height:1.5}
+header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:40px 24px;text-align:center}
+header img{height:60px;margin-bottom:16px;mix-blend-mode:screen}
+header h1{color:#fff;font-family:'Playfair Display',Georgia,serif;font-size:28px}
+header p{color:rgba(255,255,255,0.7);font-size:13px;margin-top:6px}
+.wrap{max-width:480px;margin:0 auto;padding:28px 20px 60px}
+.card{background:#fff;border:1px solid #e7e2d9;border-radius:16px;padding:26px 24px}
+.event-info{text-align:center;margin-bottom:20px}
+.event-date{font-size:20px;font-weight:800;color:#0d3d4d}
+.event-slots{font-size:13px;color:#78716c;margin-top:4px}
+.form-group{margin-bottom:16px}
+label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#78716c;display:block;margin-bottom:6px}
+input[type=email]{width:100%;padding:13px 15px;border:1.5px solid #e4ddd0;border-radius:12px;font-family:inherit;font-size:15px}
+input[type=email]:focus{outline:none;border-color:#145466}
+.opt-row{display:flex;align-items:flex-start;gap:10px;padding:12px 14px;border:1.5px solid #e4ddd0;border-radius:12px;margin-bottom:8px;cursor:pointer}
+.opt-row input{margin-top:2px;width:17px;height:17px;accent-color:#145466}
+.opt-title{font-weight:700;font-size:14px}
+.opt-desc{font-size:12.5px;color:#78716c;margin-top:2px}
+.btn{width:100%;padding:15px;background:#145466;color:#fff;border:none;border-radius:12px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px}
+.btn:disabled{opacity:0.6}
+.status-msg{margin-top:12px;font-size:13px;text-align:center}
+.status-msg.error{color:#c94f4f}
+.status-msg.success{color:#166534}
+.confirm-box{text-align:center;padding:40px 24px}
+.confirm-box .check{width:56px;height:56px;border-radius:50%;background:#e8f5ef;color:#166534;font-size:26px;display:flex;align-items:center;justify-content:center;margin:0 auto 16px}
+.confirm-box h2{font-family:'Playfair Display',Georgia,serif;font-size:22px;margin-bottom:8px}
+.confirm-box p{color:#57534e;font-size:14px}
+.hint{font-size:12px;color:#a8a29e;text-align:center;margin-top:14px}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+ <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
+ <h1>Studio After Dark</h1>
+ <p>A performance &amp; hangout night for our volunteers</p>
+</header>
+<div class="wrap"><div class="card" style="text-align:center;padding:40px 20px;color:#a8a29e">Loading…</div></div>
+</div>
+
+<script>
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+async function boot(){
+ var res = await fetch('/api/public/sad/current')
+ var data = await res.json()
+ if(!data.open){
+  renderClosed()
+  return
+ }
+ renderForm(data)
+}
+
+function renderClosed(){
+ document.querySelector('.wrap').innerHTML = `<div class="card" style="text-align:center;padding:40px 24px">
+ <div style="font-size:32px;margin-bottom:12px"></div>
+ <div style="font-weight:700;font-size:16px;margin-bottom:6px">The lottery isn't open right now</div>
+ <div style="color:#78716c;font-size:13.5px">Entries open the Sunday before the first Saturday of the month. Check back then, or watch for an announcement!</div>
+ </div>`
+}
+
+function formatEventDate(iso){
+ var d = new Date(iso+'T12:00:00')
+ return d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'})
+}
+
+function renderForm(ev){
+ document.querySelector('.wrap').innerHTML = `<div class="card">
+ <div class="event-info">
+ <div class="event-date">${formatEventDate(ev.event_date)}</div>
+ <div class="event-slots">${ev.performer_slots} performer slots &middot; ${ev.audience_slots} audience slots</div>
+ </div>
+ <div id="form-status"></div>
+ <div class="form-group">
+ <label>Your Email</label>
+ <input type="email" id="entry-email" placeholder="you@example.com" autocomplete="email"/>
+ </div>
+ <label>I'd like to be considered for…</label>
+ <label class="opt-row" for="opt-performer">
+ <input type="checkbox" id="opt-performer"/>
+ <div><div class="opt-title">Performing</div><div class="opt-desc">You'll be part of the performer pool — if selected and checked in, you may be called up at random during the night.</div></div>
+ </label>
+ <label class="opt-row" for="opt-audience">
+ <input type="checkbox" id="opt-audience" checked/>
+ <div><div class="opt-title">Just Attending</div><div class="opt-desc">You'd like to be there for the show, no pressure to perform.</div></div>
+ </label>
+ <button class="btn" id="submit-btn" onclick="submitEntry()">Enter the Lottery</button>
+ <div class="hint">Entering doesn't guarantee a spot — winners are drawn at random, and you'll get an email either way.</div>
+ </div>`
+}
+
+async function submitEntry(){
+ var email = (document.getElementById('entry-email')?.value||'').trim()
+ var wantsPerformer = !!document.getElementById('opt-performer')?.checked
+ var wantsAudience = !!document.getElementById('opt-audience')?.checked
+ var statusEl = document.getElementById('form-status')
+ if(!email){ statusEl.innerHTML = '<div class="status-msg error">Please enter your email.</div>'; return }
+ if(!wantsPerformer && !wantsAudience){ statusEl.innerHTML = '<div class="status-msg error">Please select at least one option.</div>'; return }
+ var btn = document.getElementById('submit-btn')
+ btn.disabled = true; btn.textContent = 'Entering…'
+ statusEl.innerHTML = ''
+ try{
+  var res = await fetch('/api/public/sad/enter', {
+   method:'POST', headers:{'Content-Type':'application/json'},
+   body: JSON.stringify({email:email, wants_performer:wantsPerformer, wants_audience:wantsAudience})
+  })
+  var data = await res.json()
+  if(!data.ok){
+   statusEl.innerHTML = '<div class="status-msg error">'+escH(data.error||'Something went wrong.')+'</div>'
+   btn.disabled = false; btn.textContent = 'Enter the Lottery'
+   return
+  }
+  document.querySelector('.wrap').innerHTML = `<div class="card confirm-box">
+   <div class="check">✓</div>
+   <h2>You're entered!</h2>
+   <p>We've sent a confirmation to your email. If you're selected, you'll get another email to confirm you can still make it — keep an eye out!</p>
+  </div>`
+ } catch(e){
+  statusEl.innerHTML = '<div class="status-msg error">Something went wrong — please try again.</div>'
+  btn.disabled = false; btn.textContent = 'Enter the Lottery'
+ }
+}
+
+boot()
+</script>
+</body>
+</html>

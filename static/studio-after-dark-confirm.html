@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Confirm — Studio After Dark</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#faf7f2;color:#1c1917;line-height:1.5}
+header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:40px 24px;text-align:center}
+header img{height:60px;margin-bottom:16px;mix-blend-mode:screen}
+header h1{color:#fff;font-family:'Playfair Display',Georgia,serif;font-size:26px}
+.wrap{max-width:460px;margin:0 auto;padding:28px 20px 60px}
+.card{background:#fff;border:1px solid #e7e2d9;border-radius:16px;padding:30px 26px;text-align:center}
+.category-pill{display:inline-block;font-size:12px;font-weight:700;padding:4px 14px;border-radius:20px;background:#dbeafe;color:#1e40af;margin-bottom:12px}
+.event-date{font-size:20px;font-weight:800;margin-bottom:4px}
+.deadline-note{font-size:13px;color:#78716c;margin-bottom:22px}
+.btn{width:100%;padding:15px;background:#145466;color:#fff;border:none;border-radius:12px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer}
+.btn:disabled{opacity:0.6}
+.status-msg{margin-top:12px;font-size:13px;text-align:center}
+.status-msg.error{color:#c94f4f}
+.qr-box{background:#faf9f7;border-radius:14px;padding:20px;margin-top:8px}
+#qr-canvas{display:flex;justify-content:center;margin-bottom:14px}
+.code-text{font-family:monospace;font-size:20px;font-weight:800;letter-spacing:3px;color:#0d3d4d}
+.code-hint{font-size:12px;color:#78716c;margin-top:10px}
+.expired-icon,.error-icon{font-size:32px;margin-bottom:12px}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+ <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company"/>
+ <h1>Studio After Dark</h1>
+</header>
+<div class="wrap"><div class="card" style="color:#a8a29e">Loading…</div></div>
+</div>
+
+<script>
+var pathParts = window.location.pathname.split('/').filter(Boolean)
+var TOKEN = pathParts[pathParts.length-1]
+
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+function formatEventDate(iso){
+ var d = new Date(iso+'T12:00:00')
+ return d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'})
+}
+function formatDeadline(iso){
+ var d = new Date(iso)
+ return d.toLocaleDateString('en-US', {weekday:'long', month:'long', day:'numeric'}) + ' at ' + d.toLocaleTimeString('en-US', {hour:'numeric', minute:'2-digit'})
+}
+
+async function boot(){
+ var res = await fetch('/api/public/sad/confirm/'+encodeURIComponent(TOKEN))
+ var data = await res.json()
+ if(data.error){
+  renderError(data.error)
+  return
+ }
+ if(data.already_confirmed && data.checkin_code){
+  renderQr(data)
+  return
+ }
+ if(data.expired){
+  renderExpired(data)
+  return
+ }
+ renderConfirmPrompt(data)
+}
+
+function renderError(msg){
+ document.querySelector('.wrap').innerHTML = `<div class="card">
+  <div class="error-icon"></div>
+  <div style="font-weight:700;font-size:16px">${escH(msg)}</div>
+ </div>`
+}
+
+function renderExpired(data){
+ document.querySelector('.wrap').innerHTML = `<div class="card">
+  <div class="expired-icon"></div>
+  <div style="font-weight:700;font-size:16px;margin-bottom:6px">The confirmation window has closed</div>
+  <div style="color:#78716c;font-size:13.5px">Sorry ${escH(data.volunteer_name||'')} — this link's deadline has passed, so we've given the spot to someone else. Watch for the next lottery!</div>
+ </div>`
+}
+
+function renderConfirmPrompt(data){
+ document.querySelector('.wrap').innerHTML = `<div class="card">
+  <div class="category-pill">${escH(data.category)}</div>
+  <div class="event-date">${formatEventDate(data.event_date)}</div>
+  <div class="deadline-note">Confirm by ${formatDeadline(data.confirm_deadline)}, or the spot goes to someone else.</div>
+  <button class="btn" id="confirm-btn" onclick="submitConfirm()">Yes, I'm Still In!</button>
+  <div id="confirm-status"></div>
+ </div>`
+}
+
+async function submitConfirm(){
+ var btn = document.getElementById('confirm-btn')
+ var statusEl = document.getElementById('confirm-status')
+ btn.disabled = true; btn.textContent = 'Confirming…'
+ try{
+  var res = await fetch('/api/public/sad/confirm/'+encodeURIComponent(TOKEN), {method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'})
+  var data = await res.json()
+  if(!data.ok){
+   statusEl.innerHTML = '<div class="status-msg error">'+escH(data.error||'Something went wrong.')+'</div>'
+   btn.disabled = false; btn.textContent = "Yes, I'm Still In!"
+   return
+  }
+  var lookup = await (await fetch('/api/public/sad/confirm/'+encodeURIComponent(TOKEN))).json()
+  renderQr(Object.assign({}, lookup, {checkin_code:data.checkin_code}))
+ } catch(e){
+  statusEl.innerHTML = '<div class="status-msg error">Something went wrong — please try again.</div>'
+  btn.disabled = false; btn.textContent = "Yes, I'm Still In!"
+ }
+}
+
+function renderQr(data){
+ document.querySelector('.wrap').innerHTML = `<div class="card">
+  <div class="category-pill">${escH(data.category||'')}</div>
+  <div class="event-date">${formatEventDate(data.event_date)}</div>
+  <div style="color:#166534;font-weight:700;font-size:14px;margin-bottom:18px">✓ You're confirmed!</div>
+  <div class="qr-box">
+   <div id="qr-canvas"></div>
+   <div class="code-text">${escH(data.checkin_code)}</div>
+   <div class="code-hint">Show this QR code (or this code) at the door. Bookmark this page — you can come back to it any time.</div>
+  </div>
+ </div>`
+ new QRCode(document.getElementById('qr-canvas'), {
+  text: data.checkin_code,
+  width: 200, height: 200,
+  colorDark: '#0d3d4d', colorLight: '#ffffff'
+ })
+}
+
+boot()
+</script>
+</body>
+</html>

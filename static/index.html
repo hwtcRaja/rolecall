@@ -505,6 +505,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page"></span>Email Templates</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
         <div class="nav-item" onclick="navTo('foh-training',this)"><span class="nav-icon" id="ni-foh-training"></span>FOH Training</div>
+        <div class="nav-item" onclick="navTo('studio-after-dark',this)"><span class="nav-icon" id="ni-studio-after-dark"></span>Studio After Dark</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports"></span>Reports</div>
         <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
         <div class="nav-item" onclick="navTo('responsibility',this)"><span class="nav-icon" id="ni-responsibility"></span>Responsibility Grid</div>
@@ -1699,6 +1700,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn-tab" id="foh-tab-results" onclick="fohSwitchTab('results')" style="padding:10px 14px;background:none;border:none;border-bottom:2px solid transparent;font-weight:700;font-size:12.5px;cursor:pointer;color:var(--text-muted)">Who's Passed</button>
  </div>
  <div id="foh-page-body">Loading…</div>
+ </div>
+ </section>
+
+ <!-- STUDIO AFTER DARK -->
+ <section class="page" id="page-studio-after-dark">
+ <div class="page-header">
+ <div><div class="page-title"> Studio After Dark</div><div class="page-subtitle">Monthly volunteer lottery — performer &amp; audience slots, the draw, confirmations, and door check-in</div></div>
+ <div class="page-actions" id="sad-page-actions"></div>
+ </div>
+ <div class="page-body">
+ <div id="sad-root">Loading…</div>
  </div>
  </section>
 
@@ -4502,6 +4514,7 @@ const NAV_PERM_MAP = {
  'hours-store': 'hours_store',
  'responsibility': 'responsibility_grid',
  'foh-training': 'foh_training',
+ 'studio-after-dark': 'studio_after_dark',
 }
 
 // Mirrors PERM_LEGACY_FALLBACK in app.py - keep the two in sync.
@@ -4663,6 +4676,7 @@ function navTo(page,el){
  if(page==='director-dashboard') loadDirectorDashboard()
  if(page==='responsibility') loadResponsibilityPage()
  if(page==='foh-training') loadFohTrainingPage()
+ if(page==='studio-after-dark') loadSadListPage()
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -18044,6 +18058,7 @@ const PERM_SECTIONS = [
  {key:'space_requests', label:'Request a Space', desc:'Review, approve, and deny staff space/date requests (submitting a request stays open to all staff; falls back to Artistic Partnership access if not set)'},
  {key:'surveys', label:'Surveys', desc:'Create surveys, manage questions, and view response results'},
  {key:'foh_training', label:'FOH Training', desc:'Front of House training content, quiz questions, and who has passed (falls back to Events access if not set)'},
+ {key:'studio_after_dark', label:'Studio After Dark', desc:'Manage the monthly volunteer lottery — entries, the draw, confirmations, door check-in, and the live performer picker'},
 ]
 
 
@@ -21917,6 +21932,272 @@ async function loadFohTrainingPage(){
  }
  _fohData = data
  fohRenderContentTab()
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Studio After Dark — monthly volunteer lottery admin
+// ══════════════════════════════════════════════════════════════════════
+const SAD_STATUS_LABELS = {
+ not_open:'Not Open', open:'Lottery Open', closed:'Lottery Closed', drawn:'Drawn',
+ confirmations_sent:'Awaiting Confirmations', checkin_open:'Check-In Open', completed:'Completed'
+}
+const SAD_STATUS_COLORS = {
+ not_open:['#f3f4f6','#6b7280'], open:['#dcfce7','#166534'], closed:['#fef3c7','#92400e'],
+ drawn:['#dbeafe','#1e40af'], confirmations_sent:['#ede9fe','#6d28d9'], checkin_open:['#dcfce7','#166534'],
+ completed:['#f3f4f6','#6b7280']
+}
+const SAD_ENTRY_STATUS_LABELS = {
+ entered:'Entered', selected_performer:'Selected — Performer', selected_audience:'Selected — Audience',
+ not_selected:'Not Selected', confirmed:'Confirmed', checked_in:'Checked In'
+}
+const SAD_ENTRY_STATUS_COLORS = {
+ entered:['#f3f4f6','#6b7280'], selected_performer:['#dbeafe','#1e40af'], selected_audience:['#dbeafe','#1e40af'],
+ not_selected:['#fee2e2','#991b1b'], confirmed:['#dcfce7','#166534'], checked_in:['#dcfce7','#166534']
+}
+let _sadEvents = []
+let _sadCurrentEvent = null
+let _sadCurrentEntries = []
+
+async function loadSadListPage(){
+ document.getElementById('sad-page-actions').innerHTML = `<button class="btn btn-primary" onclick="openSadCreateModal()">+ New Occurrence</button>`
+ const events = await api('/api/sad/events')
+ if(!Array.isArray(events)){
+ document.getElementById('sad-root').innerHTML = `<div style="color:var(--text-muted);padding:20px 0">Could not load Studio After Dark events.</div>`
+ return
+ }
+ _sadEvents = events
+ renderSadList()
+}
+
+function renderSadList(){
+ const root = document.getElementById('sad-root')
+ if(!_sadEvents.length){
+ root.innerHTML = `<div class="card" style="text-align:center;padding:40px;color:var(--text-muted)">
+ No Studio After Dark occurrences yet. Click "+ New Occurrence" to set up the next one.
+ </div>`
+ return
+ }
+ root.innerHTML = _sadEvents.map(ev=>{
+ const [bg,col] = SAD_STATUS_COLORS[ev.lottery_status] || ['#f3f4f6','#6b7280']
+ return `<div class="card" style="padding:16px 20px;margin-bottom:10px;cursor:pointer" onclick="openSadEventDetail('${ev.id}')">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
+ <div>
+ <div style="font-size:15px;font-weight:700">${formatDate(ev.event_date)}</div>
+ <div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">${ev.performer_slots} performer slots &middot; ${ev.audience_slots} audience slots</div>
+ </div>
+ <div style="display:flex;align-items:center;gap:16px">
+ <div style="text-align:right;font-size:12px;color:var(--text-muted)">
+ ${ev.entry_count} entered &middot; ${ev.confirmed_count} confirmed &middot; ${ev.checked_in_count} checked in
+ </div>
+ <span style="font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;background:${bg};color:${col};white-space:nowrap">${SAD_STATUS_LABELS[ev.lottery_status]||ev.lottery_status}</span>
+ </div>
+ </div>
+ </div>`
+ }).join('')
+}
+
+function openSadCreateModal(){
+ const overlay = document.createElement('div')
+ overlay.id = 'sad-create-modal'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:420px;padding:24px">
+ <div style="font-size:16px;font-weight:700;margin-bottom:16px">New Studio After Dark Occurrence</div>
+ <div class="form-group"><label>Event Date</label><input type="date" id="sad-new-date" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+ <div class="form-group"><label>Performer Slots</label><input type="number" id="sad-new-performer-slots" value="15" min="0" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group"><label>Audience Slots</label><input type="number" id="sad-new-audience-slots" value="40" min="0" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ </div>
+ <div style="display:flex;gap:8px;margin-top:16px">
+ <button class="btn btn-primary" style="flex:1" onclick="submitSadCreate()">Create</button>
+ <button class="btn btn-secondary" onclick="document.getElementById('sad-create-modal').remove()">Cancel</button>
+ </div>
+ </div>`
+ document.body.appendChild(overlay)
+}
+
+async function submitSadCreate(){
+ const eventDate = document.getElementById('sad-new-date')?.value
+ if(!eventDate){ toast('Please pick a date','error'); return }
+ const res = await api('/api/sad/events','POST',{
+ event_date: eventDate,
+ performer_slots: parseInt(document.getElementById('sad-new-performer-slots')?.value)||15,
+ audience_slots: parseInt(document.getElementById('sad-new-audience-slots')?.value)||40,
+ })
+ if(res.error){ toast(res.error,'error'); return }
+ document.getElementById('sad-create-modal')?.remove()
+ toast('Occurrence created!','success')
+ loadSadListPage()
+}
+
+async function openSadEventDetail(eid){
+ document.getElementById('sad-page-actions').innerHTML = `<button class="btn btn-secondary" onclick="loadSadListPage()">← Back to List</button>`
+ const root = document.getElementById('sad-root')
+ root.innerHTML = 'Loading…'
+ const [ev, entries] = await Promise.all([
+ api(`/api/sad/events/${eid}`),
+ api(`/api/sad/events/${eid}/entries`)
+ ])
+ if(ev.error){ root.innerHTML = `<div style="color:var(--red-600)">${ev.error}</div>`; return }
+ _sadCurrentEvent = ev
+ _sadCurrentEntries = Array.isArray(entries) ? entries : []
+ renderSadDetail()
+}
+
+function sadPhaseActionsHtml(ev){
+ const origin = window.location.origin
+ const entryLink = `${origin}/studio-after-dark`
+ const scannerLink = `${origin}/studio-after-dark/scanner`
+ const pickerLink = `${origin}/studio-after-dark/performer-picker`
+ let phaseHtml = ''
+ if(ev.lottery_status==='not_open'){
+ phaseHtml = `<button class="btn btn-primary" onclick="sadOpenLottery('${ev.id}')">Open Lottery</button>`
+ } else if(ev.lottery_status==='open'){
+ phaseHtml = `<button class="btn btn-primary" onclick="sadCloseLottery('${ev.id}')">Close Lottery</button>
+ <button class="btn btn-secondary" onclick="copySadLink('${entryLink}')">Copy Entry Page Link</button>`
+ } else if(ev.lottery_status==='closed'){
+ phaseHtml = `<button class="btn btn-primary" onclick="sadRunDraw('${ev.id}')"> Run the Draw</button>`
+ } else if(ev.lottery_status==='drawn'){
+ phaseHtml = `
+ <div class="form-group" style="margin:0 0 8px"><label style="font-size:11px">Confirmation Deadline</label>
+ <input type="datetime-local" id="sad-confirm-deadline-input" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <button class="btn btn-primary" onclick="sadSendConfirmations('${ev.id}')">Send Confirmation Notices</button>`
+ } else if(ev.lottery_status==='confirmations_sent'){
+ phaseHtml = `<button class="btn btn-primary" onclick="sadOpenCheckin('${ev.id}')">Open Check-In (Day Of)</button>
+ <button class="btn btn-secondary" onclick="copySadLink('${scannerLink}')">Copy Scanner Link</button>`
+ } else if(ev.lottery_status==='checkin_open'){
+ phaseHtml = `<button class="btn btn-secondary" onclick="copySadLink('${scannerLink}')">Copy Scanner Link</button>
+ <button class="btn btn-secondary" onclick="copySadLink('${pickerLink}')">Copy Performer Picker Link</button>
+ <button class="btn btn-primary" onclick="sadCompleteEvent('${ev.id}')">Mark Event Completed</button>`
+ } else if(ev.lottery_status==='completed'){
+ phaseHtml = `<div style="color:var(--text-muted);font-size:13px">This occurrence is complete.</div>`
+ }
+ return phaseHtml
+}
+
+function renderSadDetail(){
+ const ev = _sadCurrentEvent
+ const root = document.getElementById('sad-root')
+ const [bg,col] = SAD_STATUS_COLORS[ev.lottery_status] || ['#f3f4f6','#6b7280']
+ const isEditable = ev.lottery_status === 'not_open'
+
+ let html = `<div class="card" style="padding:20px 22px;margin-bottom:16px">
+ <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:14px">
+ <div style="font-size:18px;font-weight:800">${formatDate(ev.event_date)}</div>
+ <span style="font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;background:${bg};color:${col}">${SAD_STATUS_LABELS[ev.lottery_status]||ev.lottery_status}</span>
+ </div>
+ ${isEditable ? `
+ <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-bottom:14px">
+ <div class="form-group" style="margin:0"><label style="font-size:11px">Event Date</label><input type="date" id="sad-edit-date" value="${ev.event_date}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+ <div class="form-group" style="margin:0"><label style="font-size:11px">Performer Slots</label><input type="number" id="sad-edit-performer-slots" value="${ev.performer_slots}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group" style="margin:0"><label style="font-size:11px">Audience Slots</label><input type="number" id="sad-edit-audience-slots" value="${ev.audience_slots}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ </div>
+ <button class="btn btn-secondary btn-sm" onclick="sadSaveSettings('${ev.id}')">Save</button>
+ </div>` : `<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">${ev.performer_slots} performer slots &middot; ${ev.audience_slots} audience slots</div>`}
+ <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:12px;border-top:1px solid var(--border)">
+ ${sadPhaseActionsHtml(ev)}
+ </div>
+ </div>`
+
+ // Entries table
+ const counts = {}
+ _sadCurrentEntries.forEach(e=>{ counts[e.status] = (counts[e.status]||0)+1 })
+ html += `<div class="card" style="padding:16px 20px">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+ <div style="font-size:14px;font-weight:700">Entries (${_sadCurrentEntries.length})</div>
+ <div style="font-size:12px;color:var(--text-muted)">${Object.entries(counts).map(([k,v])=>`${SAD_ENTRY_STATUS_LABELS[k]||k}: ${v}`).join(' · ')}</div>
+ </div>`
+ if(!_sadCurrentEntries.length){
+ html += `<div style="text-align:center;padding:24px;color:var(--text-muted);font-size:13px">No one has entered yet.</div>`
+ } else {
+ html += _sadCurrentEntries.map(e=>{
+ const [ebg,ecol] = SAD_ENTRY_STATUS_COLORS[e.status] || ['#f3f4f6','#6b7280']
+ const wants = [e.wants_performer?'Performer':null, e.wants_audience?'Audience':null].filter(Boolean).join(' + ')
+ const canResend = (e.status==='selected_performer'||e.status==='selected_audience') && e.confirm_token
+ return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;background:var(--bg);border-radius:8px;margin-bottom:6px">
+ <div style="min-width:0">
+ <div style="font-size:13px;font-weight:700">${escHtml(e.volunteer_name)}</div>
+ <div style="font-size:11.5px;color:var(--text-muted)">Wants: ${wants||'—'}</div>
+ </div>
+ <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+ <span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;background:${ebg};color:${ecol};white-space:nowrap">${SAD_ENTRY_STATUS_LABELS[e.status]||e.status}</span>
+ ${canResend?`<button class="btn btn-secondary btn-sm" onclick="sadResendConfirmation('${ev.id}','${e.id}')">Resend</button>`:''}
+ </div>
+ </div>`
+ }).join('')
+ }
+ html += `</div>`
+ root.innerHTML = html
+}
+
+async function sadSaveSettings(eid){
+ const res = await api(`/api/sad/events/${eid}`,'PUT',{
+ event_date: document.getElementById('sad-edit-date')?.value,
+ performer_slots: parseInt(document.getElementById('sad-edit-performer-slots')?.value)||15,
+ audience_slots: parseInt(document.getElementById('sad-edit-audience-slots')?.value)||40,
+ })
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Saved!','success')
+ openSadEventDetail(eid)
+}
+
+async function sadOpenLottery(eid){
+ const res = await api(`/api/sad/events/${eid}/open-lottery`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Lottery is now open!','success')
+ openSadEventDetail(eid)
+}
+
+async function sadCloseLottery(eid){
+ if(!confirm('Close the lottery? No more entries will be accepted.')) return
+ const res = await api(`/api/sad/events/${eid}/close-lottery`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Lottery closed','success')
+ openSadEventDetail(eid)
+}
+
+async function sadRunDraw(eid){
+ if(!confirm('Run the random draw now? This selects performer and audience winners from everyone entered.')) return
+ const res = await api(`/api/sad/events/${eid}/run-draw`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast(`Drew ${res.performer_winners} performers and ${res.audience_winners} audience!`,'success')
+ openSadEventDetail(eid)
+}
+
+async function sadSendConfirmations(eid){
+ const deadline = document.getElementById('sad-confirm-deadline-input')?.value
+ if(!deadline){ toast('Please set a confirmation deadline','error'); return }
+ if(!confirm('Send confirmation emails to everyone selected?')) return
+ const res = await api(`/api/sad/events/${eid}/send-confirmations`,'POST',{confirm_deadline:deadline})
+ if(res.error){ toast(res.error,'error'); return }
+ toast(`Sent ${res.sent} confirmation emails`,'success')
+ openSadEventDetail(eid)
+}
+
+async function sadResendConfirmation(eid, entryId){
+ const res = await api(`/api/sad/events/${eid}/resend/${entryId}`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Resent!','success')
+}
+
+async function sadOpenCheckin(eid){
+ const res = await api(`/api/sad/events/${eid}/open-checkin`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Check-in is now open!','success')
+ openSadEventDetail(eid)
+}
+
+async function sadCompleteEvent(eid){
+ if(!confirm('Mark this occurrence as completed?')) return
+ const res = await api(`/api/sad/events/${eid}/complete`,'POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Marked complete!','success')
+ openSadEventDetail(eid)
+}
+
+function copySadLink(url){
+ navigator.clipboard.writeText(url)
+ toast('Link copied!','success')
 }
 
 function fohSwitchTab(tab){

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Studio After Dark — Performer Picker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:linear-gradient(160deg,#0d3d4d,#0a2a35 65%);color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;text-align:center}
+.topbar{position:fixed;top:0;left:0;right:0;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
+.topbar a{color:#5eead4;text-decoration:none;font-weight:600}
+.eyebrow{font-size:14px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:16px}
+.current-name{font-size:min(13vw,64px);font-weight:800;line-height:1.1;margin-bottom:8px}
+.current-name.empty{font-size:28px;font-weight:600;color:rgba(255,255,255,0.5)}
+.remaining{font-size:15px;color:rgba(255,255,255,0.6);margin-bottom:36px}
+.pick-btn{padding:20px 48px;background:#5eead4;color:#0d3d4d;border:none;border-radius:16px;font-family:inherit;font-size:20px;font-weight:800;cursor:pointer}
+.pick-btn:disabled{opacity:0.4;cursor:default}
+.called-list{margin-top:44px;max-width:480px}
+.called-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:rgba(255,255,255,0.45);margin-bottom:10px}
+.called-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.called-chip{background:rgba(255,255,255,0.1);padding:6px 14px;border-radius:20px;font-size:13px}
+.reset-link{margin-top:28px;font-size:12px;color:rgba(255,255,255,0.35);background:none;border:none;cursor:pointer;text-decoration:underline;font-family:inherit}
+@keyframes pop{0%{transform:scale(0.9);opacity:0}100%{transform:scale(1);opacity:1}}
+.current-name.reveal{animation:pop 0.4s ease-out}
+.login-gate{max-width:420px;margin:0 auto;text-align:center}
+.login-gate a{display:inline-block;margin-top:16px;background:#145466;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700}
+</style>
+</head>
+<body>
+<div id="app">Loading…</div>
+
+<script>
+var EVENT_ID = null
+
+async function api(url, method, body){
+  var opts = {method: method||'GET', headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  var res = await fetch(url, opts)
+  try{ return await res.json() } catch(e){ return {error:'Request failed'} }
+}
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+async function boot(){
+  var me = await api('/api/auth/me')
+  if(!me.user){
+    document.getElementById('app').innerHTML = `<div class="login-gate">
+      <div style="font-size:32px;margin-bottom:10px"></div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">Log In Required</div>
+      <div style="font-size:13.5px;color:rgba(255,255,255,0.6)">Log into RoleCall on this device first, then reopen this link.</div>
+      <a href="/">Go to RoleCall Login</a>
+    </div>`
+    return
+  }
+  var evRes = await api('/api/sad/events/current-active')
+  if(evRes.error){
+    document.getElementById('app').innerHTML = `<div class="login-gate"><div style="font-size:15px">${escH(evRes.error)}</div></div>`
+    return
+  }
+  EVENT_ID = evRes.id
+
+  document.getElementById('app').innerHTML = `
+    <div class="topbar"><div></div><a href="/">Back to RoleCall</a></div>
+    <div class="eyebrow">Performer Spotlight</div>
+    <div class="current-name empty" id="current-name">Ready when you are</div>
+    <div class="remaining" id="remaining-count"></div>
+    <button class="pick-btn" id="pick-btn" onclick="pickNext()">🎲 Pick Next Performer</button>
+    <div class="called-list">
+      <div class="called-title">Already Performed</div>
+      <div class="called-chips" id="called-chips"><span style="color:rgba(255,255,255,0.35);font-size:13px">No one yet</span></div>
+    </div>
+    <button class="reset-link" onclick="resetCalls()">Reset for a new round</button>`
+
+  refreshStatus()
+}
+
+async function refreshStatus(){
+  var status = await api(`/api/sad/events/${EVENT_ID}/performer-status`)
+  if(status.error) return
+  document.getElementById('remaining-count').textContent = status.waiting_count + ' of ' + status.total + ' still waiting to perform'
+  var chipsEl = document.getElementById('called-chips')
+  if(status.called && status.called.length){
+    chipsEl.innerHTML = status.called.map(function(c){ return '<span class="called-chip">'+escH(c.volunteer_name)+'</span>' }).join('')
+  } else {
+    chipsEl.innerHTML = '<span style="color:rgba(255,255,255,0.35);font-size:13px">No one yet</span>'
+  }
+  var btn = document.getElementById('pick-btn')
+  if(btn) btn.disabled = status.waiting_count === 0
+}
+
+async function pickNext(){
+  var btn = document.getElementById('pick-btn')
+  btn.disabled = true
+  var res = await api(`/api/sad/events/${EVENT_ID}/pick-performer`, 'POST', {})
+  var nameEl = document.getElementById('current-name')
+  if(!res.ok){
+    nameEl.textContent = res.message || 'Everyone has performed!'
+    nameEl.className = 'current-name empty'
+  } else {
+    nameEl.textContent = res.volunteer_name
+    nameEl.className = 'current-name reveal'
+  }
+  await refreshStatus()
+}
+
+async function resetCalls(){
+  if(!confirm('Reset the performer list? Everyone becomes eligible to be picked again.')) return
+  await api(`/api/sad/events/${EVENT_ID}/reset-performer-calls`, 'POST', {})
+  document.getElementById('current-name').textContent = 'Ready when you are'
+  document.getElementById('current-name').className = 'current-name empty'
+  refreshStatus()
+}
+
+boot()
+</script>
+</body>
+</html>

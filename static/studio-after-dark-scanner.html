@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>Studio After Dark — Door Scanner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#0a2a35;color:#fff;min-height:100vh}
+.topbar{padding:16px 20px;display:flex;align-items:center;justify-content:space-between}
+.topbar-title{font-size:16px;font-weight:800}
+.topbar-sub{font-size:12px;color:rgba(255,255,255,0.6);margin-top:2px}
+.topbar-user a{color:#5eead4;text-decoration:none;font-weight:600;font-size:12px}
+.wrap{max-width:480px;margin:0 auto;padding:0 20px 40px}
+.cam-frame{position:relative;background:#000;border-radius:16px;overflow:hidden;aspect-ratio:1/1}
+.cam-frame video,.cam-frame canvas{width:100%;height:100%;object-fit:cover;display:block}
+.cam-status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:13px;text-align:center;padding:20px}
+.scan-frame-outline{position:absolute;inset:15%;border:3px solid rgba(94,234,212,0.6);border-radius:16px;pointer-events:none}
+.manual-entry{margin-top:20px;background:rgba(255,255,255,0.06);border-radius:14px;padding:16px}
+.manual-entry label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:rgba(255,255,255,0.5);display:block;margin-bottom:8px}
+.manual-entry input{width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.08);color:#fff;font-family:monospace;font-size:16px;letter-spacing:2px;text-transform:uppercase;margin-bottom:10px}
+.manual-entry button{width:100%;padding:12px;background:#145466;color:#fff;border:none;border-radius:10px;font-family:inherit;font-weight:700;cursor:pointer}
+.result-overlay{position:fixed;inset:0;z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:30px}
+.result-overlay.success{background:rgba(22,163,74,0.97)}
+.result-overlay.error{background:rgba(220,38,38,0.97)}
+.result-icon{font-size:64px;margin-bottom:16px}
+.result-name{font-size:26px;font-weight:800}
+.result-category{font-size:15px;margin-top:6px;opacity:0.9}
+.login-gate{max-width:420px;margin:100px auto;text-align:center;padding:40px 30px}
+.login-gate a{display:inline-block;margin-top:16px;background:#145466;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700}
+</style>
+</head>
+<body>
+<div id="app"><div style="padding:60px;text-align:center;color:rgba(255,255,255,0.5)">Loading…</div></div>
+
+<script>
+var EVENT_ID = null
+var stream = null
+var scanning = false
+var lastScanCode = null
+var lastScanAt = 0
+
+async function api(url, method, body){
+  var opts = {method: method||'GET', headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  var res = await fetch(url, opts)
+  try{ return await res.json() } catch(e){ return {error:'Request failed'} }
+}
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+async function boot(){
+  var me = await api('/api/auth/me')
+  if(!me.user){
+    document.getElementById('app').innerHTML = `<div class="login-gate">
+      <div style="font-size:32px;margin-bottom:10px"></div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">Log In Required</div>
+      <div style="font-size:13.5px;color:rgba(255,255,255,0.6)">Log into RoleCall on this device first, then reopen this link.</div>
+      <a href="/">Go to RoleCall Login</a>
+    </div>`
+    return
+  }
+  var evRes = await api('/api/sad/events/current-active')
+  if(evRes.error){
+    document.getElementById('app').innerHTML = `<div class="login-gate"><div style="font-size:15px">${escH(evRes.error)}</div></div>`
+    return
+  }
+  EVENT_ID = evRes.id
+
+  document.getElementById('app').innerHTML = `
+    <div class="topbar">
+      <div><div class="topbar-title"> Door Scanner</div><div class="topbar-sub">${new Date(evRes.event_date+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})}</div></div>
+      <div class="topbar-user"><a href="/">Back to RoleCall</a></div>
+    </div>
+    <div class="wrap">
+      <div class="cam-frame">
+        <video id="scan-video" autoplay playsinline muted></video>
+        <canvas id="scan-canvas" style="display:none"></canvas>
+        <div class="scan-frame-outline"></div>
+        <div class="cam-status" id="cam-status">Starting camera…</div>
+      </div>
+      <div class="manual-entry">
+        <label>Or enter the code manually</label>
+        <input type="text" id="manual-code" placeholder="e.g. A1B2C3D4" onkeydown="if(event.key==='Enter')submitManualCode()"/>
+        <button onclick="submitManualCode()">Check In</button>
+      </div>
+    </div>`
+
+  startCamera()
+}
+
+async function startCamera(){
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}, audio:false})
+    var video = document.getElementById('scan-video')
+    video.srcObject = stream
+    document.getElementById('cam-status').style.display = 'none'
+    scanning = true
+    requestAnimationFrame(scanLoop)
+  } catch(e){
+    var statusEl = document.getElementById('cam-status')
+    if(statusEl) statusEl.textContent = 'Camera unavailable — use the manual code entry below'
+  }
+}
+
+function scanLoop(){
+  if(!scanning) return
+  var video = document.getElementById('scan-video')
+  var canvas = document.getElementById('scan-canvas')
+  if(video && video.readyState === video.HAVE_ENOUGH_DATA){
+    canvas.width = video.videoWidth
+    canvas.height = video.videoHeight
+    var ctx = canvas.getContext('2d')
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
+    var imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+    var code = jsQR(imageData.data, imageData.width, imageData.height)
+    if(code && code.data){
+      var now = Date.now()
+      if(code.data !== lastScanCode || now - lastScanAt > 4000){
+        lastScanCode = code.data
+        lastScanAt = now
+        handleScannedCode(code.data)
+      }
+    }
+  }
+  requestAnimationFrame(scanLoop)
+}
+
+async function handleScannedCode(code){
+  var res = await api('/api/sad/checkin/scan', 'POST', {checkin_code: code})
+  showResult(res)
+}
+
+async function submitManualCode(){
+  var input = document.getElementById('manual-code')
+  var code = (input.value||'').trim().toUpperCase()
+  if(!code) return
+  input.value = ''
+  var res = await api('/api/sad/checkin/scan', 'POST', {checkin_code: code})
+  showResult(res)
+}
+
+function showResult(res){
+  var overlay = document.createElement('div')
+  var ok = !!res.ok
+  overlay.className = 'result-overlay ' + (ok ? 'success' : 'error')
+  if(ok){
+    overlay.innerHTML = `<div class="result-icon">✓</div><div class="result-name">${escH(res.volunteer_name)}</div><div class="result-category">${escH(res.category)} — checked in!</div>`
+  } else {
+    overlay.innerHTML = `<div class="result-icon">✕</div><div class="result-name" style="font-size:19px">${escH(res.error||'Not recognized')}</div>${res.volunteer_name?'<div class="result-category">'+escH(res.volunteer_name)+'</div>':''}`
+  }
+  document.body.appendChild(overlay)
+  setTimeout(function(){ overlay.remove() }, 1800)
+}
+
+boot()
+</script>
+</body>
+</html>

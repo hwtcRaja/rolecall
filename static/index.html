@@ -22004,6 +22004,10 @@ function openSadCreateModal(){
  <div style="font-size:16px;font-weight:700;margin-bottom:16px">New Studio After Dark Occurrence</div>
  <div class="form-group"><label>Event Date</label><input type="date" id="sad-new-date" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+ <div class="form-group"><label>Start Time</label><input type="text" id="sad-new-start-time" value="7:30 PM" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group"><label>End Time</label><input type="text" id="sad-new-end-time" value="10:00 PM" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
  <div class="form-group"><label>Performer Slots</label><input type="number" id="sad-new-performer-slots" value="15" min="0" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  <div class="form-group"><label>Audience Slots</label><input type="number" id="sad-new-audience-slots" value="40" min="0" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  </div>
@@ -22020,6 +22024,8 @@ async function submitSadCreate(){
  if(!eventDate){ toast('Please pick a date','error'); return }
  const res = await api('/api/sad/events','POST',{
  event_date: eventDate,
+ start_time: document.getElementById('sad-new-start-time')?.value || '7:30 PM',
+ end_time: document.getElementById('sad-new-end-time')?.value || '10:00 PM',
  performer_slots: parseInt(document.getElementById('sad-new-performer-slots')?.value)||15,
  audience_slots: parseInt(document.getElementById('sad-new-audience-slots')?.value)||40,
  })
@@ -22086,14 +22092,16 @@ function renderSadDetail(){
  <span style="font-size:12px;font-weight:700;padding:4px 12px;border-radius:20px;background:${bg};color:${col}">${SAD_STATUS_LABELS[ev.lottery_status]||ev.lottery_status}</span>
  </div>
  ${isEditable ? `
- <div style="display:grid;grid-template-columns:1fr 1fr auto;gap:10px;align-items:end;margin-bottom:14px">
+ <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:10px;align-items:end;margin-bottom:8px">
  <div class="form-group" style="margin:0"><label style="font-size:11px">Event Date</label><input type="date" id="sad-edit-date" value="${ev.event_date}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+ <div class="form-group" style="margin:0"><label style="font-size:11px">Start Time</label><input type="text" id="sad-edit-start-time" value="${ev.start_time||'7:30 PM'}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group" style="margin:0"><label style="font-size:11px">End Time</label><input type="text" id="sad-edit-end-time" value="${ev.end_time||'10:00 PM'}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <button class="btn btn-secondary btn-sm" onclick="sadSaveSettings('${ev.id}')">Save</button>
+ </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
  <div class="form-group" style="margin:0"><label style="font-size:11px">Performer Slots</label><input type="number" id="sad-edit-performer-slots" value="${ev.performer_slots}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  <div class="form-group" style="margin:0"><label style="font-size:11px">Audience Slots</label><input type="number" id="sad-edit-audience-slots" value="${ev.audience_slots}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
- </div>
- <button class="btn btn-secondary btn-sm" onclick="sadSaveSettings('${ev.id}')">Save</button>
- </div>` : `<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">${ev.performer_slots} performer slots &middot; ${ev.audience_slots} audience slots</div>`}
+ </div>` : `<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">${ev.start_time||''}${ev.end_time?' – '+ev.end_time:''} &middot; ${ev.performer_slots} performer slots &middot; ${ev.audience_slots} audience slots</div>`}
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:12px;border-top:1px solid var(--border)">
  ${sadPhaseActionsHtml(ev)}
  </div>
@@ -22133,6 +22141,8 @@ function renderSadDetail(){
 async function sadSaveSettings(eid){
  const res = await api(`/api/sad/events/${eid}`,'PUT',{
  event_date: document.getElementById('sad-edit-date')?.value,
+ start_time: document.getElementById('sad-edit-start-time')?.value || '7:30 PM',
+ end_time: document.getElementById('sad-edit-end-time')?.value || '10:00 PM',
  performer_slots: parseInt(document.getElementById('sad-edit-performer-slots')?.value)||15,
  audience_slots: parseInt(document.getElementById('sad-edit-audience-slots')?.value)||40,
  })

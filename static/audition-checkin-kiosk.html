@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<title>Audition Check-In</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#f7f7f5;color:#1c1917;line-height:1.4;min-height:100vh;user-select:none}
+input{user-select:text}
+.topbar{background:linear-gradient(135deg,#0d3d4d,#145466);padding:16px 20px;display:flex;align-items:center;justify-content:space-between;color:#fff;position:sticky;top:0;z-index:10}
+.topbar-title{font-size:17px;font-weight:800}
+.topbar-sub{font-size:12px;color:rgba(255,255,255,0.65);margin-top:2px}
+.topbar-stats{font-size:12.5px;color:rgba(255,255,255,0.85);text-align:right}
+.topbar-stats a{color:#5eead4;text-decoration:none;font-weight:600;display:block;margin-top:2px;font-size:11px}
+.wrap{max-width:640px;margin:0 auto;padding:20px 16px 60px}
+.search-input{width:100%;padding:20px 22px;border:2px solid #d6d3ce;border-radius:16px;font-family:inherit;font-size:20px;font-weight:600;outline:none;background:#fff}
+.search-input:focus{border-color:#145466}
+.walkin-btn{width:100%;padding:18px;margin-top:12px;background:#fff;border:2px dashed #d6d3ce;border-radius:16px;font-family:inherit;font-size:15px;font-weight:700;color:#57534e;cursor:pointer}
+.results{margin-top:16px;display:flex;flex-direction:column;gap:10px}
+.result-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:18px 20px;background:#fff;border:1.5px solid #e7e2d9;border-radius:14px;cursor:pointer}
+.result-row:active{background:#f0f8fa;border-color:#145466}
+.result-name{font-size:17px;font-weight:700}
+.result-badge{font-size:12.5px;font-weight:700;color:#fff;background:#145466;padding:8px 16px;border-radius:10px;white-space:nowrap}
+.empty-hint{text-align:center;color:#a8a29e;padding:30px 10px;font-size:14px}
+.recent-section{margin-top:28px}
+.recent-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#78716c;margin-bottom:10px}
+.recent-row{display:flex;align-items:center;gap:12px;padding:10px 14px;background:#fff;border-radius:10px;margin-bottom:6px;border:1px solid #e7e2d9}
+.recent-num{font-size:18px;font-weight:800;color:#145466;min-width:40px}
+.recent-name{font-size:14px;font-weight:600;flex:1}
+.recent-photo{width:30px;height:30px;border-radius:50%;object-fit:cover;background:#e7e2d9}
+.confirm-overlay{position:fixed;inset:0;background:rgba(13,61,77,0.97);z-index:200;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;padding:30px}
+.confirm-check{width:72px;height:72px;border-radius:50%;background:#5eead4;color:#0d3d4d;font-size:34px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-bottom:18px}
+.confirm-number{font-size:64px;font-weight:800;line-height:1}
+.confirm-name{font-size:20px;font-weight:700;margin-top:8px;color:rgba(255,255,255,0.9)}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:150;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-box{background:#1c1917;border-radius:18px;width:100%;max-width:420px;overflow:hidden}
+.modal-hdr{padding:18px 22px;display:flex;justify-content:space-between;align-items:center}
+.modal-hdr-title{color:#fff;font-weight:700;font-size:15px}
+.modal-close{background:none;border:none;color:rgba(255,255,255,0.6);font-size:22px;cursor:pointer}
+.cam-frame{position:relative;background:#000;aspect-ratio:1/1}
+.cam-frame video,.cam-frame canvas{width:100%;height:100%;object-fit:cover;display:block}
+.cam-status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:13px;padding:20px;text-align:center}
+.modal-actions{padding:18px 22px;display:flex;gap:10px}
+.btn{padding:16px;border-radius:12px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;border:none;flex:1}
+.btn-primary{background:#145466;color:#fff}
+.btn-secondary{background:rgba(255,255,255,0.1);color:#fff;border:1.5px solid rgba(255,255,255,0.25)}
+.walkin-form{background:#fff;border:1.5px solid #e7e2d9;border-radius:14px;padding:16px;margin-top:12px}
+.walkin-input{width:100%;padding:14px 16px;border:1.5px solid #d6d3ce;border-radius:10px;font-family:inherit;font-size:16px;margin-bottom:10px}
+.login-gate{max-width:420px;margin:100px auto;text-align:center;padding:40px 30px}
+.login-gate a{display:inline-block;margin-top:16px;background:#145466;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700}
+</style>
+</head>
+<body>
+<div id="app"><div style="padding:60px;text-align:center;color:#a8a29e">Loading…</div></div>
+
+<script>
+var pathParts = window.location.pathname.split('/').filter(Boolean)
+var IS_SLUG_URL = pathParts[0] === 'audition' && pathParts.length === 3
+var CONTEXT_TYPE = IS_SLUG_URL ? null : pathParts[1]
+var CONTEXT_ID = IS_SLUG_URL ? pathParts[1] : pathParts[2]
+var SLUG = IS_SLUG_URL ? pathParts[1] : null
+var ALL_SUBMISSIONS = []
+var CHECKED_IN_IDS = new Set()
+var RECENT = [] // most-recently-checked-in-here this session, newest first
+var _camStream = null
+
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+async function api(url, method, body){
+  var opts = {method: method||'GET', headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  var res = await fetch(url, opts)
+  try{ return await res.json() } catch(e){ return {error:'Request failed'} }
+}
+
+async function boot(){
+  var me = await api('/api/auth/me')
+  if(!me.user){
+    document.getElementById('app').innerHTML = `<div class="login-gate">
+      <div style="font-size:32px;margin-bottom:10px"></div>
+      <div style="font-size:18px;font-weight:800;margin-bottom:8px">Log In Required</div>
+      <div style="font-size:13.5px;color:#78716c">This screen uses your RoleCall staff login. Log in on this device first, then reopen this link.</div>
+      <a href="/">Go to RoleCall Login</a>
+    </div>`
+    return
+  }
+
+  var settings
+  if(IS_SLUG_URL){
+    settings = await (await fetch('/api/public/audition-settings-by-slug/'+encodeURIComponent(SLUG))).json()
+    if(settings.context_type) CONTEXT_TYPE = settings.context_type
+    if(settings.context_id) CONTEXT_ID = settings.context_id
+  } else {
+    settings = await (await fetch('/api/auditions/settings/'+encodeURIComponent(CONTEXT_TYPE)+'/'+encodeURIComponent(CONTEXT_ID))).json()
+  }
+
+  document.getElementById('app').innerHTML = `
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Check-In</div>
+        <div class="topbar-sub">${escH(settings.context_name||settings.title||'')}</div>
+      </div>
+      <div class="topbar-stats" id="kiosk-stats">
+        <a href="/audition-room-control/${CONTEXT_TYPE}/${CONTEXT_ID}">Room Control →</a>
+      </div>
+    </div>
+    <div class="wrap">
+      <input type="text" class="search-input" id="kiosk-search" placeholder=" Search name to check in…" autocomplete="off" autofocus oninput="filterKioskSearch()"/>
+      <button class="walkin-btn" onclick="showWalkInForm()">+ Walk-In (not on the list)</button>
+      <div class="walkin-form" id="kiosk-walkin-form" style="display:none">
+        <input type="text" class="walkin-input" id="kiosk-walkin-name" placeholder="Full name" onkeydown="if(event.key==='Enter')submitKioskWalkIn()"/>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" style="background:#145466;color:#fff" onclick="submitKioskWalkIn()">Check In</button>
+          <button class="btn" style="background:#f0eee9;color:#57534e" onclick="document.getElementById('kiosk-walkin-form').style.display='none'">Cancel</button>
+        </div>
+      </div>
+      <div class="results" id="kiosk-results"></div>
+      <div class="recent-section">
+        <div class="recent-title">Just Checked In</div>
+        <div id="kiosk-recent"><div class="empty-hint">No one yet this session</div></div>
+      </div>
+    </div>`
+
+  await loadKioskData()
+  document.getElementById('kiosk-search')?.focus()
+}
+
+async function loadKioskData(){
+  var [subs, checkins] = await Promise.all([
+    api('/api/auditions/list/'+CONTEXT_TYPE+'/'+CONTEXT_ID),
+    api('/api/auditions/checkins/'+CONTEXT_TYPE+'/'+CONTEXT_ID)
+  ])
+  ALL_SUBMISSIONS = Array.isArray(subs) ? subs : []
+  var checkinList = Array.isArray(checkins) ? checkins : []
+  CHECKED_IN_IDS = new Set(checkinList.filter(function(c){ return c.submission_id }).map(function(c){ return c.submission_id }))
+  var waitingCount = checkinList.filter(function(c){ return c.status==='waiting' }).length
+  var statsEl = document.getElementById('kiosk-stats')
+  if(statsEl){
+    statsEl.innerHTML = `${checkinList.length} checked in today &middot; ${waitingCount} waiting<a href="/audition-room-control/${CONTEXT_TYPE}/${CONTEXT_ID}">Room Control →</a>`
+  }
+  filterKioskSearch()
+}
+
+function filterKioskSearch(){
+  var box = document.getElementById('kiosk-search')
+  var resultsEl = document.getElementById('kiosk-results')
+  if(!box || !resultsEl) return
+  var q = box.value.trim().toLowerCase()
+  if(!q){ resultsEl.innerHTML = ''; return }
+  var matches = ALL_SUBMISSIONS.filter(function(s){
+    return (s.submitter_name||'').toLowerCase().includes(q) && !CHECKED_IN_IDS.has(s.id)
+  }).slice(0,10)
+  if(!matches.length){
+    resultsEl.innerHTML = '<div class="empty-hint">No match — use + Walk-In above if they\'re not listed, or already checked in.</div>'
+    return
+  }
+  resultsEl.innerHTML = matches.map(function(s){
+    return `<div class="result-row" onclick="checkInFromKiosk('${s.id}')">
+      <div class="result-name">${escH(s.submitter_name||'')}</div>
+      <div class="result-badge">Check In</div>
+    </div>`
+  }).join('')
+}
+
+function showWalkInForm(){
+  var form = document.getElementById('kiosk-walkin-form')
+  if(form){ form.style.display=''; document.getElementById('kiosk-walkin-name')?.focus() }
+}
+
+async function submitKioskWalkIn(){
+  var input = document.getElementById('kiosk-walkin-name')
+  var name = (input?.value||'').trim()
+  if(!name) return
+  input.value = ''
+  document.getElementById('kiosk-walkin-form').style.display = 'none'
+  await doKioskCheckin({walk_in_name:name}, name)
+}
+
+async function checkInFromKiosk(submissionId){
+  var sub = ALL_SUBMISSIONS.find(function(s){ return s.id===submissionId })
+  await doKioskCheckin({submission_id:submissionId}, sub?sub.submitter_name:'')
+}
+
+async function doKioskCheckin(payload, displayName){
+  payload.context_type = CONTEXT_TYPE; payload.context_id = CONTEXT_ID
+  var res = await api('/api/auditions/checkin','POST',payload)
+  if(res.error){ alert(res.error); return }
+  showConfirm(res.queue_number, displayName)
+  RECENT.unshift({id:res.id, queue_number:res.queue_number, name:displayName, photo:null})
+  RECENT = RECENT.slice(0,6)
+  renderRecent()
+  document.getElementById('kiosk-search').value = ''
+  await loadKioskData()
+  openCamModal(res.id)
+}
+
+function showConfirm(number, name){
+  var overlay = document.createElement('div')
+  overlay.className = 'confirm-overlay'
+  overlay.innerHTML = `<div class="confirm-check">✓</div><div class="confirm-number">#${number}</div><div class="confirm-name">${escH(name)}</div>`
+  document.body.appendChild(overlay)
+  setTimeout(function(){ overlay.remove() }, 1100)
+}
+
+function renderRecent(){
+  var el = document.getElementById('kiosk-recent')
+  if(!el) return
+  if(!RECENT.length){ el.innerHTML = '<div class="empty-hint">No one yet this session</div>'; return }
+  el.innerHTML = RECENT.map(function(r){
+    var photoHtml = r.photo ? `<img class="recent-photo" src="${r.photo}" alt=""/>` : `<div class="recent-photo" style="display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#a8a29e">${escH((r.name||'?').charAt(0).toUpperCase())}</div>`
+    return `<div class="recent-row">${photoHtml}<div class="recent-num">#${r.queue_number}</div><div class="recent-name">${escH(r.name||'')}</div></div>`
+  }).join('')
+}
+
+// ── Camera capture, same flow as the admin Check-In tab ──────────────────
+function closeCamModal(){
+  if(_camStream){ _camStream.getTracks().forEach(function(t){ t.stop() }); _camStream=null }
+  document.getElementById('kiosk-cam-modal')?.remove()
+}
+
+async function openCamModal(checkinId){
+  closeCamModal()
+  var overlay = document.createElement('div')
+  overlay.id = 'kiosk-cam-modal'
+  overlay.className = 'modal-overlay'
+  overlay.innerHTML = `<div class="modal-box">
+    <div class="modal-hdr"><div class="modal-hdr-title">Add a Photo</div><button class="modal-close" onclick="closeCamModal()">×</button></div>
+    <div class="cam-frame">
+      <video id="kiosk-cam-video" autoplay playsinline muted></video>
+      <canvas id="kiosk-cam-canvas" style="display:none"></canvas>
+      <div class="cam-status" id="kiosk-cam-status">Starting camera…</div>
+    </div>
+    <div class="modal-actions" id="kiosk-cam-actions">
+      <button class="btn btn-secondary" onclick="closeCamModal()">Skip</button>
+      <button class="btn btn-primary" id="kiosk-cam-capture-btn" onclick="captureKioskPhoto('${checkinId}')" disabled>Capture</button>
+    </div>
+  </div>`
+  document.body.appendChild(overlay)
+  try{
+    _camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false})
+    var video = document.getElementById('kiosk-cam-video')
+    if(!video) return
+    video.srcObject = _camStream
+    document.getElementById('kiosk-cam-status').style.display = 'none'
+    document.getElementById('kiosk-cam-capture-btn').disabled = false
+  } catch(e){
+    var statusEl = document.getElementById('kiosk-cam-status')
+    if(statusEl) statusEl.textContent = 'Camera unavailable — skip and add a photo later from Room Control'
+  }
+}
+
+function captureKioskPhoto(checkinId){
+  var video = document.getElementById('kiosk-cam-video')
+  var canvas = document.getElementById('kiosk-cam-canvas')
+  if(!video || !canvas) return
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight
+  canvas.getContext('2d').drawImage(video, 0, 0)
+  video.style.display = 'none'; canvas.style.display = 'block'
+  if(_camStream){ _camStream.getTracks().forEach(function(t){ t.stop() }); _camStream=null }
+  var actionsEl = document.getElementById('kiosk-cam-actions')
+  if(actionsEl) actionsEl.innerHTML = `
+    <button class="btn btn-secondary" onclick="openCamModal('${checkinId}')">Retake</button>
+    <button class="btn btn-primary" onclick="saveKioskPhoto('${checkinId}')">Use This Photo</button>`
+}
+
+async function saveKioskPhoto(checkinId){
+  var canvas = document.getElementById('kiosk-cam-canvas')
+  if(!canvas) return
+  var actionsEl = document.getElementById('kiosk-cam-actions')
+  if(actionsEl) actionsEl.innerHTML = '<div style="color:#fff;font-size:13px;text-align:center;width:100%;padding:8px 0">Saving…</div>'
+  canvas.toBlob(async function(blob){
+    var fd = new FormData()
+    fd.append('file', blob, 'checkin-photo.jpg')
+    try{
+      var res = await fetch('/api/auditions/checkins/'+checkinId+'/photo', {method:'POST', body:fd}).then(function(r){ return r.json() })
+      if(res.url){
+        var rec = RECENT.find(function(r){ return r.id===checkinId })
+        if(rec){ rec.photo = res.url; renderRecent() }
+      }
+    } catch(e){}
+    closeCamModal()
+  }, 'image/jpeg', 0.85)
+}
+
+boot()
+</script>
+</body>
+</html>

@@ -172,6 +172,8 @@ else: ok("pickup_queue no TEXT/DATE comparison")
 
 # EVENT DELETE: savepoints
 b=fn_body('delete_event')
+# The cascade (and its savepoints) lives in _delete_event_cascade, shared with the rental-event sync
+if '_delete_event_cascade(' in b: b += fn_body('_delete_event_cascade')
 if 'SAVEPOINT' in b: ok("delete_event uses savepoints")
 else: fail("delete_event missing savepoints — will fail with transaction abort!")
 

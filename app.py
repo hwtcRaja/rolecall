@@ -7655,6 +7655,58 @@ def sad_performer_status(eid):
     waiting = [r for r in rows if not r['performer_called_at']]
     return jsonify({'called': called, 'waiting_count': len(waiting), 'total': len(rows)})
 
+def sad_auto_open_due_lotteries(conn=None):
+    """Flip any Studio After Dark occurrence from not_open to open once its
+    scheduled_open_at has passed. scheduled_open_at is entered by staff as
+    Eastern wall-clock time and stored without tz info, so it's compared
+    against now_eastern(), never the server's UTC clock. Called from the
+    every-minute scheduler job AND lazily from the public endpoints, so it
+    still opens on time even if the scheduler worker has died (see
+    _acquire_single_worker_lock) and the page flips the instant the
+    countdown hits zero instead of waiting for the next scheduler tick.
+    Only touches not_open rows, so a lottery staff already opened, closed,
+    or drew is never reopened. Returns how many were opened."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_db()
+    opened = 0
+    try:
+        due = fetchall(conn, """SELECT id, event_date FROM studio_after_dark_events
+            WHERE lottery_status='not_open' AND scheduled_open_at IS NOT NULL
+            AND scheduled_open_at <= %s""", (now_eastern(),)) or []
+        for ev in due:
+            execute(conn, """UPDATE studio_after_dark_events SET lottery_status='open',
+                lottery_opens_at=NOW() WHERE id=%s AND lottery_status='not_open'""", (ev['id'],))
+            opened += 1
+            app.logger.info(f"Studio After Dark lottery auto-opened for {ev['event_date']}")
+        if opened:
+            conn.commit()
+    except Exception as e:
+        app.logger.warning(f'Studio After Dark auto-open error: {e}')
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        if own_conn:
+            conn.close()
+    return opened
+
+def _sad_eastern_to_utc_iso(val):
+    """Naive Eastern ISO string -> explicit UTC ISO string ('...Z'), so the
+    browser counts down to the same instant no matter what timezone the
+    viewer's device is set to."""
+    if not val:
+        return None
+    from zoneinfo import ZoneInfo
+    dt = datetime.fromisoformat(str(val)).replace(tzinfo=ZoneInfo('America/New_York'))
+    return dt.astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+def _sad_add_utc_times(ev):
+    ev['scheduled_open_at_utc'] = _sad_eastern_to_utc_iso(ev.get('scheduled_open_at'))
+    ev['scheduled_draw_at_utc'] = _sad_eastern_to_utc_iso(ev.get('scheduled_draw_at'))
+    return ev
+
 # ── Public (volunteer-facing) endpoints ──────────────────────────────────
 
 @app.route('/api/public/sad/current', methods=['GET'])
@@ -7664,12 +7716,13 @@ def sad_current_lottery():
     scheduled open date (for the countdown) so it's never just a blank
     'check back later' with no information."""
     conn = get_db()
+    sad_auto_open_due_lotteries(conn)
     ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status='open'
         ORDER BY event_date ASC LIMIT 1""")
     if ev:
         conn.close()
         ev['open'] = True
-        return jsonify(ev)
+        return jsonify(_sad_add_utc_times(ev))
     ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status != 'completed'
         ORDER BY event_date ASC LIMIT 1""")
     conn.close()
@@ -7677,7 +7730,7 @@ def sad_current_lottery():
         return jsonify({'open': False, 'has_event': False})
     ev['open'] = False
     ev['has_event'] = True
-    return jsonify(ev)
+    return jsonify(_sad_add_utc_times(ev))
 
 @app.route('/api/sad/announce', methods=['POST'])
 def send_sad_announcement():
@@ -7756,6 +7809,7 @@ def sad_enter_lottery():
     if not volunteer:
         conn.close()
         return jsonify({'error': "We weren't able to find you as a member of our HWTC family based on that email. Reach out to us if you need assistance — info@hwtco.org."}), 404
+    sad_auto_open_due_lotteries(conn)
     ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status='open'
         ORDER BY event_date ASC LIMIT 1""")
     if not ev:
@@ -13762,6 +13816,18 @@ def delete_production_conflict(pid, cid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+def _roster_status(signin_rows, conflict_rows, any_event_started):
+    """Daily-overview roster status for one person, shared by the public
+    lobby display and the staff production overview so they can't drift."""
+    if conflict_rows:
+        return conflict_rows[-1]['status']  # called-out ahead of time: absent/sick/late/leaving_early
+    if signin_rows:
+        return 'signed_out' if all(r.get('signed_out_at') for r in signin_rows) else 'signed_in'
+    # No call-out on record and never signed in — only a genuine "no show"
+    # once today's event has actually started; before that, still expected.
+    return 'no_show' if any_event_started else 'not_yet'
+
+
 @app.route('/api/public/daily-overview/<pid>')
 def public_daily_overview_display(pid):
     """Same data as the admin Daily Overview, minus phone/email (a lobby/
@@ -13834,13 +13900,6 @@ def public_daily_overview_display(pid):
         if c.get('youth_id'): conflicts_by_youth.setdefault(c['youth_id'], []).append(c)
         if c.get('volunteer_id'): conflicts_by_volunteer.setdefault(c['volunteer_id'], []).append(c)
 
-    def roster_status(signin_rows, conflict_rows):
-        if conflict_rows:
-            return conflict_rows[-1]['status']
-        if signin_rows:
-            return 'signed_out' if all(r.get('signed_out_at') for r in signin_rows) else 'signed_in'
-        return 'no_show' if any_event_started else 'not_yet'
-
     now_dt = now_eastern()
     any_event_started = False
     for e in events:
@@ -13871,7 +13930,7 @@ def public_daily_overview_display(pid):
         rows = crew_signins.get(m['volunteer_id'], [])
         conf = conflicts_by_volunteer.get(m['volunteer_id'], [])
         signed_in_at = rows[-1]['signed_in_at'] if rows else None
-        crew_out.append({**m, 'status': roster_status(rows, conf), 'signed_in_at': signed_in_at})
+        crew_out.append({**m, 'status': _roster_status(rows, conf, any_event_started), 'signed_in_at': signed_in_at})
         if m.get('birthday') and str(m['birthday'])[5:] == today_md:
             birthdays.append(m['name'])
 
@@ -13880,7 +13939,7 @@ def public_daily_overview_display(pid):
         rows = youth_signins.get(y['youth_id'], [])
         conf = conflicts_by_youth.get(y['youth_id'], [])
         signed_in_at = rows[-1]['signed_in_at'] if rows else None
-        youth_out.append({**y, 'status': roster_status(rows, conf), 'signed_in_at': signed_in_at})
+        youth_out.append({**y, 'status': _roster_status(rows, conf, any_event_started), 'signed_in_at': signed_in_at})
         if y.get('dob') and str(y['dob'])[5:] == today_md:
             birthdays.append(f"{y.get('first_name','')} {y.get('last_name','')}".strip())
 
@@ -13972,15 +14031,6 @@ def get_production_daily_overview(pid):
         if c.get('youth_id'): conflicts_by_youth.setdefault(c['youth_id'], []).append(c)
         if c.get('volunteer_id'): conflicts_by_volunteer.setdefault(c['volunteer_id'], []).append(c)
 
-    def roster_status(signin_rows, conflict_rows):
-        if conflict_rows:
-            return conflict_rows[-1]['status']  # called-out ahead of time: absent/sick/late/leaving_early
-        if signin_rows:
-            return 'signed_out' if all(r.get('signed_out_at') for r in signin_rows) else 'signed_in'
-        # No call-out on record and never signed in — only a genuine "no show"
-        # once today's event has actually started; before that, still expected.
-        return 'no_show' if any_event_started else 'not_yet'
-
     # Has at least one of today's events already started? Drives the not_yet vs no_show split above.
     now_dt = now_eastern()
     any_event_started = False
@@ -14008,7 +14058,7 @@ def get_production_daily_overview(pid):
     for m in crew:
         rows = crew_signins.get(m['volunteer_id'], [])
         conf = conflicts_by_volunteer.get(m['volunteer_id'], [])
-        crew_out.append({**m, 'status': roster_status(rows, conf),
+        crew_out.append({**m, 'status': _roster_status(rows, conf, any_event_started),
             'conflict': conf[-1] if conf else None,
             'signed_in_at': rows[-1]['signed_in_at'] if rows else None,
             'signed_out_at': rows[-1]['signed_out_at'] if rows and rows[-1].get('signed_out_at') else None})
@@ -14017,7 +14067,7 @@ def get_production_daily_overview(pid):
     for y in youth:
         rows = youth_signins.get(y['youth_id'], [])
         conf = conflicts_by_youth.get(y['youth_id'], [])
-        youth_out.append({**y, 'status': roster_status(rows, conf),
+        youth_out.append({**y, 'status': _roster_status(rows, conf, any_event_started),
             'conflict': conf[-1] if conf else None,
             'signed_in_at': rows[-1]['signed_in_at'] if rows else None,
             'signed_out_at': rows[-1]['signed_out_at'] if rows and rows[-1].get('signed_out_at') else None})
@@ -28471,6 +28521,8 @@ def _start_oncall_scheduler():
                           max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.add_job(_daily_auto_close, CronTrigger(hour=2, minute=0), id='daily_auto_close',
                           max_instances=1, coalesce=True)
+        scheduler.add_job(sad_auto_open_due_lotteries, CronTrigger(minute='*'), id='sad_auto_open',
+                          max_instances=1, coalesce=True, misfire_grace_time=30)
         try:
             from apscheduler.triggers.interval import IntervalTrigger
             scheduler.add_job(check_inbox_for_new_mail, IntervalTrigger(minutes=3), id='inbox_check',

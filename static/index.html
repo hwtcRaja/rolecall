@@ -22099,8 +22099,8 @@ function openSadCreateModal(){
  </div>
  <div style="font-size:11.5px;color:var(--text-muted);margin:-6px 0 12px">Drawn right alongside the winners — if someone confirmed later says they can't make it, the next person on that waitlist is automatically emailed with a fresh, short deadline.</div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
- <div class="form-group"><label>Lottery Opens</label><input type="datetime-local" id="sad-new-scheduled-open" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
- <div class="form-group"><label>Drawing Takes Place</label><input type="datetime-local" id="sad-new-scheduled-draw" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group"><label>Lottery Opens (ET)</label><input type="datetime-local" id="sad-new-scheduled-open" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group"><label>Drawing Takes Place (ET)</label><input type="datetime-local" id="sad-new-scheduled-draw" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  </div>
  <div style="font-size:11.5px;color:var(--text-muted);margin:-6px 0 12px">Both are just for the countdown people see on the entry page — you still click "Open Lottery" and "Run the Draw" yourself when the time comes, nothing happens automatically.</div>
  <div style="display:flex;gap:8px;margin-top:16px">
@@ -22204,8 +22204,8 @@ function renderSadDetail(){
  <div class="form-group" style="margin:0"><label style="font-size:11px">Audience Waitlist</label><input type="number" id="sad-edit-audience-waitlist" value="${ev.audience_waitlist_size}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  </div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px">
- <div class="form-group" style="margin:0"><label style="font-size:11px">Lottery Opens</label><input type="datetime-local" id="sad-edit-scheduled-open" value="${sadToDatetimeLocal(ev.scheduled_open_at)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
- <div class="form-group" style="margin:0"><label style="font-size:11px">Drawing Takes Place</label><input type="datetime-local" id="sad-edit-scheduled-draw" value="${sadToDatetimeLocal(ev.scheduled_draw_at)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group" style="margin:0"><label style="font-size:11px">Lottery Opens (ET)</label><input type="datetime-local" id="sad-edit-scheduled-open" value="${sadToDatetimeLocal(ev.scheduled_open_at)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group" style="margin:0"><label style="font-size:11px">Drawing Takes Place (ET)</label><input type="datetime-local" id="sad-edit-scheduled-draw" value="${sadToDatetimeLocal(ev.scheduled_draw_at)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  </div>
  <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:14px">Just powers the countdown on the entry page — click Save after changing these.</div>` : `<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">${ev.start_time||''}${ev.end_time?' – '+ev.end_time:''} &middot; ${ev.performer_slots} performer slots (+${ev.performer_waitlist_size} waitlist) &middot; ${ev.audience_slots} audience slots (+${ev.audience_waitlist_size} waitlist)</div>`}
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:12px;border-top:1px solid var(--border)">

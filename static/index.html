@@ -2967,6 +2967,26 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('responsibility',this.value)"/>
  </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-foh-training">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">FOH Training</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-foh-training" placeholder="graduation-cap" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('foh-training',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-studio-after-dark">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Studio After Dark</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-studio-after-dark" placeholder="moon-star" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('studio-after-dark',this.value)"/>
+ </div>
  </div>
  </div>
    </div>
@@ -10620,7 +10640,7 @@ const NAV_ICON_DEFAULTS = {
   board:'', directors:'', 'my-time':'', 'space-requests':'', surveys:'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
   oncall:'', 'hours-store':'', responsibility:'', licensing:'', inbox:'',
- 'instructor-dashboard':'', 'director-dashboard':''
+ 'instructor-dashboard':'', 'director-dashboard':'', 'foh-training':'', 'studio-after-dark':''
 }
 
 let _currentNavIcons = {}

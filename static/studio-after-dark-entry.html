@@ -140,17 +140,27 @@ function renderNoEvent(){
 
 function renderNotOpenYet(ev){
  var body = ''
- if(ev.scheduled_open_at){
-  body += `<div id="countdown-area"></div>
-   <div class="countdown-note">The lottery opens ${formatFullDateTime(ev.scheduled_open_at)}</div>`
+ if(ev.lottery_status === 'not_open'){
+  if(ev.scheduled_open_at){
+   body += `<div id="countdown-area"></div>
+    <div class="countdown-note">The lottery opens ${formatFullDateTime(ev.scheduled_open_at)}</div>`
+  } else {
+   body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">The lottery opens the Sunday before the show — check back then!</div>`
+  }
+  if(ev.scheduled_draw_at){
+   body += `<div class="draw-note"> The lottery drawing takes place ${formatFullDateTime(ev.scheduled_draw_at)}</div>`
+  }
  } else {
-  body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">The lottery opens the Sunday before the show — check back then!</div>`
- }
- if(ev.scheduled_draw_at){
-  body += `<div class="draw-note"> The lottery drawing takes place ${formatFullDateTime(ev.scheduled_draw_at)}</div>`
+  // Already been through its open period (closed / drawn / confirmations
+  // sent / check-in open) — the scheduled_open_at date is in the past now
+  // and would be misleading to show as if it's still upcoming.
+  body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">Entries are closed for this one.</div>`
+  body += ev.scheduled_draw_at
+   ? `<div class="draw-note" style="margin-top:10px">The drawing takes place ${formatFullDateTime(ev.scheduled_draw_at)} — if you entered, watch your email!</div>`
+   : `<div class="draw-note" style="margin-top:10px">If you entered, watch your email for the drawing results!</div>`
  }
  document.getElementById('form-area').innerHTML = `<div class="card closed-card">${body}</div>`
- if(ev.scheduled_open_at) startCountdown(ev.scheduled_open_at)
+ if(ev.lottery_status === 'not_open' && ev.scheduled_open_at) startCountdown(ev.scheduled_open_at)
 }
 
 function startCountdown(targetIso){
@@ -161,7 +171,7 @@ function startCountdown(targetIso){
   var el = document.getElementById('countdown-area')
   if(!el) { clearInterval(countdownTimer); return }
   if(diff <= 0){
-   el.innerHTML = `<div style="font-size:15px;color:rgba(255,255,255,0.7)">Just about to open — refresh the page!</div>`
+   el.innerHTML = `<div style="font-size:15px;color:rgba(255,255,255,0.7)">The scheduled opening time has passed — check back shortly, we're getting it open!</div>`
    clearInterval(countdownTimer)
    return
   }

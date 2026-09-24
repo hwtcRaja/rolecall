@@ -1188,6 +1188,11 @@ def init_db():
         "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS end_time TEXT DEFAULT '10:00 PM'",
         "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS scheduled_open_at TIMESTAMP",
         "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS scheduled_draw_at TIMESTAMP",
+        # Waitlist size per category — drawn right alongside the winners
+        # (same draw, ranked in order) so a decline can promote the next
+        # person immediately rather than needing a whole second drawing.
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS performer_waitlist_size INTEGER NOT NULL DEFAULT 5",
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS audience_waitlist_size INTEGER NOT NULL DEFAULT 5",
         # One entry per volunteer per occurrence — they can ask to be
         # considered for performing, audience, or both. status walks through
         # entered -> selected_performer/selected_audience -> confirmed
@@ -1212,6 +1217,16 @@ def init_db():
             performer_called_at TIMESTAMP,
             UNIQUE(sad_event_id, volunteer_id))""",
         "CREATE INDEX IF NOT EXISTS ix_sad_entries_event ON sad_entries(sad_event_id, status)",
+        # Tracked per-category (not a single shared field) since someone can
+        # end up on both waitlists at once — e.g. waitlisted for performer
+        # but flat-out not selected for audience, or vice versa.
+        "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS performer_waitlist_position INTEGER",
+        "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS audience_waitlist_position INTEGER",
+        # A promoted waitlister needs their own fresh (usually much shorter)
+        # deadline — the event's original confirm_deadline has often already
+        # passed by the time someone declines and a replacement is needed.
+        # NULL means "use the event's deadline", same as before.
+        "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS entry_confirm_deadline TIMESTAMP",
         # Space/date requests — any staff member can request a space for a
         # one-off date or a recurring class/program schedule, check it
         # against the calendar (reusing the same conflict-checking as
@@ -7311,10 +7326,13 @@ def create_sad_event():
     conn = get_db()
     eid = str(uuid.uuid4())
     execute(conn, """INSERT INTO studio_after_dark_events
-        (id, event_date, start_time, end_time, performer_slots, audience_slots, scheduled_open_at, scheduled_draw_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (id, event_date, start_time, end_time, performer_slots, audience_slots,
+         performer_waitlist_size, audience_waitlist_size, scheduled_open_at, scheduled_draw_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
         (eid, d['event_date'], (d.get('start_time') or '7:30 PM').strip(), (d.get('end_time') or '10:00 PM').strip(),
          int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40),
+         int(d.get('performer_waitlist_size') if d.get('performer_waitlist_size') is not None else 5),
+         int(d.get('audience_waitlist_size') if d.get('audience_waitlist_size') is not None else 5),
          (d.get('scheduled_open_at') or '').strip() or None, (d.get('scheduled_draw_at') or '').strip() or None))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
@@ -7339,9 +7357,12 @@ def update_sad_event(eid):
     d = request.json or {}
     conn = get_db()
     execute(conn, """UPDATE studio_after_dark_events SET event_date=%s, start_time=%s, end_time=%s,
-        performer_slots=%s, audience_slots=%s, scheduled_open_at=%s, scheduled_draw_at=%s WHERE id=%s""",
+        performer_slots=%s, audience_slots=%s, performer_waitlist_size=%s, audience_waitlist_size=%s,
+        scheduled_open_at=%s, scheduled_draw_at=%s WHERE id=%s""",
         (d.get('event_date'), (d.get('start_time') or '7:30 PM').strip(), (d.get('end_time') or '10:00 PM').strip(),
          int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40),
+         int(d.get('performer_waitlist_size') if d.get('performer_waitlist_size') is not None else 5),
+         int(d.get('audience_waitlist_size') if d.get('audience_waitlist_size') is not None else 5),
          (d.get('scheduled_open_at') or '').strip() or None, (d.get('scheduled_draw_at') or '').strip() or None, eid))
     conn.commit()
     conn.close()
@@ -7410,10 +7431,16 @@ def run_sad_draw(eid):
     wanted a performer slot; audience is drawn second from anyone who wanted
     an audience slot and didn't already win a performer slot (a performer
     slot already gets them in the door — no need to also occupy an audience
-    slot). Anyone entered but not drawn for either becomes not_selected.
-    Safe to re-run only in the sense that it always re-derives from
-    currently 'entered' rows — already-selected/confirmed entries are left
-    alone, so running it twice without new entries just does nothing more."""
+    slot). Right behind each category's winners, a waitlist is drawn from
+    the same remaining pool and ranked in order — someone waitlisted for
+    performer is NOT removed from the audience draw (only an actual
+    performer win does that), so it's entirely possible to end up, say,
+    "Audience — confirmed" and "Performer waitlist #2" at the same time.
+    Anyone left over after both categories' winners and waitlists becomes
+    not_selected. Safe to re-run only in the sense that it always
+    re-derives from currently 'entered' rows — already-selected/waitlisted/
+    confirmed entries are left alone, so running it twice without new
+    entries just does nothing more."""
     err = require_auth()
     if err: return err
     conn = get_db()
@@ -7426,25 +7453,32 @@ def run_sad_draw(eid):
         WHERE sad_event_id=%s AND wants_performer=TRUE AND status='entered'""", (eid,)) or []
     random.shuffle(performer_candidates)
     performer_winners = performer_candidates[:ev['performer_slots']]
+    performer_waitlist = performer_candidates[ev['performer_slots']:ev['performer_slots']+ev['performer_waitlist_size']]
     for w in performer_winners:
         token = secrets.token_urlsafe(16)
         execute(conn, "UPDATE sad_entries SET status='selected_performer', selected_category='performer', selected_at=NOW(), confirm_token=%s WHERE id=%s",
             (token, w['id']))
+    for i, w in enumerate(performer_waitlist):
+        execute(conn, "UPDATE sad_entries SET performer_waitlist_position=%s WHERE id=%s", (i+1, w['id']))
 
     audience_candidates = fetchall(conn, """SELECT id FROM sad_entries
         WHERE sad_event_id=%s AND wants_audience=TRUE AND status='entered'""", (eid,)) or []
     random.shuffle(audience_candidates)
     audience_winners = audience_candidates[:ev['audience_slots']]
+    audience_waitlist = audience_candidates[ev['audience_slots']:ev['audience_slots']+ev['audience_waitlist_size']]
     for w in audience_winners:
         token = secrets.token_urlsafe(16)
         execute(conn, "UPDATE sad_entries SET status='selected_audience', selected_category='audience', selected_at=NOW(), confirm_token=%s WHERE id=%s",
             (token, w['id']))
+    for i, w in enumerate(audience_waitlist):
+        execute(conn, "UPDATE sad_entries SET audience_waitlist_position=%s WHERE id=%s", (i+1, w['id']))
 
     execute(conn, "UPDATE sad_entries SET status='not_selected' WHERE sad_event_id=%s AND status='entered'", (eid,))
     execute(conn, "UPDATE studio_after_dark_events SET lottery_status='drawn', drawn_at=NOW() WHERE id=%s", (eid,))
     conn.commit()
     conn.close()
-    return jsonify({'ok': True, 'performer_winners': len(performer_winners), 'audience_winners': len(audience_winners)})
+    return jsonify({'ok': True, 'performer_winners': len(performer_winners), 'audience_winners': len(audience_winners),
+        'performer_waitlist': len(performer_waitlist), 'audience_waitlist': len(audience_waitlist)})
 
 @app.route('/api/sad/events/<eid>/send-confirmations', methods=['POST'])
 def send_sad_confirmations(eid):
@@ -7489,22 +7523,32 @@ def resend_sad_confirmation(eid, entry_id):
         return jsonify({'error': str(e)}), 500
     return jsonify({'ok': True})
 
-def _send_sad_confirmation_email(entry, ev):
+def _send_sad_confirmation_email(entry, ev, promoted_from_waitlist=False):
     category = 'Performer' if entry.get('selected_category') == 'performer' else 'Audience'
     first_name = (entry.get('volunteer_name') or '').split(' ')[0] or 'there'
     confirm_url = f'https://rolecall.hwtco.org/studio-after-dark/confirm/{entry["confirm_token"]}'
     event_dt = parse_db_datetime(ev['event_date'])
     event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
-    deadline_dt = parse_db_datetime(ev.get('confirm_deadline'))
-    deadline_fmt = deadline_dt.strftime('%A, %B %-d at %-I:%M %p') if deadline_dt else str(ev.get('confirm_deadline') or '')
+    # A promoted waitlister carries their own (usually much shorter) deadline
+    # on the entry itself; everyone else uses the event's shared one.
+    deadline_dt = parse_db_datetime(entry.get('entry_confirm_deadline') or ev.get('confirm_deadline'))
+    deadline_fmt = deadline_dt.strftime('%A, %B %-d at %-I:%M %p') if deadline_dt else ''
     performer_note = ('<p>Performer order is picked live, at random, during the event itself — so stick around all night, you never know when you\'ll be called up!</p>'
                       if category == 'Performer' else '')
-    subject = f"You're in the running for Studio After Dark — confirm by {deadline_fmt}"
+    if promoted_from_waitlist:
+        subject = f"A spot opened up — you're in for Studio After Dark! Confirm by {deadline_fmt}"
+        intro = (f'<p>Hi {first_name}, a spot just opened up — you\'ve been moved off the waitlist and into '
+                 f'<strong>{category}</strong> for <strong>{event_date_fmt}</strong>!</p>'
+                 f'<p>Since this came up last-minute, please confirm soon — by <strong>{deadline_fmt}</strong> — '
+                 f'or the spot will go to the next person on the waitlist.</p>')
+    else:
+        subject = f"You're in the running for Studio After Dark — confirm by {deadline_fmt}"
+        intro = (f'<p>Hi {first_name}, good news — the Studio After Dark lottery drawing picked you '
+                 f'as a <strong>{category}</strong> for <strong>{event_date_fmt}</strong>!</p>'
+                 f'<p>Being selected doesn\'t automatically hold your spot — you need to confirm you\'re still able to make it, '
+                 f'by <strong>{deadline_fmt}</strong>. After that, your spot may be given to someone else.</p>')
     body = (
-        f'<p>Hi {first_name}, good news — the Studio After Dark lottery drawing picked you '
-        f'as a <strong>{category}</strong> for <strong>{event_date_fmt}</strong>!</p>'
-        f'<p>Being selected doesn\'t automatically hold your spot — you need to confirm you\'re still able to make it, '
-        f'by <strong>{deadline_fmt}</strong>. After that, your spot may be given to someone else.</p>'
+        f'{intro}'
         f'{performer_note}'
         f'<p style="text-align:center;margin:28px 0">'
         f'<a href="{confirm_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Confirm My Spot</a></p>'
@@ -7549,6 +7593,11 @@ def sad_checkin_scan():
     if entry['status'] == 'checked_in':
         conn.close()
         return jsonify({'error': f'{entry["volunteer_name"]} is already checked in', 'already_checked_in': True, 'volunteer_name': entry['volunteer_name']}), 400
+    if entry['status'] == 'declined':
+        # They gave up this spot (and it's likely already been promoted to
+        # someone else) — their old code shouldn't still get them in.
+        conn.close()
+        return jsonify({'error': f'{entry["volunteer_name"]} declined this spot — not valid for entry', 'declined': True, 'volunteer_name': entry['volunteer_name']}), 400
     execute(conn, "UPDATE sad_entries SET status='checked_in', checked_in_at=NOW() WHERE id=%s", (entry['id'],))
     conn.commit()
     conn.close()
@@ -7681,32 +7730,53 @@ def sad_confirm_lookup(token):
     entry = entries[0]
     ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (entry['sad_event_id'],))
     conn.close()
+    # A promoted waitlister gets their own (usually shorter) deadline;
+    # everyone else uses the event's shared one.
+    deadline = entry.get('entry_confirm_deadline') or ev.get('confirm_deadline')
     expired = False
-    if ev.get('confirm_deadline') and entry['status'] in ('selected_performer', 'selected_audience'):
-        expired = datetime.now() > parse_db_datetime(ev['confirm_deadline'])
+    if deadline and entry['status'] in ('selected_performer', 'selected_audience'):
+        expired = datetime.now() > parse_db_datetime(deadline)
     return jsonify({
         'volunteer_name': entry['volunteer_name'],
         'category': 'Performer' if entry['selected_category']=='performer' else 'Audience',
         'already_confirmed': entry['status'] == 'checked_in' or entry['confirmed_at'] is not None,
+        'declined': entry['status'] == 'declined',
         'checkin_code': entry['checkin_code'],
         'event_date': ev['event_date'],
-        'confirm_deadline': ev.get('confirm_deadline'),
+        'confirm_deadline': deadline,
         'expired': expired,
     })
 
 @app.route('/api/public/sad/confirm/<token>', methods=['POST'])
 def sad_confirm_submit(token):
+    d = request.json or {}
+    action = d.get('action') or 'confirm'
     conn = get_db()
     entries = _sad_entry_with_volunteer(conn, "e.confirm_token=%s", (token,))
     if not entries:
         conn.close()
         return jsonify({'error': 'Link not found or expired'}), 404
     entry = entries[0]
+
+    if action == 'decline':
+        if entry['status'] not in ('selected_performer', 'selected_audience', 'confirmed'):
+            conn.close()
+            return jsonify({'error': 'This link is no longer active'}), 400
+        execute(conn, "UPDATE sad_entries SET status='declined' WHERE id=%s", (entry['id'],))
+        conn.commit()
+        try:
+            _promote_next_sad_waitlister(conn, entry['sad_event_id'], entry['selected_category'])
+        except Exception as e:
+            app.logger.warning(f'SAD waitlist promotion failed for {entry["id"]}: {e}')
+        conn.close()
+        return jsonify({'ok': True, 'declined': True})
+
     if entry['confirmed_at']:
         conn.close()
         return jsonify({'ok': True, 'checkin_code': entry['checkin_code']})
     ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (entry['sad_event_id'],))
-    if ev.get('confirm_deadline') and datetime.now() > parse_db_datetime(ev['confirm_deadline']):
+    deadline = entry.get('entry_confirm_deadline') or ev.get('confirm_deadline')
+    if deadline and datetime.now() > parse_db_datetime(deadline):
         conn.close()
         return jsonify({'error': 'The confirmation deadline has passed'}), 400
     code = secrets.token_hex(4).upper()
@@ -7714,6 +7784,37 @@ def sad_confirm_submit(token):
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'checkin_code': code})
+
+def _promote_next_sad_waitlister(conn, sad_event_id, category):
+    """Bumps the next-in-line waitlister for whichever category just opened
+    up a spot, and emails them a fresh, short-fuse confirm link. Whoever's
+    lowest on {category}_waitlist_position is next — their overall `status`
+    isn't a reliable signal here (someone waitlisted for performer might
+    already be sitting at status='selected_audience' or 'not_selected'
+    depending on how the audience side of the same draw went), so instead
+    of checking status, promoting someone clears their waitlist_position
+    for this category — that's what actually prevents them being picked
+    again in a future promotion round."""
+    col = 'performer_waitlist_position' if category == 'performer' else 'audience_waitlist_position'
+    candidates = _sad_entry_with_volunteer(conn, f"e.sad_event_id=%s AND e.{col} IS NOT NULL", (sad_event_id,))
+    if not candidates:
+        return
+    candidates.sort(key=lambda e: e[col])
+    promoted = candidates[0]
+    token = secrets.token_urlsafe(16)
+    # A short, fixed window rather than reusing the event's original
+    # deadline — that one was set for the initial round and has often
+    # already passed by the time a decline opens a waitlist spot.
+    new_deadline = datetime.now() + timedelta(hours=24)
+    execute(conn, f"""UPDATE sad_entries SET status=%s, selected_category=%s, selected_at=NOW(),
+        confirm_token=%s, entry_confirm_deadline=%s, {col}=NULL WHERE id=%s""",
+        (f'selected_{category}', category, token, new_deadline, promoted['id']))
+    conn.commit()
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (sad_event_id,))
+    promoted['confirm_token'] = token
+    promoted['entry_confirm_deadline'] = new_deadline
+    promoted['selected_category'] = category
+    _send_sad_confirmation_email(promoted, ev, promoted_from_waitlist=True)
 
 
 def _public_queue_snapshot(conn, context_type, context_id):

@@ -191,25 +191,28 @@ function renderForm(ev){
  </div>
  <label>Enter the lottery as…</label>
  <label class="opt-row" for="opt-performer">
- <input type="checkbox" id="opt-performer"/>
- <div><div class="opt-title">Performer</div><div class="opt-desc">You'll be part of the performer pool — if selected and checked in, performer order is picked live, at random, during the event itself.</div></div>
+ <input type="radio" name="sad-role" id="opt-performer"/>
+ <div><div class="opt-title">Performer</div><div class="opt-desc">You'll perform <em>and</em> be there the whole night to support everyone else, too. Performer order is picked live, at random, during the event itself.</div></div>
  </label>
  <label class="opt-row" for="opt-audience">
- <input type="checkbox" id="opt-audience" checked/>
- <div><div class="opt-title">Audience Member</div><div class="opt-desc">You'd like to be there for the show, no pressure to perform.</div></div>
+ <input type="radio" name="sad-role" id="opt-audience" checked/>
+ <div><div class="opt-title">Audience Member</div><div class="opt-desc">You just want to come watch and cheer on your friends — no interest in performing.</div></div>
  </label>
  <button class="btn" id="submit-btn" onclick="submitEntry()">Enter the Lottery</button>
- <div class="hint">Entering doesn't guarantee a spot — the drawing happens the Friday before, at random, and you'll get an email either way.</div>
+ <div class="hint">Entering doesn't guarantee a spot — the drawing happens the Friday before. We'll email you to confirm your spot.</div>
  </div>`
 }
 
 async function submitEntry(){
  var email = (document.getElementById('entry-email')?.value||'').trim()
+ // A performer is always an audience member too (they're there all night to
+ // support everyone else) — so this is really one choice, not two
+ // independent options. "Performer" implies both; "Audience Member" means
+ // audience only.
  var wantsPerformer = !!document.getElementById('opt-performer')?.checked
- var wantsAudience = !!document.getElementById('opt-audience')?.checked
+ var wantsAudience = wantsPerformer || !!document.getElementById('opt-audience')?.checked
  var statusEl = document.getElementById('form-status')
  if(!email){ statusEl.innerHTML = '<div class="status-msg error">Please enter your email.</div>'; return }
- if(!wantsPerformer && !wantsAudience){ statusEl.innerHTML = '<div class="status-msg error">Please select at least one option.</div>'; return }
  var btn = document.getElementById('submit-btn')
  btn.disabled = true; btn.textContent = 'Entering…'
  statusEl.innerHTML = ''
@@ -227,7 +230,7 @@ async function submitEntry(){
   document.getElementById('form-area').innerHTML = `<div class="card confirm-box">
    <div class="check">✓</div>
    <h2>You're entered!</h2>
-   <p>We've sent a confirmation to your email. The lottery drawing happens the Friday before the show — if you're selected, you'll get another email to confirm you can still make it. Keep an eye out!</p>
+   <p>We've sent a confirmation to your email. The lottery drawing happens the Friday before the show — if you're selected, we'll email you to confirm your spot. Keep an eye out!</p>
   </div>`
  } catch(e){
   statusEl.innerHTML = '<div class="status-msg error">Something went wrong — please try again.</div>'

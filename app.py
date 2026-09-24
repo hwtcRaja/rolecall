@@ -7289,7 +7289,7 @@ def get_sad_current_active_event():
     """Backs the scanner and performer-picker pages, which are meant to be
     simple bookmarkable links with no event ID to look up — resolves to
     whichever occurrence staff are most likely mid-running right now."""
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'view')
     if err: return err
     conn = get_db()
     row = fetchone(conn, """SELECT * FROM studio_after_dark_events
@@ -7304,7 +7304,7 @@ def get_sad_current_active_event():
 
 @app.route('/api/sad/events', methods=['GET'])
 def list_sad_events():
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'view')
     if err: return err
     conn = get_db()
     rows = fetchall(conn, """SELECT ev.*,
@@ -7318,7 +7318,7 @@ def list_sad_events():
 
 @app.route('/api/sad/events', methods=['POST'])
 def create_sad_event():
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     d = request.json or {}
     if not (d.get('event_date') or '').strip():
@@ -7341,7 +7341,7 @@ def create_sad_event():
 
 @app.route('/api/sad/events/<eid>', methods=['GET'])
 def get_sad_event(eid):
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'view')
     if err: return err
     conn = get_db()
     row = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
@@ -7352,7 +7352,7 @@ def get_sad_event(eid):
 
 @app.route('/api/sad/events/<eid>', methods=['PUT'])
 def update_sad_event(eid):
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -7370,7 +7370,7 @@ def update_sad_event(eid):
 
 @app.route('/api/sad/events/<eid>', methods=['DELETE'])
 def delete_sad_event(eid):
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM studio_after_dark_events WHERE id=%s', (eid,))
@@ -7380,7 +7380,7 @@ def delete_sad_event(eid):
 
 @app.route('/api/sad/events/<eid>/open-lottery', methods=['POST'])
 def open_sad_lottery(eid):
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -7393,7 +7393,7 @@ def open_sad_lottery(eid):
 
 @app.route('/api/sad/events/<eid>/close-lottery', methods=['POST'])
 def close_sad_lottery(eid):
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     conn = get_db()
     execute(conn, "UPDATE studio_after_dark_events SET lottery_status='closed', lottery_closes_at=NOW() WHERE id=%s", (eid,))
@@ -7405,7 +7405,7 @@ def close_sad_lottery(eid):
 def open_sad_checkin(eid):
     """Staff click this day-of, once they're ready to start scanning people
     in at the door."""
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     conn = get_db()
     execute(conn, "UPDATE studio_after_dark_events SET lottery_status='checkin_open' WHERE id=%s", (eid,))
@@ -7417,7 +7417,7 @@ def open_sad_checkin(eid):
 def complete_sad_event(eid):
     """Marks the night as wrapped up — mostly just moves it out of the
     'currently active' resolution so a new occurrence takes its place."""
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     conn = get_db()
     execute(conn, "UPDATE studio_after_dark_events SET lottery_status='completed' WHERE id=%s", (eid,))
@@ -7441,7 +7441,7 @@ def run_sad_draw(eid):
     re-derives from currently 'entered' rows — already-selected/waitlisted/
     confirmed entries are left alone, so running it twice without new
     entries just does nothing more."""
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     conn = get_db()
     ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
@@ -7482,7 +7482,7 @@ def run_sad_draw(eid):
 
 @app.route('/api/sad/events/<eid>/send-confirmations', methods=['POST'])
 def send_sad_confirmations(eid):
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     d = request.json or {}
     deadline = (d.get('confirm_deadline') or '').strip()
@@ -7510,7 +7510,7 @@ def send_sad_confirmations(eid):
 
 @app.route('/api/sad/events/<eid>/resend/<entry_id>', methods=['POST'])
 def resend_sad_confirmation(eid, entry_id):
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     conn = get_db()
     ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
@@ -7559,7 +7559,7 @@ def _send_sad_confirmation_email(entry, ev, promoted_from_waitlist=False):
 
 @app.route('/api/sad/events/<eid>/entries', methods=['GET'])
 def get_sad_entries(eid):
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'view')
     if err: return err
     status_filter = request.args.get('status', '').strip()
     conn = get_db()
@@ -7579,7 +7579,7 @@ def sad_checkin_scan():
     authed (the scanner page itself requires login), not public — the QR
     code is the visitor's proof of a confirmed spot, but actually admitting
     them is still a staff action."""
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     d = request.json or {}
     code = (d.get('checkin_code') or '').strip().upper()
@@ -7611,7 +7611,7 @@ def sad_pick_performer(eid):
     the earlier lottery draw, which only decided who's in the performer
     pool at all. Only picks from people already checked in tonight, and
     never repeats someone within the same night unless the pool is reset."""
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     conn = get_db()
     candidates = fetchall(conn, """SELECT e.id, v.name AS volunteer_name FROM sad_entries e
@@ -7631,7 +7631,7 @@ def sad_pick_performer(eid):
 
 @app.route('/api/sad/events/<eid>/reset-performer-calls', methods=['POST'])
 def sad_reset_performer_calls(eid):
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'edit')
     if err: return err
     conn = get_db()
     execute(conn, "UPDATE sad_entries SET performer_called_at=NULL WHERE sad_event_id=%s", (eid,))
@@ -7643,7 +7643,7 @@ def sad_reset_performer_calls(eid):
 def sad_performer_status(eid):
     """Backs the live performer-picker screen — who's been called already,
     who's still in the pool."""
-    err = require_auth()
+    err = require_permission('studio_after_dark', 'view')
     if err: return err
     conn = get_db()
     rows = fetchall(conn, """SELECT v.name AS volunteer_name, e.performer_called_at FROM sad_entries e

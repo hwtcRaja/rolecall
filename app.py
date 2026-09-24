@@ -7797,6 +7797,8 @@ def _send_sad_announcement_email(volunteer):
     body = (
         f'<div style="text-align:center;margin:8px 0 28px">'
         f'<img src="{ghost_light_url}" alt="A ghost light" width="120" style="width:120px;height:auto;display:inline-block"/></div>'
+        f'<p style="text-align:center;margin:0 0 22px">Every <strong>first Saturday of the month</strong> at the HWTC Studio. '
+        f'Can\'t make the next one? There\'s always next month.</p>'
         f'<p style="text-align:center;margin:0 0 8px">'
         f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Click to Learn More</a></p>'
     )

@@ -7727,13 +7727,16 @@ def _send_sad_announcement_email(volunteer):
     landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
     ghost_light_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/ghost-light.png'
     subject = "The studio is yours after dark."
+    # The tagline already appears once as the subject/header (via
+    # build_sad_email_html) — repeating it again in the body was piling up
+    # logo + heading + ghost light + tagline + button into one crowded
+    # email. Just the image and the button here; the header carries the rest.
     body = (
         f'{greeting}'
-        f'<div style="text-align:center;margin:8px 0 24px">'
-        f'<img src="{ghost_light_url}" alt="A ghost light" width="90" style="width:90px;height:auto;display:inline-block"/></div>'
-        f'<p style="text-align:center;font-size:20px;font-weight:700;color:#fff;margin-bottom:28px">The studio is yours after dark.</p>'
+        f'<div style="text-align:center;margin:8px 0 28px">'
+        f'<img src="{ghost_light_url}" alt="A ghost light" width="120" style="width:120px;height:auto;display:inline-block"/></div>'
         f'<p style="text-align:center;margin:0 0 8px">'
-        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Studio After Dark</a></p>'
+        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Learn More</a></p>'
     )
     send_email([volunteer['email']], subject, build_sad_email_html(subject, body))
 

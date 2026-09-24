@@ -7768,30 +7768,39 @@ def send_sad_announcement_test():
     email = (d.get('email') or '').strip()
     if not email:
         return jsonify({'error': 'Please enter an email address'}), 400
+    conn = get_db()
+    vol = fetchone(conn, "SELECT name FROM volunteers WHERE LOWER(email)=LOWER(%s) LIMIT 1", (email,))
+    conn.close()
     try:
-        _send_sad_announcement_email({'name': '', 'email': email})
+        _send_sad_announcement_email({'name': (vol or {}).get('name') or '', 'email': email})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
     return jsonify({'ok': True})
 
 def _send_sad_announcement_email(volunteer):
-    first_name = (volunteer.get('name') or '').split(' ')[0]
-    greeting = f'<p>Hi {first_name},</p>' if first_name else ''
+    from html import escape
+    first_name = (volunteer.get('name') or '').strip().split(' ')[0]
     landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
     ghost_light_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/ghost-light.png'
-    subject = "The studio is yours after dark."
+    # Personalized tagline as the subject and the email's headline, e.g.
+    # "Ryan, the studio is yours after dark." Falls back to the plain
+    # tagline when there's no name on file. The name IS the greeting now,
+    # so there's no separate "Hi Ryan," line above the image.
+    if first_name:
+        subject = f"{first_name}, the studio is yours after dark."
+    else:
+        subject = "The studio is yours after dark."
     # The tagline already appears once as the subject/header (via
     # build_sad_email_html) — repeating it again in the body was piling up
     # logo + heading + ghost light + tagline + button into one crowded
     # email. Just the image and the button here; the header carries the rest.
     body = (
-        f'{greeting}'
         f'<div style="text-align:center;margin:8px 0 28px">'
         f'<img src="{ghost_light_url}" alt="A ghost light" width="120" style="width:120px;height:auto;display:inline-block"/></div>'
         f'<p style="text-align:center;margin:0 0 8px">'
-        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Learn More</a></p>'
+        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Click to Learn More</a></p>'
     )
-    send_email([volunteer['email']], subject, build_sad_email_html(subject, body))
+    send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
 
 
 @app.route('/api/public/sad/enter', methods=['POST'])

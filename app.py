@@ -7679,6 +7679,65 @@ def sad_current_lottery():
     ev['has_event'] = True
     return jsonify(ev)
 
+@app.route('/api/sad/announce', methods=['POST'])
+def send_sad_announcement():
+    """A one-off broadcast introducing the whole Studio After Dark program
+    to the volunteer list — separate from every other SAD email, which is
+    tied to a specific lottery entry/selection. This one isn't about any
+    particular occurrence; it just points people at the general landing
+    page (/studio-after-dark), which always reflects whatever's actually
+    happening right now (open, closed, or nothing scheduled). Sent as
+    individual emails, not one shared blast, so it can carry each person's
+    first name and doesn't expose the whole recipient list to itself."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    volunteers = fetchall(conn, "SELECT name, email FROM volunteers WHERE status='active' AND email IS NOT NULL AND email != ''") or []
+    conn.close()
+    sent = 0
+    for v in volunteers:
+        try:
+            _send_sad_announcement_email(v)
+            sent += 1
+        except Exception as e:
+            app.logger.warning(f'SAD announcement email failed for {v.get("email")}: {e}')
+    return jsonify({'ok': True, 'sent': sent})
+
+@app.route('/api/sad/announce/test', methods=['POST'])
+def send_sad_announcement_test():
+    """Sends the exact same announcement email to just one address, so
+    staff can see it in an actual inbox before blasting the whole
+    volunteer list. Doesn't require the address to belong to a real
+    volunteer record — it's just a test send."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    email = (d.get('email') or '').strip()
+    if not email:
+        return jsonify({'error': 'Please enter an email address'}), 400
+    try:
+        _send_sad_announcement_email({'name': '', 'email': email})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True})
+
+def _send_sad_announcement_email(volunteer):
+    first_name = (volunteer.get('name') or '').split(' ')[0]
+    greeting = f'<p>Hi {first_name},</p>' if first_name else ''
+    landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
+    ghost_light_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/ghost-light.png'
+    subject = "The studio is yours after dark."
+    body = (
+        f'{greeting}'
+        f'<div style="text-align:center;margin:8px 0 24px">'
+        f'<img src="{ghost_light_url}" alt="A ghost light" width="90" style="width:90px;height:auto;display:inline-block"/></div>'
+        f'<p style="text-align:center;font-size:20px;font-weight:700;color:#fff;margin-bottom:28px">The studio is yours after dark.</p>'
+        f'<p style="text-align:center;margin:0 0 8px">'
+        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Studio After Dark</a></p>'
+    )
+    send_email([volunteer['email']], subject, build_sad_email_html(subject, body))
+
+
 @app.route('/api/public/sad/enter', methods=['POST'])
 def sad_enter_lottery():
     d = request.json or {}

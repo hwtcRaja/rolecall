@@ -7591,7 +7591,7 @@ def sad_enter_lottery():
     volunteer = fetchone(conn, "SELECT id, name FROM volunteers WHERE LOWER(email)=LOWER(%s) AND status='active'", (email,))
     if not volunteer:
         conn.close()
-        return jsonify({'error': "We couldn't find an active volunteer with that email. Contact staff if you think this is a mistake."}), 404
+        return jsonify({'error': "We weren't able to find you as a member of our HWTC family based on that email. Reach out to us if you need assistance — info@hwtco.org."}), 404
     ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status='open'
         ORDER BY event_date ASC LIMIT 1""")
     if not ev:

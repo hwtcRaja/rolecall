@@ -7612,8 +7612,8 @@ def sad_enter_lottery():
         event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
         subject = "You're entered for Studio After Dark!"
         body = (f"<p>Hi {first_name}, you're entered in the lottery for Studio After Dark on <strong>{event_date_fmt}</strong>.</p>"
-                "<p>Entering doesn't guarantee a spot — the drawing happens the Friday before, at random, and if you're "
-                "selected you'll get another email to confirm you're still interested.</p>")
+                "<p>Entering doesn't guarantee a spot — the drawing happens the Friday before. "
+                "If you're selected, we'll email you to confirm your spot.</p>")
         send_email([volunteer['name'] and email or email], subject, build_hwtc_email_html(subject, body))
     except Exception as e:
         app.logger.warning(f'SAD entry confirmation email failed: {e}')

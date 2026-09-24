@@ -37,7 +37,6 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#0b0714;color:rgb
 .how-num{flex-shrink:0;width:24px;height:24px;border-radius:50%;background:rgba(236,72,153,0.18);color:#f472b6;font-size:12.5px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px}
 .tagline{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:700;color:#fff;text-align:center;margin-bottom:36px}
 .card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.14);border-radius:16px;padding:28px 24px;margin-bottom:48px}
-.event-slots{font-size:13px;color:rgba(255,255,255,0.5);text-align:center;margin-bottom:22px}
 .form-group{margin-bottom:16px}
 label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:rgba(255,255,255,0.5);display:block;margin-bottom:7px}
 input[type=email]{width:100%;padding:13px 15px;border:1.5px solid rgba(255,255,255,0.18);border-radius:12px;font-family:inherit;font-size:15px;background:rgba(255,255,255,0.06);color:#fff}
@@ -183,7 +182,6 @@ function startCountdown(targetIso){
 
 function renderForm(ev){
  document.getElementById('form-area').innerHTML = `<div class="card">
- <div class="event-slots">${ev.performer_slots} performer slots &middot; ${ev.audience_slots} audience slots</div>
  <div id="form-status"></div>
  <div class="form-group">
  <label>Your Email</label>

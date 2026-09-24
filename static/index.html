@@ -21948,11 +21948,11 @@ const SAD_STATUS_COLORS = {
 }
 const SAD_ENTRY_STATUS_LABELS = {
  entered:'Entered', selected_performer:'Selected — Performer', selected_audience:'Selected — Audience',
- not_selected:'Not Selected', confirmed:'Confirmed', checked_in:'Checked In'
+ not_selected:'Not Selected', confirmed:'Confirmed', checked_in:'Checked In', declined:'Declined'
 }
 const SAD_ENTRY_STATUS_COLORS = {
  entered:['#f3f4f6','#6b7280'], selected_performer:['#dbeafe','#1e40af'], selected_audience:['#dbeafe','#1e40af'],
- not_selected:['#fee2e2','#991b1b'], confirmed:['#dcfce7','#166534'], checked_in:['#dcfce7','#166534']
+ not_selected:['#fee2e2','#991b1b'], confirmed:['#dcfce7','#166534'], checked_in:['#dcfce7','#166534'], declined:['#fee2e2','#991b1b']
 }
 let _sadEvents = []
 let _sadCurrentEvent = null
@@ -22036,6 +22036,11 @@ function openSadCreateModal(){
  <div class="form-group"><label>Audience Slots</label><input type="number" id="sad-new-audience-slots" value="40" min="0" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  </div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+ <div class="form-group"><label>Performer Waitlist</label><input type="number" id="sad-new-performer-waitlist" value="5" min="0" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group"><label>Audience Waitlist</label><input type="number" id="sad-new-audience-waitlist" value="5" min="0" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ </div>
+ <div style="font-size:11.5px;color:var(--text-muted);margin:-6px 0 12px">Drawn right alongside the winners — if someone confirmed later says they can't make it, the next person on that waitlist is automatically emailed with a fresh, short deadline.</div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
  <div class="form-group"><label>Lottery Opens</label><input type="datetime-local" id="sad-new-scheduled-open" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  <div class="form-group"><label>Drawing Takes Place</label><input type="datetime-local" id="sad-new-scheduled-draw" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  </div>
@@ -22057,6 +22062,8 @@ async function submitSadCreate(){
  end_time: document.getElementById('sad-new-end-time')?.value || '10:00 PM',
  performer_slots: parseInt(document.getElementById('sad-new-performer-slots')?.value)||15,
  audience_slots: parseInt(document.getElementById('sad-new-audience-slots')?.value)||40,
+ performer_waitlist_size: parseInt(document.getElementById('sad-new-performer-waitlist')?.value)||0,
+ audience_waitlist_size: parseInt(document.getElementById('sad-new-audience-waitlist')?.value)||0,
  scheduled_open_at: document.getElementById('sad-new-scheduled-open')?.value || null,
  scheduled_draw_at: document.getElementById('sad-new-scheduled-draw')?.value || null,
  })
@@ -22134,11 +22141,15 @@ function renderSadDetail(){
  <div class="form-group" style="margin:0"><label style="font-size:11px">Performer Slots</label><input type="number" id="sad-edit-performer-slots" value="${ev.performer_slots}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  <div class="form-group" style="margin:0"><label style="font-size:11px">Audience Slots</label><input type="number" id="sad-edit-audience-slots" value="${ev.audience_slots}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  </div>
+ <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+ <div class="form-group" style="margin:0"><label style="font-size:11px">Performer Waitlist</label><input type="number" id="sad-edit-performer-waitlist" value="${ev.performer_waitlist_size}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div class="form-group" style="margin:0"><label style="font-size:11px">Audience Waitlist</label><input type="number" id="sad-edit-audience-waitlist" value="${ev.audience_waitlist_size}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ </div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:4px">
  <div class="form-group" style="margin:0"><label style="font-size:11px">Lottery Opens</label><input type="datetime-local" id="sad-edit-scheduled-open" value="${sadToDatetimeLocal(ev.scheduled_open_at)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  <div class="form-group" style="margin:0"><label style="font-size:11px">Drawing Takes Place</label><input type="datetime-local" id="sad-edit-scheduled-draw" value="${sadToDatetimeLocal(ev.scheduled_draw_at)}" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
  </div>
- <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:14px">Just powers the countdown on the entry page — click Save after changing these.</div>` : `<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">${ev.start_time||''}${ev.end_time?' – '+ev.end_time:''} &middot; ${ev.performer_slots} performer slots &middot; ${ev.audience_slots} audience slots</div>`}
+ <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:14px">Just powers the countdown on the entry page — click Save after changing these.</div>` : `<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">${ev.start_time||''}${ev.end_time?' – '+ev.end_time:''} &middot; ${ev.performer_slots} performer slots (+${ev.performer_waitlist_size} waitlist) &middot; ${ev.audience_slots} audience slots (+${ev.audience_waitlist_size} waitlist)</div>`}
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding-top:12px;border-top:1px solid var(--border)">
  ${sadPhaseActionsHtml(ev)}
  </div>
@@ -22159,13 +22170,18 @@ function renderSadDetail(){
  const [ebg,ecol] = SAD_ENTRY_STATUS_COLORS[e.status] || ['#f3f4f6','#6b7280']
  const wants = [e.wants_performer?'Performer':null, e.wants_audience?'Audience':null].filter(Boolean).join(' + ')
  const canResend = (e.status==='selected_performer'||e.status==='selected_audience') && e.confirm_token
+ const waitlistBadges = [
+ e.performer_waitlist_position?`Performer Waitlist #${e.performer_waitlist_position}`:null,
+ e.audience_waitlist_position?`Audience Waitlist #${e.audience_waitlist_position}`:null,
+ ].filter(Boolean).map(t=>`<span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;background:#ede9fe;color:#6d28d9;white-space:nowrap">${t}</span>`).join('')
  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;background:var(--bg);border-radius:8px;margin-bottom:6px">
  <div style="min-width:0">
  <div style="font-size:13px;font-weight:700">${escHtml(e.volunteer_name)}</div>
  <div style="font-size:11.5px;color:var(--text-muted)">Wants: ${wants||'—'}</div>
  </div>
- <div style="display:flex;align-items:center;gap:8px;flex-shrink:0">
+ <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end">
  <span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;background:${ebg};color:${ecol};white-space:nowrap">${SAD_ENTRY_STATUS_LABELS[e.status]||e.status}</span>
+ ${waitlistBadges}
  ${canResend?`<button class="btn btn-secondary btn-sm" onclick="sadResendConfirmation('${ev.id}','${e.id}')">Resend</button>`:''}
  </div>
  </div>`
@@ -22189,6 +22205,8 @@ async function sadSaveSettings(eid){
  end_time: document.getElementById('sad-edit-end-time')?.value || '10:00 PM',
  performer_slots: parseInt(document.getElementById('sad-edit-performer-slots')?.value)||15,
  audience_slots: parseInt(document.getElementById('sad-edit-audience-slots')?.value)||40,
+ performer_waitlist_size: parseInt(document.getElementById('sad-edit-performer-waitlist')?.value)||0,
+ audience_waitlist_size: parseInt(document.getElementById('sad-edit-audience-waitlist')?.value)||0,
  scheduled_open_at: document.getElementById('sad-edit-scheduled-open')?.value || null,
  scheduled_draw_at: document.getElementById('sad-edit-scheduled-draw')?.value || null,
  })

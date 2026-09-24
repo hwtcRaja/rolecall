@@ -3689,6 +3689,58 @@ hr{{border:none;border-top:1px solid #e8e6e0;margin:1.75rem 0}}
 </body></html>'''
 
 
+def build_sad_email_html(subject, body_html, footer_note=''):
+    """Same idea as build_hwtc_email_html, but themed to match the Studio
+    After Dark pages (dark background, pink/purple accent, the actual SAD
+    logo) instead of the standard HWTC letter template — so an SAD email
+    feels like part of the same experience as the entry/confirm pages
+    instead of a generic notice. Email clients have much weaker CSS support
+    than a browser (Outlook in particular ignores gradients entirely), so
+    this leans on solid accent colors with a gradient only as a bonus where
+    it happens to render, and inline-safe fonts rather than the Google Fonts
+    used on the actual pages."""
+    footer_note = footer_note or 'Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#f472b6">info@hwtco.org</a>.'
+    logo_url = 'https://irp.cdn-website.com/ab1f5fdb/dms3rep/multi/opt/SADLogo-bd629fa1-1920w.png'
+    return f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>{subject}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;background:#0b0714;color:rgba(255,255,255,0.85)}}
+.wrapper{{max-width:600px;margin:0 auto;background:#0b0714}}
+.top-bar{{height:5px;background-color:#ec4899;background-image:linear-gradient(90deg,#7c3aed,#ec4899,#f472b6)}}
+.header{{padding:36px 32px 24px;text-align:center}}
+.header img{{max-width:220px;width:70%;height:auto}}
+.subject-line{{font-size:19px;font-weight:700;color:#fff;margin-top:20px;line-height:1.4}}
+.body{{padding:8px 36px 32px}}
+.body-inner{{background:#15101f;border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:28px 26px}}
+p{{font-size:15px;line-height:1.7;margin-bottom:1rem;color:rgba(255,255,255,0.82)}}
+strong{{font-weight:700;color:#fff}}
+a{{color:#f472b6}}
+.footer{{border-top:1px solid rgba(255,255,255,0.1);padding:22px 32px 32px;text-align:center}}
+.footer p{{font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:4px}}
+</style></head>
+<body>
+<div class="wrapper">
+  <div class="top-bar"></div>
+  <div class="header">
+    <img src="{logo_url}" alt="Studio After Dark"/>
+    <div class="subject-line">{subject}</div>
+  </div>
+  <div class="body">
+    <div class="body-inner">
+      {body_html}
+    </div>
+  </div>
+  <div class="footer">
+    <p><strong style="color:rgba(255,255,255,0.6)">Horizon West Theater Company</strong></p>
+    <p style="margin-top:6px">{footer_note}</p>
+  </div>
+</div>
+</body></html>'''
+
+
 def build_waitlist_promoted_email_html(guardian_name, child_name, program_name, pay_url=None, hold_hours=None):
     """Sent when someone is promoted off the waitlist — either straight to confirmed (free
     program) or with a payment link to lock in the spot (paid program)."""
@@ -7455,10 +7507,10 @@ def _send_sad_confirmation_email(entry, ev):
         f'by <strong>{deadline_fmt}</strong>. After that, your spot may be given to someone else.</p>'
         f'{performer_note}'
         f'<p style="text-align:center;margin:28px 0">'
-        f'<a href="{confirm_url}" style="background:#145466;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">Confirm My Spot</a></p>'
-        f'<p style="color:#78716c;font-size:13px">Once you confirm, you\'ll get a QR code to show at the door — hang onto that link, you can pull it back up any time before the event.</p>'
+        f'<a href="{confirm_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Confirm My Spot</a></p>'
+        f'<p style="color:rgba(255,255,255,0.45);font-size:13px">Once you confirm, you\'ll get a QR code to show at the door — hang onto that link, you can pull it back up any time before the event.</p>'
     )
-    send_email([entry['volunteer_email']], subject, build_hwtc_email_html(subject, body))
+    send_email([entry['volunteer_email']], subject, build_sad_email_html(subject, body))
 
 @app.route('/api/sad/events/<eid>/entries', methods=['GET'])
 def get_sad_entries(eid):
@@ -7614,7 +7666,7 @@ def sad_enter_lottery():
         body = (f"<p>Hi {first_name}, you're entered in the lottery for Studio After Dark on <strong>{event_date_fmt}</strong>.</p>"
                 "<p>Entering doesn't guarantee a spot — the drawing happens the Friday before. "
                 "If you're selected, we'll email you to confirm your spot.</p>")
-        send_email([volunteer['name'] and email or email], subject, build_hwtc_email_html(subject, body))
+        send_email([volunteer['name'] and email or email], subject, build_sad_email_html(subject, body))
     except Exception as e:
         app.logger.warning(f'SAD entry confirmation email failed: {e}')
     return jsonify({'ok': True})

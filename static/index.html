@@ -21989,6 +21989,41 @@ async function deleteSadEventFromDetail(eid){
  loadSadListPage()
 }
 
+function openSadTestEmailModal(){
+ const overlay = document.createElement('div')
+ overlay.id = 'sad-test-email-modal'
+ overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+ overlay.innerHTML = `<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:400px;padding:24px">
+ <div style="font-size:16px;font-weight:700;margin-bottom:6px">Send Test Email</div>
+ <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px">Sends the actual announcement email — just to one address, so you can see how it looks before sending it to everyone.</div>
+ <div class="form-group"><label>Send To</label><input type="email" id="sad-test-email-input" value="${escHtml(currentUser?.email||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></div>
+ <div style="display:flex;gap:8px;margin-top:16px">
+ <button class="btn btn-primary" style="flex:1" id="sad-test-email-btn" onclick="submitSadTestEmail()">Send Test</button>
+ <button class="btn btn-secondary" onclick="document.getElementById('sad-test-email-modal').remove()">Cancel</button>
+ </div>
+ </div>`
+ document.body.appendChild(overlay)
+}
+
+async function submitSadTestEmail(){
+ const input = document.getElementById('sad-test-email-input')
+ const email = (input?.value||'').trim()
+ if(!email){ toast('Enter an email address','error'); return }
+ const btn = document.getElementById('sad-test-email-btn')
+ btn.disabled = true; btn.textContent = 'Sending…'
+ const res = await api('/api/sad/announce/test','POST',{email})
+ if(res.error){ toast(res.error,'error'); btn.disabled=false; btn.textContent='Send Test'; return }
+ toast(`Test email sent to ${email}!`,'success')
+ document.getElementById('sad-test-email-modal')?.remove()
+}
+
+async function sendSadAnnouncement(){
+ if(!confirm("Send the introductory Studio After Dark email to every active volunteer? This is a one-time announcement, not tied to a specific occurrence — best used once, when first launching (or re-launching) the program.")) return
+ const res = await api('/api/sad/announce','POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast(`Sent to ${res.sent} volunteers!`,'success')
+}
+
 async function deleteSadEvent(eid){
  const ev = _sadEvents.find(e=>e.id===eid)
  const warn = ev && ev.entry_count > 0
@@ -22002,7 +22037,10 @@ async function deleteSadEvent(eid){
 }
 
 async function loadSadListPage(){
- document.getElementById('sad-page-actions').innerHTML = `<button class="btn btn-primary" onclick="openSadCreateModal()">+ New Occurrence</button>`
+ document.getElementById('sad-page-actions').innerHTML = `
+ <button class="btn btn-secondary" onclick="openSadTestEmailModal()">Send Test Email</button>
+ <button class="btn btn-secondary" onclick="sendSadAnnouncement()"> Send Announcement Email</button>
+ <button class="btn btn-primary" onclick="openSadCreateModal()">+ New Occurrence</button>`
  const events = await api('/api/sad/events')
  if(!Array.isArray(events)){
  document.getElementById('sad-root').innerHTML = `<div style="color:var(--text-muted);padding:20px 0">Could not load Studio After Dark events.</div>`

@@ -7496,6 +7496,7 @@ def send_sad_confirmations(eid):
     execute(conn, "UPDATE studio_after_dark_events SET confirm_deadline=%s, confirmations_sent_at=NOW(), lottery_status='confirmations_sent' WHERE id=%s",
         (deadline, eid))
     conn.commit()
+    ev['confirm_deadline'] = deadline  # ev was fetched before the UPDATE above — keep it in sync rather than re-querying
     entries = _sad_entry_with_volunteer(conn, "e.sad_event_id=%s AND e.status IN ('selected_performer','selected_audience')", (eid,))
     conn.close()
     sent = 0
@@ -7785,6 +7786,21 @@ def sad_confirm_submit(token):
     conn.close()
     return jsonify({'ok': True, 'checkin_code': code})
 
+def _sad_event_end_datetime(ev):
+    """Combines event_date with end_time (a free-text display string like
+    '10:00 PM') into a real datetime, so a promotion deadline can be capped
+    at it. Falls back to end-of-day on the event date if end_time can't be
+    parsed — better to allow a slightly-too-late deadline than to crash or
+    silently skip a promotion over a formatting quirk."""
+    event_date = parse_db_datetime(ev.get('event_date'))
+    if not event_date:
+        return None
+    try:
+        t = datetime.strptime((ev.get('end_time') or '').strip(), '%I:%M %p').time()
+        return datetime.combine(event_date.date(), t)
+    except Exception:
+        return event_date.replace(hour=23, minute=59)
+
 def _promote_next_sad_waitlister(conn, sad_event_id, category):
     """Bumps the next-in-line waitlister for whichever category just opened
     up a spot, and emails them a fresh, short-fuse confirm link. Whoever's
@@ -7799,18 +7815,28 @@ def _promote_next_sad_waitlister(conn, sad_event_id, category):
     candidates = _sad_entry_with_volunteer(conn, f"e.sad_event_id=%s AND e.{col} IS NOT NULL", (sad_event_id,))
     if not candidates:
         return
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (sad_event_id,))
+    event_end = _sad_event_end_datetime(ev) if ev else None
+    if event_end and datetime.now() >= event_end:
+        # The event's already over — there's no one left to promote into,
+        # so don't send someone a "confirm by tomorrow" email for a show
+        # that already happened.
+        return
     candidates.sort(key=lambda e: e[col])
     promoted = candidates[0]
     token = secrets.token_urlsafe(16)
     # A short, fixed window rather than reusing the event's original
     # deadline — that one was set for the initial round and has often
-    # already passed by the time a decline opens a waitlist spot.
+    # already passed by the time a decline opens a waitlist spot. Capped at
+    # the event's own end time so a last-minute decline never hands out a
+    # deadline that lands after the show is over.
     new_deadline = datetime.now() + timedelta(hours=24)
+    if event_end and new_deadline > event_end:
+        new_deadline = event_end
     execute(conn, f"""UPDATE sad_entries SET status=%s, selected_category=%s, selected_at=NOW(),
         confirm_token=%s, entry_confirm_deadline=%s, {col}=NULL WHERE id=%s""",
         (f'selected_{category}', category, token, new_deadline, promoted['id']))
     conn.commit()
-    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (sad_event_id,))
     promoted['confirm_token'] = token
     promoted['entry_confirm_deadline'] = new_deadline
     promoted['selected_category'] = category

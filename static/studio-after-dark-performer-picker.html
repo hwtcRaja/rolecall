@@ -8,27 +8,29 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'DM Sans',-apple-system,sans-serif;background:linear-gradient(160deg,#0d3d4d,#0a2a35 65%);color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;text-align:center}
-.topbar{position:fixed;top:0;left:0;right:0;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
-.topbar a{color:#5eead4;text-decoration:none;font-weight:600}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#0b0714;color:#fff;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 24px;text-align:center}
+.top-bar{position:fixed;top:0;left:0;right:0;height:5px;background:linear-gradient(90deg,#7c3aed,#ec4899,#f472b6)}
+.topbar{position:fixed;top:5px;left:0;right:0;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;font-size:12.5px}
+.topbar a{color:#f472b6;text-decoration:none;font-weight:600}
 .eyebrow{font-size:14px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:16px}
-.current-name{font-size:min(13vw,64px);font-weight:800;line-height:1.1;margin-bottom:8px}
-.current-name.empty{font-size:28px;font-weight:600;color:rgba(255,255,255,0.5)}
+.current-name{font-size:min(13vw,64px);font-weight:800;line-height:1.1;margin-bottom:8px;background:linear-gradient(90deg,#ec4899,#f472b6);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.current-name.empty{font-size:28px;font-weight:600;color:rgba(255,255,255,0.5);background:none;-webkit-text-fill-color:rgba(255,255,255,0.5)}
 .remaining{font-size:15px;color:rgba(255,255,255,0.6);margin-bottom:36px}
-.pick-btn{padding:20px 48px;background:#5eead4;color:#0d3d4d;border:none;border-radius:16px;font-family:inherit;font-size:20px;font-weight:800;cursor:pointer}
+.pick-btn{padding:20px 48px;background:linear-gradient(90deg,#ec4899,#f472b6);color:#fff;border:none;border-radius:16px;font-family:inherit;font-size:20px;font-weight:800;cursor:pointer}
 .pick-btn:disabled{opacity:0.4;cursor:default}
 .called-list{margin-top:44px;max-width:480px}
 .called-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:rgba(255,255,255,0.45);margin-bottom:10px}
 .called-chips{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
-.called-chip{background:rgba(255,255,255,0.1);padding:6px 14px;border-radius:20px;font-size:13px}
+.called-chip{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.12);padding:6px 14px;border-radius:20px;font-size:13px}
 .reset-link{margin-top:28px;font-size:12px;color:rgba(255,255,255,0.35);background:none;border:none;cursor:pointer;text-decoration:underline;font-family:inherit}
 @keyframes pop{0%{transform:scale(0.9);opacity:0}100%{transform:scale(1);opacity:1}}
 .current-name.reveal{animation:pop 0.4s ease-out}
 .login-gate{max-width:420px;margin:0 auto;text-align:center}
-.login-gate a{display:inline-block;margin-top:16px;background:#145466;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700}
+.login-gate a{display:inline-block;margin-top:16px;background:linear-gradient(90deg,#ec4899,#f472b6);color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700}
 </style>
 </head>
 <body>
+<div class="top-bar"></div>
 <div id="app">Loading…</div>
 
 <script>

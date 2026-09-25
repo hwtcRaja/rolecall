@@ -379,6 +379,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
  </div>
 </div>
 
+<!-- VOLUNTEER VIEW (adult cast/crew, own passphrase — not tied to a family) -->
+<div id="view-volunteer" class="portal-body" style="display:none">
+ <div style="margin-bottom:20px">
+ <div style="font-size:20px;font-weight:800;margin-bottom:4px">Submit My Bio</div>
+ <div style="font-size:14px;color:var(--text-muted)">Submit a bio and headshot for anything you're cast or crewed in — our team will review it and add it to the printed program.</div>
+ </div>
+ <div id="volunteer-productions-list"></div>
+</div>
+
 <script>
 // ── STATE ──
 let portalSession = null // {type, family/participant/user, members, programs, productions}
@@ -411,6 +420,7 @@ async function doLogin(){
  if(!r.ok){ showError(d.error||'Passphrase not found'); if(btn){ btn.disabled=false; btn.textContent='Enter Portal...' }; return }
  portalSession = d
  if(d.type==='family') enterFamilyPortal(d)
+ else if(d.type==='volunteer') enterVolunteerPortal(d)
  else enterParticipantPortal(d)
  }catch(e){ showError('Connection error'); if(btn){ btn.disabled=false; btn.textContent='Enter Portal...' } }
 }
@@ -451,6 +461,7 @@ function enterFamilyPortal(d){
  showPortal()
  document.getElementById('view-family').style.display = ''
  document.getElementById('view-instructor').style.display = 'none'
+ document.getElementById('view-volunteer').style.display = 'none'
  const members = d.members || []
  const name = d.family?.name || 'Family'
  document.getElementById('header-badge').textContent = name
@@ -472,11 +483,74 @@ function enterParticipantPortal(d){
  showPortal()
  document.getElementById('view-family').style.display = ''
  document.getElementById('view-instructor').style.display = 'none'
+ document.getElementById('view-volunteer').style.display = 'none'
  const p = d.participant
  document.getElementById('header-badge').textContent = p.first_name+' '+p.last_name
  document.getElementById('child-switcher').style.display = 'none'
  activeChildId = p.id
  loadChildData(p.id)
+}
+
+function enterVolunteerPortal(d){
+ showPortal()
+ document.getElementById('view-family').style.display = 'none'
+ document.getElementById('view-instructor').style.display = 'none'
+ document.getElementById('view-volunteer').style.display = ''
+ document.getElementById('header-badge').textContent = d.volunteer?.name || 'Submit My Bio'
+ renderVolunteerProductions(d.productions || [])
+}
+
+function escHtmlPortal(s){ const d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+
+function renderVolunteerProductions(productions){
+ const el = document.getElementById('volunteer-productions-list')
+ if(!el) return
+ if(!productions.length){
+ el.innerHTML = '<div class="empty-state card" style="padding:40px"><div class="icon"></div><div>You\'re not listed in any productions yet. Contact HWTC staff if that seems wrong.</div></div>'
+ return
+ }
+ el.innerHTML = productions.map(p => `
+ <div class="card" style="padding:18px 20px;margin-bottom:14px">
+ <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+ <div>
+ <div style="font-size:16px;font-weight:800">${escHtmlPortal(p.production_name)}</div>
+ <div style="font-size:13px;color:var(--text-muted)">${escHtmlPortal(p.role||'')}</div>
+ </div>
+ </div>
+ <div style="margin-bottom:10px">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Headshot URL</label>
+ <input type="text" id="vol-headshot-${p.production_id}" value="${escHtmlPortal(p.headshot_url||'')}" placeholder="https://…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+ </div>
+ <div style="margin-bottom:12px">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Bio</label>
+ <textarea id="vol-bio-${p.production_id}" rows="4" placeholder="A short bio for the program/playbill…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">${escHtmlPortal(p.bio||'')}</textarea>
+ </div>
+ <div style="display:flex;align-items:center;gap:10px">
+ <button class="login-btn" style="width:auto;padding:9px 20px" onclick="saveVolunteerBio('${p.production_id}')">Submit</button>
+ <span id="vol-save-status-${p.production_id}" style="font-size:12.5px"></span>
+ </div>
+ <div style="font-size:11.5px;color:var(--text-muted);margin-top:8px">This goes to our team to add to the printed program — it doesn't post anywhere on its own.</div>
+ </div>
+ `).join('')
+}
+
+async function saveVolunteerBio(productionId){
+ const statusEl = document.getElementById('vol-save-status-'+productionId)
+ const bio = document.getElementById('vol-bio-'+productionId)?.value || ''
+ const headshot = document.getElementById('vol-headshot-'+productionId)?.value || ''
+ if(statusEl){ statusEl.textContent = 'Submitting…'; statusEl.style.color = 'var(--text-muted)' }
+ try{
+ const r = await fetch('/api/portal/submit-bio', {
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify({passphrase: portalSession.passphrase, production_id: productionId, bio, headshot_url: headshot})
+ })
+ const d = await r.json()
+ if(!r.ok){ if(statusEl){ statusEl.textContent = d.error||'Could not submit'; statusEl.style.color = '#dc2626' } ; return }
+ if(statusEl){ statusEl.textContent = 'Submitted!'; statusEl.style.color = '#166534' }
+ setTimeout(()=>{ if(statusEl) statusEl.textContent = '' }, 2500)
+ }catch(e){
+ if(statusEl){ statusEl.textContent = 'Connection error'; statusEl.style.color = '#dc2626' }
+ }
 }
 
 function switchChild(){
@@ -667,14 +741,22 @@ async function selectContext(type, id, name, color){
  const generalUrl = type==='production' ? '/api/productions/'+id+'/general-content': null
  const auditionSettingsUrl = type==='production' ? '/api/auditions/settings/production/'+id : null
  const castListUrl = type==='production' ? '/api/auditions/cast-list/production/'+id : null
- const [events, profileData, conflicts, teamMembers, generalContent, auditionSettings, castListData] = await Promise.all([
+ // One prefill fetch per family member (or just the one participant), so
+ // the Submit Bio tab can show what was last submitted instead of always
+ // starting blank. Bounded and small — most families have 1-3 kids.
+ const bioMembers = type==='production' ? (portalSession?.members || []) : []
+ const [events, profileData, conflicts, teamMembers, generalContent, auditionSettings, castListData, existingBioSubs] = await Promise.all([
  fetch(endpoint).then(r=>r.json()).catch(()=>[]),
  activeChildId ? fetch('/api/portal/youth/'+activeChildId+'/profile').then(r=>r.json()).catch(()=>null): Promise.resolve(null),
  conflictsUrl ? fetch(conflictsUrl).then(r=>r.json()).catch(()=>[]): Promise.resolve([]),
  teamUrl ? fetch(teamUrl).then(r=>r.json()).catch(()=>[]): Promise.resolve([]),
  generalUrl ? fetch(generalUrl).then(r=>r.json()).catch(()=>null): Promise.resolve(null),
  auditionSettingsUrl ? fetch(auditionSettingsUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null): Promise.resolve(null),
- castListUrl ? fetch(castListUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null): Promise.resolve(null)
+ castListUrl ? fetch(castListUrl,{cache:'no-store'}).then(r=>r.json()).catch(()=>null): Promise.resolve(null),
+ Promise.all(bioMembers.map(m =>
+ fetch('/api/portal/my-bio-submission?passphrase='+encodeURIComponent(portalSession.passphrase)+'&production_id='+id+'&youth_id='+m.id)
+ .then(r=>r.json()).catch(()=>null)
+ ))
  ])
  // Build conflict lookup by event_id
  const conflictByEvent = {}
@@ -835,6 +917,7 @@ async function selectContext(type, id, name, color){
  }
  }
  if(isProduction && teamMembers.length) tabDefs.push({id:'team', label:'Meet the Team'})
+ if(isProduction) tabDefs.push({id:'submit-bio', label:'Submit Bio'})
  if(isProduction) tabDefs.push({id:'conflicts', label:'Conflicts'+(conflicts.filter(c=>c.is_mine).length?' ('+conflicts.filter(c=>c.is_mine).length+')':'')})
  // Cast List tab — only shown once staff have either set a reveal countdown
  // or actually published, so productions without auditions never show an
@@ -927,8 +1010,12 @@ async function selectContext(type, id, name, color){
  // Build General Info HTML
  const generalHTML = buildGeneralInfoHTML(generalContent)
 
- // Build Meet the Team HTML
+ // Build Meet the Team HTML — stays purely read-only/staff-curated
  const teamHTML = buildTeamHTML(teamMembers)
+
+ // Build Submit Bio HTML — one card per family member (or the single
+ // participant), pre-filled from whatever they last submitted.
+ const submitBioHTML = isProduction ? buildSubmitBioHTML(id, bioMembers, existingBioSubs) : ''
 
  // Build Conflicts HTML
  const conflictsHTML = buildPortalConflictsHTML(conflicts, activeChildId, id, events)
@@ -946,6 +1033,7 @@ async function selectContext(type, id, name, color){
  +(type==='production'?'<div class="tab-content" id="dtab-overview" style="padding:20px">'+overviewHTML+'</div>':'')
  +(type==='production'?'<div class="tab-content" id="dtab-general" style="padding:20px">'+generalHTML+'</div>':'')
  +(type==='production'&&teamMembers.length?'<div class="tab-content" id="dtab-team" style="padding:20px">'+teamHTML+'</div>':'')
+ +(type==='production'?'<div class="tab-content" id="dtab-submit-bio" style="padding:20px">'+submitBioHTML+'</div>':'')
  +(type==='production'?'<div class="tab-content" id="dtab-conflicts" style="padding:20px">'+conflictsHTML+'</div>':'')
  +(showCastListTab?'<div class="tab-content" id="dtab-castlist" style="padding:20px">'+castListHTML+'</div>':'')
  // profile tab removed
@@ -2249,6 +2337,51 @@ function buildTeamHTML(members){
  +'</div>'
 }
 
+function buildSubmitBioHTML(productionId, members, existingSubs){
+ if(!members || !members.length){
+ return '<div class="empty-state"><div class="icon"></div>No participant on file to submit a bio for.</div>'
+ }
+ return '<div style="font-size:13px;color:var(--text-muted);margin-bottom:16px">Submit a bio and headshot for our team to review and add to the printed program — this doesn\'t post anywhere on its own.</div>'
+ + members.map((m,i) => {
+ const existing = (existingSubs && existingSubs[i]) || null
+ const displayName = (m.first_name||'')+' '+(m.last_name||'')
+ return `<div class="card" style="padding:18px 20px;margin-bottom:14px">
+ <div style="font-size:15px;font-weight:800;margin-bottom:12px">${escHtmlPortal(displayName.trim() || 'Bio')}</div>
+ <div style="margin-bottom:10px">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Headshot URL</label>
+ <input type="text" id="fam-headshot-${m.id}" value="${escHtmlPortal(existing?.headshot_url||'')}" placeholder="https://…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>
+ </div>
+ <div style="margin-bottom:12px">
+ <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">Bio</label>
+ <textarea id="fam-bio-${m.id}" rows="4" placeholder="A short bio for the program/playbill…" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:vertical;box-sizing:border-box">${escHtmlPortal(existing?.bio||'')}</textarea>
+ </div>
+ <div style="display:flex;align-items:center;gap:10px">
+ <button class="login-btn" style="width:auto;padding:9px 20px" onclick="saveFamilyChildBio('${productionId}','${m.id}')">Submit</button>
+ <span id="fam-save-status-${m.id}" style="font-size:12.5px"></span>
+ </div>
+ </div>`
+ }).join('')
+}
+
+async function saveFamilyChildBio(productionId, youthId){
+ const statusEl = document.getElementById('fam-save-status-'+youthId)
+ const bio = document.getElementById('fam-bio-'+youthId)?.value || ''
+ const headshot = document.getElementById('fam-headshot-'+youthId)?.value || ''
+ if(statusEl){ statusEl.textContent = 'Submitting…'; statusEl.style.color = 'var(--text-muted)' }
+ try{
+ const r = await fetch('/api/portal/submit-bio', {
+ method:'POST', headers:{'Content-Type':'application/json'},
+ body: JSON.stringify({passphrase: portalSession.passphrase, production_id: productionId, youth_id: youthId, bio, headshot_url: headshot})
+ })
+ const d = await r.json()
+ if(!r.ok){ if(statusEl){ statusEl.textContent = d.error||'Could not submit'; statusEl.style.color = '#dc2626' }; return }
+ if(statusEl){ statusEl.textContent = 'Submitted!'; statusEl.style.color = '#166534' }
+ setTimeout(()=>{ if(statusEl) statusEl.textContent = '' }, 2500)
+ }catch(e){
+ if(statusEl){ statusEl.textContent = 'Connection error'; statusEl.style.color = '#dc2626' }
+ }
+}
+
 function buildPortalConflictsHTML(conflicts, yid, prodId, events){
  // My confirmed conflicts
  const mine = (conflicts||[]).filter(c=>c.is_mine)
@@ -2299,6 +2432,7 @@ function enterInstructorPortal(d){
  showPortal()
  document.getElementById('view-family').style.display = 'none'
  document.getElementById('view-instructor').style.display = ''
+ document.getElementById('view-volunteer').style.display = 'none'
  instructorData = d
  document.getElementById('header-badge').textContent = d.user.name
  document.getElementById('instructor-subtitle').textContent = `Logged in as ${d.user.name} · ${d.programs.length} program${d.programs.length!==1?'s':''}, ${d.productions.length} production${d.productions.length!==1?'s':''}`

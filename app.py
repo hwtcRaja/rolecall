@@ -1440,6 +1440,23 @@ def init_db():
         # alongside (not instead of) a person's role.
         "ALTER TABLE youth_production_members ADD COLUMN IF NOT EXISTS cast_section TEXT DEFAULT ''",
         "ALTER TABLE youth_production_members ADD COLUMN IF NOT EXISTS cast_title TEXT DEFAULT ''",
+        # A place for cast/crew (adult volunteers) or a family (on behalf of
+        # their kid) to submit a bio + headshot for staff to review and
+        # manually incorporate into the actual program/playbill — this is
+        # NOT wired to any public page. It's purely an intake inbox; only
+        # staff ever read from it (see the bio-submissions admin endpoints).
+        """CREATE TABLE IF NOT EXISTS bio_submissions (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE CASCADE,
+            youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE,
+            submitter_name TEXT DEFAULT '',
+            bio TEXT DEFAULT '',
+            headshot_url TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'submitted',
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_bio_submissions_prod ON bio_submissions(production_id)",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_section TEXT DEFAULT ''",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_title TEXT DEFAULT ''",
         # Family-portal tab order — a JSON array of tab ids, e.g. ["overview",
@@ -7800,7 +7817,7 @@ def _send_sad_announcement_email(volunteer):
         f'<p style="text-align:center;margin:0 0 22px">Every <strong>first Saturday of the month</strong> at the HWTC Studio. '
         f'Can\'t make the next one? There\'s always next month.</p>'
         f'<p style="text-align:center;margin:0 0 8px">'
-        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Click to Learn More</a></p>'
+        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Learn More</a></p>'
     )
     send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
 
@@ -13261,6 +13278,20 @@ def portal_auth():
         conn.close()
         return jsonify({'type':'participant','participant':youth,'family':family_row,'members':[youth],'passphrase':passphrase})
 
+    # Try individual volunteer passphrase — this is how an adult cast/crew
+    # member (not tied to a family/youth login) gets into the portal, e.g.
+    # to submit their own bio for staff to add to the actual program.
+    volunteer = fetchone(conn, "SELECT * FROM volunteers WHERE LOWER(portal_passphrase)=%s", (passphrase,))
+    if volunteer:
+        productions = fetchall(conn, '''SELECT pm.role,
+            p.id AS production_id, p.name AS production_name, p.status AS production_status,
+            bs.bio, bs.headshot_url
+            FROM production_members pm JOIN productions p ON p.id=pm.production_id
+            LEFT JOIN bio_submissions bs ON bs.production_id=p.id AND bs.volunteer_id=pm.volunteer_id
+            WHERE pm.volunteer_id=%s ORDER BY p.start_date DESC''', (volunteer['id'],)) or []
+        conn.close()
+        return jsonify({'type':'volunteer','volunteer':volunteer,'productions':productions,'passphrase':passphrase})
+
     conn.close()
     return jsonify({'error': 'Passphrase not found. Please check with HWTC staff.'}), 401
 
@@ -13303,8 +13334,153 @@ def portal_change_passphrase():
             execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (new_pp, youth['id']))
         conn.commit(); conn.close()
         return jsonify({'ok': True})
+    # Try individual volunteer passphrase
+    volunteer = fetchone(conn, 'SELECT * FROM volunteers WHERE LOWER(portal_passphrase)=%s', (current,))
+    if volunteer:
+        taken = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(portal_passphrase)=%s AND id!=%s', (new_pp.lower(), volunteer['id']))
+        if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+        execute(conn, 'UPDATE volunteers SET portal_passphrase=%s WHERE id=%s', (new_pp, volunteer['id']))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
     conn.close()
     return jsonify({'error': 'Current passphrase incorrect'}), 401
+
+@app.route('/api/portal/submit-bio', methods=['POST'])
+def portal_submit_bio():
+    """A bio/headshot submission for staff to review and manually add to
+    the actual program — this never touches anything a public page reads
+    from. Works for both an adult volunteer (their own passphrase) and a
+    family/participant submitting on behalf of a specific kid (family
+    passphrase covers any of their kids; an individual youth passphrase
+    covers just that one). Upserts: resubmitting for the same
+    production+person just updates their existing submission rather than
+    creating a duplicate."""
+    d = request.json or {}
+    passphrase = (d.get('passphrase') or '').strip().lower()
+    production_id = (d.get('production_id') or '').strip()
+    youth_id = (d.get('youth_id') or '').strip() or None
+    bio = (d.get('bio') or '').strip()
+    headshot_url = (d.get('headshot_url') or '').strip()
+    if not passphrase or not production_id:
+        return jsonify({'error': 'Passphrase and production are required'}), 400
+    conn = get_db()
+    production = fetchone(conn, 'SELECT id FROM productions WHERE id=%s', (production_id,))
+    if not production:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+
+    volunteer_id = None
+    resolved_youth_id = None
+    submitter_name = ''
+
+    if youth_id:
+        # Submitting on behalf of a kid — verify the passphrase actually
+        # covers that specific youth_id (either their family, or their own).
+        allowed_youth_ids = set()
+        family = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s', (passphrase,))
+        if family:
+            kids = fetchall(conn, 'SELECT id FROM youth_participants WHERE family_id=%s', (family['id'],)) or []
+            allowed_youth_ids = {k['id'] for k in kids}
+        else:
+            youth = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase,))
+            if youth:
+                allowed_youth_ids = {youth['id']}
+        if youth_id not in allowed_youth_ids:
+            conn.close()
+            return jsonify({'error': 'Passphrase not found'}), 401
+        resolved_youth_id = youth_id
+        yp = fetchone(conn, 'SELECT first_name, last_name FROM youth_participants WHERE id=%s', (youth_id,))
+        submitter_name = f"{yp['first_name']} {yp['last_name']}" if yp else ''
+    else:
+        volunteer = fetchone(conn, 'SELECT id, name FROM volunteers WHERE LOWER(portal_passphrase)=%s', (passphrase,))
+        if not volunteer:
+            conn.close()
+            return jsonify({'error': 'Passphrase not found'}), 401
+        volunteer_id = volunteer['id']
+        submitter_name = volunteer.get('name') or ''
+
+    if resolved_youth_id:
+        existing = fetchone(conn, 'SELECT id FROM bio_submissions WHERE production_id=%s AND youth_id=%s', (production_id, resolved_youth_id))
+    else:
+        existing = fetchone(conn, 'SELECT id FROM bio_submissions WHERE production_id=%s AND volunteer_id=%s', (production_id, volunteer_id))
+
+    if existing:
+        execute(conn, "UPDATE bio_submissions SET bio=%s, headshot_url=%s, submitter_name=%s, updated_at=NOW(), status='submitted' WHERE id=%s",
+            (bio, headshot_url, submitter_name, existing['id']))
+        sid = existing['id']
+    else:
+        sid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO bio_submissions
+            (id, production_id, volunteer_id, youth_id, submitter_name, bio, headshot_url)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+            (sid, production_id, volunteer_id, resolved_youth_id, submitter_name, bio, headshot_url))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM bio_submissions WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/portal/my-bio-submission')
+def portal_get_my_bio_submission():
+    """So the portal can pre-fill the form with whatever was submitted last
+    time, instead of always starting blank."""
+    passphrase = (request.args.get('passphrase') or '').strip().lower()
+    production_id = (request.args.get('production_id') or '').strip()
+    youth_id = (request.args.get('youth_id') or '').strip() or None
+    if not passphrase or not production_id:
+        return jsonify({'error': 'Passphrase and production are required'}), 400
+    conn = get_db()
+    if youth_id:
+        row = fetchone(conn, 'SELECT * FROM bio_submissions WHERE production_id=%s AND youth_id=%s', (production_id, youth_id))
+    else:
+        volunteer = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(portal_passphrase)=%s', (passphrase,))
+        row = fetchone(conn, 'SELECT * FROM bio_submissions WHERE production_id=%s AND volunteer_id=%s', (production_id, volunteer['id'])) if volunteer else None
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/productions/<pid>/bio-submissions')
+def get_bio_submissions(pid):
+    """Staff-facing review inbox — this is the only place these
+    submissions are ever read back out, on purpose."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM bio_submissions
+        WHERE production_id=%s ORDER BY submitted_at DESC''', (pid,)) or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/productions/<pid>/bio-submissions/<sid>', methods=['DELETE'])
+def delete_bio_submission(pid, sid):
+    """Staff clear a submission out of the inbox once they've copied it
+    into the actual program."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM bio_submissions WHERE id=%s AND production_id=%s', (sid, pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/volunteers/backfill-passphrases', methods=['POST'])
+def backfill_volunteer_passphrases():
+    """Same idea as the existing youth passphrase backfill — one-time admin
+    action to give every volunteer missing one a default portal passphrase
+    (firstname_lastname_hwtc), so staff can actually hand these out to cast
+    members once they're cast."""
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    volunteers = fetchall(conn, "SELECT id, name FROM volunteers WHERE portal_passphrase IS NULL OR portal_passphrase=''") or []
+    count = 0
+    for v in volunteers:
+        parts = (v.get('name') or '').strip().split(' ', 1)
+        first = parts[0] if parts else ''
+        last = parts[1] if len(parts) > 1 else ''
+        pp = default_passphrase(first, last)
+        execute(conn, 'UPDATE volunteers SET portal_passphrase=%s WHERE id=%s', (pp, v['id']))
+        count += 1
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'updated': count})
 
 @app.route('/api/portal/announcements')
 def get_portal_announcements():

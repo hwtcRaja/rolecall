@@ -960,9 +960,6 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
         "ALTER TABLE callout_relay_threads ALTER COLUMN guardian_phone DROP NOT NULL",
-        # Lets staff hide the Auditions tab entirely for programs/productions
-        # that never use it, instead of it always showing "not currently open".
-        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS tab_visible BOOLEAN DEFAULT TRUE",
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
@@ -1089,6 +1086,9 @@ def init_db():
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS submitter_passphrase TEXT",
         """ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE""",
+        # Lets staff hide the Auditions tab entirely for programs/productions
+        # that never use it, instead of it always showing "not currently open".
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS tab_visible BOOLEAN DEFAULT TRUE",
         """CREATE TABLE IF NOT EXISTS audition_slots (
             id TEXT PRIMARY KEY,
             context_type TEXT NOT NULL,
@@ -8615,12 +8615,15 @@ def update_my_audition_submission():
     if not name:
         conn.close()
         return jsonify({'error': 'Name is required'}), 400
+    old_slot_id = sub.get('slot_id')
+    new_slot_id = (d.get('slot_id') or '').strip() or None
     execute(conn, """UPDATE audition_submissions SET
         submitter_name=%s, submitter_email=%s, role_requested=%s, roles_requested=%s, video_url=%s,
         resume_url=%s, headshot_url=%s, notes=%s, resume_file_url=%s,
         headshot_file_url=%s, video_clip_url=%s, crew_interest=%s,
         crew_roles_requested=%s, crew_experience=%s, is_minor=%s, birthday=%s,
-        pronouns=%s, phone=%s, how_heard=%s, custom_answers=%s, updated_at=NOW()
+        pronouns=%s, phone=%s, how_heard=%s, custom_answers=%s,
+        slot_id=%s, audition_type=%s, updated_at=NOW()
         WHERE id=%s""", (
         name,
         (d.get('submitter_email') or '').strip() or None,
@@ -8642,8 +8645,43 @@ def update_my_audition_submission():
         (d.get('phone') or '').strip() or None,
         (d.get('how_heard') or '').strip() or None,
         json.dumps(d.get('custom_answers') or {}),
+        new_slot_id,
+        (d.get('audition_type') or sub.get('audition_type') or 'virtual'),
         sub['id']))
     conn.commit()
+
+    # A changed time slot is exactly the kind of edit someone needs written
+    # confirmation of — send a short email with the new time whenever the
+    # slot actually changed (including picking one for the first time, or
+    # dropping one entirely), the same way the original submission does.
+    if new_slot_id != old_slot_id:
+        try:
+            sub_email = (d.get('submitter_email') or '').strip()
+            if sub_email:
+                first_name = name.split(' ')[0] if name else name
+                _, ctx_name, _, _ = _resolve_audition_context(conn, context_type, context_id)
+                if new_slot_id:
+                    slot = fetchone(conn, 'SELECT * FROM audition_slots WHERE id=%s', (new_slot_id,))
+                    slot_time_fmt = (slot.get('start_time') or '') if slot else ''
+                    if slot and slot.get('end_time'): slot_time_fmt += f' – {slot["end_time"]}'
+                    subject = f'Audition Time Updated: {ctx_name}'
+                    body = (
+                        f'<p>Hi {first_name}, your audition time for <strong>{ctx_name}</strong> has been updated.</p>'
+                        f'<div style="background:#f0f8fa;border-radius:8px;padding:14px 18px;margin:16px 0">'
+                        f'<div style="font-size:12px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Your New Time Slot</div>'
+                        f'<div style="font-size:16px;font-weight:700">{slot.get("slot_date","") if slot else ""}{" at "+slot_time_fmt if slot_time_fmt else ""}</div>'
+                        f'</div>'
+                        f'<p><strong>Location:</strong><br>HWTC Studio<br>1220 Winter Garden Vineland Rd, Suite 108<br>Winter Garden, FL 34787</p>'
+                        f'<p>Please arrive a few minutes before your audition time and check in with a member of our team.</p>'
+                    )
+                else:
+                    subject = f'Audition Update: {ctx_name}'
+                    body = f'<p>Hi {first_name}, your in-person time slot for <strong>{ctx_name}</strong> has been removed from your audition. If this wasn\'t intentional, please update it again or reach out to us.</p>'
+                send_email([sub_email], subject, build_hwtc_email_html(subject, body,
+                    footer_note='You are receiving this email because you updated your audition through our website. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'))
+        except Exception as e:
+            app.logger.warning(f'Audition time-update email failed: {e}')
+
     conn.close()
     return jsonify({'ok': True})
 

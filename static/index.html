@@ -24795,6 +24795,7 @@ function renderProductionPortalHTML(pid, stage){
  <button class="portal-sub-btn" data-ptab="files" onclick="switchProdPortalTab('files',this)">Files</button>
  <button class="portal-sub-btn" data-ptab="about" onclick="switchProdPortalTab('about',this)">About</button>
  <button class="portal-sub-btn" data-ptab="team" onclick="switchProdPortalTab('team',this)">Meet the Team</button>
+ <button class="portal-sub-btn" data-ptab="biosubmissions" onclick="switchProdPortalTab('biosubmissions',this)"> Bio Submissions</button>
  ${isRS?'<button class="portal-sub-btn" data-ptab="messages" onclick="switchProdPortalTab(\'messages\',this)">Messages</button>':''}
  <button class="portal-sub-btn" data-ptab="taborder" onclick="switchProdPortalTab('taborder',this)"> Tab Order</button>
  </div>
@@ -24919,8 +24920,16 @@ function renderProductionPortalHTML(pid, stage){
  </div>
  <button class="btn btn-primary btn-sm" onclick="addTeamMember('${pid}')">+ Add Member</button>
  </div>
- <div id="prod-bio-submissions-${pid}" style="margin-bottom:16px"></div>
  <div id="prod-team-list-${pid}"><div style="font-size:13px;color:var(--text-muted);font-style:italic">Loading…</div></div>
+ </div>
+ </div>
+
+ <!-- Bio Submissions -->
+ <div id="pptab-biosubmissions-${pid}" style="display:none">
+ <div class="card" style="padding:20px">
+ <div style="font-size:14px;font-weight:700;margin-bottom:4px"> Bio Submissions</div>
+ <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px">Submitted by cast/crew or families through the portal — copy what you want into "Meet the Team", then clear it out.</div>
+ <div id="prod-bio-submissions-${pid}"></div>
  </div>
  </div>
 
@@ -25398,7 +25407,7 @@ async function removeProdCalloutRecipient(pid, vid){
 function switchProdPortalTab(tab, btn){
  const pid = window._currentProductionDetailId
  if(!pid) return
- ;['announcements','files','about','team','conflicts','overview','general','messages','taborder'].forEach(t=>{
+ ;['announcements','files','about','team','biosubmissions','conflicts','overview','general','messages','taborder'].forEach(t=>{
  const el = document.getElementById('pptab-'+t+'-'+pid)
  if(el) el.style.display = t===tab?'':'none'
  })
@@ -25411,7 +25420,7 @@ function switchProdPortalTab(tab, btn){
  }
  if(tab==='team'){
  const teamEl = document.getElementById('pptab-team-'+pid)
- if(teamEl){ loadTeamMembers(pid); loadBioSubmissions(pid) }
+ if(teamEl) loadTeamMembers(pid)
  else {
  // Fallback: team panel not found, try re-rendering portal
  const inner = document.getElementById('prodtab-portal-inner-'+pid)
@@ -25419,8 +25428,13 @@ function switchProdPortalTab(tab, btn){
  const prod = allProductions.find(p=>p.id===pid)
  if(prod) inner.innerHTML = renderProductionPortalHTML(pid, prod.stage)
  }
- setTimeout(()=>{ loadTeamMembers(pid); loadBioSubmissions(pid) }, 100)
+ setTimeout(()=>loadTeamMembers(pid), 100)
  }
+ }
+ if(tab==='biosubmissions'){
+ const bsEl = document.getElementById('pptab-biosubmissions-'+pid)
+ if(bsEl) loadBioSubmissions(pid)
+ else setTimeout(()=>loadBioSubmissions(pid), 100)
  }
  if(tab==='about') loadProductionAbout(pid)
  if(tab==='conflicts') loadProductionConflicts(pid)
@@ -25825,22 +25839,18 @@ async function loadBioSubmissions(pid){
  try{
  const subs = await api('/api/productions/'+pid+'/bio-submissions')
  if(!Array.isArray(subs) || !subs.length){
- el.innerHTML = ''
+ el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);font-style:italic">No bio submissions yet.</div>'
  return
  }
- el.innerHTML = `<div class="card" style="padding:16px 18px;background:var(--bg);border-color:#f0e0a8">
- <div style="font-size:13px;font-weight:700;margin-bottom:2px"> Bio Submissions (${subs.length})</div>
- <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Submitted by cast/crew or families through the portal — copy what you want into "Meet the Team" above, then clear it out.</div>
- ${subs.map(s => `
- <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px">
+ el.innerHTML = subs.map(s => `
+ <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px">
  <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px">
  <div style="font-size:13px;font-weight:700">${escHtml(s.submitter_name||'(no name)')} ${s.youth_id?'<span style="font-weight:400;color:var(--text-muted);font-size:11px">(youth)</span>':''}</div>
  <button onclick="clearBioSubmission('${pid}','${s.id}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);text-decoration:underline;white-space:nowrap">Clear</button>
  </div>
  ${s.headshot_url?`<div style="font-size:12px;margin-bottom:4px"><a href="${s.headshot_url}" target="_blank">View headshot →</a></div>`:''}
  <div style="font-size:12.5px;color:var(--text)">${escHtml(s.bio||'(no bio text)')}</div>
- </div>`).join('')}
- </div>`
+ </div>`).join('')
  } catch(e){
  el.innerHTML = ''
  }

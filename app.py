@@ -2933,6 +2933,13 @@ def init_db():
         created_at     TIMESTAMP DEFAULT NOW(),
         UNIQUE(performance_id, seat_id))""",
         'CREATE INDEX IF NOT EXISTS ix_tickets_order ON tickets(ticket_order_id)',
+        # Defense in depth: even if some future code path or race condition
+        # ever let two orders both finalize for the same reserved seat, the
+        # database itself refuses the second one outright. Partial (WHERE
+        # seat_id IS NOT NULL) since general-admission tickets legitimately
+        # have no seat_id and there can be many of those per performance.
+        """CREATE UNIQUE INDEX IF NOT EXISTS ux_tickets_performance_seat
+            ON tickets(performance_id, seat_id) WHERE seat_id IS NOT NULL""",
         'CREATE INDEX IF NOT EXISTS ix_tickets_perf ON tickets(performance_id)',
         'CREATE INDEX IF NOT EXISTS ix_seat_holds_perf ON seat_holds(performance_id)',
         'CREATE INDEX IF NOT EXISTS ix_performances_production ON performances(production_id)',
@@ -36741,7 +36748,17 @@ def public_hold_seats(fid):
     to finish checkout without someone else grabbing the same seat. Holds
     expire on their own (15 min) — nothing needs to explicitly release them
     for the seat to free back up, though the picker does that too when a
-    buyer deselects a seat."""
+    buyer deselects a seat.
+
+    Each seat's hold is claimed with a single atomic INSERT ... ON CONFLICT
+    DO UPDATE ... WHERE statement rather than a separate check-then-write —
+    a plain "is it free? ok, write it" (even inside one transaction) has a
+    real gap between two concurrent requests for the same never-before-held
+    seat: both can pass the check before either writes, and the ON CONFLICT
+    DO UPDATE would then let whichever request's write lands second silently
+    steal the seat with no error to either buyer. The WHERE clause on the
+    DO UPDATE makes the write itself conditional, so only one of two
+    simultaneous claims for the same seat can ever succeed."""
     d = request.json or {}
     seat_ids = d.get('seat_ids') or []
     session_token = (d.get('session_token') or '').strip()
@@ -36754,21 +36771,28 @@ def public_hold_seats(fid):
     _clear_expired_holds(conn, fid)
     sold_ids = {r['seat_id'] for r in fetchall(conn,
         'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,))}
-    taken = []
-    held_by_others = {r['seat_id']: r['session_token'] for r in
-        fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))}
-    for sid in seat_ids:
-        if sid in sold_ids or (sid in held_by_others and held_by_others[sid] != session_token):
-            taken.append(sid)
-    if taken:
+    already_sold = [sid for sid in seat_ids if sid in sold_ids]
+    if already_sold:
         conn.close()
-        return jsonify({'error': 'Some seats were just taken by another buyer', 'taken': taken}), 409
+        return jsonify({'error': 'Some seats were just sold to another buyer', 'taken': already_sold}), 409
+
+    lost = []
     for sid in seat_ids:
-        execute(conn, '''INSERT INTO seat_holds (id, performance_id, seat_id, session_token, expires_at)
+        row = fetchone(conn, '''INSERT INTO seat_holds (id, performance_id, seat_id, session_token, expires_at)
             VALUES (%s,%s,%s,%s, NOW() + INTERVAL '15 minutes')
             ON CONFLICT (performance_id, seat_id) DO UPDATE SET
-                session_token=EXCLUDED.session_token, expires_at=EXCLUDED.expires_at''',
-            (str(uuid.uuid4()), fid, sid, session_token))
+                session_token=EXCLUDED.session_token, expires_at=EXCLUDED.expires_at, id=EXCLUDED.id
+            WHERE seat_holds.session_token=EXCLUDED.session_token OR seat_holds.expires_at < NOW()
+            RETURNING session_token''', (str(uuid.uuid4()), fid, sid, session_token))
+        if not row or row.get('session_token') != session_token:
+            lost.append(sid)
+    if lost:
+        # At least one seat in this request was already actively held by
+        # someone else — undo the ones we did just win so a partial hold
+        # never sits there silently; the buyer needs to reselect anyway.
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': 'Some seats were just taken by another buyer', 'taken': lost}), 409
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'expires_in_seconds': 900})
 

@@ -4,6 +4,8 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1"/>
 <title>Tickets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
   --show-accent:#145466;
@@ -13,40 +15,48 @@
   --green:#16a34a; --green-light:#dcfce7;
   --amber:#d97706; --amber-light:#fef3c7;
   --red:#dc2626; --red-light:#fee2e2;
-  --radius:10px; --radius-lg:16px;
-  --shadow-lg:0 10px 40px rgba(0,0,0,0.12);
+  --radius:12px; --radius-lg:18px;
+  --shadow-md:0 4px 16px rgba(0,0,0,0.06);
+  --shadow-lg:0 16px 48px rgba(0,0,0,0.14);
 }
 *{box-sizing:border-box}
-body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text)}
-.wrap{max-width:900px;margin:0 auto;padding:0 16px 60px}
-.hero{background:linear-gradient(135deg,var(--show-accent),var(--show-accent)cc);color:#fff;padding:32px 20px;margin-bottom:24px}
-.hero-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:14px}
-.hero-logo{width:52px;height:52px;object-fit:contain;border-radius:10px;background:rgba(255,255,255,0.15);padding:6px;flex-shrink:0}
-.hero h1{margin:0 0 4px;font-size:26px}
-.hero .sub{opacity:0.85;font-size:14px}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:20px;margin-bottom:16px}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:11px 20px;border-radius:var(--radius);border:none;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit}
-.btn-primary{background:var(--show-accent);color:#fff}
-.btn-primary:disabled{opacity:0.45;cursor:not-allowed}
+body{margin:0;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+.wrap{max-width:900px;margin:0 auto;padding:0 18px 70px}
+.hero{background:linear-gradient(135deg,var(--show-accent),var(--show-accent));color:#fff;padding:48px 20px 42px;margin-bottom:28px;position:relative;overflow:hidden}
+.hero{background:linear-gradient(135deg,var(--show-accent),color-mix(in srgb,var(--show-accent) 70%,#000))}
+.hero::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 85% -10%,rgba(255,255,255,0.14),transparent 55%)}
+.hero-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:18px;position:relative}
+.hero-logo{width:60px;height:60px;object-fit:contain;border-radius:14px;background:rgba(255,255,255,0.16);padding:8px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,0.18)}
+.hero h1{margin:0 0 6px;font-family:'Playfair Display',Georgia,serif;font-weight:800;font-size:32px;letter-spacing:0.2px;line-height:1.15}
+.hero .sub{opacity:0.88;font-size:14.5px;font-weight:500}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;margin-bottom:16px;box-shadow:var(--shadow-md)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 22px;border-radius:var(--radius);border:none;font-size:14.5px;font-weight:700;cursor:pointer;font-family:inherit;transition:transform 0.08s ease,box-shadow 0.15s ease}
+.btn-primary{background:var(--show-accent);color:#fff;box-shadow:0 4px 14px rgba(0,0,0,0.25)}
+.btn-primary{box-shadow:0 4px 14px color-mix(in srgb,var(--show-accent) 40%,transparent)}
+.btn-primary:not(:disabled):hover{transform:translateY(-1px)}
+.btn-primary:disabled{opacity:0.4;cursor:not-allowed;box-shadow:none}
 .btn-secondary{background:var(--bg);color:var(--text);border:1.5px solid var(--border-md)}
-.perf-option{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border:2px solid var(--border);border-radius:var(--radius);margin-bottom:10px;cursor:pointer}
+.perf-option{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border:2px solid var(--border);border-radius:var(--radius);margin-bottom:10px;cursor:pointer;transition:border-color 0.12s ease,background 0.12s ease}
 .perf-option:hover{border-color:var(--show-accent)}
 .perf-option.selected{border-color:var(--show-accent);background:var(--teal-light)}
-input,select{font-family:inherit;font-size:14px;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box}
-label{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px}
+input,select{font-family:inherit;font-size:14.5px;padding:11px 13px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box}
+input:focus,select:focus{outline:none;border-color:var(--show-accent)}
+label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);display:block;margin-bottom:6px}
 .form-group{margin-bottom:14px}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:520px){.form-row{grid-template-columns:1fr}}
-.seat-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-muted);margin-top:10px}
-.legend-dot{width:11px;height:11px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle}
-.cart-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:14px}
+@media(max-width:520px){.form-row{grid-template-columns:1fr} .hero h1{font-size:26px}}
+.seat-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--text-muted);margin-top:12px}
+.legend-dot{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle;box-shadow:0 0 0 2px rgba(255,255,255,0.6) inset}
+.cart-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:14.5px}
 .cart-row:last-child{border-bottom:none}
-.total-row{display:flex;justify-content:space-between;font-size:18px;font-weight:800;padding-top:12px;margin-top:6px;border-top:2px solid var(--border)}
-.loading{text-align:center;padding:60px 20px;color:var(--text-muted)}
+.total-row{display:flex;justify-content:space-between;font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:800;padding-top:14px;margin-top:8px;border-top:2px solid var(--border)}
+.loading{text-align:center;padding:70px 20px;color:var(--text-muted)}
 .error-box{background:var(--red-light);color:#991b1b;padding:14px 16px;border-radius:var(--radius);font-size:14px}
 .qty-stepper{display:flex;align-items:center;gap:10px}
-.qty-btn{width:32px;height:32px;border-radius:50%;border:1.5px solid var(--border-md);background:var(--surface);font-size:16px;font-weight:700;cursor:pointer}
-.confirm-code{font-family:monospace;font-size:16px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:6px 12px;border-radius:8px;display:inline-block}
+.qty-btn{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--border-md);background:var(--surface);font-size:17px;font-weight:700;cursor:pointer;transition:border-color 0.1s ease}
+.qty-btn:hover{border-color:var(--show-accent)}
+.confirm-code{font-family:monospace;font-size:16px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:7px 14px;border-radius:8px;display:inline-block;letter-spacing:0.5px}
+.section-title{font-family:'Playfair Display',Georgia,serif;font-weight:700;font-size:17px;margin-bottom:10px}
 </style>
 </head>
 <body>
@@ -147,7 +157,7 @@ function fmtPerfDate(d, t){
 
 function renderPerformancePicker(prod, perfs){
   document.getElementById('app').innerHTML =
-    '<div class="card"><div style="font-weight:700;font-size:16px;margin-bottom:14px">Select a performance</div>'
+    '<div class="card"><div class="section-title">Select a performance</div>'
     + perfs.map(function(p){
         var full = p.status === 'sold_out'
         return '<div class="perf-option" style="'+(full?'opacity:0.6;cursor:default':'')+'" '+(full?'':'onclick="loadPerformance(\''+p.id+'\')"')+'>'
@@ -188,7 +198,7 @@ function renderPurchaseScreen(){
   var reserved = currentPerformance.reserved_seating
   var html = '<div class="card">'
   if(reserved){
-    html += '<div style="font-weight:700;font-size:15px;margin-bottom:8px">Pick your seats</div>'
+    html += '<div class="section-title">Pick your seats</div>'
     html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Tap an available seat to select it. Selected seats are held for you for 15 minutes.</div>'
     html += '<div id="seat-map-holder">'+renderPickerSVG()+'</div>'
     html += '<div class="seat-legend">'
@@ -198,7 +208,7 @@ function renderPurchaseScreen(){
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.sold+'"></span>Sold</span>'
       + '</div>'
   } else {
-    html += '<div style="font-weight:700;font-size:15px;margin-bottom:12px">Select your tickets</div>'
+    html += '<div class="section-title">Select your tickets</div>'
     html += ticketTypes.map(function(tt){
       var qty = gaQuantities[tt.id] || 0
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">'
@@ -216,7 +226,7 @@ function renderPurchaseScreen(){
   html += '<div class="card" id="cart-card">'+renderCart()+'</div>'
 
   html += '<div class="card">'
-    + '<div style="font-weight:700;font-size:15px;margin-bottom:12px">Your info</div>'
+    + '<div class="section-title">Your info</div>'
     + '<div class="form-group"><label>Name *</label><input type="text" id="tk-name"/></div>'
     + '<div class="form-row">'
     + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
@@ -430,7 +440,7 @@ async function renderConfirmation(orderId){
     html += '<div style="color:var(--text-muted);font-size:14px">If you just paid, this should update in a few seconds. Feel free to refresh.</div>'
     html += '<button class="btn btn-secondary" style="margin-top:14px" onclick="renderConfirmation(\''+orderId+'\')">Refresh</button>'
   } else {
-    html += '<div style="font-weight:700;font-size:20px;margin-bottom:4px"> You\'re all set!</div>'
+    html += '<div class="section-title" style="font-size:22px;margin-bottom:4px"> You\'re all set!</div>'
     html += '<div style="color:var(--text-muted);font-size:14px;margin-bottom:16px">'+escH(fmtPerfDate(perf?perf.performance_date:'', perf?perf.performance_time:''))+(perf&&perf.venue_id?'':'')+'</div>'
     html += tickets.map(function(t){
       return '<div class="cart-row"><span>'+escH(t.seat_label||'Ticket')+'</span><span class="confirm-code">'+escH(t.confirmation_code||'')+'</span></div>'

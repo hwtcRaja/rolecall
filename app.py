@@ -36856,9 +36856,14 @@ def public_ticket_checkout():
             if held.get(sid) != session_token:
                 conn.close(); return jsonify({'error': f"Your hold on seat {seat['seat_label']} expired — please reselect."}), 409
             tt = ticket_type_rows.get(sel.get('ticket_type_id'))
-            price = tt['price_cents'] if tt else 0
-            line_items.append({'seat_id': sid, 'ticket_type_id': tt['id'] if tt else None,
-                'seat_label': seat['seat_label'], 'price_cents': price})
+            if not tt:
+                # Never silently price a reserved seat at $0 because its
+                # ticket type didn't resolve (missing, inactive, or this
+                # performance has none configured) — that would let a
+                # misconfigured performance be checked out for free.
+                conn.close(); return jsonify({'error': f"Seat {seat['seat_label']} has no valid ticket type — please contact us."}), 400
+            line_items.append({'seat_id': sid, 'ticket_type_id': tt['id'],
+                'seat_label': seat['seat_label'], 'price_cents': tt['price_cents']})
     else:
         for sel in seat_selections:
             tt = ticket_type_rows.get(sel.get('ticket_type_id'))

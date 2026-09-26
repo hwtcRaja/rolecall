@@ -57,13 +57,22 @@ label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0
 .qty-btn:hover{border-color:var(--show-accent)}
 .confirm-code{font-family:monospace;font-size:16px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:7px 14px;border-radius:8px;display:inline-block;letter-spacing:0.5px}
 .section-title{font-family:'Playfair Display',Georgia,serif;font-weight:700;font-size:17px;margin-bottom:10px}
+.hwtc-topbar{background:var(--teal-dark);height:6px}
+.hwtc-footer{max-width:900px;margin:40px auto 0;padding:20px 18px 0;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:10px}
+.hwtc-footer img{height:28px;width:auto;opacity:0.9}
+.hwtc-footer span{font-size:12.5px;color:var(--text-muted);font-weight:600}
 </style>
 </head>
 <body>
 
+<div class="hwtc-topbar"></div>
 <div id="hero-slot"></div>
 <div class="wrap" id="app">
   <div class="loading">Loading…</div>
+</div>
+<div class="hwtc-footer">
+  <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" onerror="this.style.display='none'"/>
+  <span>Horizon West Theater Company</span>
 </div>
 
 <script>
@@ -112,6 +121,9 @@ function setHero(name, color, logo, sub){
     + '</div></div>'
 }
 
+var lastProd = null
+var lastPerfs = []
+
 async function init(){
   var path = window.location.pathname
   if(path === '/tickets/confirmation'){
@@ -131,6 +143,7 @@ async function init(){
   var prod = data.production
   setHero(prod.name, prod.portal_color, prod.portal_logo_url, 'Tickets')
   var perfs = data.performances || []
+  lastProd = prod; lastPerfs = perfs
   if(!perfs.length){
     document.getElementById('app').innerHTML = '<div class="card">Tickets aren\'t on sale for this production yet — check back soon.</div>'
     return
@@ -139,6 +152,19 @@ async function init(){
     return loadPerformance(perfs[0].id)
   }
   renderPerformancePicker(prod, perfs)
+}
+
+async function goBackToPerformances(){
+  // Release whatever's currently held so a seat doesn't sit locked for
+  // someone who's actually just backing out to look at other dates.
+  if(currentPerformance && Object.keys(selectedSeats).length){
+    await api('/api/public/performances/'+currentPerformance.id+'/release-hold','POST',
+      {seat_ids: Object.keys(selectedSeats), session_token: getSessionToken()})
+  }
+  if(holdTimer){ clearTimeout(holdTimer); holdTimer = null }
+  selectedSeats = {}; gaQuantities = {}
+  setHero(lastProd.name, lastProd.portal_color, lastProd.portal_logo_url, 'Tickets')
+  renderPerformancePicker(lastProd, lastPerfs)
 }
 
 function fmtPerfDate(d, t){
@@ -196,7 +222,21 @@ async function loadPerformance(fid){
 
 function renderPurchaseScreen(){
   var reserved = currentPerformance.reserved_seating
-  var html = '<div class="card">'
+  var html = ''
+  if(lastPerfs.length > 1){
+    html += '<button class="btn btn-secondary" style="margin-bottom:14px" onclick="goBackToPerformances()">← Choose a Different Performance</button>'
+  }
+  html += '<div class="card">'
+  if(reserved && !ticketTypes.length){
+    // No point letting anyone pick a seat that has nothing valid to charge
+    // for it — that's a support headache waiting to happen, not a sale.
+    html += '<div class="section-title">Pick your seats</div>'
+    html += '<div class="error-box">Ticket pricing isn\'t set up for this performance yet — please check back soon, or contact us if you\'d like to reserve now.</div>'
+    html += '</div>'
+    html += '<div class="card" id="cart-card"></div>'
+    document.getElementById('app').innerHTML = html
+    return
+  }
   if(reserved){
     html += '<div class="section-title">Pick your seats</div>'
     html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Tap an available seat to select it. Selected seats are held for you for 15 minutes.</div>'
@@ -260,7 +300,11 @@ function renderPickerSVG(){
     svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
   }
   seats.forEach(function(s){
-    var picking = !!selectedSeats[s.id]
+    // Property PRESENCE, not truthiness — a seat picked while no ticket
+    // type was available yet stores null (see toggleSeat), and !!null is
+    // false, which used to make a genuinely-selected seat silently render
+    // as if nothing had been picked at all (no color change, no checkmark).
+    var picking = Object.prototype.hasOwnProperty.call(selectedSeats, s.id)
     var status = picking ? 'mine' : (s.status==='mine' ? 'mine' : s.status)
     var fill = SEAT_STATUS_COLORS[status] || SEAT_STATUS_COLORS.available
     var clickable = (status === 'available' || status === 'mine')

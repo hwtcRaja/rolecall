@@ -7409,9 +7409,18 @@ def open_sad_lottery(eid):
     d = request.json or {}
     conn = get_db()
     closes_at = (d.get('lottery_closes_at') or '').strip() or None
-    execute(conn, """UPDATE studio_after_dark_events SET lottery_status='open', lottery_opens_at=NOW(),
-        lottery_closes_at=COALESCE(%s, lottery_closes_at) WHERE id=%s""", (closes_at, eid))
+    # Guard + RETURNING here too (not just the auto-opener) so a double
+    # click or a repeated API call can't re-send the notification email —
+    # only an event that was genuinely not_open a moment ago triggers it.
+    won = fetchone(conn, """UPDATE studio_after_dark_events SET lottery_status='open', lottery_opens_at=NOW(),
+        lottery_closes_at=COALESCE(%s, lottery_closes_at) WHERE id=%s AND lottery_status='not_open' RETURNING id""",
+        (closes_at, eid))
     conn.commit()
+    if won:
+        try:
+            _notify_sad_lottery_opened(conn, eid)
+        except Exception as e:
+            app.logger.warning(f'SAD lottery-open notification failed: {e}')
     conn.close()
     return jsonify({'ok': True})
 
@@ -7699,12 +7708,23 @@ def sad_auto_open_due_lotteries(conn=None):
             WHERE lottery_status='not_open' AND scheduled_open_at IS NOT NULL
             AND scheduled_open_at <= %s""", (now_eastern(),)) or []
         for ev in due:
-            execute(conn, """UPDATE studio_after_dark_events SET lottery_status='open',
-                lottery_opens_at=NOW() WHERE id=%s AND lottery_status='not_open'""", (ev['id'],))
+            # This gets called lazily from public page loads as well as the
+            # scheduler, so two people loading the page at the exact moment
+            # a lottery is due to open can race here. RETURNING (rather than
+            # a bare UPDATE) tells THIS call whether it actually won that
+            # race, so the notification email below only ever fires once per
+            # event no matter how many concurrent calls see it as due.
+            won = fetchone(conn, """UPDATE studio_after_dark_events SET lottery_status='open',
+                lottery_opens_at=NOW() WHERE id=%s AND lottery_status='not_open' RETURNING id""", (ev['id'],))
+            if not won:
+                continue
             opened += 1
-            app.logger.info(f"Studio After Dark lottery auto-opened for {ev['event_date']}")
-        if opened:
             conn.commit()
+            app.logger.info(f"Studio After Dark lottery auto-opened for {ev['event_date']}")
+            try:
+                _notify_sad_lottery_opened(conn, ev['id'])
+            except Exception as e:
+                app.logger.warning(f'SAD lottery-open notification failed: {e}')
     except Exception as e:
         app.logger.warning(f'Studio After Dark auto-open error: {e}')
         try:
@@ -7825,6 +7845,46 @@ def _send_sad_announcement_email(volunteer):
         f'Can\'t make the next one? There\'s always next month.</p>'
         f'<p style="text-align:center;margin:0 0 8px">'
         f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Learn More</a></p>'
+    )
+    send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
+
+
+def _notify_sad_lottery_opened(conn, event_id):
+    """The actual 'go enter now' email — sent once, the moment a lottery
+    genuinely opens (auto-scheduled or a staff click), to every active
+    volunteer. Separate from the one-time program announcement, which
+    doesn't tie to any particular occurrence."""
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (event_id,))
+    if not ev:
+        return
+    volunteers = fetchall(conn, "SELECT name, email FROM volunteers WHERE status='active' AND email IS NOT NULL AND email != ''") or []
+    for v in volunteers:
+        try:
+            _send_sad_lottery_open_email(v, ev)
+        except Exception as e:
+            app.logger.warning(f'SAD lottery-open email failed for {v.get("email")}: {e}')
+
+def _send_sad_lottery_open_email(volunteer, ev):
+    from html import escape
+    first_name = (volunteer.get('name') or '').strip().split(' ')[0]
+    landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
+    ghost_light_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/ghost-light.png'
+    event_dt = parse_db_datetime(ev['event_date'])
+    event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
+    subject = f"{first_name}, the lottery is open!" if first_name else "The lottery is open!"
+    deadline_dt = parse_db_datetime(ev.get('lottery_closes_at'))
+    deadline_line = ''
+    if deadline_dt:
+        deadline_line = (f'<p style="text-align:center;font-size:13px;color:rgba(255,255,255,0.6);margin:0 0 22px">'
+            f'Entries close {deadline_dt.strftime("%A, %B %-d at %-I:%M %p")} ET</p>')
+    body = (
+        f'<div style="text-align:center;margin:8px 0 20px">'
+        f'<img src="{ghost_light_url}" alt="A ghost light" width="100" style="width:100px;height:auto;display:inline-block"/></div>'
+        f'<p style="text-align:center;font-size:19px;font-weight:700;color:#fff;margin:0 0 8px">Studio After Dark — {event_date_fmt}</p>'
+        f'<p style="text-align:center;margin:0 0 18px">The lottery is open. Get your name in before it closes.</p>'
+        f'{deadline_line}'
+        f'<p style="text-align:center;margin:0 0 8px">'
+        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Enter Now</a></p>'
     )
     send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
 

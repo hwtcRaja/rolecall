@@ -34588,8 +34588,10 @@ async function loadTicketsTab(pid){
     + '<div style="display:flex;gap:8px">'
     + '<button class="btn btn-secondary btn-sm" onclick="openVenuesModal()"> Venues</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="openProductionTicketTypes(\''+pid+'\',\''+(prod?escHtml(prod.name).replace(/'/g,"\\'"):'')+'\')">Manage Ticket Types</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="toggleTicketOrdersPanel(\''+pid+'\')"> Orders &amp; Patrons</button>'
     + '<button class="btn btn-primary btn-sm" onclick="ticketPerfModal(\''+pid+'\')">+ Add Performance</button>'
     + '</div></div>'
+    + '<div id="ticket-orders-panel-'+pid+'" style="display:none;margin-bottom:16px"></div>'
     + (ticketUrl
         ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 14px;background:var(--teal-light,#e0f2fe);border-radius:var(--radius);font-size:13px">'
           + '<span style="flex:1">Public ticket page: <a href="'+ticketUrl+'" target="_blank" style="color:var(--teal-dark);font-weight:700">'+ticketUrl+'</a>'
@@ -34637,6 +34639,167 @@ async function loadTicketsTab(pid){
   }).join('');
 
   el.innerHTML = toolbar + cards;
+}
+
+/* ── Orders & Patrons ────────────────────────────────────────────────── */
+var _ticketOrdersOpen = {}
+var _ticketOrdersPerfs = {}
+
+async function toggleTicketOrdersPanel(pid){
+  var panel = document.getElementById('ticket-orders-panel-'+pid)
+  if(!panel) return
+  var isOpen = !!_ticketOrdersOpen[pid]
+  _ticketOrdersOpen[pid] = !isOpen
+  if(isOpen){ panel.style.display='none'; return }
+  panel.style.display=''
+  panel.innerHTML = '<div class="card" style="padding:16px;color:var(--text-muted)">Loading…</div>'
+  var perfs = await api('/api/productions/'+pid+'/performances')
+  _ticketOrdersPerfs[pid] = Array.isArray(perfs) ? perfs : []
+  panel.innerHTML =
+    '<div class="card" style="padding:16px 18px">'
+    + '<div style="font-size:14px;font-weight:700;margin-bottom:10px"> Search Orders &amp; Patrons</div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">'
+    + '<input type="text" id="tk-order-search-'+pid+'" placeholder="Search by name, email, or phone…" oninput="debounceTicketOrderSearch(\''+pid+'\')" style="flex:1;min-width:200px"/>'
+    + '<select id="tk-order-perf-filter-'+pid+'" onchange="searchTicketOrders(\''+pid+'\')" style="width:auto">'
+    + '<option value="">All performances</option>'
+    + _ticketOrdersPerfs[pid].map(function(p){ return '<option value="'+p.id+'">'+escHtml(tkFmtDate(p.performance_date))+(p.performance_time?' · '+escHtml(tkFmtTime(p.performance_time)):'')+'</option>' }).join('')
+    + '</select>'
+    + '</div>'
+    + '<div id="tk-order-results-'+pid+'" style="font-size:13px;color:var(--text-muted)">Type a name, email, or phone number above to search — or pick a performance to see everyone in it.</div>'
+    + '</div>'
+}
+
+var _ticketSearchTimer = null
+function debounceTicketOrderSearch(pid){
+  if(_ticketSearchTimer) clearTimeout(_ticketSearchTimer)
+  _ticketSearchTimer = setTimeout(function(){ searchTicketOrders(pid) }, 350)
+}
+
+async function searchTicketOrders(pid){
+  var resultsEl = document.getElementById('tk-order-results-'+pid)
+  if(!resultsEl) return
+  var q = (document.getElementById('tk-order-search-'+pid)?.value||'').trim()
+  var perfId = document.getElementById('tk-order-perf-filter-'+pid)?.value||''
+  if(!q && !perfId){
+    resultsEl.innerHTML = 'Type a name, email, or phone number above to search — or pick a performance to see everyone in it.'
+    return
+  }
+  resultsEl.innerHTML = 'Searching…'
+  var url = '/api/productions/'+pid+'/ticket-orders?'
+  if(q) url += 'q='+encodeURIComponent(q)+'&'
+  if(perfId) url += 'performance_id='+encodeURIComponent(perfId)
+  var orders = await api(url)
+  if(!Array.isArray(orders) || !orders.length){
+    resultsEl.innerHTML = '<div style="padding:12px 0">No matching orders.</div>'
+    return
+  }
+  resultsEl.innerHTML = orders.map(function(o){
+    var when = tkFmtDate(o.performance_date)+(o.performance_time?' · '+tkFmtTime(o.performance_time):'')
+    var seats = (o.seat_labels||[]).join(', ') || (o.ticket_count+' ticket'+(o.ticket_count!==1?'s':''))
+    return '<div onclick="openTicketOrderDetail(\''+o.id+'\')" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;cursor:pointer;background:var(--surface)">'
+      + '<div><div style="font-weight:700;font-size:13.5px">'+escHtml(o.guardian_name)+'</div>'
+      + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(o.guardian_email)+(o.guardian_phone?' · '+escHtml(o.guardian_phone):'')+'</div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+escHtml(when)+' · '+escHtml(seats)+'</div></div>'
+      + '<div style="text-align:right;flex-shrink:0">'
+      + '<div style="font-weight:700;font-size:13.5px">'+fmtMoneyCents(o.total_cents)+'</div>'
+      + '<span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;'+(o.status==='completed'?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e')+'">'+escHtml(o.status)+'</span>'
+      + '</div></div>'
+  }).join('')
+}
+
+function fmtMoneyCents(c){ return '$'+((c||0)/100).toFixed(2) }
+
+async function openTicketOrderDetail(oid){
+  var data = await api('/api/ticket-orders/'+oid)
+  if(data.error){ toast(data.error,'error'); return }
+  var order = data.order, perf = data.performance, tickets = data.tickets||[]
+  var when = perf ? tkFmtDate(perf.performance_date)+(perf.performance_time?' · '+tkFmtTime(perf.performance_time):'') : ''
+  var body =
+    '<div style="margin-bottom:16px">'
+    + '<div style="font-size:16px;font-weight:800">'+escHtml(order.guardian_name)+'</div>'
+    + '<div style="font-size:13px;color:var(--text-muted)">'+escHtml(order.guardian_email)+(order.guardian_phone?' · '+escHtml(order.guardian_phone):'')+'</div>'
+    + '<div style="font-size:13px;color:var(--text-muted);margin-top:4px">'+escHtml(perf?perf.production_name:'')+' — '+escHtml(when)+'</div>'
+    + '</div>'
+    + tickets.map(function(t){
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:var(--bg);border-radius:var(--radius);margin-bottom:6px">'
+          + '<div><div style="font-weight:700;font-size:13.5px">'+escHtml(t.seat_label||'General Admission')+'</div>'
+          + '<div style="font-size:11.5px;color:var(--text-muted);font-family:monospace">'+escHtml(t.confirmation_code||'')+(t.checked_in_at?' · checked in':'')+'</div></div>'
+          + '<div style="display:flex;gap:8px;align-items:center">'
+          + '<span style="font-size:13px;font-weight:700">'+fmtMoneyCents(t.price_cents)+'</span>'
+          + (t.seat_id?'<button class="btn btn-secondary btn-sm" onclick="openMoveSeatModal(\''+t.id+'\',\''+order.performance_id+'\',\''+oid+'\')">Move Seat</button>':'')
+          + '</div></div>'
+      }).join('')
+    + '<div style="display:flex;justify-content:space-between;font-weight:800;font-size:15px;padding-top:12px;margin-top:8px;border-top:2px solid var(--border)">'
+    + '<span>Total Paid</span><span>'+fmtMoneyCents(order.total_cents)+'</span></div>'
+    + '<div style="display:flex;gap:8px;margin-top:18px">'
+    + '<button class="btn btn-secondary" style="flex:1" onclick="openRefundRequestFromOrder(\''+oid+'\')"> Request Refund</button>'
+    + '</div>'
+  showAdHocModal('order-detail-modal', 'Order Details', body)
+}
+
+async function openMoveSeatModal(ticketId, performanceId, orderId){
+  var data = await api('/api/public/performances/'+performanceId+'/seat-status')
+  if(data.error){ toast(data.error,'error'); return }
+  var available = (data.seats||[]).filter(function(s){ return s.status==='available' })
+  var body = '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Pick a different available seat for this ticket. This only reassigns the seat — price and ticket type stay the same.</div>'
+    + '<select id="move-seat-select" style="width:100%;margin-bottom:14px">'
+    + (available.length ? available.map(function(s){ return '<option value="'+s.id+'">'+escHtml(s.seat_label)+(s.section?' — '+escHtml(s.section):'')+'</option>' }).join('') : '<option value="">No available seats</option>')
+    + '</select>'
+    + '<button class="btn btn-primary" style="width:100%" '+(available.length?'':'disabled')+' onclick="submitMoveSeat(\''+ticketId+'\',\''+orderId+'\')">Move Seat</button>'
+  showAdHocModal('move-seat-modal', 'Move Seat', body)
+}
+
+async function submitMoveSeat(ticketId, orderId){
+  var sel = document.getElementById('move-seat-select')
+  var newSeatId = sel ? sel.value : ''
+  if(!newSeatId){ toast('No seat selected','error'); return }
+  var res = await api('/api/tickets/'+ticketId+'/move-seat', 'PUT', {seat_id: newSeatId})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Moved from '+res.old_seat_label+' to '+res.new_seat_label+'!','success')
+  closeAdHocModal('move-seat-modal')
+  openTicketOrderDetail(orderId)
+}
+
+async function openRefundRequestFromOrder(oid){
+  if(!confirm('Start a refund request for this order? This creates a request in Refund Requests for your team to review and process — it does not refund the payment immediately.')) return
+  var data = await api('/api/ticket-orders/'+oid)
+  if(data.error){ toast(data.error,'error'); return }
+  var order = data.order, perf = data.performance
+  var res = await api('/api/refund-requests', 'POST', {
+    requester_name: order.guardian_name,
+    requester_email: order.guardian_email,
+    requester_phone: order.guardian_phone || '',
+    program_name: (perf?perf.production_name:'') + ' — Tickets',
+    square_order_id: order.square_order_id || '',
+    amount_paid: fmtMoneyCents(order.total_cents),
+    refund_amount_cents: order.total_cents,
+    request_type: 'refund',
+    reason_category: 'staff_initiated',
+    reason_detail: 'Created from ticket order lookup.',
+  })
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Refund request created!','success')
+  closeAdHocModal('order-detail-modal')
+  navTo('refund-requests')
+}
+
+function showAdHocModal(id, title, bodyHtml){
+  var existing = document.getElementById(id)
+  if(existing) existing.remove()
+  var overlay = document.createElement('div')
+  overlay.id = id
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
+  overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:440px;max-height:85vh;overflow-y:auto;padding:24px">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
+    + '<div style="font-size:16px;font-weight:800">'+escHtml(title)+'</div>'
+    + '<button onclick="closeAdHocModal(\''+id+'\')" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);line-height:1">×</button>'
+    + '</div>' + bodyHtml + '</div>'
+  overlay.addEventListener('click', function(e){ if(e.target===overlay) closeAdHocModal(id) })
+  document.body.appendChild(overlay)
+}
+
+function closeAdHocModal(id){
+  document.getElementById(id)?.remove()
 }
 
 /* ── Performance create / edit modal ────────────────────────────────────── */

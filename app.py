@@ -36968,6 +36968,119 @@ def public_ticket_order_status(oid):
     return jsonify({'order': order, 'performance': perf, 'production_name': (prod or {}).get('name',''), 'tickets': tickets})
 
 
+# ── ORDER / PATRON MANAGEMENT (staff) ────────────────────────────────────
+
+@app.route('/api/productions/<pid>/ticket-orders', methods=['GET'])
+def get_production_ticket_orders(pid):
+    """The box-office view: every order across all of this production's
+    performances, searchable by patron name/email and optionally filtered
+    to one performance. Each order comes back with its ticket count and
+    seat labels so staff can see what's in it without opening every one."""
+    err = require_auth()
+    if err: return err
+    q = (request.args.get('q') or '').strip()
+    performance_id = (request.args.get('performance_id') or '').strip()
+    conn = get_db()
+    where = ['pf.production_id=%s']
+    params = [pid]
+    if performance_id:
+        where.append('t.performance_id=%s')
+        params.append(performance_id)
+    if q:
+        where.append('(t.guardian_name ILIKE %s OR t.guardian_email ILIKE %s OR t.guardian_phone ILIKE %s)')
+        like = f'%{q}%'
+        params.extend([like, like, like])
+    orders = fetchall(conn, f'''SELECT t.*, pf.name AS performance_name, pf.performance_date, pf.performance_time
+        FROM ticket_orders t
+        JOIN performances pf ON pf.id=t.performance_id
+        WHERE {" AND ".join(where)}
+        ORDER BY t.created_at DESC LIMIT 100''', tuple(params)) or []
+    if orders:
+        order_ids = [o['id'] for o in orders]
+        tix = fetchall(conn, 'SELECT ticket_order_id, seat_label FROM tickets WHERE ticket_order_id = ANY(%s)', (order_ids,)) or []
+        by_order = {}
+        for t in tix:
+            by_order.setdefault(t['ticket_order_id'], []).append(t['seat_label'])
+        for o in orders:
+            o['seat_labels'] = by_order.get(o['id'], [])
+            o['ticket_count'] = len(o['seat_labels'])
+    conn.close()
+    return jsonify(orders)
+
+
+@app.route('/api/ticket-orders/<oid>', methods=['GET'])
+def get_ticket_order_admin(oid):
+    """Full order detail for staff — same shape as the public confirmation
+    endpoint, plus each ticket's seat_id (needed for the move-seat UI,
+    which the public-facing version has no reason to expose)."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    order = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (oid,))
+    if not order:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    perf = fetchone(conn, '''SELECT pf.*, p.name AS production_name, p.id AS production_id
+        FROM performances pf JOIN productions p ON p.id=pf.production_id WHERE pf.id=%s''', (order['performance_id'],))
+    tickets = fetchall(conn, 'SELECT * FROM tickets WHERE ticket_order_id=%s ORDER BY seat_label', (oid,)) or []
+    conn.close()
+    try:
+        order['seats'] = json.loads(order.get('seats_json') or '[]')
+    except Exception:
+        order['seats'] = []
+    return jsonify({'order': order, 'performance': perf, 'tickets': tickets})
+
+
+@app.route('/api/tickets/<tid>/move-seat', methods=['PUT'])
+def move_ticket_seat(tid):
+    """Reassigns a sold ticket to a different seat in the same performance
+    — e.g. a patron calls asking to move, or staff need to consolidate a
+    party together. Refuses to move onto a seat that's already sold or
+    currently held by someone mid-checkout; doesn't touch price or the
+    ticket type, just which physical seat it points to."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    new_seat_id = (d.get('seat_id') or '').strip()
+    if not new_seat_id:
+        return jsonify({'error': 'A new seat is required'}), 400
+    conn = get_db()
+    ticket = fetchone(conn, 'SELECT * FROM tickets WHERE id=%s', (tid,))
+    if not ticket:
+        conn.close(); return jsonify({'error': 'Ticket not found'}), 404
+    if not ticket.get('seat_id'):
+        conn.close(); return jsonify({'error': 'This ticket is general admission and has no seat to move'}), 400
+    new_seat = fetchone(conn, 'SELECT * FROM seat_map_seats WHERE id=%s', (new_seat_id,))
+    if not new_seat:
+        conn.close(); return jsonify({'error': 'Seat not found'}), 404
+    already_sold = fetchone(conn, 'SELECT id FROM tickets WHERE performance_id=%s AND seat_id=%s AND id!=%s',
+        (ticket['performance_id'], new_seat_id, tid))
+    if already_sold:
+        conn.close(); return jsonify({'error': f"{new_seat['seat_label']} is already sold to someone else"}), 409
+    _clear_expired_holds(conn, ticket['performance_id'])
+    held = fetchone(conn, 'SELECT session_token FROM seat_holds WHERE performance_id=%s AND seat_id=%s',
+        (ticket['performance_id'], new_seat_id))
+    if held:
+        conn.close(); return jsonify({'error': f"{new_seat['seat_label']} is currently held by someone mid-checkout — try again shortly"}), 409
+    old_label = ticket.get('seat_label')
+    execute(conn, 'UPDATE tickets SET seat_id=%s, seat_label=%s WHERE id=%s',
+        (new_seat_id, new_seat['seat_label'], tid))
+    # Keep the order's own seats_json in sync too, since the confirmation
+    # page and order detail both read seat labels from there directly.
+    order = fetchone(conn, 'SELECT seats_json FROM ticket_orders WHERE id=%s', (ticket['ticket_order_id'],))
+    try:
+        seats = json.loads(order.get('seats_json') or '[]') if order else []
+        for s in seats:
+            if s.get('seat_id') == ticket['seat_id']:
+                s['seat_id'] = new_seat_id
+                s['seat_label'] = new_seat['seat_label']
+        execute(conn, 'UPDATE ticket_orders SET seats_json=%s WHERE id=%s', (json.dumps(seats), ticket['ticket_order_id']))
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'old_seat_label': old_label, 'new_seat_label': new_seat['seat_label']})
+
+
 @app.route('/tickets/<slug>')
 def public_tickets_page(slug):
     return send_from_directory('static', 'tickets.html')

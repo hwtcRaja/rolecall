@@ -36745,7 +36745,8 @@ def public_production_performances(slug):
         venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
     if not prod:
         conn.close(); return jsonify({'error': 'Production not found'}), 404
-    perfs = fetchall(conn, '''SELECT pf.*, v.name AS venue_name, v.address AS venue_address
+    perfs = fetchall(conn, '''SELECT pf.*, v.name AS venue_name, v.address AS venue_address,
+        v.city AS venue_city, v.notes AS venue_notes
         FROM performances pf LEFT JOIN venues v ON pf.venue_id=v.id
         WHERE pf.production_id=%s AND pf.status IN ('on_sale','sold_out')
         ORDER BY pf.performance_date, pf.performance_time''', (prod['id'],))

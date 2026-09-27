@@ -66,6 +66,9 @@ label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0
 @media(max-width:520px){.form-row{grid-template-columns:1fr}}
 .seat-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--text-muted);margin-top:12px}
 .legend-dot{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle;box-shadow:0 0 0 2px rgba(255,255,255,0.6) inset}
+.hold-countdown{background:var(--amber-light);color:#92400e;font-size:13px;font-weight:600;padding:9px 12px;border-radius:var(--radius);margin-bottom:14px;text-align:center}
+.hold-countdown-urgent{background:var(--red-light);color:#991b1b}
+.hold-countdown span{font-variant-numeric:tabular-nums;font-weight:800}
 .cart-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:14.5px}
 .cart-row:last-child{border-bottom:none}
 .total-row{display:flex;justify-content:space-between;font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:800;padding-top:14px;margin-top:8px;border-top:2px solid var(--border)}
@@ -101,6 +104,8 @@ var selectedSeats = {}   // seat_id -> ticket_type_id
 var gaQuantities = {}    // ticket_type_id -> quantity
 var stageInfo = null
 var holdTimer = null
+var holdExpiresAt = null
+var holdCountdownInterval = null
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
 function fmtMoney(c){ return '$'+((c||0)/100).toFixed(2) }
@@ -149,9 +154,18 @@ function renderAboutSection(description){
 
 function renderVenueSection(perf){
   if(!perf || !perf.venue_name) return ''
+  var fullAddress = [perf.venue_address, perf.venue_city].filter(Boolean).join(', ')
+  var mapsLink = fullAddress
+    ? '<a href="https://maps.google.com/?q='+encodeURIComponent(perf.venue_name+' '+fullAddress)+'" target="_blank" rel="noopener" style="font-size:12.5px;font-weight:700;color:var(--teal-dark);text-decoration:none">Get Directions →</a>'
+    : ''
   return '<div class="card venue-card"><div class="section-title" style="font-size:15px">Venue</div>'
-    + '<div style="font-weight:700;font-size:14.5px">'+escH(perf.venue_name)+'</div>'
-    + (perf.venue_address?'<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(perf.venue_address)+'</div>':'')
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'
+    + '<div><div style="font-weight:700;font-size:14.5px">'+escH(perf.venue_name)+'</div>'
+    + (fullAddress?'<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(fullAddress)+'</div>':'')
+    + '</div>'
+    + mapsLink
+    + '</div>'
+    + (perf.venue_notes?'<div style="font-size:13px;color:var(--text);margin-top:12px;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08);white-space:pre-wrap">'+escH(perf.venue_notes)+'</div>':'')
     + '</div>'
 }
 
@@ -197,6 +211,7 @@ async function goBackToPerformances(){
       {seat_ids: Object.keys(selectedSeats), session_token: getSessionToken()})
   }
   if(holdTimer){ clearTimeout(holdTimer); holdTimer = null }
+  stopHoldCountdown()
   selectedSeats = {}; gaQuantities = {}
   setHero(lastProd.name, lastProd.portal_color, lastProd.portal_logo_url, 'Tickets', lastProd.image_url)
   renderPerformancePicker(lastProd, lastPerfs)
@@ -373,11 +388,15 @@ function renderPickerSVG(){
 async function toggleSeat(seatId){
   var seat = seats.find(function(s){ return s.id===seatId })
   if(!seat) return
-  if(selectedSeats[seatId]){
+  if(Object.prototype.hasOwnProperty.call(selectedSeats, seatId)){
     delete selectedSeats[seatId]
     await api('/api/public/performances/'+currentPerformance.id+'/release-hold','POST',
       {seat_ids:[seatId], session_token:getSessionToken()})
     seat.status = 'available'
+    if(!Object.keys(selectedSeats).length){
+      if(holdTimer){ clearTimeout(holdTimer); holdTimer = null }
+      stopHoldCountdown()
+    }
     refreshPickerAndCart()
     return
   }
@@ -398,11 +417,47 @@ async function toggleSeat(seatId){
 }
 
 function armHoldExpiry(){
+  // Every successful hold-seats call (each seat picked) restarts this to a
+  // fresh 15 minutes from right now — same as the server does per seat —
+  // so the displayed countdown always matches "when will my hold really
+  // lapse if I don't touch anything else."
   if(holdTimer) clearTimeout(holdTimer)
+  holdExpiresAt = Date.now() + 15*60*1000
   holdTimer = setTimeout(function(){
+    stopHoldCountdown()
     alert('Your seat hold has expired. Please reselect your seats.')
     loadPerformance(currentPerformance.id)
   }, 15*60*1000)
+  startHoldCountdown()
+}
+
+function startHoldCountdown(){
+  if(holdCountdownInterval) clearInterval(holdCountdownInterval)
+  tickHoldCountdown()
+  holdCountdownInterval = setInterval(tickHoldCountdown, 1000)
+}
+
+function stopHoldCountdown(){
+  if(holdCountdownInterval){ clearInterval(holdCountdownInterval); holdCountdownInterval = null }
+  holdExpiresAt = null
+}
+
+function tickHoldCountdown(){
+  var el = document.getElementById('hold-countdown-time')
+  if(!el || !holdExpiresAt){ return }
+  var remainingMs = holdExpiresAt - Date.now()
+  if(remainingMs <= 0){ el.textContent = '0:00'; return }
+  var totalSeconds = Math.ceil(remainingMs/1000)
+  var m = Math.floor(totalSeconds/60), s = totalSeconds%60
+  el.textContent = m+':'+(s<10?'0':'')+s
+  var wrap = document.getElementById('hold-countdown')
+  if(wrap) wrap.classList.toggle('hold-countdown-urgent', totalSeconds<=60)
+}
+
+function renderHoldCountdown(){
+  if(!holdExpiresAt) return ''
+  return '<div id="hold-countdown" class="hold-countdown">'
+    + ' Your seats are held for <span id="hold-countdown-time">15:00</span></div>'
 }
 
 function changeGaQty(ticketTypeId, delta){
@@ -451,7 +506,7 @@ function renderCart(){
     })
   }
   if(!count) return '<div style="color:var(--text-muted);font-size:13px">No tickets selected yet.</div>'
-  return rows + '<div class="total-row"><span>Total</span><span>'+fmtMoney(computeTotalCents())+'</span></div>'
+  return renderHoldCountdown() + rows + '<div class="total-row"><span>Total</span><span>'+fmtMoney(computeTotalCents())+'</span></div>'
 }
 
 function refreshPickerAndCart(){

@@ -22,33 +22,48 @@
 *{box-sizing:border-box}
 body{margin:0;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
 .wrap{max-width:900px;margin:0 auto;padding:0 18px 70px}
-.hero{background:linear-gradient(135deg,var(--show-accent),var(--show-accent));color:#fff;padding:48px 20px 42px;margin-bottom:28px;position:relative;overflow:hidden}
-.hero{background:linear-gradient(135deg,var(--show-accent),color-mix(in srgb,var(--show-accent) 70%,#000))}
-.hero::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 85% -10%,rgba(255,255,255,0.14),transparent 55%)}
-.hero-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:18px;position:relative}
-.hero-logo{width:60px;height:60px;object-fit:contain;border-radius:14px;background:rgba(255,255,255,0.16);padding:8px;flex-shrink:0;box-shadow:0 4px 16px rgba(0,0,0,0.18)}
+
+/* Site header: HWTC's own identity, fixed teal, the same on every show's
+   page — never driven by --show-accent. This is what should say "you're
+   on an HWTC site" before you ever see which show it is. */
+.site-header{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 20px}
+.site-header-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:10px}
+.site-header img{height:30px;width:auto}
+.site-header span{font-size:14.5px;font-weight:700;color:var(--teal-dark);letter-spacing:0.1px}
+
+/* Hero: the ONE place a show's own color/art takes over. */
+.hero{background:var(--show-accent);color:#fff;padding:44px 20px 40px;position:relative;overflow:hidden}
+.hero::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 85% -20%,rgba(255,255,255,0.16),transparent 55%)}
+.hero-inner{max-width:900px;margin:0 auto;position:relative}
 .hero h1{margin:0 0 6px;font-family:'Playfair Display',Georgia,serif;font-weight:800;font-size:32px;letter-spacing:0.2px;line-height:1.15}
 .hero .sub{opacity:0.88;font-size:14.5px;font-weight:500}
-.hero-poster{padding:120px 20px 46px;background-size:cover;background-position:center 25%}
-.hero-poster::after{background:none}
-@media(max-width:520px){.hero-poster{padding:80px 18px 38px}}
+.hero-poster{padding:130px 20px 44px;background-size:cover;background-position:center 25%}
+.hero-poster::after{background:linear-gradient(180deg,rgba(0,0,0,0.05) 0%,rgba(0,0,0,0.55) 100%)}
+@media(max-width:520px){.hero-poster{padding:90px 18px 36px} .hero h1{font-size:26px}}
+
+.wrap{padding-top:26px}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;margin-bottom:16px;box-shadow:var(--shadow-md)}
 .venue-card{background:var(--teal-light);border-color:transparent}
+
+/* Every interactive/action element below uses HWTC teal, consistently,
+   regardless of which show's page this is — matching how a real venue's
+   own site keeps its buttons in its own brand color no matter what's
+   playing. Only the hero changes per show. */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 22px;border-radius:var(--radius);border:none;font-size:14.5px;font-weight:700;cursor:pointer;font-family:inherit;transition:transform 0.08s ease,box-shadow 0.15s ease}
-.btn-primary{background:var(--show-accent);color:#fff;box-shadow:0 4px 14px rgba(0,0,0,0.25)}
-.btn-primary{box-shadow:0 4px 14px color-mix(in srgb,var(--show-accent) 40%,transparent)}
+.btn-primary{background:var(--teal-dark);color:#fff;box-shadow:0 4px 14px rgba(15,118,110,0.35)}
 .btn-primary:not(:disabled):hover{transform:translateY(-1px)}
 .btn-primary:disabled{opacity:0.4;cursor:not-allowed;box-shadow:none}
 .btn-secondary{background:var(--bg);color:var(--text);border:1.5px solid var(--border-md)}
-.perf-option{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border:2px solid var(--border);border-radius:var(--radius);margin-bottom:10px;cursor:pointer;transition:border-color 0.12s ease,background 0.12s ease}
-.perf-option:hover{border-color:var(--show-accent)}
-.perf-option.selected{border-color:var(--show-accent);background:var(--teal-light)}
+.perf-option{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border:1.5px solid var(--border);border-radius:var(--radius);margin-bottom:10px;transition:border-color 0.12s ease,box-shadow 0.12s ease}
+.perf-option:hover{border-color:var(--teal);box-shadow:var(--shadow-md)}
+.perf-option.selected{border-color:var(--teal-dark);background:var(--teal-light)}
+.perf-option .btn-primary{padding:10px 20px;font-size:13.5px;flex-shrink:0}
 input,select{font-family:inherit;font-size:14.5px;padding:11px 13px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box}
-input:focus,select:focus{outline:none;border-color:var(--show-accent)}
+input:focus,select:focus{outline:none;border-color:var(--teal-dark)}
 label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);display:block;margin-bottom:6px}
 .form-group{margin-bottom:14px}
 .form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:520px){.form-row{grid-template-columns:1fr} .hero h1{font-size:26px}}
+@media(max-width:520px){.form-row{grid-template-columns:1fr}}
 .seat-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--text-muted);margin-top:12px}
 .legend-dot{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle;box-shadow:0 0 0 2px rgba(255,255,255,0.6) inset}
 .cart-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:14.5px}
@@ -58,25 +73,22 @@ label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0
 .error-box{background:var(--red-light);color:#991b1b;padding:14px 16px;border-radius:var(--radius);font-size:14px}
 .qty-stepper{display:flex;align-items:center;gap:10px}
 .qty-btn{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--border-md);background:var(--surface);font-size:17px;font-weight:700;cursor:pointer;transition:border-color 0.1s ease}
-.qty-btn:hover{border-color:var(--show-accent)}
+.qty-btn:hover{border-color:var(--teal-dark)}
 .confirm-code{font-family:monospace;font-size:16px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:7px 14px;border-radius:8px;display:inline-block;letter-spacing:0.5px}
 .section-title{font-family:'Playfair Display',Georgia,serif;font-weight:700;font-size:17px;margin-bottom:10px}
-.hwtc-topbar{background:var(--teal-dark);height:6px}
-.hwtc-footer{max-width:900px;margin:40px auto 0;padding:20px 18px 0;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:10px}
-.hwtc-footer img{height:28px;width:auto;opacity:0.9}
-.hwtc-footer span{font-size:12.5px;color:var(--text-muted);font-weight:600}
 </style>
 </head>
 <body>
 
-<div class="hwtc-topbar"></div>
+<div class="site-header">
+  <div class="site-header-inner">
+    <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" onerror="this.style.display='none'"/>
+    <span>Horizon West Theater Company</span>
+  </div>
+</div>
 <div id="hero-slot"></div>
 <div class="wrap" id="app">
   <div class="loading">Loading…</div>
-</div>
-<div class="hwtc-footer">
-  <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" onerror="this.style.display='none'"/>
-  <span>Horizon West Theater Company</span>
 </div>
 
 <script>
@@ -119,13 +131,13 @@ async function api(path, method, body){
 function setHero(name, color, logo, sub, imageUrl){
   document.documentElement.style.setProperty('--show-accent', color || '#145466')
   var isPoster = !!imageUrl
-  var style = isPoster
-    ? ' style="background-image:linear-gradient(180deg,rgba(10,10,10,0.25) 0%,color-mix(in srgb,var(--show-accent) 92%,#000) 92%),url(\''+imageUrl.replace(/'/g,"%27")+'\')"'
-    : ''
+  var style = isPoster ? ' style="background-image:url(\''+imageUrl.replace(/'/g,"%27")+'\')"' : ''
+  // No small floating logo icon here — HWTC's own identity already lives
+  // in the site header above; duplicating a tiny badge inside the hero
+  // just read as a stray app icon rather than real show art.
   document.getElementById('hero-slot').innerHTML =
     '<div class="hero'+(isPoster?' hero-poster':'')+'"'+style+'><div class="hero-inner">'
-    + (logo?'<img class="hero-logo" src="'+logo+'" onerror="this.style.display=\'none\'"/>':'')
-    + '<div><h1>'+escH(name||'Tickets')+'</h1>'+(sub?'<div class="sub">'+escH(sub)+'</div>':'')+'</div>'
+    + '<h1>'+escH(name||'Tickets')+'</h1>'+(sub?'<div class="sub">'+escH(sub)+'</div>':'')
     + '</div></div>'
 }
 
@@ -210,10 +222,10 @@ function renderPerformancePicker(prod, perfs){
     + '<div class="card"><div class="section-title">Select Your Date</div>'
     + perfs.map(function(p){
         var full = p.status === 'sold_out'
-        return '<div class="perf-option" style="'+(full?'opacity:0.6;cursor:default':'')+'" '+(full?'':'onclick="loadPerformance(\''+p.id+'\')"')+'>'
-          + '<div><div style="font-weight:700">'+escH(fmtPerfDate(p.performance_date, p.performance_time))+'</div>'
-          + '<div style="font-size:12px;color:var(--text-muted)">'+escH(p.venue_name||'')+'</div></div>'
-          + (full?'<span style="font-size:12px;font-weight:700;color:var(--red)">SOLD OUT</span>':'<span style="font-size:13px;font-weight:700;color:var(--show-accent)">Select →</span>')
+        return '<div class="perf-option" style="'+(full?'opacity:0.6':'')+'">'
+          + '<div><div style="font-weight:800;font-size:16px">'+escH(fmtPerfDate(p.performance_date, p.performance_time))+'</div>'
+          + '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(p.venue_name||'')+'</div></div>'
+          + (full?'<span style="font-size:12px;font-weight:700;color:var(--red)">SOLD OUT</span>':'<button class="btn btn-primary" onclick="loadPerformance(\''+p.id+'\')">Select</button>')
           + '</div>'
       }).join('')
     + '</div>'

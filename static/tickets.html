@@ -87,6 +87,7 @@ label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0
   <div class="site-header-inner">
     <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" onerror="this.style.display='none'"/>
     <span>Horizon West Theater Company</span>
+    <a href="/tickets/cart" id="cart-badge" style="display:none;margin-left:auto;font-size:13.5px;font-weight:700;color:var(--teal-dark);text-decoration:none;background:var(--teal-light);padding:6px 12px;border-radius:20px"></a>
   </div>
 </div>
 <div id="hero-slot"></div>
@@ -109,6 +110,81 @@ var holdCountdownInterval = null
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
 function fmtMoney(c){ return '$'+((c||0)/100).toFixed(2) }
+
+// --- Multi-performance cart (localStorage, same idea as the classes/
+// programs cart) ---------------------------------------------------------
+// Each entry is one performance's selections. Adding a SECOND performance
+// doesn't touch the first's server-side seat holds at all -- those keep
+// running on their own 15-minute clock exactly as if the buyer had never
+// left that page; the cart is just this browser's memory of what to
+// submit together at checkout.
+function ticketCartGet(){ try{ return JSON.parse(localStorage.getItem('hwtc_ticket_cart')||'[]') }catch(e){ return [] } }
+function ticketCartSave(items){ localStorage.setItem('hwtc_ticket_cart', JSON.stringify(items)) }
+function ticketCartCount(){ return ticketCartGet().reduce(function(sum,item){ return sum + item.line_items.length }, 0) }
+
+// How many more tickets can be added for the CURRENT performance right
+// now, accounting for anything already sitting in the cart for it plus
+// whatever's currently selected live on the picker. Infinity when the
+// show has no limit set.
+function ticketsRemainingForCurrentPerformance(){
+  if(!lastProd || lastProd.max_tickets_per_performance == null) return Infinity
+  var limit = lastProd.max_tickets_per_performance
+  var inCart = ticketCartGet().find(function(item){ return item.performance_id === currentPerformance.id })
+  var alreadyInCart = inCart ? inCart.line_items.length : 0
+  var currentlySelected = currentPerformance.reserved_seating ? Object.keys(selectedSeats).length
+    : Object.values(gaQuantities).reduce(function(s,q){ return s+q }, 0)
+  return limit - alreadyInCart - currentlySelected
+}
+
+function updateCartBadge(){
+  var badge = document.getElementById('cart-badge')
+  if(!badge) return
+  var count = ticketCartCount()
+  if(count>0){ badge.style.display=''; badge.textContent=' Cart ('+count+')' }
+  else badge.style.display='none'
+}
+
+function addCurrentSelectionToCart(){
+  var lineItems = currentPerformanceLineItems()
+  if(!lineItems.length){ return }
+  var cart = ticketCartGet().filter(function(item){ return item.performance_id !== currentPerformance.id })
+  cart.push({
+    performance_id: currentPerformance.id,
+    production_name: lastProd ? lastProd.name : '',
+    performance_label: fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time),
+    venue_name: currentPerformance.venue_name || '',
+    reserved_seating: !!currentPerformance.reserved_seating,
+    session_token: getSessionToken(),
+    line_items: lineItems
+  })
+  ticketCartSave(cart)
+  // The holds behind these selections stay exactly as they were — only
+  // the LOCAL "what am I actively picking right now" state resets, so
+  // whichever show's page this is doesn't look like it still has an
+  // in-progress selection once it's been moved into the cart.
+  selectedSeats = {}; gaQuantities = {}
+  updateCartBadge()
+  renderPurchaseScreen()
+}
+
+// Turns the current picker's live selection into the same {seat_id,
+// ticket_type_id} / {ticket_type_id, quantity} shape the checkout
+// endpoint expects, whether this performance is reserved or GA.
+function currentPerformanceLineItems(){
+  if(currentPerformance.reserved_seating){
+    return Object.keys(selectedSeats).map(function(sid){
+      var seat = seats.find(function(s){ return s.id===sid })
+      var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
+      return {seat_id: sid, ticket_type_id: selectedSeats[sid], seat_label: seat?seat.seat_label:'', price_cents: tt?tt.price_cents:0}
+    })
+  }
+  var items = []
+  ticketTypes.forEach(function(tt){
+    var qty = gaQuantities[tt.id]||0
+    if(qty>0) items.push({ticket_type_id: tt.id, quantity: qty, seat_label: tt.name, price_cents: tt.price_cents})
+  })
+  return items
+}
 function getSessionToken(){
   if(sessionToken) return sessionToken
   try{
@@ -174,9 +250,13 @@ var lastPerfs = []
 
 async function init(){
   var path = window.location.pathname
+  updateCartBadge()
   if(path === '/tickets/confirmation'){
     var params = new URLSearchParams(window.location.search)
-    return renderConfirmation(params.get('order'))
+    return renderConfirmation(params.get('cart'))
+  }
+  if(path === '/tickets/cart'){
+    return renderCartPage()
   }
   var slug = path.replace(/^\/tickets\//,'').replace(/\/$/,'')
   if(!slug){
@@ -331,7 +411,9 @@ function renderPurchaseScreen(){
     + '<div class="form-group"><label>Phone</label><input type="tel" id="tk-phone"/></div>'
     + '</div>'
     + '<div id="checkout-error"></div>'
-    + '<button class="btn btn-primary" style="width:100%" id="checkout-btn" onclick="doCheckout()" disabled>Checkout</button>'
+    + '<button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="checkout-btn" onclick="doCheckout()" disabled>Checkout</button>'
+    + '<button class="btn btn-secondary" style="width:100%" id="add-to-cart-btn" onclick="addCurrentSelectionToCart()" disabled> Add to Cart</button>'
+    + '<div style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:6px">Buying tickets to more than one show? Add each to your cart, then check out together.</div>'
     + '</div>'
 
   document.getElementById('app').innerHTML = html
@@ -400,6 +482,14 @@ async function toggleSeat(seatId){
     refreshPickerAndCart()
     return
   }
+  // Soft client-side heads-up before even trying to hold the seat — the
+  // real, unbypassable enforcement happens server-side at checkout
+  // (see the per-performance limit check there); this just avoids
+  // someone getting all the way to checkout before finding out.
+  if(ticketsRemainingForCurrentPerformance() <= 0){
+    alert('This show limits '+lastProd.max_tickets_per_performance+' ticket(s) per performance per person, and you\'ve reached that for this date.')
+    return
+  }
   // Optimistically select, then confirm the hold with the server
   var defaultType = ticketTypes[0]
   selectedSeats[seatId] = defaultType ? defaultType.id : null
@@ -463,6 +553,10 @@ function renderHoldCountdown(){
 function changeGaQty(ticketTypeId, delta){
   var tt = ticketTypes.find(function(t){ return t.id===ticketTypeId })
   var cur = gaQuantities[ticketTypeId] || 0
+  if(delta > 0 && ticketsRemainingForCurrentPerformance() <= 0){
+    alert('This show limits '+lastProd.max_tickets_per_performance+' ticket(s) per performance per person, and you\'ve reached that for this date.')
+    return
+  }
   var next = Math.max(0, cur+delta)
   if(tt && tt.quantity_limit) next = Math.min(next, tt.quantity_limit)
   gaQuantities[ticketTypeId] = next
@@ -522,11 +616,55 @@ function refreshCartOnly(){
 
 function updateCheckoutButtonState(){
   var btn = document.getElementById('checkout-btn')
+  var cartBtn = document.getElementById('add-to-cart-btn')
   if(!btn) return
   var hasItems = currentPerformance.reserved_seating ? Object.keys(selectedSeats).length>0
     : Object.values(gaQuantities).some(function(q){ return q>0 })
-  btn.disabled = !hasItems
-  btn.textContent = hasItems ? 'Checkout — '+fmtMoney(computeTotalCents()) : 'Select tickets to continue'
+  var cartCount = ticketCartCount()
+  btn.disabled = !hasItems && !cartCount
+  if(hasItems && cartCount){
+    btn.textContent = 'Checkout Everything — '+fmtMoney(computeTotalCents() + cartTotalCents())
+  } else if(hasItems){
+    btn.textContent = 'Checkout — '+fmtMoney(computeTotalCents())
+  } else if(cartCount){
+    btn.textContent = 'Checkout Cart — '+fmtMoney(cartTotalCents())
+  } else {
+    btn.textContent = 'Select tickets to continue'
+  }
+  if(cartBtn) cartBtn.disabled = !hasItems
+}
+
+function cartTotalCents(){
+  return ticketCartGet().reduce(function(sum,item){
+    return sum + item.line_items.reduce(function(s,li){ return s + (li.price_cents||0) }, 0)
+  }, 0)
+}
+
+// Converts one cart item's stored line_items back into the {seat_id,
+// ticket_type_id} / {ticket_type_id, quantity} shape the checkout
+// endpoint's "cart" array expects.
+function lineItemsToSeatsPayload(lineItems){
+  return lineItems.map(function(li){
+    return li.seat_id ? {seat_id: li.seat_id, ticket_type_id: li.ticket_type_id}
+                       : {ticket_type_id: li.ticket_type_id, quantity: li.quantity}
+  })
+}
+
+// Everything about to be paid for: whatever's already sitting in the
+// persisted cart, PLUS whatever's currently selected live on this page
+// (if anything) that hasn't been explicitly added to the cart yet — so
+// clicking "Checkout" on a show's own page still works exactly like it
+// always did when there's nothing else in the cart, and transparently
+// includes other shows' tickets too when there are.
+function buildFullCartPayload(){
+  var cart = ticketCartGet().map(function(item){
+    return {performance_id: item.performance_id, seats: lineItemsToSeatsPayload(item.line_items)}
+  })
+  if(currentPerformance){
+    var liveItems = currentPerformanceLineItems()
+    if(liveItems.length) cart.push({performance_id: currentPerformance.id, seats: lineItemsToSeatsPayload(liveItems)})
+  }
+  return cart
 }
 
 async function doCheckout(){
@@ -537,58 +675,128 @@ async function doCheckout(){
   errEl.innerHTML = ''
   if(!name || !email){ errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">Name and email are required.</div>'; return }
 
-  var seatsPayload
-  if(currentPerformance.reserved_seating){
-    seatsPayload = Object.keys(selectedSeats).map(function(sid){ return {seat_id: sid, ticket_type_id: selectedSeats[sid]} })
-  } else {
-    seatsPayload = Object.keys(gaQuantities).filter(function(id){ return gaQuantities[id]>0 })
-      .map(function(id){ return {ticket_type_id: id, quantity: gaQuantities[id]} })
-  }
+  var cart = buildFullCartPayload()
+  if(!cart.length){ errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">No tickets selected.</div>'; return }
+
   var btn = document.getElementById('checkout-btn')
   btn.disabled = true; btn.textContent = 'Processing…'
   var res = await api('/api/public/ticket-checkout','POST',{
-    performance_id: currentPerformance.id, session_token: getSessionToken(),
-    guardian_name: name, guardian_email: email, guardian_phone: phone, seats: seatsPayload
+    session_token: getSessionToken(), guardian_name: name, guardian_email: email, guardian_phone: phone, cart: cart
   })
   if(res.error){
     errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">'+escH(res.error)+'</div>'
     btn.disabled = false; updateCheckoutButtonState()
     return
   }
+  // Only clear the persisted cart once the order(s) are actually created
+  // — an error above means nothing was charged, so leave it intact.
+  ticketCartSave([])
   if(res.type === 'payment_required' && res.payment_url){
     window.location.href = res.payment_url
     return
   }
-  window.location.href = '/tickets/confirmation?order='+res.ticket_order_id
+  window.location.href = '/tickets/confirmation?cart='+res.cart_id
 }
 
-async function renderConfirmation(orderId){
-  if(!orderId){
+function renderCartPage(){
+  setHero('Your Cart', null, null, 'Review everything before checking out')
+  var cart = ticketCartGet()
+  if(!cart.length){
+    document.getElementById('app').innerHTML = '<div class="card"><div class="empty-state" style="text-align:center;padding:20px 0"><div style="font-size:32px;margin-bottom:8px"></div>Your cart is empty.</div></div>'
+    return
+  }
+  var grandTotal = 0
+  var html = '<div class="card"><div class="section-title">'+cart.length+' Performance'+(cart.length===1?'':'s')+' in Your Cart</div>'
+  html += cart.map(function(item, idx){
+    var itemTotal = item.line_items.reduce(function(s,li){ return s+(li.price_cents||0) }, 0)
+    grandTotal += itemTotal
+    return '<div style="border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">'
+      + '<div><div style="font-weight:700;font-size:14.5px">'+escH(item.production_name)+'</div>'
+      + '<div style="font-size:12.5px;color:var(--text-muted)">'+escH(item.performance_label)+(item.venue_name?' · '+escH(item.venue_name):'')+'</div></div>'
+      + '<button onclick="removeCartItem('+idx+')" style="background:none;border:none;cursor:pointer;font-size:11.5px;color:var(--text-muted);text-decoration:underline;white-space:nowrap">Remove</button>'
+      + '</div>'
+      + item.line_items.map(function(li){
+          return '<div class="cart-row" style="padding:5px 0;font-size:13.5px"><span>'+escH(li.seat_label||'Ticket')+'</span><span>'+fmtMoney(li.price_cents)+'</span></div>'
+        }).join('')
+      + '<div style="text-align:right;font-weight:700;font-size:13.5px;margin-top:4px">'+fmtMoney(itemTotal)+'</div>'
+      + '</div>'
+  }).join('')
+  html += '<div class="total-row"><span>Cart Total</span><span>'+fmtMoney(grandTotal)+'</span></div>'
+  html += '</div>'
+
+  html += '<div class="card">'
+    + '<div class="section-title">Your info</div>'
+    + '<div class="form-group"><label>Name *</label><input type="text" id="tk-name"/></div>'
+    + '<div class="form-row">'
+    + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
+    + '<div class="form-group"><label>Phone</label><input type="tel" id="tk-phone"/></div>'
+    + '</div>'
+    + '<div id="checkout-error"></div>'
+    + '<button class="btn btn-primary" style="width:100%" id="checkout-btn" onclick="doCheckout()">Checkout — '+fmtMoney(grandTotal)+'</button>'
+    + '</div>'
+  document.getElementById('app').innerHTML = html
+}
+
+async function removeCartItem(idx){
+  var cart = ticketCartGet()
+  var item = cart[idx]
+  if(!item) return
+  cart.splice(idx, 1)
+  ticketCartSave(cart)
+  // Actually release the seats too, not just forget about them locally —
+  // otherwise they'd sit held (and unavailable to anyone else) for the
+  // rest of the 15-minute window for no reason.
+  if(item.reserved_seating){
+    var seatIds = item.line_items.map(function(li){ return li.seat_id }).filter(Boolean)
+    if(seatIds.length){
+      await api('/api/public/performances/'+item.performance_id+'/release-hold','POST',
+        {seat_ids: seatIds, session_token: item.session_token})
+    }
+  }
+  updateCartBadge()
+  renderCartPage()
+}
+
+async function renderConfirmation(cartId){
+  if(!cartId){
     document.getElementById('app').innerHTML = '<div class="error-box">No order specified.</div>'
     return
   }
   document.getElementById('app').innerHTML = '<div class="loading">Loading your order…</div>'
-  var data = await api('/api/public/ticket-order/'+orderId)
+  var data = await api('/api/public/ticket-cart/'+cartId)
   if(data.error){
     document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
     return
   }
-  var order = data.order, perf = data.performance, tickets = data.tickets||[]
-  setHero(data.production_name, perf?perf.portal_color:null, perf?perf.portal_logo_url:null, 'Order Confirmation')
-  var pending = order.status !== 'completed'
+  var entries = data.orders || []
+  var anyPending = entries.some(function(e){ return e.order.status !== 'completed' })
+  var grandTotal = entries.reduce(function(s,e){ return s + (e.order.total_cents||0) }, 0)
+  var guardianEmail = entries.length ? entries[0].order.guardian_email : ''
+  // A cart spanning more than one show has no single show color to use,
+  // so this always uses the plain HWTC hero rather than any one
+  // production's branding — it's a receipt for the whole purchase now.
+  setHero(entries.length===1 ? entries[0].production_name : 'Your Tickets', null, null, 'Order Confirmation')
+
   var html = '<div class="card">'
-  if(pending){
+  if(anyPending){
     html += '<div style="font-weight:700;font-size:16px;margin-bottom:6px">Finishing up your order…</div>'
     html += '<div style="color:var(--text-muted);font-size:14px">If you just paid, this should update in a few seconds. Feel free to refresh.</div>'
-    html += '<button class="btn btn-secondary" style="margin-top:14px" onclick="renderConfirmation(\''+orderId+'\')">Refresh</button>'
+    html += '<button class="btn btn-secondary" style="margin-top:14px" onclick="renderConfirmation(\''+cartId+'\')">Refresh</button>'
   } else {
     html += '<div class="section-title" style="font-size:22px;margin-bottom:4px"> You\'re all set!</div>'
-    html += '<div style="color:var(--text-muted);font-size:14px;margin-bottom:16px">'+escH(fmtPerfDate(perf?perf.performance_date:'', perf?perf.performance_time:''))+(perf&&perf.venue_id?'':'')+'</div>'
-    html += tickets.map(function(t){
-      return '<div class="cart-row"><span>'+escH(t.seat_label||'Ticket')+'</span><span class="confirm-code">'+escH(t.confirmation_code||'')+'</span></div>'
+    html += entries.map(function(e){
+      var perf = e.performance
+      return '<div style="margin-bottom:18px">'
+        + '<div style="font-weight:700;font-size:14.5px">'+escH(e.production_name)+'</div>'
+        + '<div style="color:var(--text-muted);font-size:13px;margin-bottom:8px">'+escH(fmtPerfDate(perf?perf.performance_date:'', perf?perf.performance_time:''))+'</div>'
+        + e.tickets.map(function(t){
+            return '<div class="cart-row"><span>'+escH(t.seat_label||'Ticket')+'</span><span class="confirm-code">'+escH(t.confirmation_code||'')+'</span></div>'
+          }).join('')
+        + '</div>'
     }).join('')
-    html += '<div class="total-row"><span>Total Paid</span><span>'+fmtMoney(order.total_cents)+'</span></div>'
-    html += '<div style="font-size:13px;color:var(--text-muted);margin-top:14px">A confirmation has been sent to '+escH(order.guardian_email||'')+'. Bring this confirmation (or your email) to the show.</div>'
+    html += '<div class="total-row"><span>Total Paid</span><span>'+fmtMoney(grandTotal)+'</span></div>'
+    html += '<div style="font-size:13px;color:var(--text-muted);margin-top:14px">A confirmation has been sent to '+escH(guardianEmail||'')+'. Bring this confirmation (or your email) to the show.</div>'
   }
   html += '</div>'
   document.getElementById('app').innerHTML = html

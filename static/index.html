@@ -34589,6 +34589,7 @@ async function loadTicketsTab(pid){
     + '<button class="btn btn-secondary btn-sm" onclick="openVenuesModal()"> Venues</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="openProductionTicketTypes(\''+pid+'\',\''+(prod?escHtml(prod.name).replace(/'/g,"\\'"):'')+'\')">Manage Ticket Types</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="toggleTicketOrdersPanel(\''+pid+'\')"> Orders &amp; Patrons</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openTicketingSettings(\''+pid+'\')"> Ticketing Settings</button>'
     + '<button class="btn btn-primary btn-sm" onclick="ticketPerfModal(\''+pid+'\')">+ Add Performance</button>'
     + '</div></div>'
     + '<div id="ticket-orders-panel-'+pid+'" style="display:none;margin-bottom:16px"></div>'
@@ -34644,6 +34645,28 @@ async function loadTicketsTab(pid){
 /* ── Orders & Patrons ────────────────────────────────────────────────── */
 var _ticketOrdersOpen = {}
 var _ticketOrdersPerfs = {}
+
+async function openTicketingSettings(pid){
+  var prod = allProductions.find(function(p){ return p.id===pid })
+  var current = prod ? (prod.max_tickets_per_performance ?? '') : ''
+  showAdHocModal('ticketing-settings-modal', 'Ticketing Settings',
+    '<div class="form-group"><label>Max Tickets Per Performance (per buyer)</label>'
+    + '<input type="number" id="tk-max-per-perf" min="1" step="1" value="'+escHtml(String(current))+'" placeholder="No limit"/>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Applies separately to each performance of this show — someone can still buy up to this many for Tuesday AND up to this many for Wednesday. Leave blank for no limit.</div></div>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="saveTicketingSettings(\''+pid+'\')">Save</button>')
+}
+
+async function saveTicketingSettings(pid){
+  var raw = (document.getElementById('tk-max-per-perf')?.value || '').trim()
+  var limit = raw === '' ? null : parseInt(raw, 10)
+  if(raw !== '' && (!Number.isInteger(limit) || limit < 1)){ toast('Enter a whole number of 1 or more, or leave it blank','error'); return }
+  var res = await api('/api/productions/'+pid+'/ticketing-settings', 'PUT', {max_tickets_per_performance: limit})
+  if(res.error){ toast(res.error,'error'); return }
+  var prod = allProductions.find(function(p){ return p.id===pid })
+  if(prod) prod.max_tickets_per_performance = limit
+  toast('Saved!','success')
+  closeAdHocModal('ticketing-settings-modal')
+}
 
 async function toggleTicketOrdersPanel(pid){
   var panel = document.getElementById('ticket-orders-panel-'+pid)

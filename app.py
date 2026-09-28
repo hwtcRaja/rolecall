@@ -2933,6 +2933,20 @@ def init_db():
         created_at     TIMESTAMP DEFAULT NOW(),
         UNIQUE(performance_id, seat_id))""",
         'CREATE INDEX IF NOT EXISTS ix_tickets_order ON tickets(ticket_order_id)',
+        # A multi-performance cart checkout creates one ticket_orders row
+        # per performance (each keeps its own line items/total, same as a
+        # single-performance order always has), all sharing one cart_id
+        # and, once paid, the same square_order_id/checkout_id -- same
+        # pattern as the existing multi-program registration cart. cart_id
+        # is how the confirmation page finds every sibling order once
+        # payment completes, since Square only redirects with one reference.
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS cart_id TEXT",
+        "CREATE INDEX IF NOT EXISTS ix_ticket_orders_cart ON ticket_orders(cart_id)",
+        # Per-performance cap on how many tickets one buyer can get for a
+        # single performance -- null means no limit. Lives on the
+        # production (not per-performance) since a show's policy is
+        # normally the same across all its dates.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS max_tickets_per_performance INTEGER",
         # Defense in depth: even if some future code path or race condition
         # ever let two orders both finalize for the same reserved seat, the
         # database itself refuses the second one outright. Partial (WHERE
@@ -24835,11 +24849,16 @@ def square_webhook():
                             split_order_amount_across_registrations(conn, order_id, cart.get('total_cents'))
                             conn.commit()
                         else:
-                            # Check ticket orders
-                            tord = fetchone(conn, "SELECT * FROM ticket_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
-                                (order_id, order_id))
-                            if tord:
-                                _finalize_ticket_order(conn, tord['id'], payment_id, order_id)
+                            # Check ticket orders — a multi-performance cart
+                            # has multiple sibling rows sharing this same
+                            # square_order_id/checkout_id (one per
+                            # performance), same as a multi-program
+                            # registration cart, so confirm all of them.
+                            tords = fetchall(conn, "SELECT * FROM ticket_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                                (order_id, order_id)) or []
+                            if tords:
+                                for tord in tords:
+                                    _finalize_ticket_order(conn, tord['id'], payment_id, order_id)
                             else:
                                 # Check pending donations
                                 don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
@@ -35964,6 +35983,24 @@ def _require_ticketing():
     """Admin/treasurer/president/staff with ticketing perm may manage tickets."""
     return require_permission('ticketing')
 
+@app.route('/api/productions/<pid>/ticketing-settings', methods=['PUT'])
+def update_ticketing_settings(pid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    limit = d.get('max_tickets_per_performance')
+    if limit is not None:
+        try:
+            limit = int(limit)
+            if limit < 1: raise ValueError()
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Enter a whole number of 1 or more, or leave it blank'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE productions SET max_tickets_per_performance=%s WHERE id=%s', (limit, pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'max_tickets_per_performance': limit})
+
 
 # ── VENUES ──────────────────────────────────────────────────────────────
 @app.route('/api/venues', methods=['GET'])
@@ -36742,7 +36779,7 @@ def public_production_performances(slug):
     page can show a date picker when there's more than one."""
     conn = get_db()
     prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url,
-        venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+        max_tickets_per_performance, venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
     if not prod:
         conn.close(); return jsonify({'error': 'Production not found'}), 404
     perfs = fetchall(conn, '''SELECT pf.*, v.name AS venue_name, v.address AS venue_address,
@@ -36875,91 +36912,145 @@ def public_release_hold(fid):
 
 @app.route('/api/public/ticket-checkout', methods=['POST'])
 def public_ticket_checkout():
-    """Mirrors cart_checkout's shape: validate, total it up, and either
-    auto-confirm a free order or hand back a Square payment link. Seats
-    only convert from 'held' to 'sold' once the webhook confirms payment
-    (see the payment.completed handler) — checkout itself just locks in
-    the price and creates the pending order."""
+    """A cart can span more than one performance now (same idea as the
+    existing multi-program registration cart): one ticket_orders row is
+    created per performance -- each keeps its own line items and total,
+    exactly like a single-performance order always has -- and every row
+    in this checkout shares one cart_id, then, once paid, the same Square
+    order/checkout ids. Seats only convert from 'held' to 'sold' once the
+    webhook confirms payment; checkout itself just validates, polices the
+    per-performance limit, and creates pending orders.
+
+    Request shape: {session_token, guardian_name, guardian_email,
+    guardian_phone, cart: [{performance_id, seats: [...]}, ...]} -- seats
+    is [{seat_id, ticket_type_id}] for reserved seating or
+    [{ticket_type_id, quantity}] for general admission, same as before,
+    just nested one level under each cart entry now."""
     d = request.json or {}
-    fid = d.get('performance_id')
     session_token = (d.get('session_token') or '').strip()
     guardian_name = (d.get('guardian_name') or '').strip()
     guardian_email = (d.get('guardian_email') or '').strip().lower()
     guardian_phone = (d.get('guardian_phone') or '').strip()
-    seat_selections = d.get('seats') or []  # [{seat_id, ticket_type_id}] for reserved, or [{ticket_type_id, quantity}] for GA
+    cart = d.get('cart') or []
 
-    if not fid or not guardian_name or not guardian_email:
-        return jsonify({'error': 'Name, email, and performance are required'}), 400
-    if not seat_selections:
-        return jsonify({'error': 'No tickets selected'}), 400
+    if not guardian_name or not guardian_email:
+        return jsonify({'error': 'Name and email are required'}), 400
+    if not cart:
+        return jsonify({'error': 'Your cart is empty'}), 400
 
     conn = get_db()
-    perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
-    if not perf:
-        conn.close(); return jsonify({'error': 'Performance not found'}), 404
-    prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],))
-    ticket_type_rows = {t['id']: t for t in fetchall(conn, '''SELECT tt.* FROM ticket_types tt
-        JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
-        WHERE ptt.performance_id=%s AND tt.active=TRUE''', (fid,))}
+    groups = []  # each: {performance_id, prod_name, limit, line_items}
+    requested_by_perf = {}  # performance_id -> tickets requested in THIS submission, summed across any duplicate cart entries for the same performance
 
-    line_items = []  # each: seat_id (nullable), ticket_type_id, seat_label, price_cents
-    if perf.get('reserved_seating'):
-        _clear_expired_holds(conn, fid)
-        held = {r['seat_id']: r['session_token'] for r in
-            fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))}
-        seat_rows = {s['id']: s for s in fetchall(conn,
-            'SELECT * FROM seat_map_seats WHERE id = ANY(%s)', ([sel.get('seat_id') for sel in seat_selections],))}
-        for sel in seat_selections:
-            sid = sel.get('seat_id')
-            seat = seat_rows.get(sid)
-            if not seat:
-                conn.close(); return jsonify({'error': 'A selected seat no longer exists'}), 400
-            if held.get(sid) != session_token:
-                conn.close(); return jsonify({'error': f"Your hold on seat {seat['seat_label']} expired — please reselect."}), 409
-            tt = ticket_type_rows.get(sel.get('ticket_type_id'))
-            if not tt:
-                # Never silently price a reserved seat at $0 because its
-                # ticket type didn't resolve (missing, inactive, or this
-                # performance has none configured) — that would let a
-                # misconfigured performance be checked out for free.
-                conn.close(); return jsonify({'error': f"Seat {seat['seat_label']} has no valid ticket type — please contact us."}), 400
-            line_items.append({'seat_id': sid, 'ticket_type_id': tt['id'],
-                'seat_label': seat['seat_label'], 'price_cents': tt['price_cents']})
-    else:
-        for sel in seat_selections:
-            tt = ticket_type_rows.get(sel.get('ticket_type_id'))
-            if not tt:
-                conn.close(); return jsonify({'error': 'Invalid ticket type'}), 400
-            qty = max(1, int(sel.get('quantity') or 1))
-            for _ in range(qty):
-                line_items.append({'seat_id': None, 'ticket_type_id': tt['id'],
-                    'seat_label': tt['name'], 'price_cents': tt['price_cents']})
+    for entry in cart:
+        fid = entry.get('performance_id')
+        seat_selections = entry.get('seats') or []
+        if not fid or not seat_selections:
+            conn.close(); return jsonify({'error': 'Each cart item needs a performance and at least one ticket'}), 400
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+        if not perf:
+            conn.close(); return jsonify({'error': 'A performance in your cart no longer exists'}), 404
+        prod = fetchone(conn, 'SELECT name, max_tickets_per_performance FROM productions WHERE id=%s', (perf['production_id'],))
+        ticket_type_rows = {t['id']: t for t in fetchall(conn, '''SELECT tt.* FROM ticket_types tt
+            JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
+            WHERE ptt.performance_id=%s AND tt.active=TRUE''', (fid,))}
 
-    total_cents = sum(li['price_cents'] for li in line_items)
-    order_id = str(uuid.uuid4())
-    execute(conn, '''INSERT INTO ticket_orders
-        (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json, total_cents, status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,'pending')''',
-        (order_id, fid, guardian_name, guardian_email, guardian_phone, json.dumps(line_items), total_cents))
+        line_items = []  # each: seat_id (nullable), ticket_type_id, seat_label, price_cents
+        if perf.get('reserved_seating'):
+            _clear_expired_holds(conn, fid)
+            held = {r['seat_id']: r['session_token'] for r in
+                fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))}
+            seat_rows = {s['id']: s for s in fetchall(conn,
+                'SELECT * FROM seat_map_seats WHERE id = ANY(%s)', ([sel.get('seat_id') for sel in seat_selections],))}
+            for sel in seat_selections:
+                sid = sel.get('seat_id')
+                seat = seat_rows.get(sid)
+                if not seat:
+                    conn.close(); return jsonify({'error': 'A selected seat no longer exists'}), 400
+                if held.get(sid) != session_token:
+                    conn.close(); return jsonify({'error': f"Your hold on seat {seat['seat_label']} expired — please reselect."}), 409
+                tt = ticket_type_rows.get(sel.get('ticket_type_id'))
+                if not tt:
+                    # Never silently price a reserved seat at $0 because its
+                    # ticket type didn't resolve (missing, inactive, or this
+                    # performance has none configured) — that would let a
+                    # misconfigured performance be checked out for free.
+                    conn.close(); return jsonify({'error': f"Seat {seat['seat_label']} has no valid ticket type — please contact us."}), 400
+                line_items.append({'seat_id': sid, 'ticket_type_id': tt['id'],
+                    'seat_label': seat['seat_label'], 'price_cents': tt['price_cents']})
+        else:
+            for sel in seat_selections:
+                tt = ticket_type_rows.get(sel.get('ticket_type_id'))
+                if not tt:
+                    conn.close(); return jsonify({'error': 'Invalid ticket type'}), 400
+                qty = max(1, int(sel.get('quantity') or 1))
+                for _ in range(qty):
+                    line_items.append({'seat_id': None, 'ticket_type_id': tt['id'],
+                        'seat_label': tt['name'], 'price_cents': tt['price_cents']})
+
+        requested_by_perf[fid] = requested_by_perf.get(fid, 0) + len(line_items)
+        groups.append({'performance_id': fid, 'prod_name': (prod or {}).get('name',''),
+            'limit': (prod or {}).get('max_tickets_per_performance'), 'line_items': line_items})
+
+    # Policing the per-performance limit: this is the authoritative check
+    # (the picker only ever offers a softer, client-side version of this)
+    # -- existing completed tickets for this email at this performance,
+    # plus what's being requested right now, can't exceed the show's own
+    # limit. Checking by email rather than session closes the obvious
+    # "just check out twice" loophole; it can't stop someone from using a
+    # second email, which is an inherent limit of not requiring accounts.
+    for fid, requested in requested_by_perf.items():
+        grp = next(g for g in groups if g['performance_id'] == fid)
+        limit = grp['limit']
+        if limit is None:
+            continue
+        existing = fetchone(conn, '''SELECT COUNT(*) AS c FROM tickets t
+            JOIN ticket_orders o ON t.ticket_order_id=o.id
+            WHERE t.performance_id=%s AND o.guardian_email=%s AND o.status='completed' ''',
+            (fid, guardian_email))
+        existing_count = (existing or {}).get('c', 0)
+        if existing_count + requested > limit:
+            conn.close()
+            remaining = max(0, limit - existing_count)
+            msg = f"{grp['prod_name']} limits {limit} ticket{'s' if limit != 1 else ''} per performance per person"
+            msg += f" — you can get {remaining} more for this date." if remaining else " — you've already reached that limit for this date."
+            return jsonify({'error': msg}), 400
+
+    cart_id = str(uuid.uuid4())
+    order_ids = []
+    grand_total = 0
+    sq_line_items = []
+    for grp in groups:
+        total_cents = sum(li['price_cents'] for li in grp['line_items'])
+        grand_total += total_cents
+        order_id = str(uuid.uuid4())
+        order_ids.append(order_id)
+        execute(conn, '''INSERT INTO ticket_orders
+            (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json, total_cents, status, cart_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
+            (order_id, grp['performance_id'], guardian_name, guardian_email, guardian_phone,
+             json.dumps(grp['line_items']), total_cents, cart_id))
+        for li in grp['line_items']:
+            sq_line_items.append({
+                'name': (f"{grp['prod_name']} — {li['seat_label'] or 'Ticket'}")[:191],
+                'quantity': '1',
+                'base_price_money': {'amount': li['price_cents'], 'currency': 'USD'},
+            })
     conn.commit()
 
-    if total_cents == 0:
-        _finalize_ticket_order(conn, order_id, None, None)
+    if grand_total == 0:
+        for oid in order_ids:
+            _finalize_ticket_order(conn, oid, None, None)
         conn.close()
-        return jsonify({'ok': True, 'type': 'confirmed_free', 'ticket_order_id': order_id})
+        return jsonify({'ok': True, 'type': 'confirmed_free', 'cart_id': cart_id})
 
-    sq_line_items = [{
-        'name': (li['seat_label'] or 'Ticket')[:191],
-        'quantity': '1',
-        'base_price_money': {'amount': li['price_cents'], 'currency': 'USD'},
-    } for li in line_items]
-    redirect_url = f'{APP_BASE_URL}/tickets/confirmation?order={order_id}'
+    redirect_url = f'{APP_BASE_URL}/tickets/confirmation?cart={cart_id}'
     payload = {
         'idempotency_key': uuid.uuid4().hex,
-        'order': {'location_id': SQUARE_LOCATION_ID, 'line_items': sq_line_items, 'reference_id': order_id[:40]},
+        'order': {'location_id': SQUARE_LOCATION_ID, 'line_items': sq_line_items, 'reference_id': cart_id[:40]},
         'checkout_options': {'redirect_url': redirect_url, 'ask_for_shipping_address': False},
         'pre_populated_data': {'buyer_email': guardian_email},
-        'description': f"Tickets — {(prod or {}).get('name','')}"[:191],
+        'description': (f"Tickets — {groups[0]['prod_name']}" if len(groups) == 1 else "Tickets — multiple performances")[:191],
     }
     try:
         r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
@@ -36967,10 +37058,10 @@ def public_ticket_checkout():
         data = r.json()
         if r.status_code == 200 and data.get('payment_link'):
             lnk = data['payment_link']
-            execute(conn, 'UPDATE ticket_orders SET square_order_id=%s, square_checkout_id=%s WHERE id=%s',
-                (lnk.get('order_id'), lnk.get('id'), order_id))
+            execute(conn, 'UPDATE ticket_orders SET square_order_id=%s, square_checkout_id=%s WHERE cart_id=%s',
+                (lnk.get('order_id'), lnk.get('id'), cart_id))
             conn.commit(); conn.close()
-            return jsonify({'ok': True, 'type': 'payment_required', 'payment_url': lnk.get('url'), 'ticket_order_id': order_id})
+            return jsonify({'ok': True, 'type': 'payment_required', 'payment_url': lnk.get('url'), 'cart_id': cart_id})
         conn.close()
         return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
     except Exception as e:
@@ -37032,6 +37123,29 @@ def public_ticket_order_status(oid):
     except Exception:
         order['seats'] = []
     return jsonify({'order': order, 'performance': perf, 'production_name': (prod or {}).get('name',''), 'tickets': tickets})
+
+@app.route('/api/public/ticket-cart/<cart_id>', methods=['GET'])
+def public_ticket_cart_status(cart_id):
+    """Confirmation-page equivalent of public_ticket_order_status, but for
+    a whole cart -- every performance's order that shared this checkout,
+    each with its own tickets, so a multi-show purchase shows as one
+    combined confirmation instead of only ever surfacing one of them."""
+    conn = get_db()
+    orders = fetchall(conn, 'SELECT * FROM ticket_orders WHERE cart_id=%s ORDER BY created_at', (cart_id,)) or []
+    if not orders:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    result = []
+    for order in orders:
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))
+        prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) if perf else None
+        tickets = fetchall(conn, 'SELECT * FROM tickets WHERE ticket_order_id=%s', (order['id'],))
+        try:
+            order['seats'] = json.loads(order.get('seats_json') or '[]')
+        except Exception:
+            order['seats'] = []
+        result.append({'order': order, 'performance': perf, 'production_name': (prod or {}).get('name',''), 'tickets': tickets})
+    conn.close()
+    return jsonify({'orders': result})
 
 
 # ── ORDER / PATRON MANAGEMENT (staff) ────────────────────────────────────

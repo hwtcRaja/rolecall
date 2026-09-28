@@ -2188,6 +2188,7 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pickup_contacts TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS reviewed_fields TEXT DEFAULT ''""",
         """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS grade TEXT DEFAULT ''""",
         # A participant's own email — separate from youth_guardians, which
@@ -22508,6 +22509,34 @@ def backfill_custom_field_values_route():
     return jsonify({'ok': True, 'checked': checked, 'updated': updated})
 
 
+# Profile fields a returning family saw pre-filled from their record on the
+# registration form. For these, whatever they submit (including a cleared
+# box or an unchecked consent) replaces what's on file; for anything not
+# listed, a blank still means "didn't fill it in" and never erases data.
+REVIEWABLE_PROFILE_FIELDS = ('allergies', 'pronouns', 'photo_consent', 'emergency_contact')
+FAMILY_LEVEL_REVIEWABLE = ('photo_consent', 'emergency_contact')
+
+
+def _clean_reviewed_fields(raw):
+    if not isinstance(raw, list): return []
+    return [f for f in REVIEWABLE_PROFILE_FIELDS if f in raw]
+
+
+def _reviewed_fields_for_children(d, siblings):
+    """One reviewed_fields string per child (primary first, then siblings).
+    Family-level fields apply to every child; allergies/pronouns only to the
+    primary, plus allergies for a sibling whose block was pre-filled."""
+    primary = _clean_reviewed_fields(d.get('reviewed_fields'))
+    family = [f for f in primary if f in FAMILY_LEVEL_REVIEWABLE]
+    out = [','.join(primary)]
+    for sib in (siblings or []):
+        sf = list(family)
+        if isinstance(sib, dict) and sib.get('reviewed') and 'allergies' in primary:
+            sf.append('allergies')
+        out.append(','.join(sf))
+    return out
+
+
 def create_grouped_registrations(conn, shared_fields, children, total_amount_cents, status, payment_type, amounts=None):
     """Create one program_registrations row per child (primary + each sibling), all sharing
     a registration_group_id so a single payment/hold can confirm or reference the whole group,
@@ -22549,6 +22578,16 @@ def create_grouped_registrations(conn, shared_fields, children, total_amount_cen
             'participant_count': 1,
             'siblings_json': '[]',
         })
+        # Per-child health/identity fields: a sibling must never inherit the
+        # first child's allergies or pronouns (finalize_registration writes
+        # these onto each child's own profile).
+        for _k in ('allergies', 'pronouns'):
+            if _k in child:
+                row[_k] = (child.get(_k) or '').strip() or None
+            elif i > 0:
+                row[_k] = None
+        if 'reviewed_fields' in child:
+            row['reviewed_fields'] = child.get('reviewed_fields') or ''
         insert_registration_row(conn, row)
     return ids, group_id
 
@@ -22914,7 +22953,9 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         square_payment_id=%s, square_order_id=%s, updated_at=NOW() WHERE id=%s''',
         (payment_id or reg.get('square_payment_id'), order_id or reg.get('square_order_id'), reg_id))
 
-    def get_or_create_participant(first, last, dob, shirt, own_email=None):
+    reg_reviewed = set(f for f in (reg.get('reviewed_fields') or '').split(',') if f)
+
+    def get_or_create_participant(first, last, dob, shirt, own_email=None, sibling=None):
         """Find existing participant by guardian email + name, or create new one.
         own_email, when given, is the *participant's own* email (used for
         adult self-registrants) — stored directly on youth_participants,
@@ -22932,27 +22973,50 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         allergies = reg.get('allergies') or ''
         pronouns = reg.get('pronouns') or ''
         photo_consent = 1 if reg.get('photo_consent') else 0
+        reviewed = set(reg_reviewed)
+        if sibling is not None:
+            # A child from siblings_json (cart flow): never take the first
+            # child's allergies/pronouns — only what was entered for them.
+            allergies = (sibling.get('allergies') or '').strip()
+            pronouns = ''
+            reviewed.discard('pronouns')
+            if not sibling.get('reviewed'):
+                reviewed.discard('allergies')
 
         if existing:
-            # Update existing participant with any new info from registration
+            # Update existing participant with any new info from registration.
+            # Fields the family reviewed pre-filled are taken exactly as
+            # submitted (so clearing allergies or unchecking photo consent
+            # sticks); everything else only fills in, never erases.
+            allergies_sql = '%s' if 'allergies' in reviewed else "COALESCE(NULLIF(%s,''), allergies)"
+            pronouns_sql = '%s' if 'pronouns' in reviewed else "COALESCE(NULLIF(%s,''), pronouns)"
+            consent_sql = '%s' if 'photo_consent' in reviewed else 'GREATEST(photo_consent, %s)'
             try:
                 execute(conn, '''UPDATE youth_participants SET
                     shirt_size=COALESCE(NULLIF(%s,''), shirt_size),
                     dob=COALESCE(dob, %s),
                     medical_notes=COALESCE(NULLIF(%s,''), medical_notes),
-                    allergies=COALESCE(NULLIF(%s,''), allergies),
-                    pronouns=COALESCE(NULLIF(%s,''), pronouns),
-                    photo_consent=GREATEST(photo_consent, %s),
+                    allergies=''' + allergies_sql + ''',
+                    pronouns=''' + pronouns_sql + ''',
+                    photo_consent=''' + consent_sql + ''',
                     email=COALESCE(NULLIF(%s,''), email)
                     WHERE id=%s''',
                     (shirt or '', dob or None, medical_notes, allergies, pronouns, photo_consent,
                      own_email or '', existing['id']))
             except Exception as eu:
                 app.logger.warning(f'Participant update from reg: {eu}')
-            # Add emergency contact if not already present
+            # Emergency contact: add if none on file; if the family reviewed
+            # it and changed it, update the most recent one in place.
             if reg.get('emergency_contact_name'):
                 try:
-                    ec_exists = fetchone(conn, 'SELECT id FROM youth_emergency_contacts WHERE youth_id=%s LIMIT 1', (existing['id'],))
+                    ec_exists = fetchone(conn, '''SELECT id, name, phone FROM youth_emergency_contacts
+                        WHERE youth_id=%s ORDER BY created_at DESC LIMIT 1''', (existing['id'],))
+                    if ec_exists and 'emergency_contact' in reviewed:
+                        new_ec_name = reg.get('emergency_contact_name') or ''
+                        new_ec_phone = reg.get('emergency_contact_phone') or ''
+                        if new_ec_name != (ec_exists.get('name') or '') or new_ec_phone != (ec_exists.get('phone') or ''):
+                            execute(conn, 'UPDATE youth_emergency_contacts SET name=%s, phone=%s WHERE id=%s',
+                                    (new_ec_name, new_ec_phone, ec_exists['id']))
                     if not ec_exists:
                         import uuid as _uec
                         execute(conn, '''INSERT INTO youth_emergency_contacts
@@ -23000,8 +23064,10 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         return fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
 
     def ensure_guardian(youth_id):
-        existing = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s AND LOWER(email)=LOWER(%s)',
+        existing = fetchone(conn, 'SELECT id, phone FROM youth_guardians WHERE youth_id=%s AND LOWER(email)=LOWER(%s)',
             (youth_id, reg['guardian_email']))
+        if existing and reg.get('guardian_phone') and reg.get('guardian_phone') != (existing.get('phone') or ''):
+            execute(conn, 'UPDATE youth_guardians SET phone=%s WHERE id=%s', (reg['guardian_phone'], existing['id']))
         if not existing and reg.get('guardian_name'):
             import uuid as _ug
             # Programs that don't require a guardian are adults registering
@@ -23074,7 +23140,8 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         sib_youth = get_or_create_participant(
             (sib.get('first_name') or '').strip(),
             (sib.get('last_name') or '').strip(),
-            sib.get('dob'), sib.get('shirt_size'))
+            sib.get('dob'), sib.get('shirt_size'),
+            sibling=sib if isinstance(sib, dict) else {})
         if sib_youth:
             ensure_guardian(sib_youth['id'])
             enroll(sib_youth['id'])
@@ -24341,6 +24408,172 @@ def delete_licensing_contract_file(lid):
     conn.close()
     return jsonify({'ok': True})
 
+# ── Returning-family registration prefill ─────────────────────────────────────
+# A parent who has registered before types their email on the public
+# registration form; if that email is on a youth_guardians record (or is an
+# adult self-registrant's own email on youth_participants), we email them a
+# signed, time-limited link back to the same form. Opening the link loads what
+# we already have on file (guardian contact, each child's details, emergency
+# contact, last pickup list) into the form for them to review.
+#
+# The email alone never returns data; clicking the emailed link is what proves
+# the person controls that inbox. Tokens are stateless (itsdangerous, signed
+# with app.secret_key), so there's no table/migration. They're reusable until
+# they expire, so a page refresh doesn't strand the parent.
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+
+RETURNING_PREFILL_SALT = 'returning-family-prefill-v1'
+RETURNING_PREFILL_MAX_AGE = 2 * 60 * 60   # link valid for 2 hours
+RETURNING_LINK_COOLDOWN = 120             # seconds between emails to one address
+_returning_link_last_sent = {}            # email -> epoch seconds (per worker; best-effort)
+
+
+def _returning_serializer():
+    return URLSafeTimedSerializer(app.secret_key, salt=RETURNING_PREFILL_SALT)
+
+
+def _returning_prefill_enabled():
+    # Never issue signed links with the fallback dev key — anyone reading the
+    # repo could forge them.
+    return bool(app.secret_key) and app.secret_key != 'rollcall-dev-key'
+
+
+def _returning_family_known(conn, email):
+    g = fetchone(conn, 'SELECT id FROM youth_guardians WHERE LOWER(email)=%s LIMIT 1', (email,))
+    if g: return True
+    y = fetchone(conn, "SELECT id FROM youth_participants WHERE LOWER(email)=%s LIMIT 1", (email,))
+    return bool(y)
+
+
+@app.route('/api/public/returning-family/request-link', methods=['POST'])
+def public_returning_family_request_link():
+    """Email a prefill link to a returning family. Always answers the same way,
+    whether or not the email is on file, so this can't be used to check who
+    has registered with HWTC."""
+    d = request.json or {}
+    email = (d.get('email') or '').strip().lower()
+    slug = (d.get('slug') or '').strip()
+    is_production = bool(d.get('is_production'))
+    generic = {'ok': True, 'message': "If that email is on file with us, we've sent you a link. It's good for 2 hours."}
+
+    if not email or '@' not in email or not slug or not _returning_prefill_enabled():
+        return jsonify(generic)
+
+    import time as _t
+    now = _t.time()
+    last = _returning_link_last_sent.get(email) or 0
+    if now - last < RETURNING_LINK_COOLDOWN:
+        return jsonify(generic)
+
+    conn = get_db()
+    try:
+        # Only build links to real registration pages
+        if slug == 'cart':
+            target = {'name': 'your HWTC programs', 'slug': 'cart'}
+            if not _returning_family_known(conn, email):
+                return jsonify(generic)
+        elif is_production:
+            target = fetchone(conn, 'SELECT id, name, slug FROM productions WHERE slug=%s OR id=%s', (slug, slug))
+        else:
+            target = fetchone(conn, 'SELECT id, name, slug FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+        if slug != 'cart' and (not target or not _returning_family_known(conn, email)):
+            return jsonify(generic)
+    finally:
+        conn.close()
+
+    _returning_link_last_sent[email] = now
+    token = _returning_serializer().dumps({'e': email})
+    path_prefix = 'production/' if (is_production and slug != 'cart') else ''
+    link = 'https://rolecall.hwtco.org/register/' + path_prefix + (target.get('slug') or slug) + '?rt=' + token
+    prog_name = target.get('name') or 'HWTC'
+    body = (
+        '<p>Hi there,</p>'
+        '<p>Here is your link to register for <strong>' + prog_name + '</strong> using the information we already have on file for your family:</p>'
+        '<p style="text-align:center;margin:24px 0"><a href="' + link + '" '
+        'style="display:inline-block;background:#145466;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700">'
+        'Continue my registration</a></p>'
+        '<p>Please look everything over before you submit, especially allergies, emergency contacts, and who is allowed to pick up.</p>'
+        '<p style="color:#6b7280;font-size:13px">This link works for 2 hours. If you didn\'t ask for it, you can ignore this email.</p>'
+    )
+    try:
+        send_email([email], 'Your HWTC registration link: ' + prog_name,
+                   build_hwtc_email_html('Your registration link', body),
+                   source='returning_family_prefill')
+    except Exception as e:
+        app.logger.warning(f'Returning-family link email failed: {e}')
+    return jsonify(generic)
+
+
+@app.route('/api/public/returning-family/prefill')
+def public_returning_family_prefill():
+    """Exchange a valid prefill token for the family's on-file details."""
+    token = (request.args.get('rt') or '').strip()
+    if not token or not _returning_prefill_enabled():
+        return jsonify({'error': 'Invalid link'}), 400
+    try:
+        data = _returning_serializer().loads(token, max_age=RETURNING_PREFILL_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({'error': 'This link has expired. Request a new one from the registration page.', 'expired': True}), 400
+    except BadSignature:
+        return jsonify({'error': 'Invalid link'}), 400
+    email = (data.get('e') or '').strip().lower()
+    if not email:
+        return jsonify({'error': 'Invalid link'}), 400
+
+    conn = get_db()
+    try:
+        guardian = fetchone(conn, '''SELECT name, phone FROM youth_guardians
+            WHERE LOWER(email)=%s ORDER BY is_primary DESC, created_at DESC LIMIT 1''', (email,))
+
+        kids = fetchall(conn, '''SELECT DISTINCT yp.id, yp.first_name, yp.last_name, yp.dob,
+                yp.shirt_size, yp.allergies, yp.pronouns, yp.photo_consent, yp.created_at
+            FROM youth_participants yp
+            JOIN youth_guardians yg ON yg.youth_id=yp.id
+            WHERE LOWER(yg.email)=%s AND COALESCE(yp.status,'active')='active'
+            ORDER BY yp.created_at''', (email,)) or []
+
+        # Adult self-registrant whose own email is on their participant record
+        self_rec = fetchone(conn, '''SELECT id, first_name, last_name, dob, shirt_size,
+                allergies, pronouns, photo_consent
+            FROM youth_participants
+            WHERE LOWER(email)=%s AND COALESCE(status,'active')='active'
+            ORDER BY created_at DESC LIMIT 1''', (email,))
+
+        people = []
+        for k in kids:
+            people.append(dict(k, is_self=False))
+        if self_rec and not any(p['id'] == self_rec['id'] for p in people):
+            people.append(dict(self_rec, is_self=True))
+
+        for p in people:
+            ec = fetchone(conn, '''SELECT name, phone FROM youth_emergency_contacts
+                WHERE youth_id=%s ORDER BY created_at DESC LIMIT 1''', (p['id'],))
+            p['emergency_contact_name'] = (ec or {}).get('name') or ''
+            p['emergency_contact_phone'] = (ec or {}).get('phone') or ''
+            last_reg = fetchone(conn, '''SELECT pickup_contacts FROM program_registrations
+                WHERE LOWER(guardian_email)=%s AND LOWER(child_first_name)=LOWER(%s)
+                  AND LOWER(COALESCE(child_last_name,''))=LOWER(%s)
+                  AND COALESCE(pickup_contacts,'')<>''
+                ORDER BY created_at DESC LIMIT 1''', (email, p['first_name'] or '', p['last_name'] or ''))
+            p['pickup_contacts'] = (last_reg or {}).get('pickup_contacts') or ''
+            p['photo_consent'] = bool(p.get('photo_consent'))
+            p.pop('created_at', None)
+            p.pop('id', None)   # the form doesn't need internal ids
+
+        self_name = ''
+        if self_rec:
+            self_name = ((self_rec.get('first_name') or '') + ' ' + (self_rec.get('last_name') or '')).strip()
+        return jsonify({
+            'ok': True,
+            'email': email,
+            'guardian_name': (guardian or {}).get('name') or self_name,
+            'guardian_phone': (guardian or {}).get('phone') or '',
+            'people': people,
+        })
+    finally:
+        conn.close()
+
+
 @app.route('/api/public/program/<slug>')
 def public_program_info(slug):
     """Public program info — no auth needed."""
@@ -24715,10 +24948,14 @@ def public_submit_registration(slug):
     # Build the list of children (primary + siblings) and the fields shared by every
     # row in the group — each child becomes their own independent registration row.
     reg_children = [{'first_name': d.get('child_first_name','').strip(), 'last_name': d.get('child_last_name','').strip(),
-                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size'),
+                      'allergies': d.get('allergies') or '', 'pronouns': d.get('pronouns') or ''}]
     for s in siblings:
         reg_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
-                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size'),
+                              'allergies': s.get('allergies') or ''})
+    for _c, _rf in zip(reg_children, _reviewed_fields_for_children(d, siblings)):
+        _c['reviewed_fields'] = _rf
     shared_fields = {
         'program_id': p['id'],
         'registration_form_type': d.get('registration_form_type') or p.get('registration_form_type') or 'youth',
@@ -25345,10 +25582,14 @@ def public_register_production(slug):
     balance_due = max(0, effective_price - deposit) if use_deposit else 0
 
     reg_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'last_name': (d.get('child_last_name') or '').strip(),
-                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size'),
+                      'allergies': d.get('allergies') or '', 'pronouns': d.get('pronouns') or ''}]
     for s in siblings:
         reg_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
-                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size'),
+                              'allergies': s.get('allergies') or ''})
+    for _c, _rf in zip(reg_children, _reviewed_fields_for_children(d, siblings)):
+        _c['reviewed_fields'] = _rf
     shared_fields = {
         'production_id': prod['id'],
         'guardian_name': (d.get('guardian_name') or '').strip(),
@@ -25922,6 +26163,15 @@ def cart_checkout():
             'notes': (item.get('notes') or '').strip(),
             'custom_field_values': item.get('custom_field_values') or {},
             'siblings': siblings,
+            # Profile fields the single-program form collects — these used to
+            # be dropped entirely on the cart path.
+            'allergies': (item.get('allergies') or '').strip(),
+            'pronouns': (item.get('pronouns') or '').strip(),
+            'pickup_contacts': (item.get('pickup_contacts') or '').strip(),
+            'photo_consent': bool(item.get('photo_consent')),
+            'emergency_contact_name': (item.get('ec_name') or '').strip(),
+            'emergency_contact_phone': (item.get('ec_phone') or '').strip(),
+            'reviewed_fields': ','.join(_clean_reviewed_fields(item.get('reviewed_fields'))),
             'promo_code': prog_code_used or None,
             'promo_discount': prog_discount,
             'sibling_discount': sib_discount,
@@ -25990,12 +26240,16 @@ def cart_checkout():
              guardian_name, guardian_email, guardian_phone, notes,
              discount_code, discount_amount, sibling_discount_amount,
              participant_count, siblings_json, custom_field_values,
-             payment_type, balance_due, waitlist_position)
+             payment_type, balance_due, waitlist_position,
+             allergies, pronouns, pickup_contacts, photo_consent,
+             emergency_contact_name, emergency_contact_phone, reviewed_fields)
             VALUES (%s,%s,'registration',%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,
                     %s,%s,%s,
+                    %s,%s,%s,
+                    %s,%s,%s,%s,
                     %s,%s,%s)''',
             (rid, it['program_id'], status,
              it['child_first_name'], it['child_last_name'],
@@ -26003,7 +26257,9 @@ def cart_checkout():
              guardian_name, guardian_email, guardian_phone or None, it['notes'] or None,
              it['promo_code'], it['promo_discount'] + it.get('cart_discount_share', 0), it['sibling_discount'],
              it['participant_count'], _jc.dumps(it['siblings']), _jc.dumps(it.get('custom_field_values') or {}),
-             'deposit' if use_deposit else 'full', balance_due, wpos))
+             'deposit' if use_deposit else 'full', balance_due, wpos,
+             it['allergies'] or None, it['pronouns'] or None, it['pickup_contacts'] or None, it['photo_consent'],
+             it['emergency_contact_name'] or None, it['emergency_contact_phone'] or None, it['reviewed_fields']))
         reg_ids.append(rid)
         if status == 'confirmed':
             finalize_registration(conn, rid)

@@ -242,8 +242,10 @@ async function init(){
       return da < db ? -1 : da > db ? 1 : 0
     }) : []
   }
+  await loadReturningPrefill()
   renderPage()
   updateHeaderCart()
+  applyReturningPrefill()
 }
 
 function showErr(msg){
@@ -743,6 +745,7 @@ function buildRegistrationForm(formType, customFields, showCap, showAlmost){
   return '<div class="card"><div class="card-header"><h2>Register</h2></div><div class="card-body">'
     + '<div id="form-alert"></div>'
     + sessionPickerHTML
+    + buildReturningFamilyBanner()
     + participantSection
     + (customFields.length ? '<div class="section-divider">Additional Information</div>'+customFieldInputs(customFields) : '')
     + (isYouth
@@ -1149,6 +1152,10 @@ function addSiblingBlock(){
     + '<select class="sib-shirt" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;outline:none">'
     + '<option value="">Select...</option><option>YXS</option><option>YS</option><option>YM</option><option>YL</option><option>YXL</option><option>AS</option><option>AM</option><option>AL</option><option>AXL</option></select></div>'
     + '</div>'
+    + (programCollectsAllergies()
+        ? '<div style="margin-top:8px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#6b7280;display:block;margin-bottom:4px">Allergies / Medical Notes</label>'
+          + '<input class="sib-allergies" placeholder="This child\'s allergies or medical conditions" style="width:100%;padding:9px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:13px;outline:none;box-sizing:border-box"/></div>'
+        : '')
   block.querySelector('.sib-remove-btn').addEventListener('click', function(){
     block.remove()
     refreshCheckout()
@@ -1212,9 +1219,148 @@ function getSiblings(){
       last_name: (b.querySelector('.sib-last')||{}).value||'',
       dob: (b.querySelector('.sib-dob')||{}).value||'',
       shirt_size: (b.querySelector('.sib-shirt')||{}).value||'',
+      allergies: ((b.querySelector('.sib-allergies')||{}).value||'').trim(),
+      reviewed: b.dataset.prefilled === '1',
     })
   })
   return result
+}
+
+function programCollectsAllergies(){
+  var ff = (program && program.form_fields) || {}
+  return ff.hasOwnProperty('allergies') ? !!ff.allergies : false
+}
+
+// Which on-file profile fields the family saw pre-filled and could change.
+// The server only lets a blank/unchecked value replace what's on file for these.
+function getReviewedFields(){
+  if(!_prefillApplied) return []
+  var out = []
+  if(document.getElementById('f-allergies')) out.push('allergies')
+  if(document.getElementById('f-pronouns')) out.push('pronouns')
+  if(document.getElementById('f-photo-consent')) out.push('photo_consent')
+  if(document.getElementById('f-ec-name')) out.push('emergency_contact')
+  return out
+}
+
+// ── Returning-family prefill ─────────────────────────────────────────────────
+// "Registered with us before?" → we email a link back to this page with ?rt=.
+// On load with a token, fetch what's on file and fill the form for review.
+var _prefillToken = urlParams.get('rt') || ''
+var _prefillData = null
+var _prefillApplied = false
+
+function buildReturningFamilyBanner(){
+  if(_prefillData){
+    return '<div id="returning-banner" class="alert alert-info" style="margin-bottom:14px;line-height:1.5">'
+      + '<strong>Welcome back!</strong> We filled in what we have on file. Please review everything before submitting, '
+      + 'especially allergies, emergency contact, and authorized pickup.</div>'
+      + '<div id="returning-picker"></div>'
+  }
+  return '<div id="returning-banner" style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:14px 16px;margin-bottom:16px">'
+    + '<div style="font-weight:700;color:#0d3d4d;margin-bottom:4px">Registered with us before?</div>'
+    + '<div style="font-size:13px;color:#374151;margin-bottom:10px">Enter the email you used last time and we\'ll send you a link that fills in your family\'s info.</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + '<input id="returning-email" type="email" placeholder="your@email.com" style="flex:1;min-width:180px"/>'
+    + '<button type="button" class="btn" id="returning-send-btn" onclick="requestReturningLink()" style="width:auto;background:#145466;color:#fff;padding:9px 16px">Send my link</button>'
+    + '</div>'
+    + '<div id="returning-msg" style="font-size:13px;margin-top:8px;color:#145466"></div>'
+    + '</div>'
+}
+
+async function requestReturningLink(){
+  var email = ((document.getElementById('returning-email')||{}).value||'').trim()
+  var msg = document.getElementById('returning-msg')
+  var btn = document.getElementById('returning-send-btn')
+  if(!email || email.indexOf('@') < 0){ msg.textContent = 'Please enter your email address.'; return }
+  btn.disabled = true; btn.textContent = 'Sending...'
+  var r = await apiFetch('/api/public/returning-family/request-link', 'POST', {email: email, slug: slug, is_production: isProduction})
+  btn.disabled = false; btn.textContent = 'Send my link'
+  msg.textContent = (r && r.message) ? r.message : 'Something went wrong. Please try again, or just fill out the form below.'
+}
+
+async function loadReturningPrefill(){
+  if(!_prefillToken) return
+  // Keep the token out of the address bar so it isn't shared or bookmarked
+  try{ history.replaceState(null, '', location.pathname) }catch(e){}
+  var r = await apiFetch('/api/public/returning-family/prefill?rt='+encodeURIComponent(_prefillToken))
+  if(r && r.ok && r.people && r.people.length){ _prefillData = r }
+  else if(r && r.error){ _prefillError = r.error }
+}
+var _prefillError = ''
+
+function setVal(id, v){ var el = document.getElementById(id); if(el && v !== undefined && v !== null && v !== '') el.value = v }
+
+function applyReturningPrefill(){
+  if(_prefillError){
+    var b = document.getElementById('returning-msg')
+    if(b) b.textContent = _prefillError
+    return
+  }
+  if(!_prefillData) return
+  var d = _prefillData
+  setVal('f-email', d.email)
+  setVal('f-contact-name', d.guardian_name)
+  setVal('f-phone', d.guardian_phone)
+  var people = d.people || []
+  if(people.length === 1){ fillPrefillPeople([0]); return }
+  // More than one child on file: let the parent pick who's registering
+  var picker = document.getElementById('returning-picker')
+  if(!picker) { fillPrefillPeople([0]); return }
+  picker.innerHTML = '<div class="form-group"><label>Who are you registering?</label>'
+    + people.map(function(p, i){
+        return '<label style="display:flex;align-items:center;gap:8px;font-weight:400;text-transform:none;letter-spacing:0;margin:6px 0;cursor:pointer">'
+          + '<input type="checkbox" class="prefill-person" value="'+i+'" style="width:18px;height:18px;padding:0;accent-color:#145466"/> '
+          + escHtml((p.first_name||'')+' '+(p.last_name||'')) + '</label>'
+      }).join('')
+    + '<button type="button" class="btn" onclick="onPrefillPick()" style="width:auto;margin-top:6px;background:#e0f2fe;color:#0d3d4d;border:1.5px solid #145466;padding:8px 16px">Fill in the form</button></div>'
+}
+
+function onPrefillPick(){
+  var picks = []
+  document.querySelectorAll('.prefill-person:checked').forEach(function(cb){ picks.push(parseInt(cb.value)) })
+  if(!picks.length) return
+  fillPrefillPeople(picks)
+  var picker = document.getElementById('returning-picker')
+  if(picker) picker.innerHTML = ''
+}
+
+function fillPrefillPeople(indexes){
+  var people = (_prefillData && _prefillData.people) || []
+  var first = people[indexes[0]]
+  if(!first) return
+  setVal('f-first', first.first_name)
+  setVal('f-last', first.last_name)
+  setVal('f-dob', first.dob)
+  setVal('f-shirt', first.shirt_size)
+  setVal('f-allergies', first.allergies)
+  setVal('f-pronouns', first.pronouns)
+  setVal('f-ec-name', first.emergency_contact_name)
+  setVal('f-ec-phone', first.emergency_contact_phone)
+  setVal('f-pickup', first.pickup_contacts)
+  var pc = document.getElementById('f-photo-consent')
+  if(pc) pc.checked = !!first.photo_consent
+  // Remaining picks become sibling blocks
+  document.querySelectorAll('.sibling-block').forEach(function(b){ b.remove() })
+  _siblingCount = 0
+  for(var i=1; i<indexes.length; i++){
+    var s = people[indexes[i]]
+    if(!s) continue
+    addSiblingBlock()
+    var blocks = document.querySelectorAll('.sibling-block')
+    var blk = blocks[blocks.length-1]
+    if(!blk) continue
+    blk.querySelector('.sib-first').value = s.first_name || ''
+    blk.querySelector('.sib-last').value = s.last_name || ''
+    blk.querySelector('.sib-dob').value = s.dob || ''
+    blk.querySelector('.sib-shirt').value = s.shirt_size || ''
+    var sa = blk.querySelector('.sib-allergies')
+    if(sa) sa.value = s.allergies || ''
+    blk.dataset.prefilled = '1'
+  }
+  _prefillApplied = true
+  if(typeof checkAgeMismatch === 'function') checkAgeMismatch()
+  if(typeof refreshCheckout === 'function') refreshCheckout()
 }
 
 async function submitRegistration(){
@@ -1292,6 +1438,7 @@ async function submitRegistration(){
     photo_consent: !!(document.getElementById('f-photo-consent')||{}).checked,
     custom_field_values: getCustomFieldValues(customFields),
     siblings: getSiblings(),
+    reviewed_fields: getReviewedFields(),
     session_ids: selectedSessionIds,
     is_bundle: bundleSelected && !!(program.bundle_enabled),
     bundle_price_override: (bundleSelected && program.bundle_price) ? program.bundle_price : null,
@@ -1688,6 +1835,11 @@ function collectFormData(){
     reported_under_18: (document.getElementById('f-under18')||{}).value||'',
     shirt_size: (document.getElementById('f-shirt')||{}).value||'',
     notes: ((document.getElementById('f-notes')||{}).value||'').trim(),
+    allergies: ((document.getElementById('f-allergies')||{}).value||'').trim(),
+    pronouns: ((document.getElementById('f-pronouns')||{}).value||'').trim(),
+    pickup_contacts: ((document.getElementById('f-pickup')||{}).value||'').trim(),
+    photo_consent: !!(document.getElementById('f-photo-consent')||{}).checked,
+    reviewed_fields: getReviewedFields(),
     custom_field_values: getCustomFieldValues(customFields),
     siblings: getSiblings(),
     session_ids: selectedSessionIds,

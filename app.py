@@ -2977,6 +2977,12 @@ def init_db():
             fill_color TEXT DEFAULT '#94a3b8',
             created_at TIMESTAMP DEFAULT NOW())""",
         "CREATE INDEX IF NOT EXISTS ix_seat_map_shapes_map ON seat_map_shapes(seat_map_id)",
+        # Same idea as the existing "accessible" flag -- a simple per-seat
+        # marker (not a separate ticket type/price) so a buyer can see and
+        # understand a limited/obstructed view before picking that seat,
+        # with an optional note explaining why (a pillar, a side angle, etc).
+        "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS obstructed_view BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS view_note TEXT DEFAULT ''",
         # Defense in depth: even if some future code path or race condition
         # ever let two orders both finalize for the same reserved seat, the
         # database itself refuses the second one outright. Partial (WHERE
@@ -36554,7 +36560,7 @@ def update_seat(sid):
     d = request.json or {}
     conn = get_db()
     fields, vals = [], []
-    for f in ['section', 'row_name', 'seat_label', 'seat_type']:
+    for f in ['section', 'row_name', 'seat_label', 'seat_type', 'view_note']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append((d[f] or '').strip())
     for f in ['seat_number']:
@@ -36563,7 +36569,7 @@ def update_seat(sid):
     for f in ['x', 'y']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append(float(d[f] or 0))
-    for f in ['accessible', 'house_seat', 'active']:
+    for f in ['accessible', 'house_seat', 'active', 'obstructed_view']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append(bool(d[f]))
     if not fields:

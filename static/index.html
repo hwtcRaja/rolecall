@@ -35332,7 +35332,15 @@ function edRenderCanvas(){
   seats.forEach(function(s){
     var sel = !!_ed.selected[s.id];
     var fill = sel ? '#facc15' : (sections[s.section||'']||'#999');
-    svg += '<circle data-id="'+s.id+'" class="ed-seat" cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="'+(sel?'#111':'#fff')+'" stroke-width="'+(sel?0.09:0.05)+'" style="cursor:grab"><title>'+escHtml(s.seat_label||'')+'</title></circle>';
+    // Obstructed/limited-view seats get a dashed amber ring instead of the
+    // usual plain white one -- distinct at a glance, and doesn't compete
+    // with the wheelchair icon or label text, which stay centered in the
+    // dot same as always.
+    var stroke = sel ? '#111' : (s.obstructed_view ? '#f59e0b' : '#fff');
+    var strokeWidth = sel ? 0.09 : (s.obstructed_view ? 0.1 : 0.05);
+    var dash = (s.obstructed_view && !sel) ? ' stroke-dasharray="0.09,0.07"' : '';
+    var titleTxt = escHtml(s.seat_label||'')+(s.obstructed_view?' — Limited view'+(s.view_note?': '+escHtml(s.view_note):''):'');
+    svg += '<circle data-id="'+s.id+'" class="ed-seat" cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+strokeWidth+'"'+dash+' style="cursor:grab"><title>'+titleTxt+'</title></circle>';
     if(s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff" style="pointer-events:none"></text>';
     if(_ed.showLabels && s.seat_label && !s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.13)+'" font-size="0.26" text-anchor="middle" fill="#fff" style="pointer-events:none">'+escHtml(s.seat_label)+'</text>';
   });
@@ -35714,6 +35722,8 @@ function edRenderSidePanel(){
     + '<div class="form-group"><label>Seat #</label><input type="number" id="ed-f-num" value="'+(s.seat_number||'')+'"/></div></div>'
     + '<div class="form-group"><label>Label (shown to buyers)</label><input type="text" id="ed-f-label" value="'+escHtml(s.seat_label||'')+'"/></div>'
     + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="ed-f-access" '+(s.accessible?'checked':'')+' style="width:auto"/> Wheelchair accessible</label>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="ed-f-obstructed" '+(s.obstructed_view?'checked':'')+' onchange="document.getElementById(\'ed-f-viewnote-wrap\').style.display=this.checked?\'\':\'none\'" style="width:auto"/> Limited/obstructed view</label>'
+    + '<div id="ed-f-viewnote-wrap" style="display:'+(s.obstructed_view?'':'none')+';margin-bottom:12px"><div class="form-group"><label>View Note (shown to buyers)</label><input type="text" id="ed-f-viewnote" value="'+escHtml(s.view_note||'')+'" placeholder="Partial view — support pillar"/></div></div>'
     + '<div style="display:flex;gap:8px">'
     + '<button class="btn btn-primary btn-sm" style="flex:1" onclick="edSaveSeatDetails(\''+s.id+'\')">Save</button>'
     + '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c)" onclick="edDeleteSelected()">Delete</button>'
@@ -35726,10 +35736,14 @@ async function edSaveSeatDetails(sid){
   var num = parseInt(document.getElementById('ed-f-num').value||'0');
   var label = document.getElementById('ed-f-label').value.trim() || (row+num);
   var accessible = document.getElementById('ed-f-access').checked;
-  var res = await api('/api/seats/'+sid,'PUT',{section:section, row_name:row, seat_number:num, seat_label:label, accessible:accessible});
+  var obstructed = document.getElementById('ed-f-obstructed').checked;
+  var viewNote = obstructed ? document.getElementById('ed-f-viewnote').value.trim() : '';
+  var res = await api('/api/seats/'+sid,'PUT',{section:section, row_name:row, seat_number:num, seat_label:label,
+    accessible:accessible, obstructed_view:obstructed, view_note:viewNote});
   if(res && res.error){ toast(res.error,'error'); return; }
   var s = _ed.seats.find(function(x){return x.id===sid});
-  if(s) Object.assign(s, {section:section, row_name:row, seat_number:num, seat_label:label, accessible:accessible});
+  if(s) Object.assign(s, {section:section, row_name:row, seat_number:num, seat_label:label,
+    accessible:accessible, obstructed_view:obstructed, view_note:viewNote});
   toast('Saved','success');
   edRenderCanvas(); edRenderSidePanel();
 }

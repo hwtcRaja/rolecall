@@ -106,6 +106,12 @@ var showSeatLabels = false
 var gaQuantities = {}    // ticket_type_id -> quantity
 var stageInfo = null
 var mapShapes = []
+// Pan/zoom state for the buyer's seat picker, persisted across re-renders
+// (a seat click replaces the SVG's innerHTML, so without this every click
+// would silently reset back to fully zoomed out).
+var pickerZoom = 1
+var pickerViewCenter = null
+var pickerViewBase = null
 var holdTimer = null
 var holdExpiresAt = null
 var holdCountdownInterval = null
@@ -334,6 +340,7 @@ function renderPerformancePicker(prod, perfs){
 async function loadPerformance(fid){
   document.getElementById('app').innerHTML = '<div class="loading">Loading seats…</div>'
   selectedSeats = {}; gaQuantities = {}
+  pickerZoom = 1; pickerViewCenter = null; pickerViewBase = null
   var data = await api('/api/public/performances/'+fid+'/seat-status?session_token='+encodeURIComponent(getSessionToken()))
   if(data.error){
     document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
@@ -386,11 +393,19 @@ function renderPurchaseScreen(){
       + '</div>'
     html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Tap an available seat to select it. Selected seats are held for you for 15 minutes.</div>'
     html += '<div id="seat-map-holder">'+renderPickerSVG()+'</div>'
+    html += '<div style="display:flex;gap:6px;justify-content:center;margin:8px 0 4px">'
+      + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomBy(0.8)" aria-label="Zoom out">−</button>'
+      + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomReset()">Reset View</button>'
+      + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomBy(1.25)" aria-label="Zoom in">+</button>'
+      + '</div>'
     html += '<div class="seat-legend">'
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.available+'"></span>Available</span>'
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.mine+'"></span>Selected</span>'
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.held+'"></span>Held by another buyer</span>'
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.sold+'"></span>Sold</span>'
+      + (seats.some(function(s){return s.obstructed_view})
+          ? '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.available+';border:2px dashed #f59e0b;box-sizing:border-box"></span>Limited view</span>'
+          : '')
       + '</div>'
   } else {
     html += '<div class="section-title">Select your tickets</div>'
@@ -429,6 +444,73 @@ function renderPurchaseScreen(){
 
   document.getElementById('app').innerHTML = html
   updateCheckoutButtonState()
+  wirePickerZoomEvents()
+}
+
+// --- Zoom for the buyer's seat picker -----------------------------------
+// Manipulates the existing <svg>'s viewBox attribute directly rather than
+// regenerating the SVG string on every wheel tick or touchmove — seats
+// are already positioned in SVG user-space coordinates, so changing the
+// viewBox alone zooms the whole picture with no need to redraw anything.
+// This also sidesteps a real bug a full re-render would risk during a
+// pinch gesture: replacing the <svg> element mid-touch can leave it
+// detached from the document while still receiving touch events from
+// whichever element the gesture actually started on.
+// Zooms toward the view's current fixed center rather than the cursor or
+// pinch midpoint — simpler, and there's no panning to go with it, so the
+// view can never drift off the map.
+function applyPickerViewBox(svg){
+  var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
+  var vx = pickerViewCenter.x - vw/2, vy = pickerViewCenter.y - vh/2
+  svg.setAttribute('viewBox', vx+' '+vy+' '+vw+' '+vh)
+}
+
+function pickerZoomBy(factor){
+  if(!pickerViewBase) return
+  pickerZoom = Math.max(1, Math.min(6, pickerZoom*factor))
+  var svg = document.getElementById('picker-svg')
+  if(svg) applyPickerViewBox(svg)
+}
+
+function pickerZoomReset(){
+  if(!pickerViewBase) return
+  pickerZoom = 1
+  pickerViewCenter = {x: pickerViewBase.cx, y: pickerViewBase.cy}
+  var svg = document.getElementById('picker-svg')
+  if(svg) applyPickerViewBox(svg)
+}
+
+function pickerTouchDistance(touches){
+  var dx = touches[0].clientX - touches[1].clientX
+  var dy = touches[0].clientY - touches[1].clientY
+  return Math.sqrt(dx*dx+dy*dy)
+}
+
+function wirePickerZoomEvents(){
+  var svg = document.getElementById('picker-svg')
+  if(!svg || svg._zoomWired) return
+  svg._zoomWired = true
+  svg.addEventListener('wheel', function(evt){
+    evt.preventDefault()
+    pickerZoomBy(evt.deltaY < 0 ? 1.1 : 0.9)
+  }, {passive:false})
+  var pinchStartDist = null, pinchStartZoom = null
+  svg.addEventListener('touchstart', function(evt){
+    if(evt.touches.length===2){
+      pinchStartDist = pickerTouchDistance(evt.touches)
+      pinchStartZoom = pickerZoom
+    }
+  }, {passive:true})
+  svg.addEventListener('touchmove', function(evt){
+    if(evt.touches.length===2 && pinchStartDist){
+      evt.preventDefault()
+      var dist = pickerTouchDistance(evt.touches)
+      pickerZoom = Math.max(1, Math.min(6, pinchStartZoom * (dist/pinchStartDist)))
+      applyPickerViewBox(svg)
+    }
+  }, {passive:false})
+  svg.addEventListener('touchend', function(){ pinchStartDist = null })
+  svg.addEventListener('touchcancel', function(){ pinchStartDist = null })
 }
 
 var SEAT_STATUS_COLORS = {available:'#0d9488', mine:'#145466', held:'#d97706', sold:'#d1d5db'}
@@ -441,15 +523,24 @@ function renderPickerSVG(){
   mapShapes.forEach(function(sh){ xs.push(sh.x-sh.width/2, sh.x+sh.width/2); ys.push(sh.y-sh.height/2, sh.y+sh.height/2) })
   var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad
   var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad
-  var w = maxX-minX, h = maxY-minY
+  // The natural (zoom=1) bounds only get computed once per performance —
+  // everyday re-renders (a seat click, etc.) reuse whatever's already
+  // there so panning/zooming a buyer's already done doesn't silently
+  // reset back to fully zoomed out on their very next tap.
+  if(!pickerViewBase){
+    pickerViewBase = {w: maxX-minX, h: maxY-minY, cx: minX+(maxX-minX)/2, cy: minY+(maxY-minY)/2}
+    pickerViewCenter = {x: pickerViewBase.cx, y: pickerViewBase.cy}
+  }
+  var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
+  var vx = pickerViewCenter.x - vw/2, vy = pickerViewCenter.y - vh/2
   var seatR = 0.4
-  var svg = '<svg viewBox="'+minX+' '+minY+' '+w+' '+h+'" style="width:100%;height:auto;max-height:70vh;background:var(--bg);border-radius:8px;border:1px solid var(--border)" preserveAspectRatio="xMidYMid meet">'
+  var svg = '<svg id="picker-svg" viewBox="'+vx+' '+vy+' '+vw+' '+vh+'" style="width:100%;height:auto;max-height:70vh;background:var(--bg);border-radius:8px;border:1px solid var(--border);touch-action:none" preserveAspectRatio="xMidYMid meet">'
   if(stageInfo){
     svg += '<g transform="translate('+stageInfo.x+','+stageInfo.y+') rotate('+stageInfo.rotation+')">'
       + '<rect x="'+(-stageInfo.width/2)+'" y="'+(-stageInfo.depth/2)+'" width="'+stageInfo.width+'" height="'+stageInfo.depth+'" rx="0.15" fill="#334155"/>'
       + '<text x="0" y="0.15" font-size="0.6" text-anchor="middle" fill="#fff" font-weight="700">STAGE</text></g>'
   } else {
-    svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
+    svg += '<text x="'+(vx+vw/2)+'" y="'+(vy+vh-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
   }
   // Free-standing labeled shapes staff added in the seat map editor
   // ("Backstage", "Wings Left", etc.) — purely visual orientation
@@ -511,7 +602,13 @@ function renderPickerSVG(){
       // selection is obvious at a glance among dozens of other dots.
       svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+(r+0.13)+'" fill="none" stroke="#facc15" stroke-width="0.11"/>'
     }
-    svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+r+'" fill="'+fill+'" stroke="#fff" stroke-width="0.05"><title>'+escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+'</title></circle>'
+    // A dashed amber ring on a limited/obstructed-view seat, distinct from
+    // both the yellow "picking" ring (a separate outer ring, so the two
+    // can coexist if someone deliberately picks an obstructed seat) and
+    // the wheelchair icon (which stays centered in the dot as always).
+    var obstructedStroke = s.obstructed_view ? ' stroke="#f59e0b" stroke-width="0.09" stroke-dasharray="0.09,0.07"' : ' stroke="#fff" stroke-width="0.05"'
+    var seatTitle = escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+(s.obstructed_view?' — Limited view'+(s.view_note?': '+escH(s.view_note):''):'')
+    svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+r+'" fill="'+fill+'"'+obstructedStroke+'><title>'+seatTitle+'</title></circle>'
     if(picking){
       svg += '<text x="'+s.x+'" y="'+(s.y+0.16)+'" font-size="0.42" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">✓</text>'
     } else if(s.accessible){
@@ -674,6 +771,7 @@ function refreshPickerAndCart(){
   var holder = document.getElementById('seat-map-holder')
   if(holder) holder.innerHTML = renderPickerSVG()
   refreshCartOnly()
+  wirePickerZoomEvents()
 }
 function refreshCartOnly(){
   var cartCard = document.getElementById('cart-card')

@@ -894,7 +894,7 @@ function renderDonationSection(){
 
 function donationCardInnerHTML(){
   return '<div class="section-title" style="font-size:15px"> Add a Donation to HWTC?</div>'
-    + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Every gift helps us keep bringing theater to our community — totally optional.</div>'
+    + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Every gift helps us keep bringing theater to our community.</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
     + DONATION_PRESETS.map(function(amt){
         var active = !donationCustomActive && selectedDonationCents===amt

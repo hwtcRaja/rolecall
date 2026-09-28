@@ -27078,6 +27078,22 @@ def lobby2_page():
         sandbox = 'lobby_jungle.html'
     return send_from_directory('static', sandbox)
 
+_DATE_LIKE_EVENT_NAME = re.compile(
+    r'^\s*((mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?(,|\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d))|'
+    r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d|'
+    r'\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2})', re.IGNORECASE)
+
+
+def lobby_event_title(name, program_name):
+    """Class sessions are often named by their date/time (e.g. "Thursday,
+    October 1 · 5:00 PM – 6:00 PM"), which reads as noise on a schedule that
+    already shows the date and time. For those, show the class name instead."""
+    name = (name or '').strip()
+    if program_name and (not name or _DATE_LIKE_EVENT_NAME.match(name)):
+        return program_name
+    return name
+
+
 @app.route('/api/public/lobby-data', methods=['GET'])
 def public_lobby_data():
     # Was using the server's own clock (UTC on Railway), which rolls over to
@@ -27091,12 +27107,16 @@ def public_lobby_data():
 
     try:
         conn = get_db()
-        upcoming_events = fetchall(conn, '''SELECT name, event_date, start_time, end_time, location
-            FROM events
-            WHERE event_date >= %s AND COALESCE(status,'active') != 'cancelled'
-            AND COALESCE(show_on_lobby, TRUE) = TRUE
-            ORDER BY event_date, start_time LIMIT 12''', (today,)) or []
+        upcoming_events = fetchall(conn, '''SELECT e.name, e.event_date, e.start_time, e.end_time, e.location,
+                yp.name AS program_name
+            FROM events e
+            LEFT JOIN youth_programs yp ON yp.id = e.program_id
+            WHERE e.event_date >= %s AND COALESCE(e.status,'active') != 'cancelled'
+            AND COALESCE(e.show_on_lobby, TRUE) = TRUE
+            ORDER BY e.event_date, e.start_time LIMIT 12''', (today,)) or []
         conn.close()
+        for ev in upcoming_events:
+            ev['name'] = lobby_event_title(ev.get('name'), ev.pop('program_name', None))
     except Exception as e:
         app.logger.warning(f'Lobby events query failed: {e}')
         try: conn.close()
@@ -31159,9 +31179,9 @@ def public_audition_schedule_page(context_type, context_id):
 
 @app.route('/tv')
 def tv_page():
-    """Short address for a lobby TV: rolecall.hwtco.org/tv. It finds whatever
-    audition is running today and shows that lobby display, switching on its
-    own as auditions start and end, so the TV can be left on this page."""
+    """Short address for a lobby TV: rolecall.hwtco.org/tv. Shows the main
+    lobby display by default; on days with auditions or a Rising Stars
+    rehearsal it asks which display this TV should show."""
     resp = send_from_directory('static', 'tv.html')
     resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -31169,8 +31189,9 @@ def tv_page():
 
 @app.route('/api/public/tv/active')
 def public_tv_active():
-    """Auditions happening today (slots scheduled today, or anyone checked in
-    today), with the lobby-display URL for each."""
+    """Displays a TV can show right now: today's auditions (slots today or
+    anyone checked in today), the pick-up queue on Rising Stars days, and
+    the main lobby display (always last)."""
     today = today_eastern().isoformat()
     conn = get_db()
     try:
@@ -31187,8 +31208,22 @@ def public_tv_active():
             if not rid:
                 continue
             url = ('/audition/' + slug + '/queue') if slug else ('/audition-queue/' + r['context_type'] + '/' + rid)
-            out.append({'key': r['context_type'] + ':' + rid, 'name': name or 'Auditions', 'url': url})
+            out.append({'key': r['context_type'] + ':' + rid, 'name': (name or 'Auditions') + ' Auditions',
+                        'url': url, 'kind': 'audition'})
         out.sort(key=lambda x: x['name'])
+
+        # Pick-up queue, offered on days with a Rising Stars rehearsal/event
+        rs = fetchall(conn, """SELECT DISTINCT p.name FROM events e
+            JOIN productions p ON p.id=e.production_id
+            WHERE e.event_date=%s AND p.stage='rising_stars'
+              AND COALESCE(e.status,'') != 'cancelled'""", (today,)) or []
+        if rs:
+            out.append({'key': 'pickup', 'name': 'Pick-Up Queue',
+                        'detail': ', '.join(r['name'] for r in rs if r.get('name')),
+                        'url': '/pickup', 'kind': 'pickup'})
+
+        # The main lobby display is always an option (and the default)
+        out.append({'key': 'lobby', 'name': 'Main Lobby Display', 'url': '/lobby', 'kind': 'lobby'})
     finally:
         conn.close()
     resp = jsonify(out)

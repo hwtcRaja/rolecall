@@ -102,6 +102,7 @@ var currentPerformance = null
 var seats = []
 var ticketTypes = []
 var selectedSeats = {}   // seat_id -> ticket_type_id
+var showSeatLabels = false
 var gaQuantities = {}    // ticket_type_id -> quantity
 var stageInfo = null
 var holdTimer = null
@@ -377,7 +378,10 @@ function renderPurchaseScreen(){
     return
   }
   if(reserved){
-    html += '<div class="section-title">Pick your seats</div>'
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:2px">'
+      + '<div class="section-title" style="margin-bottom:0">Pick your seats</div>'
+      + '<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-muted);cursor:pointer"><input type="checkbox" id="show-seat-labels-toggle" '+(showSeatLabels?'checked':'')+' onchange="showSeatLabels=this.checked;refreshPickerAndCart()" style="width:auto"/> Show seat numbers</label>'
+      + '</div>'
     html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Tap an available seat to select it. Selected seats are held for you for 15 minutes.</div>'
     html += '<div id="seat-map-holder">'+renderPickerSVG()+'</div>'
     html += '<div class="seat-legend">'
@@ -444,6 +448,41 @@ function renderPickerSVG(){
   } else {
     svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
   }
+  // Row-end labels: one letter/number just past each physical end of
+  // every row, grouped by section+row (so the same row letter in two
+  // different sections is never conflated as one row). Uses whichever
+  // two seats in the row sit farthest apart, so it works for angled rows
+  // just as well as straight horizontal/vertical ones. Always shown —
+  // unlike the per-seat numbers, two labels per row isn't real clutter.
+  var rowGroups = {}
+  seats.forEach(function(s){
+    if(!s.row_name) return
+    var key = (s.section||'')+'\u0001'+s.row_name
+    ;(rowGroups[key] = rowGroups[key] || []).push(s)
+  })
+  var rowLabelSvg = ''
+  Object.keys(rowGroups).forEach(function(key){
+    var rowSeats = rowGroups[key]
+    var rowName = rowSeats[0].row_name
+    var endpoints
+    if(rowSeats.length < 2){
+      endpoints = [{x:rowSeats[0].x, y:rowSeats[0].y}]
+    } else {
+      var maxDist = -1, a = rowSeats[0], b = rowSeats[0]
+      for(var i=0;i<rowSeats.length;i++){
+        for(var j=i+1;j<rowSeats.length;j++){
+          var dx0 = rowSeats[i].x-rowSeats[j].x, dy0 = rowSeats[i].y-rowSeats[j].y, d = dx0*dx0+dy0*dy0
+          if(d > maxDist){ maxDist = d; a = rowSeats[i]; b = rowSeats[j] }
+        }
+      }
+      var dx = b.x-a.x, dy = b.y-a.y, len = Math.sqrt(dx*dx+dy*dy) || 1
+      var ux = dx/len, uy = dy/len, off = 0.65
+      endpoints = [{x:a.x-ux*off, y:a.y-uy*off}, {x:b.x+ux*off, y:b.y+uy*off}]
+    }
+    endpoints.forEach(function(pt){
+      rowLabelSvg += '<text x="'+pt.x+'" y="'+(pt.y+0.15)+'" font-size="0.36" font-weight="700" text-anchor="middle" fill="var(--text-hint)" style="pointer-events:none">'+escH(rowName)+'</text>'
+    })
+  })
   seats.forEach(function(s){
     // Property PRESENCE, not truthiness — a seat picked while no ticket
     // type was available yet stores null (see toggleSeat), and !!null is
@@ -465,9 +504,13 @@ function renderPickerSVG(){
       svg += '<text x="'+s.x+'" y="'+(s.y+0.16)+'" font-size="0.42" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">✓</text>'
     } else if(s.accessible){
       svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.34" text-anchor="middle" fill="#fff"></text>'
+    } else if(showSeatLabels && s.seat_label){
+      var labelColor = status==='sold' ? '#6b7280' : '#fff'
+      svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.3" text-anchor="middle" fill="'+labelColor+'" style="pointer-events:none">'+escH(s.seat_label)+'</text>'
     }
     svg += '</g>'
   })
+  svg += rowLabelSvg
   svg += '</svg>'
   return svg
 }

@@ -35463,6 +35463,27 @@ async function edAlignSelected(){
   toast('Row straightened and evenly spaced','success');
 }
 
+// Spreads (factor > 1) or tightens (factor < 1) a selected group's spacing
+// around its own center, without changing the shape/arrangement of the
+// group at all — just how far apart everything in it sits. This is the
+// tool for "make this section's spacing match that one": select a
+// section, dial the factor up or down, and compare against another
+// section visually until it looks right.
+async function edScaleSelected(factor){
+  var ids = Object.keys(_ed.selected);
+  if(ids.length < 2){ toast('Select at least 2 seats to adjust spacing','error'); return; }
+  var sel = ids.map(function(id){ return _ed.seats.find(function(s){return s.id===id}) }).filter(Boolean);
+  var cx = sel.reduce(function(s,p){return s+p.x},0)/sel.length;
+  var cy = sel.reduce(function(s,p){return s+p.y},0)/sel.length;
+  sel.forEach(function(s){
+    s.x = edSnap(cx + (s.x-cx)*factor);
+    s.y = edSnap(cy + (s.y-cy)*factor);
+  });
+  edRenderCanvas(); edRenderSidePanel();
+  await edSavePositions(sel.map(function(s){return s.id}));
+  toast(factor>1 ? 'Spread apart' : 'Pulled closer together','success');
+}
+
 function edRenderSidePanel(){
   var panel = document.getElementById('ed-side-panel');
   if(!panel) return;
@@ -35497,6 +35518,12 @@ function edRenderSidePanel(){
       + (ids.length>=3
           ? '<button class="btn btn-primary btn-sm" style="width:100%;margin-bottom:8px" onclick="edAlignSelected()"> Straighten &amp; Space Evenly</button>'
           : '<div style="font-size:11px;color:var(--text-hint);margin-bottom:8px">Select the whole row (3+) to straighten and evenly space it.</div>')
+      + '<div style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.4px;margin-bottom:5px">Match Spacing To Another Section</div>'
+      + '<div style="font-size:11px;color:var(--text-hint);margin-bottom:6px">Spreads or pulls this whole group together around its own center — compare against another section and dial it in.</div>'
+      + '<div style="display:flex;gap:6px;margin-bottom:8px">'
+      + '<button class="btn btn-secondary btn-sm" style="flex:1" onclick="edScaleSelected(0.9)">← Tighter</button>'
+      + '<button class="btn btn-secondary btn-sm" style="flex:1" onclick="edScaleSelected(1.1)">Wider →</button>'
+      + '</div>'
       + '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c);width:100%" onclick="edDeleteSelected()">Delete '+ids.length+' seats</button>'
       + '</div>';
     return;

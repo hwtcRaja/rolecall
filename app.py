@@ -36801,7 +36801,7 @@ def public_seat_status(fid):
     session_token = request.args.get('session_token', '')
     conn = get_db()
     perf = fetchone(conn, '''SELECT pf.*, p.name AS production_name, p.portal_color, p.portal_logo_url,
-        v.name AS venue_name
+        v.name AS venue_name, v.address AS venue_address, v.city AS venue_city, v.notes AS venue_notes
         FROM performances pf
         JOIN productions p ON pf.production_id=p.id
         LEFT JOIN venues v ON pf.venue_id=v.id

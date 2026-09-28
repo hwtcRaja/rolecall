@@ -114,7 +114,13 @@ const urlParams = new URLSearchParams(location.search)
 const regId = urlParams.get('reg')
 let program = null
 
+// Private classes open only with their link key (?k=...); pass it along on
+// every call about this program.
+const privateKey = urlParams.get('k') || ''
 async function apiFetch(path, method, body){
+  if(privateKey && path.indexOf('/api/public/program/') === 0){
+    path += (path.indexOf('?') < 0 ? '?' : '&') + 'k=' + encodeURIComponent(privateKey)
+  }
   const opts = {method: method||'GET', headers:{'Content-Type':'application/json'}}
   if(body) opts.body = JSON.stringify(body)
   const r = await fetch(path, opts)
@@ -229,6 +235,10 @@ async function init(){
   const data = await apiFetch(apiBase+slug)
   if(data.error){ showErr(data.error); return }
   program = data
+  if(program.is_private){
+    var m = document.createElement('meta'); m.name = 'robots'; m.content = 'noindex, nofollow'
+    document.head.appendChild(m)
+  }
   document.getElementById('page-title').textContent = program.name
   if(isProduction){
     document.querySelector('.header h1') && (document.querySelector('.header h1').textContent = program.name)
@@ -1296,7 +1306,7 @@ async function requestReturningLink(){
   var btn = document.getElementById('returning-send-btn')
   if(!email || email.indexOf('@') < 0){ msg.textContent = 'Please enter your email address.'; return }
   btn.disabled = true; btn.textContent = 'Sending...'
-  var r = await apiFetch('/api/public/returning-family/request-link', 'POST', {email: email, slug: slug, is_production: isProduction})
+  var r = await apiFetch('/api/public/returning-family/request-link', 'POST', {email: email, slug: slug, is_production: isProduction, k: privateKey})
   btn.disabled = false; btn.textContent = 'Send my link'
   msg.textContent = (r && r.message) ? r.message : 'Something went wrong. Please try again, or just fill out the form below.'
 }
@@ -1304,7 +1314,7 @@ async function requestReturningLink(){
 async function loadReturningPrefill(){
   if(!_prefillToken) return
   // Keep the token out of the address bar so it isn't shared or bookmarked
-  try{ history.replaceState(null, '', location.pathname) }catch(e){}
+  try{ history.replaceState(null, '', location.pathname + (privateKey ? '?k=' + encodeURIComponent(privateKey) : '')) }catch(e){}
   var r = await apiFetch('/api/public/returning-family/prefill?rt='+encodeURIComponent(_prefillToken))
   if(r && r.ok && r.people && r.people.length){ _prefillData = r }
   else if(r && r.error){ _prefillError = r.error }

@@ -12987,12 +12987,13 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions){
      : `<div style="font-size:16px;color:var(--text-muted);margin-top:4px">No one called yet${onDeck?' — next up is #'+onDeck.queue_number:''}</div>`}
    </div>
    <div style="display:flex;gap:8px;flex-wrap:wrap">
-    <button class="btn btn-secondary btn-sm" onclick="copyQueueDisplayLink('${queueUrl}')">Copy Lobby Display Link</button>
+    <button class="btn btn-secondary btn-sm" onclick="copyQueueDisplayLink('${queueUrl}')" title="Or just open ${window.location.host}/tv on the TV — it shows today's audition automatically">Copy Lobby Display Link</button>
     <button class="btn btn-secondary btn-sm" onclick="copyQueueDisplayLink('${kioskUrl}')">Copy Check-In Kiosk Link</button>
     <button class="btn btn-secondary btn-sm" onclick="copyQueueDisplayLink('${roomControlUrl}')">Copy Room Control Link</button>
     <button class="btn btn-primary" onclick="callNextCheckin('${contextType}','${contextId}')" ${waiting.length?'':'disabled style="opacity:0.5"'}>${called?'Complete & Call Next':'Call Next'}</button>
    </div>
   </div>
+  <div style="font-size:12px;color:var(--text-muted);margin-top:10px">Lobby TV: open <strong>${window.location.host}/tv</strong> in the TV's browser. It shows today's audition on its own, no long link needed.</div>
  </div>`
 
  // Check someone in
@@ -26475,6 +26476,20 @@ function openRegistrationSettingsModal(pid, progOverride, saveEndpointOverride, 
     + '<input type="text" id="rs-slug" value="'+(prog.slug||'')+'" placeholder="e.g. summer-camp-2026" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
     + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">rolecall.hwtco.org/register/<span id="slug-preview">'+(prog.slug||'...')+'</span></div></div>'
 
+    // Private (link-only) — programs only
+    + (_isProduction ? '' :
+      '<div class="form-group" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px">'
+      + '<label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer;margin:0">'
+      + '<input type="checkbox" id="rs-private" '+(prog.is_private?'checked':'')+' style="width:auto;margin-top:2px"/>'
+      + '<span><span style="font-size:13px;font-weight:700">Private class</span>'
+      + '<span style="display:block;font-size:12px;color:var(--text-muted);margin-top:2px">Hidden from the class list, the cart, and the family portal. Only people you send the private link to can find it or register.</span></span></label>'
+      + (prog.is_private && prog.private_key && prog.slug
+          ? '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+            + '<code style="font-size:12px;background:#fff;border:1px solid var(--border);border-radius:6px;padding:6px 8px;word-break:break-all">'+window.location.origin+'/register/'+prog.slug+'?k='+prog.private_key+'</code>'
+            + '<button type="button" class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+window.location.origin+'/register/'+prog.slug+'?k='+prog.private_key+'\');toast(\'Private link copied\',\'success\')">Copy private link</button></div>'
+          : (prog.is_private ? '<div style="font-size:12px;color:#b45309;margin-top:8px">Save to generate the private link'+(prog.slug?'':' (a URL slug is required)')+'.</div>' : ''))
+      + '</div>')
+
     // Capacity + price
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">'
     + '<div class="form-group"><label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:4px">Capacity</label>'
@@ -27816,7 +27831,9 @@ function toggleScheduleFields(){
 
 async function saveRegistrationSettings(pid, saveEndpoint, onSavedCallback){
   saveEndpoint = saveEndpoint || ('/api/programs/'+pid+'/registration-settings')
+  const _privEl = document.getElementById('rs-private')
   const payload = {
+    ...(_privEl ? {is_private: _privEl.checked} : {}),
     registration_status: document.getElementById('rs-status').value || 'draft',
     registration_form_type: (document.getElementById('rs-form-type')||{}).value || 'youth',
     slug: (document.getElementById('rs-slug').value||'').trim().toLowerCase().replace(/[^a-z0-9-]/g,'-') || null,

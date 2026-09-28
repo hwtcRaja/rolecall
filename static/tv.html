@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="robots" content="noindex"/>
+<title>HWTC Lobby Display</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%;overflow:hidden}
+  body{font-family:'DM Sans',-apple-system,sans-serif;background:linear-gradient(160deg,#0d3d4d,#0a2a35 65%);color:#fff}
+  #frame{position:fixed;inset:0;width:100%;height:100%;border:0;display:none;background:#0a2a35}
+  .screen{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px}
+  .logo{height:72px;margin-bottom:28px;opacity:0.9}
+  .eyebrow{font-size:16px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:rgba(255,255,255,0.55);margin-bottom:10px}
+  h1{font-size:44px;font-weight:800;margin-bottom:14px}
+  p{font-size:20px;color:rgba(255,255,255,0.7);max-width:720px;line-height:1.5}
+  .choices{display:flex;flex-direction:column;gap:18px;margin-top:36px;width:min(760px,90vw)}
+  .choice{background:rgba(255,255,255,0.08);border:2px solid rgba(255,255,255,0.25);color:#fff;border-radius:16px;padding:26px 28px;font-family:inherit;font-size:30px;font-weight:700;cursor:pointer;text-align:left}
+  .choice:focus,.choice:hover{outline:none;border-color:#5eead4;background:rgba(94,234,212,0.12)}
+  #switcher{position:fixed;right:14px;bottom:12px;z-index:5;display:none;background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:8px 12px;font-family:inherit;font-size:13px;cursor:pointer}
+</style>
+</head>
+<body>
+<div id="screen" class="screen">
+  <img class="logo" src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display='none'"/>
+  <div class="eyebrow">Lobby Display</div>
+  <h1>Getting ready…</h1>
+</div>
+<iframe id="frame" title="Lobby display" allow="autoplay"></iframe>
+<button id="switcher" onclick="showPicker()">Switch audition</button>
+<script>
+// rolecall.hwtco.org/tv — leave this open on the lobby TV. Every minute it
+// checks which auditions are happening today and shows that lobby display.
+var POLL_MS = 60000
+var active = []
+var currentKey = null
+var pickedKey = null
+try{ var saved = JSON.parse(localStorage.getItem('hwtc_tv_pick')||'null'); if(saved && saved.day === dayStamp()) pickedKey = saved.key }catch(e){}
+
+function dayStamp(){ var d = new Date(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate() }
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+
+function showMessage(title, body){
+  currentKey = null
+  document.getElementById('frame').style.display = 'none'
+  document.getElementById('frame').removeAttribute('src')
+  document.getElementById('switcher').style.display = 'none'
+  document.getElementById('screen').style.display = ''
+  document.getElementById('screen').innerHTML =
+    '<img class="logo" src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display=\'none\'"/>'
+    + '<div class="eyebrow">Lobby Display</div><h1>'+esc(title)+'</h1>'+(body?'<p>'+esc(body)+'</p>':'')
+}
+
+function showDisplay(item){
+  if(currentKey === item.key) return
+  currentKey = item.key
+  document.getElementById('screen').style.display = 'none'
+  var f = document.getElementById('frame')
+  f.src = item.url
+  f.style.display = 'block'
+  document.getElementById('switcher').style.display = active.length > 1 ? '' : 'none'
+}
+
+function showPicker(){
+  currentKey = null
+  document.getElementById('frame').style.display = 'none'
+  document.getElementById('switcher').style.display = 'none'
+  var el = document.getElementById('screen')
+  el.style.display = ''
+  el.innerHTML = '<div class="eyebrow">Lobby Display</div><h1>Which audition is this screen for?</h1>'
+    + '<div class="choices">' + active.map(function(a, i){
+        return '<button class="choice" onclick="pick('+i+')">'+esc(a.name)+'</button>'
+      }).join('') + '</div>'
+  var first = el.querySelector('.choice'); if(first) first.focus()
+}
+
+function pick(i){
+  var a = active[i]; if(!a) return
+  pickedKey = a.key
+  try{ localStorage.setItem('hwtc_tv_pick', JSON.stringify({key:a.key, day:dayStamp()})) }catch(e){}
+  showDisplay(a)
+}
+
+async function refresh(){
+  try{
+    var r = await fetch('/api/public/tv/active', {cache:'no-store'})
+    active = await r.json()
+    if(!Array.isArray(active)) active = []
+  }catch(e){
+    // Network hiccup: keep showing whatever is up
+    return
+  }
+  if(!active.length){
+    pickedKey = null
+    showMessage('No auditions running right now', 'This screen will switch on by itself when auditions start.')
+    return
+  }
+  if(active.length === 1){ showDisplay(active[0]); return }
+  var chosen = active.find(function(a){ return a.key === pickedKey })
+  if(chosen){ showDisplay(chosen); return }
+  if(currentKey === null) showPicker()
+}
+
+refresh()
+setInterval(refresh, POLL_MS)
+</script>
+</body>
+</html>

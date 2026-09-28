@@ -155,7 +155,10 @@ function addCurrentSelectionToCart(){
     venue_name: currentPerformance.venue_name || '',
     reserved_seating: !!currentPerformance.reserved_seating,
     session_token: getSessionToken(),
-    line_items: lineItems
+    line_items: lineItems,
+    charge_service_fee: lastProd ? !!lastProd.charge_service_fee : false,
+    service_fee_percent: lastProd ? lastProd.service_fee_percent : 0,
+    service_fee_flat_cents: lastProd ? lastProd.service_fee_flat_cents : 0
   })
   ticketCartSave(cart)
   // The holds behind these selections stay exactly as they were — only
@@ -403,6 +406,8 @@ function renderPurchaseScreen(){
 
   html += renderVenueSection(currentPerformance)
 
+  html += renderDonationSection()
+
   html += '<div class="card">'
     + '<div class="section-title">Your info</div>'
     + '<div class="form-group"><label>Name *</label><input type="text" id="tk-name"/></div>'
@@ -583,6 +588,11 @@ function computeTotalCents(){
   return total
 }
 
+function currentPerformanceFeeCents(){
+  if(!lastProd) return 0
+  return computeFeeCents(computeTotalCents(), lastProd.charge_service_fee, lastProd.service_fee_percent, lastProd.service_fee_flat_cents)
+}
+
 function renderCart(){
   var rows = ''
   var count = 0
@@ -600,7 +610,9 @@ function renderCart(){
     })
   }
   if(!count) return '<div style="color:var(--text-muted);font-size:13px">No tickets selected yet.</div>'
-  return renderHoldCountdown() + rows + '<div class="total-row"><span>Total</span><span>'+fmtMoney(computeTotalCents())+'</span></div>'
+  var feeCents = currentPerformanceFeeCents()
+  var feeRow = feeCents ? '<div class="cart-row"><span>Service Fee</span><span>'+fmtMoney(feeCents)+'</span></div>' : ''
+  return renderHoldCountdown() + rows + feeRow + '<div class="total-row"><span>Total</span><span>'+fmtMoney(computeTotalCents()+feeCents)+'</span></div>'
 }
 
 function refreshPickerAndCart(){
@@ -618,25 +630,88 @@ function updateCheckoutButtonState(){
   var btn = document.getElementById('checkout-btn')
   var cartBtn = document.getElementById('add-to-cart-btn')
   if(!btn) return
-  var hasItems = currentPerformance.reserved_seating ? Object.keys(selectedSeats).length>0
-    : Object.values(gaQuantities).some(function(q){ return q>0 })
+  // currentPerformance is null on the standalone cart page (/tickets/cart
+  // is a fresh page load with no performance loaded), so this has to work
+  // whether or not there's anything actively selected on THIS page.
+  var hasLiveItems = currentPerformance ? (currentPerformance.reserved_seating
+    ? Object.keys(selectedSeats).length>0
+    : Object.values(gaQuantities).some(function(q){ return q>0 })) : false
   var cartCount = ticketCartCount()
-  btn.disabled = !hasItems && !cartCount
-  if(hasItems && cartCount){
-    btn.textContent = 'Checkout Everything — '+fmtMoney(computeTotalCents() + cartTotalCents())
-  } else if(hasItems){
-    btn.textContent = 'Checkout — '+fmtMoney(computeTotalCents())
-  } else if(cartCount){
-    btn.textContent = 'Checkout Cart — '+fmtMoney(cartTotalCents())
+  var liveTotal = hasLiveItems ? (computeTotalCents() + currentPerformanceFeeCents()) : 0
+  var grand = liveTotal + cartTotalCents() + selectedDonationCents
+  btn.disabled = !hasLiveItems && !cartCount && !selectedDonationCents
+  if(hasLiveItems && cartCount){
+    btn.textContent = 'Checkout Everything — '+fmtMoney(grand)
+  } else if(hasLiveItems || cartCount){
+    btn.textContent = (cartCount && !hasLiveItems ? 'Checkout Cart — ' : 'Checkout — ')+fmtMoney(grand)
   } else {
     btn.textContent = 'Select tickets to continue'
   }
-  if(cartBtn) cartBtn.disabled = !hasItems
+  if(cartBtn) cartBtn.disabled = !hasLiveItems
+}
+
+// --- Optional donation add-on, rides along in the same checkout -------
+var selectedDonationCents = 0
+var donationCustomActive = false
+var DONATION_PRESETS = [0, 500, 1000, 2500]
+
+function renderDonationSection(){
+  return '<div class="card"><div id="donation-card">'+donationCardInnerHTML()+'</div></div>'
+}
+
+function donationCardInnerHTML(){
+  return '<div class="section-title" style="font-size:15px"> Add a Donation to HWTC?</div>'
+    + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Every gift helps us keep bringing theater to our community — totally optional.</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+    + DONATION_PRESETS.map(function(amt){
+        var active = !donationCustomActive && selectedDonationCents===amt
+        return '<button type="button" class="btn '+(active?'btn-primary':'btn-secondary')+' btn-sm" onclick="selectDonationPreset('+amt+')">'+(amt===0?'No thanks':fmtMoney(amt))+'</button>'
+      }).join('')
+    + '<button type="button" class="btn '+(donationCustomActive?'btn-primary':'btn-secondary')+' btn-sm" onclick="selectDonationCustom()">Other</button>'
+    + '</div>'
+    + (donationCustomActive
+       ? '<input type="number" id="donation-custom-input" min="1" step="1" placeholder="Amount in $" value="'+(selectedDonationCents?(selectedDonationCents/100):'')+'" oninput="onDonationCustomChange()" style="max-width:200px"/>'
+       : '')
+}
+
+function refreshDonationCard(){
+  var el = document.getElementById('donation-card')
+  if(el) el.innerHTML = donationCardInnerHTML()
+  updateCheckoutButtonState()
+}
+
+function selectDonationPreset(cents){
+  donationCustomActive = false
+  selectedDonationCents = cents
+  refreshDonationCard()
+}
+
+function selectDonationCustom(){
+  donationCustomActive = true
+  refreshDonationCard()
+  var input = document.getElementById('donation-custom-input')
+  if(input) input.focus()
+}
+
+function onDonationCustomChange(){
+  var val = parseFloat(document.getElementById('donation-custom-input')?.value || '0')
+  selectedDonationCents = (isNaN(val) || val < 0) ? 0 : Math.round(val * 100)
+  updateCheckoutButtonState()
+}
+
+// Matches the backend's exact rounding (round(subtotal * pct/100) + flat)
+// so what's shown here never surprises the buyer once Square actually
+// charges them.
+function computeFeeCents(subtotalCents, feeOn, feePercent, feeFlatCents){
+  if(!feeOn) return 0
+  return Math.round(subtotalCents * (feePercent||0) / 100) + (feeFlatCents||0)
 }
 
 function cartTotalCents(){
   return ticketCartGet().reduce(function(sum,item){
-    return sum + item.line_items.reduce(function(s,li){ return s + (li.price_cents||0) }, 0)
+    var subtotal = item.line_items.reduce(function(s,li){ return s + (li.price_cents||0) }, 0)
+    var fee = computeFeeCents(subtotal, item.charge_service_fee, item.service_fee_percent, item.service_fee_flat_cents)
+    return sum + subtotal + fee
   }, 0)
 }
 
@@ -681,7 +756,8 @@ async function doCheckout(){
   var btn = document.getElementById('checkout-btn')
   btn.disabled = true; btn.textContent = 'Processing…'
   var res = await api('/api/public/ticket-checkout','POST',{
-    session_token: getSessionToken(), guardian_name: name, guardian_email: email, guardian_phone: phone, cart: cart
+    session_token: getSessionToken(), guardian_name: name, guardian_email: email, guardian_phone: phone,
+    cart: cart, donation_cents: selectedDonationCents
   })
   if(res.error){
     errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">'+escH(res.error)+'</div>'
@@ -691,6 +767,7 @@ async function doCheckout(){
   // Only clear the persisted cart once the order(s) are actually created
   // — an error above means nothing was charged, so leave it intact.
   ticketCartSave([])
+  selectedDonationCents = 0; donationCustomActive = false
   if(res.type === 'payment_required' && res.payment_url){
     window.location.href = res.payment_url
     return
@@ -713,8 +790,9 @@ function renderCartPage(){
   var grandTotal = 0
   var html = backBtn + '<div class="card"><div class="section-title">'+cart.length+' Performance'+(cart.length===1?'':'s')+' in Your Cart</div>'
   html += cart.map(function(item, idx){
-    var itemTotal = item.line_items.reduce(function(s,li){ return s+(li.price_cents||0) }, 0)
-    grandTotal += itemTotal
+    var subtotal = item.line_items.reduce(function(s,li){ return s+(li.price_cents||0) }, 0)
+    var fee = computeFeeCents(subtotal, item.charge_service_fee, item.service_fee_percent, item.service_fee_flat_cents)
+    grandTotal += subtotal + fee
     return '<div style="border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px">'
       + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">'
       + '<div><div style="font-weight:700;font-size:14.5px">'+escH(item.production_name)+'</div>'
@@ -724,11 +802,14 @@ function renderCartPage(){
       + item.line_items.map(function(li){
           return '<div class="cart-row" style="padding:5px 0;font-size:13.5px"><span>'+escH(li.seat_label||'Ticket')+'</span><span>'+fmtMoney(li.price_cents)+'</span></div>'
         }).join('')
-      + '<div style="text-align:right;font-weight:700;font-size:13.5px;margin-top:4px">'+fmtMoney(itemTotal)+'</div>'
+      + (fee ? '<div class="cart-row" style="padding:5px 0;font-size:13.5px"><span>Service Fee</span><span>'+fmtMoney(fee)+'</span></div>' : '')
+      + '<div style="text-align:right;font-weight:700;font-size:13.5px;margin-top:4px">'+fmtMoney(subtotal+fee)+'</div>'
       + '</div>'
   }).join('')
   html += '<div class="total-row"><span>Cart Total</span><span>'+fmtMoney(grandTotal)+'</span></div>'
   html += '</div>'
+
+  html += renderDonationSection()
 
   html += '<div class="card">'
     + '<div class="section-title">Your info</div>'
@@ -738,9 +819,10 @@ function renderCartPage(){
     + '<div class="form-group"><label>Phone</label><input type="tel" id="tk-phone"/></div>'
     + '</div>'
     + '<div id="checkout-error"></div>'
-    + '<button class="btn btn-primary" style="width:100%" id="checkout-btn" onclick="doCheckout()">Checkout — '+fmtMoney(grandTotal)+'</button>'
+    + '<button class="btn btn-primary" style="width:100%" id="checkout-btn" onclick="doCheckout()">Checkout</button>'
     + '</div>'
   document.getElementById('app').innerHTML = html
+  updateCheckoutButtonState()
 }
 
 async function removeCartItem(idx){
@@ -775,8 +857,10 @@ async function renderConfirmation(cartId){
     return
   }
   var entries = data.orders || []
-  var anyPending = entries.some(function(e){ return e.order.status !== 'completed' })
-  var grandTotal = entries.reduce(function(s,e){ return s + (e.order.total_cents||0) }, 0)
+  var donation = data.donation || null
+  var anyPending = entries.some(function(e){ return e.order.status !== 'completed' }) || (donation && donation.status !== 'completed')
+  var grandTotal = entries.reduce(function(s,e){ return s + (e.order.total_cents||0) + (e.order.service_fee_cents||0) }, 0)
+    + (donation ? donation.amount_cents : 0)
   var guardianEmail = entries.length ? entries[0].order.guardian_email : ''
   // A cart spanning more than one show has no single show color to use,
   // so this always uses the plain HWTC hero rather than any one
@@ -798,9 +882,16 @@ async function renderConfirmation(cartId){
         + e.tickets.map(function(t){
             return '<div class="cart-row"><span>'+escH(t.seat_label||'Ticket')+'</span><span class="confirm-code">'+escH(t.confirmation_code||'')+'</span></div>'
           }).join('')
+        + (e.order.service_fee_cents ? '<div class="cart-row"><span>Service Fee</span><span>'+fmtMoney(e.order.service_fee_cents)+'</span></div>' : '')
         + '</div>'
     }).join('')
+    if(donation){
+      html += '<div class="cart-row" style="border-top:1px solid var(--border);padding-top:10px"><span> Donation to HWTC</span><span>'+fmtMoney(donation.amount_cents)+'</span></div>'
+    }
     html += '<div class="total-row"><span>Total Paid</span><span>'+fmtMoney(grandTotal)+'</span></div>'
+    if(donation){
+      html += '<div style="font-size:13px;color:var(--teal-dark);margin-top:10px;font-weight:600">Thank you for your generous donation — it truly makes a difference!</div>'
+    }
     html += '<div style="font-size:13px;color:var(--text-muted);margin-top:14px">A confirmation has been sent to '+escH(guardianEmail||'')+'. Bring this confirmation (or your email) to the show.</div>'
   }
   html += '</div>'

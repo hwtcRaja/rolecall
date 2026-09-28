@@ -2947,6 +2947,19 @@ def init_db():
         # production (not per-performance) since a show's policy is
         # normally the same across all its dates.
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS max_tickets_per_performance INTEGER",
+        # Optional per-show service fee to cover Square's own processing
+        # cost, added on top of ticket price at checkout rather than
+        # coming out of what the show actually receives. Percent + flat
+        # cents (not a single hardcoded number) since Square's own rate
+        # has changed before and will again -- staff can adjust these to
+        # match instead of needing a code change each time.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS charge_service_fee BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS service_fee_percent NUMERIC(5,2) DEFAULT 3.0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS service_fee_flat_cents INTEGER DEFAULT 30",
+        # Tracked per order (not folded silently into total_cents) so the
+        # fee always shows as its own line, both to staff in the order
+        # detail view and to the buyer in their confirmation.
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS service_fee_cents INTEGER DEFAULT 0",
         # Defense in depth: even if some future code path or race condition
         # ever let two orders both finalize for the same reserved seat, the
         # database itself refuses the second one outright. Partial (WHERE
@@ -24856,15 +24869,17 @@ def square_webhook():
                             # registration cart, so confirm all of them.
                             tords = fetchall(conn, "SELECT * FROM ticket_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
                                 (order_id, order_id)) or []
-                            if tords:
-                                for tord in tords:
-                                    _finalize_ticket_order(conn, tord['id'], payment_id, order_id)
-                            else:
-                                # Check pending donations
-                                don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
-                                    (order_id, order_id))
-                                if don:
-                                    finalize_donation(conn, don['id'], payment_id, amount_cents)
+                            for tord in tords:
+                                _finalize_ticket_order(conn, tord['id'], payment_id, order_id)
+                            # A ticket checkout can also carry an optional
+                            # add-on donation sharing this SAME order/
+                            # checkout id, so this isn't exclusive with the
+                            # tickets above anymore — a standalone donation
+                            # (no ticket_orders match) still lands here too.
+                            don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                                (order_id, order_id))
+                            if don:
+                                finalize_donation(conn, don['id'])
                 conn.close()
             elif status in ('FAILED', 'CANCELED') and order_id:
                 conn = get_db()
@@ -34716,6 +34731,32 @@ def get_donation_status(did):
         return jsonify({'error': 'Not found'}), 404
     return jsonify(don)
 
+def finalize_donation(conn, donation_id):
+    """Marks a paid donation completed and sends a thank-you email. Takes
+    just the donation's own id -- the row already has its own correct
+    amount_cents from when it was created, so there's no need to pass in
+    anything from the webhook's payment object (and for a donation
+    riding along with a ticket purchase, the webhook's payment total is
+    the COMBINED amount anyway, not the donation's share of it)."""
+    don = fetchone(conn, 'SELECT * FROM pending_donations WHERE id=%s', (donation_id,))
+    if not don or don['status'] == 'completed':
+        return
+    execute(conn, "UPDATE pending_donations SET status='completed' WHERE id=%s", (donation_id,))
+    conn.commit()
+    if don.get('email'):
+        try:
+            from html import escape
+            amount_fmt = f"${(don.get('amount_cents') or 0)/100:.2f}"
+            send_email([don['email']], 'Thank you for your donation!',
+                build_hwtc_email_html('Thank you for your donation!',
+                f'<h2 style="color:#145466">Thank You!</h2>'
+                f'<p>Hi {escape(don.get("name",""))},</p>'
+                f'<p>Thank you for your generous donation of {amount_fmt} to Horizon West Theater Company.</p>'
+                + (f'<p><em>"{escape(don["message"])}"</em></p>' if don.get('message') else '')
+                + '<p>Your support means the world to us!</p>'))
+        except Exception as e:
+            app.logger.warning(f'Donation thank-you email failed: {e}')
+
 
 # ── Marquee admin routes ─────────────────────────────────────────────────────
 
@@ -35995,11 +36036,21 @@ def update_ticketing_settings(pid):
             if limit < 1: raise ValueError()
         except (TypeError, ValueError):
             return jsonify({'error': 'Enter a whole number of 1 or more, or leave it blank'}), 400
+    charge_fee = bool(d.get('charge_service_fee', False))
+    try:
+        fee_percent = float(d.get('service_fee_percent', 3.0))
+        fee_flat_cents = int(d.get('service_fee_flat_cents', 30))
+        if fee_percent < 0 or fee_flat_cents < 0: raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Service fee percent and flat amount must be zero or more'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE productions SET max_tickets_per_performance=%s WHERE id=%s', (limit, pid))
+    execute(conn, '''UPDATE productions SET max_tickets_per_performance=%s,
+        charge_service_fee=%s, service_fee_percent=%s, service_fee_flat_cents=%s WHERE id=%s''',
+        (limit, charge_fee, fee_percent, fee_flat_cents, pid))
     conn.commit()
     conn.close()
-    return jsonify({'ok': True, 'max_tickets_per_performance': limit})
+    return jsonify({'ok': True, 'max_tickets_per_performance': limit,
+        'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents})
 
 
 # ── VENUES ──────────────────────────────────────────────────────────────
@@ -36779,7 +36830,8 @@ def public_production_performances(slug):
     page can show a date picker when there's more than one."""
     conn = get_db()
     prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url,
-        max_tickets_per_performance, venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+        max_tickets_per_performance, charge_service_fee, service_fee_percent, service_fee_flat_cents,
+        venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
     if not prod:
         conn.close(); return jsonify({'error': 'Production not found'}), 404
     perfs = fetchall(conn, '''SELECT pf.*, v.name AS venue_name, v.address AS venue_address,
@@ -36942,16 +36994,26 @@ def public_ticket_checkout():
     per-performance limit, and creates pending orders.
 
     Request shape: {session_token, guardian_name, guardian_email,
-    guardian_phone, cart: [{performance_id, seats: [...]}, ...]} -- seats
-    is [{seat_id, ticket_type_id}] for reserved seating or
-    [{ticket_type_id, quantity}] for general admission, same as before,
-    just nested one level under each cart entry now."""
+    guardian_phone, cart: [{performance_id, seats: [...]}, ...],
+    donation_cents} -- seats is [{seat_id, ticket_type_id}] for reserved
+    seating or [{ticket_type_id, quantity}] for general admission, same
+    as before, just nested one level under each cart entry now.
+    donation_cents is an optional add-on gift that rides along in the
+    same payment: it becomes its own pending_donations row sharing this
+    checkout's Square order/checkout id, so the same webhook call that
+    confirms the tickets also confirms the donation."""
     d = request.json or {}
     session_token = (d.get('session_token') or '').strip()
     guardian_name = (d.get('guardian_name') or '').strip()
     guardian_email = (d.get('guardian_email') or '').strip().lower()
     guardian_phone = (d.get('guardian_phone') or '').strip()
     cart = d.get('cart') or []
+    donation_cents = d.get('donation_cents') or 0
+    try:
+        donation_cents = int(donation_cents)
+        if donation_cents < 0: raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid donation amount'}), 400
 
     if not guardian_name or not guardian_email:
         return jsonify({'error': 'Name and email are required'}), 400
@@ -36959,7 +37021,7 @@ def public_ticket_checkout():
         return jsonify({'error': 'Your cart is empty'}), 400
 
     conn = get_db()
-    groups = []  # each: {performance_id, prod_name, limit, line_items}
+    groups = []  # each: {performance_id, prod_name, limit, line_items, fee_cents}
     requested_by_perf = {}  # performance_id -> tickets requested in THIS submission, summed across any duplicate cart entries for the same performance
 
     for entry in cart:
@@ -36970,7 +37032,9 @@ def public_ticket_checkout():
         perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
         if not perf:
             conn.close(); return jsonify({'error': 'A performance in your cart no longer exists'}), 404
-        prod = fetchone(conn, 'SELECT name, max_tickets_per_performance FROM productions WHERE id=%s', (perf['production_id'],))
+        prod = fetchone(conn, '''SELECT name, max_tickets_per_performance,
+            charge_service_fee, service_fee_percent, service_fee_flat_cents
+            FROM productions WHERE id=%s''', (perf['production_id'],))
         ticket_type_rows = {t['id']: t for t in fetchall(conn, '''SELECT tt.* FROM ticket_types tt
             JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
             WHERE ptt.performance_id=%s AND tt.active=TRUE''', (fid,))}
@@ -37009,8 +37073,15 @@ def public_ticket_checkout():
                         'seat_label': tt['name'], 'price_cents': tt['price_cents']})
 
         requested_by_perf[fid] = requested_by_perf.get(fid, 0) + len(line_items)
+        subtotal = sum(li['price_cents'] for li in line_items)
+        fee_cents = 0
+        if (prod or {}).get('charge_service_fee'):
+            pct = float(prod.get('service_fee_percent') or 0)
+            flat = int(prod.get('service_fee_flat_cents') or 0)
+            fee_cents = round(subtotal * pct / 100) + flat
         groups.append({'performance_id': fid, 'prod_name': (prod or {}).get('name',''),
-            'limit': (prod or {}).get('max_tickets_per_performance'), 'line_items': line_items})
+            'limit': (prod or {}).get('max_tickets_per_performance'), 'line_items': line_items,
+            'fee_cents': fee_cents})
 
     # Policing the per-performance limit: this is the authoritative check
     # (the picker only ever offers a softer, client-side version of this)
@@ -37036,26 +37107,49 @@ def public_ticket_checkout():
             msg += f" — you can get {remaining} more for this date." if remaining else " — you've already reached that limit for this date."
             return jsonify({'error': msg}), 400
 
+    if 0 < donation_cents < 100:
+        conn.close()
+        return jsonify({'error': 'Minimum donation add-on is $1.00'}), 400
+
     cart_id = str(uuid.uuid4())
     order_ids = []
     grand_total = 0
     sq_line_items = []
     for grp in groups:
         total_cents = sum(li['price_cents'] for li in grp['line_items'])
-        grand_total += total_cents
+        grand_total += total_cents + grp['fee_cents']
         order_id = str(uuid.uuid4())
         order_ids.append(order_id)
         execute(conn, '''INSERT INTO ticket_orders
-            (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json, total_cents, status, cart_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
+            (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json, total_cents, service_fee_cents, status, cart_id)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
             (order_id, grp['performance_id'], guardian_name, guardian_email, guardian_phone,
-             json.dumps(grp['line_items']), total_cents, cart_id))
+             json.dumps(grp['line_items']), total_cents, grp['fee_cents'], cart_id))
         for li in grp['line_items']:
             sq_line_items.append({
                 'name': (f"{grp['prod_name']} — {li['seat_label'] or 'Ticket'}")[:191],
                 'quantity': '1',
                 'base_price_money': {'amount': li['price_cents'], 'currency': 'USD'},
             })
+        if grp['fee_cents']:
+            sq_line_items.append({
+                'name': (f"{grp['prod_name']} — Service Fee")[:191],
+                'quantity': '1',
+                'base_price_money': {'amount': grp['fee_cents'], 'currency': 'USD'},
+            })
+
+    donation_id = None
+    if donation_cents > 0:
+        donation_id = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO pending_donations (id, name, email, amount_cents, message)
+            VALUES (%s,%s,%s,%s,%s)''', (donation_id, guardian_name, guardian_email, donation_cents,
+            'Added on at ticket checkout'))
+        sq_line_items.append({
+            'name': 'Donation — Horizon West Theater Company',
+            'quantity': '1',
+            'base_price_money': {'amount': donation_cents, 'currency': 'USD'},
+        })
+        grand_total += donation_cents
     conn.commit()
 
     if grand_total == 0:
@@ -37080,6 +37174,9 @@ def public_ticket_checkout():
             lnk = data['payment_link']
             execute(conn, 'UPDATE ticket_orders SET square_order_id=%s, square_checkout_id=%s WHERE cart_id=%s',
                 (lnk.get('order_id'), lnk.get('id'), cart_id))
+            if donation_id:
+                execute(conn, 'UPDATE pending_donations SET square_order_id=%s, square_checkout_id=%s WHERE id=%s',
+                    (lnk.get('order_id'), lnk.get('id'), donation_id))
             conn.commit(); conn.close()
             return jsonify({'ok': True, 'type': 'payment_required', 'payment_url': lnk.get('url'), 'cart_id': cart_id})
         conn.close()
@@ -37164,8 +37261,16 @@ def public_ticket_cart_status(cart_id):
         except Exception:
             order['seats'] = []
         result.append({'order': order, 'performance': perf, 'production_name': (prod or {}).get('name',''), 'tickets': tickets})
+    # An add-on donation shares this same checkout's Square ids, not the
+    # cart_id itself (pending_donations has no cart_id column -- it's a
+    # separate table used standalone too), so it's looked up separately.
+    donation = None
+    ids = {o.get('square_order_id') for o in orders if o.get('square_order_id')} | {o.get('square_checkout_id') for o in orders if o.get('square_checkout_id')}
+    if ids:
+        donation = fetchone(conn, 'SELECT amount_cents, status FROM pending_donations WHERE square_order_id = ANY(%s) OR square_checkout_id = ANY(%s)',
+            (list(ids), list(ids)))
     conn.close()
-    return jsonify({'orders': result})
+    return jsonify({'orders': result, 'donation': donation})
 
 
 # ── ORDER / PATRON MANAGEMENT (staff) ────────────────────────────────────

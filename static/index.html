@@ -34651,10 +34651,23 @@ var _ticketOrdersPerfs = {}
 async function openTicketingSettings(pid){
   var prod = allProductions.find(function(p){ return p.id===pid })
   var current = prod ? (prod.max_tickets_per_performance ?? '') : ''
+  var feeOn = prod ? !!prod.charge_service_fee : false
+  var feePct = prod && prod.service_fee_percent != null ? prod.service_fee_percent : 3.0
+  var feeFlat = prod && prod.service_fee_flat_cents != null ? prod.service_fee_flat_cents : 30
   showAdHocModal('ticketing-settings-modal', 'Ticketing Settings',
     '<div class="form-group"><label>Max Tickets Per Performance (per buyer)</label>'
     + '<input type="number" id="tk-max-per-perf" min="1" step="1" value="'+escHtml(String(current))+'" placeholder="No limit"/>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Applies separately to each performance of this show — someone can still buy up to this many for Tuesday AND up to this many for Wednesday. Leave blank for no limit.</div></div>'
+    + '<div style="border-top:1px solid var(--border);margin:16px 0"></div>'
+    + '<label style="display:flex;align-items:center;gap:8px;font-size:13.5px;font-weight:700;cursor:pointer;margin-bottom:10px">'
+    + '<input type="checkbox" id="tk-fee-enabled" '+(feeOn?'checked':'')+' onchange="document.getElementById(\'tk-fee-fields\').style.display=this.checked?\'\':\'none\'" style="width:auto"/> Add a service fee to cover card processing costs</label>'
+    + '<div id="tk-fee-fields" style="display:'+(feeOn?'':'none')+'">'
+    + '<div class="form-row">'
+    + '<div class="form-group"><label>Percent</label><input type="number" id="tk-fee-percent" min="0" step="0.1" value="'+escHtml(String(feePct))+'"/></div>'
+    + '<div class="form-group"><label>Plus Flat Cents</label><input type="number" id="tk-fee-flat" min="0" step="1" value="'+escHtml(String(feeFlat))+'"/></div>'
+    + '</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Added on top of the ticket price at checkout — the buyer pays the fee instead of it coming out of the show\'s revenue. Square\'s own online rate is currently around 2.9–3.3% + 30¢, so that\'s a reasonable starting point, but check your actual Square plan\'s rate since it can change.</div>'
+    + '</div>'
     + '<button class="btn btn-primary" style="width:100%" onclick="saveTicketingSettings(\''+pid+'\')">Save</button>')
 }
 
@@ -34662,10 +34675,22 @@ async function saveTicketingSettings(pid){
   var raw = (document.getElementById('tk-max-per-perf')?.value || '').trim()
   var limit = raw === '' ? null : parseInt(raw, 10)
   if(raw !== '' && (!Number.isInteger(limit) || limit < 1)){ toast('Enter a whole number of 1 or more, or leave it blank','error'); return }
-  var res = await api('/api/productions/'+pid+'/ticketing-settings', 'PUT', {max_tickets_per_performance: limit})
+  var feeOn = document.getElementById('tk-fee-enabled')?.checked || false
+  var feePct = parseFloat(document.getElementById('tk-fee-percent')?.value || '3.0')
+  var feeFlat = parseInt(document.getElementById('tk-fee-flat')?.value || '30', 10)
+  if(isNaN(feePct) || feePct < 0 || isNaN(feeFlat) || feeFlat < 0){ toast('Service fee percent and flat amount must be zero or more','error'); return }
+  var res = await api('/api/productions/'+pid+'/ticketing-settings', 'PUT', {
+    max_tickets_per_performance: limit, charge_service_fee: feeOn,
+    service_fee_percent: feePct, service_fee_flat_cents: feeFlat
+  })
   if(res.error){ toast(res.error,'error'); return }
   var prod = allProductions.find(function(p){ return p.id===pid })
-  if(prod) prod.max_tickets_per_performance = limit
+  if(prod){
+    prod.max_tickets_per_performance = limit
+    prod.charge_service_fee = feeOn
+    prod.service_fee_percent = feePct
+    prod.service_fee_flat_cents = feeFlat
+  }
   toast('Saved!','success')
   closeAdHocModal('ticketing-settings-modal')
 }

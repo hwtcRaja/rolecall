@@ -35161,7 +35161,7 @@ var _ed = null; // editor state, reset each time the editor opens
 
 function tkOpenSeatEditor(mapId){
   _ed = {
-    mapId: mapId, seats: [], selected: {}, mode: 'select', gridSnap: true,
+    mapId: mapId, seats: [], selected: {}, mode: 'select', gridSnap: true, showLabels: false,
     zoom: 1, dragging: false, dragStart: null, dragOrigins: null, moved: false,
     rubberBand: null, panning: null, viewCenter: null, viewBase: null,
     stage: null, stageSelected: false, stageDragging: false, stageOrigin: null,
@@ -35177,6 +35177,7 @@ function tkOpenSeatEditor(mapId){
     +   '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
     +     '<button class="btn btn-secondary btn-sm" id="ed-mode-add" onclick="edToggleAddMode()">+ Add Seat</button>'
     +     '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted)"><input type="checkbox" id="ed-snap" checked onchange="_ed.gridSnap=this.checked" style="width:auto"/> Snap to grid</label>'
+    +     '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted)"><input type="checkbox" id="ed-show-labels" onchange="_ed.showLabels=this.checked;edRenderCanvas()" style="width:auto"/> Show seat numbers</label>'
     +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(1.25)">＋</button>'
     +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(0.8)">－</button>'
     +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(0)">Reset View</button>'
@@ -35271,12 +35272,48 @@ function edRenderCanvas(){
       + '<text x="0" y="0.15" font-size="0.6" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">STAGE</text>'
       + '</g>';
   }
+  // Row-end labels: one letter/number at each physical end of every row,
+  // grouped by section+row (so "Row A" in two different sections is never
+  // conflated as the same row), using whichever two seats sit farthest
+  // apart within the row -- works whether the row is a straight
+  // horizontal/vertical line or angled, like the diagonal section here.
+  var rowGroups = {};
+  seats.forEach(function(s){
+    if(!s.row_name) return;
+    var key = (s.section||'')+'\u0001'+s.row_name;
+    (rowGroups[key] = rowGroups[key] || []).push(s);
+  });
+  var rowLabelSvg = '';
+  Object.keys(rowGroups).forEach(function(key){
+    var rowSeats = rowGroups[key];
+    var rowName = rowSeats[0].row_name;
+    var endpoints;
+    if(rowSeats.length < 2){
+      endpoints = [{x:rowSeats[0].x, y:rowSeats[0].y}];
+    } else {
+      var maxDist = -1, a = rowSeats[0], b = rowSeats[0];
+      for(var i=0;i<rowSeats.length;i++){
+        for(var j=i+1;j<rowSeats.length;j++){
+          var dx0 = rowSeats[i].x-rowSeats[j].x, dy0 = rowSeats[i].y-rowSeats[j].y, d = dx0*dx0+dy0*dy0;
+          if(d > maxDist){ maxDist = d; a = rowSeats[i]; b = rowSeats[j]; }
+        }
+      }
+      var dx = b.x-a.x, dy = b.y-a.y, len = Math.sqrt(dx*dx+dy*dy) || 1;
+      var ux = dx/len, uy = dy/len, off = 0.6;
+      endpoints = [{x:a.x-ux*off, y:a.y-uy*off}, {x:b.x+ux*off, y:b.y+uy*off}];
+    }
+    endpoints.forEach(function(pt){
+      rowLabelSvg += '<text x="'+pt.x+'" y="'+(pt.y+0.13)+'" font-size="0.34" font-weight="700" text-anchor="middle" fill="var(--text,#374151)" style="pointer-events:none">'+escHtml(rowName)+'</text>';
+    });
+  });
   seats.forEach(function(s){
     var sel = !!_ed.selected[s.id];
     var fill = sel ? '#facc15' : (sections[s.section||'']||'#999');
     svg += '<circle data-id="'+s.id+'" class="ed-seat" cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="'+(sel?'#111':'#fff')+'" stroke-width="'+(sel?0.09:0.05)+'" style="cursor:grab"><title>'+escHtml(s.seat_label||'')+'</title></circle>';
     if(s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff" style="pointer-events:none"></text>';
+    if(_ed.showLabels && s.seat_label && !s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.13)+'" font-size="0.26" text-anchor="middle" fill="#fff" style="pointer-events:none">'+escHtml(s.seat_label)+'</text>';
   });
+  svg += rowLabelSvg;
   svg += '<rect id="ed-rubber" x="0" y="0" width="0" height="0" fill="rgba(20,84,102,0.15)" stroke="#145466" stroke-width="0.04" style="display:none"/>';
   svg += '</svg>';
   wrap.innerHTML = svg;

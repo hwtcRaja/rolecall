@@ -30,78 +30,91 @@
   <h1>Getting ready…</h1>
 </div>
 <iframe id="frame" title="Lobby display" allow="autoplay"></iframe>
-<button id="switcher" onclick="showPicker()">Switch audition</button>
+<button id="switcher" onclick="showPicker()">Switch display</button>
 <script>
-// rolecall.hwtco.org/tv — leave this open on the lobby TV. Every minute it
-// checks which auditions are happening today and shows that lobby display.
+// rolecall.hwtco.org/tv: leave this open on a lobby TV.
+// - Normal days: shows the main lobby display.
+// - Days with auditions or a Rising Stars rehearsal: asks which display this
+//   TV should show (falls back to the main lobby if nobody answers).
+// Checks every minute, so it adapts as the day changes.
 var POLL_MS = 60000
-var active = []
+var ASK_TIMEOUT_S = 60
+var options = []
 var currentKey = null
-var pickedKey = null
+var pickedKey = null        // an explicit choice made on this TV today
+var askedSig = null         // option set we already asked about
+var askTimer = null
 try{ var saved = JSON.parse(localStorage.getItem('hwtc_tv_pick')||'null'); if(saved && saved.day === dayStamp()) pickedKey = saved.key }catch(e){}
 
 function dayStamp(){ var d = new Date(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate() }
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
-
-function showMessage(title, body){
-  currentKey = null
-  document.getElementById('frame').style.display = 'none'
-  document.getElementById('frame').removeAttribute('src')
-  document.getElementById('switcher').style.display = 'none'
-  document.getElementById('screen').style.display = ''
-  document.getElementById('screen').innerHTML =
-    '<img class="logo" src="/static/images/hwtc_logo_white.png" alt="HWTC" onerror="this.style.display=\'none\'"/>'
-    + '<div class="eyebrow">Lobby Display</div><h1>'+esc(title)+'</h1>'+(body?'<p>'+esc(body)+'</p>':'')
-}
+function sig(){ return options.map(function(o){ return o.key }).join('|') }
+function lobbyOption(){ return options.find(function(o){ return o.kind === 'lobby' }) || {key:'lobby', name:'Main Lobby Display', url:'/lobby', kind:'lobby'} }
+function stopAskTimer(){ if(askTimer){ clearInterval(askTimer); askTimer = null } }
 
 function showDisplay(item){
+  stopAskTimer()
+  document.getElementById('switcher').style.display = options.length > 1 ? '' : 'none'
   if(currentKey === item.key) return
   currentKey = item.key
   document.getElementById('screen').style.display = 'none'
   var f = document.getElementById('frame')
   f.src = item.url
   f.style.display = 'block'
-  document.getElementById('switcher').style.display = active.length > 1 ? '' : 'none'
 }
 
 function showPicker(){
   currentKey = null
+  stopAskTimer()
   document.getElementById('frame').style.display = 'none'
+  document.getElementById('frame').removeAttribute('src')
   document.getElementById('switcher').style.display = 'none'
   var el = document.getElementById('screen')
   el.style.display = ''
-  el.innerHTML = '<div class="eyebrow">Lobby Display</div><h1>Which audition is this screen for?</h1>'
-    + '<div class="choices">' + active.map(function(a, i){
-        return '<button class="choice" onclick="pick('+i+')">'+esc(a.name)+'</button>'
+  el.innerHTML = '<div class="eyebrow">Lobby Display</div><h1>What should this screen show?</h1>'
+    + '<div class="choices">' + options.map(function(o, i){
+        return '<button class="choice" onclick="pick('+i+')">'+esc(o.name)
+          + (o.detail ? '<span style="display:block;font-size:18px;font-weight:500;opacity:0.7;margin-top:4px">'+esc(o.detail)+'</span>' : '')
+          + '</button>'
       }).join('') + '</div>'
+    + '<p id="ask-countdown" style="margin-top:28px;font-size:16px"></p>'
   var first = el.querySelector('.choice'); if(first) first.focus()
+  askedSig = sig()
+  var left = ASK_TIMEOUT_S
+  var cd = document.getElementById('ask-countdown')
+  cd.textContent = 'Showing the main lobby display in ' + left + 's if nothing is picked.'
+  askTimer = setInterval(function(){
+    left--
+    if(left <= 0){ showDisplay(lobbyOption()); return }
+    cd.textContent = 'Showing the main lobby display in ' + left + 's if nothing is picked.'
+  }, 1000)
 }
 
 function pick(i){
-  var a = active[i]; if(!a) return
-  pickedKey = a.key
-  try{ localStorage.setItem('hwtc_tv_pick', JSON.stringify({key:a.key, day:dayStamp()})) }catch(e){}
-  showDisplay(a)
+  var o = options[i]; if(!o) return
+  pickedKey = o.key
+  try{ localStorage.setItem('hwtc_tv_pick', JSON.stringify({key:o.key, day:dayStamp()})) }catch(e){}
+  showDisplay(o)
 }
 
 async function refresh(){
   try{
     var r = await fetch('/api/public/tv/active', {cache:'no-store'})
-    active = await r.json()
-    if(!Array.isArray(active)) active = []
+    var list = await r.json()
+    options = Array.isArray(list) && list.length ? list : [lobbyOption()]
   }catch(e){
-    // Network hiccup: keep showing whatever is up
+    if(currentKey === null && !askTimer) showDisplay(lobbyOption())
     return
   }
-  if(!active.length){
-    pickedKey = null
-    showMessage('No auditions running right now', 'This screen will switch on by itself when auditions start.')
-    return
-  }
-  if(active.length === 1){ showDisplay(active[0]); return }
-  var chosen = active.find(function(a){ return a.key === pickedKey })
+  if(askTimer) return                       // picker is up; let it finish
+  if(options.length === 1){ showDisplay(options[0]); return }
+  var chosen = options.find(function(o){ return o.key === pickedKey })
   if(chosen){ showDisplay(chosen); return }
-  if(currentKey === null) showPicker()
+  // Something new is available today (auditions, pick-up): ask once per change
+  if(askedSig !== sig()){ showPicker(); return }
+  // Already asked about this set and nobody picked: stay on the lobby
+  if(currentKey === null || !options.find(function(o){ return o.key === currentKey })) showDisplay(lobbyOption())
+  else document.getElementById('switcher').style.display = ''
 }
 
 refresh()

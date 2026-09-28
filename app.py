@@ -3747,7 +3747,7 @@ def get_recipient_emails(settings=None):
 def build_hwtc_email_html(subject, body_html, footer_note=''):
     """Wrap content in the standard HWTC branded email template."""
     footer_note = footer_note or 'You are receiving this email from Horizon West Theater Company. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'
-    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_white.png'
+    logo_url = 'https://rolecall.hwtco.org/static/images/hwtc_logo_white.png'
     return f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
@@ -7888,7 +7888,7 @@ def _send_sad_announcement_email(volunteer):
     from html import escape
     first_name = (volunteer.get('name') or '').strip().split(' ')[0]
     landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
-    ghost_light_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/ghost-light.png'
+    ghost_light_url = 'https://rolecall.hwtco.org/static/images/ghost-light.png'
     # Personalized tagline as the subject and the email's headline, e.g.
     # "Ryan, the studio is yours after dark." Falls back to the plain
     # tagline when there's no name on file. The name IS the greeting now,
@@ -7931,7 +7931,7 @@ def _send_sad_lottery_open_email(volunteer, ev):
     from html import escape
     first_name = (volunteer.get('name') or '').strip().split(' ')[0]
     landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
-    ghost_light_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/ghost-light.png'
+    ghost_light_url = 'https://rolecall.hwtco.org/static/images/ghost-light.png'
     event_dt = parse_db_datetime(ev['event_date'])
     event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
     subject = f"{first_name}, the lottery is open!" if first_name else "The lottery is open!"
@@ -19698,7 +19698,7 @@ def foh_training_page():
           {questions_or_placeholder}
           <button type="button" id="foh-submit-btn" onclick="submitFohQuiz()" class="gi-btn" style="margin-top:14px">Submit</button>
         </div>
-        <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+        <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
       </div>
       <script>
       async function submitFohQuiz(){{
@@ -19878,7 +19878,7 @@ def rsvp_page(token):
             </div>
             <div class="gi-card">{rows_html}</div>
             <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
-            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -19901,7 +19901,7 @@ def rsvp_page(token):
               {role_line}
               <p style="color:#a49f92;font-size:13px;margin-top:16px">We'll be in touch with more details.</p>
             </div>
-            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -19921,7 +19921,7 @@ def rsvp_page(token):
               <p style="color:#4a4a45">Thanks for letting us know, {rsvp.get("volunteer_name","")} — we'll miss you at <strong>{rsvp["event_name"]}</strong>!</p>
               <p style="color:#a49f92;font-size:13px;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Click here</a> to {undo_word} instead.</p>
             </div>
-            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -20021,7 +20021,7 @@ def rsvp_page(token):
                 </button>
               </form>
             </div>
-            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -20146,7 +20146,7 @@ def rsvp_page(token):
               </form>
             </div>
             {producer_contact_html}
-            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
           {confirm_btn_script}
         </body></html>'''
@@ -20205,7 +20205,7 @@ def rsvp_page(token):
               </form>
             </div>
             {producer_contact_html}
-            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -20277,7 +20277,7 @@ def rsvp_submit(token):
               <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 14px">Thanks for letting us know</h2>
               <p style="color:#4a4a45">Sorry you can't make it, {vol_name} — we'll miss you at <strong>{rsvp["event_name"]}</strong>.</p>
             </div>
-            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -20368,7 +20368,7 @@ def rsvp_submit(token):
             </div>
             <div class="gi-card">{rows_html}</div>
             <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
-            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -20460,7 +20460,7 @@ def rsvp_submit(token):
           <p style="color:#4a4a45">Thanks {vol_name}! We've got you down{f' for {date_str}' if date_str else ''}{f' — {role_name}' if role_name else ''}.</p>
           <p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p>
         </div>
-        <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+        <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
       </div>
     </body></html>'''
 
@@ -20657,7 +20657,7 @@ def public_rsvp_open_page(event_id):
               </form>
             </div>
             {producer_contact_html}
-            <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
           <script>
           function currentBtnLabel(){{
@@ -20745,7 +20745,7 @@ def public_rsvp_open_page(event_id):
             </button>
           </form>
         </div>
-        <div class="gi-footer"><img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+        <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
       </div>
       <script>
       async function submitPublicRsvp(action){{
@@ -22951,7 +22951,7 @@ def _build_registration_invoice_html(reg, entity_name, schedule_info, summary, i
     guardian_name = reg.get('guardian_name') or ''
     guardian_email = reg.get('guardian_email') or ''
     today_str = date.today().strftime('%B %-d, %Y')
-    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png'
+    logo_url = 'https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png'
 
     rows = ''
     label = 'Comped Registration' if summary['is_comped'] else entity_name
@@ -33019,7 +33019,7 @@ h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
 h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style></head>
 <body>
 <div style="text-align:center;margin-bottom:24px">
-<img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:56px" alt="HWTC"/>
+<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" style="height:56px" alt="HWTC"/>
 <div style="font-size:15px;font-weight:700;color:#0d3d4d;margin-top:8px">Horizon West Theater Company</div>
 <div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
 <div style="font-size:12px;color:#6b7280">hwtco.org</div>

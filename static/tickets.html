@@ -26,9 +26,10 @@ body{margin:0;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',
 /* Site header: HWTC's own identity, fixed teal, the same on every show's
    page — never driven by --show-accent. This is what should say "you're
    on an HWTC site" before you ever see which show it is. */
-.site-header{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;position:sticky;top:0;z-index:100;box-shadow:0 1px 8px rgba(0,0,0,0.04)}
-.site-header-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:12px;min-height:44px}
-.site-header img{height:40px;width:auto;display:block}
+.site-header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 28px;position:sticky;top:0;z-index:100;box-shadow:0 1px 8px rgba(0,0,0,0.04)}
+.site-header-inner{display:flex;align-items:center;gap:12px;min-height:56px}
+.site-header img{height:60px;width:auto;display:block}
+@media(max-width:520px){.site-header{padding:8px 16px} .site-header img{height:46px}}
 /* The logo already spells out the company name — the text is only a
    fallback for when the image can't load. */
 .site-header .brand-text{display:none;font-size:14.5px;font-weight:700;color:var(--teal-dark);letter-spacing:0.1px}
@@ -51,6 +52,19 @@ body{margin:0;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',
 .hero-poster h1{font-size:40px;text-shadow:0 2px 18px rgba(0,0,0,0.45)}
 .hero-poster .sub{text-shadow:0 1px 8px rgba(0,0,0,0.5)}
 @media(max-width:520px){.hero-poster{min-height:200px;padding:0 18px 50px} .hero h1,.hero-poster h1{font-size:26px}}
+
+/* Show title art (its own upload, separate from the banner photo). On wide
+   screens it floats centered in the open space left of the page column;
+   on narrower screens it sits above the title instead. */
+.hero-logo{position:absolute;z-index:1;top:0;bottom:30px;left:0;width:calc((100% - 900px) / 2);display:flex;align-items:center;justify-content:center;padding:24px;pointer-events:none}
+.hero-logo img{max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 6px 18px rgba(0,0,0,0.35))}
+.hero-inner .hero-logo-inline{display:none}
+@media(max-width:1340px){
+  .hero-logo{display:none}
+  .hero-inner .hero-logo-inline{display:block;max-height:120px;max-width:min(320px,70%);object-fit:contain;margin-bottom:14px;filter:drop-shadow(0 6px 18px rgba(0,0,0,0.35))}
+  .hero-poster{min-height:clamp(260px,34vw,360px)}
+}
+@media(max-width:520px){.hero-inner .hero-logo-inline{max-height:90px}}
 
 .wrap{padding-top:26px}
 /* With a banner, the first card tucks up over its bottom edge instead of
@@ -242,8 +256,12 @@ function setHero(name, color, logo, sub, imageUrl){
   // No small floating logo icon here — HWTC's own identity already lives
   // in the site header above; duplicating a tiny badge inside the hero
   // just read as a stray app icon rather than real show art.
+  var logoSafe = logo ? String(logo).replace(/"/g,'&quot;') : ''
   document.getElementById('hero-slot').innerHTML =
-    '<div class="hero'+(isPoster?' hero-poster':'')+'"'+style+'><div class="hero-inner">'
+    '<div class="hero'+(isPoster?' hero-poster':'')+'"'+style+'>'
+    + (logoSafe ? '<div class="hero-logo"><img src="'+logoSafe+'" alt="" onerror="this.parentNode.style.display=\'none\'"/></div>' : '')
+    + '<div class="hero-inner">'
+    + (logoSafe ? '<img class="hero-logo-inline" src="'+logoSafe+'" alt="" onerror="this.style.display=\'none\'"/>' : '')
     + '<h1>'+escH(name||'Tickets')+'</h1>'+(sub?'<div class="sub">'+escH(sub)+'</div>':'')
     + '</div></div>'
 }
@@ -295,7 +313,7 @@ async function init(){
     return
   }
   var prod = data.production
-  setHero(prod.name, prod.portal_color, prod.portal_logo_url, 'Tickets', prod.image_url)
+  setHero(prod.name, prod.portal_color, prod.ticket_logo_url, 'Tickets', prod.image_url)
   var perfs = data.performances || []
   lastProd = prod; lastPerfs = perfs
   if(!perfs.length){
@@ -319,14 +337,19 @@ async function goBackToPerformances(){
   if(holdTimer){ clearTimeout(holdTimer); holdTimer = null }
   stopHoldCountdown()
   selectedSeats = {}; gaQuantities = {}
-  setHero(lastProd.name, lastProd.portal_color, lastProd.portal_logo_url, 'Tickets', lastProd.image_url)
+  setHero(lastProd.name, lastProd.portal_color, lastProd.ticket_logo_url, 'Tickets', lastProd.image_url)
   renderPerformancePicker(lastProd, lastPerfs)
 }
 
 function fmtPerfDate(d, t){
   if(!d) return ''
   var dt
-  try{ dt = new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) }catch(e){ dt = d }
+  try{
+    var _d = new Date(d+'T12:00:00'), _n = _d.getDate()
+    var _suf = (_n % 100 >= 11 && _n % 100 <= 13) ? 'th' : ({1:'st',2:'nd',3:'rd'}[_n % 10] || 'th')
+    dt = _d.toLocaleDateString('en-US',{weekday:'long'}) + ', ' + _d.toLocaleDateString('en-US',{month:'long'}) + ' ' + _n + _suf + ', ' + _d.getFullYear()
+    if(isNaN(_n)) dt = d
+  }catch(e){ dt = d }
   if(t){
     try{
       var p = t.split(':'), h = parseInt(p[0]), m = p[1], ap = h>=12?'PM':'AM'
@@ -374,16 +397,26 @@ async function loadPerformance(fid){
       selectedSeats[s.id] = ticketTypes[0] ? ticketTypes[0].id : null
     }
   })
-  setHero(currentPerformance.production_name, currentPerformance.portal_color, currentPerformance.portal_logo_url,
-    fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time) + (currentPerformance.venue_name?' · '+currentPerformance.venue_name:''))
+  // Same banner as the date picker; which performance you're buying for
+  // is shown in the first card below instead of swapping the header.
+  setHero(currentPerformance.production_name, currentPerformance.portal_color,
+    currentPerformance.ticket_logo_url || (lastProd && lastProd.ticket_logo_url), 'Tickets',
+    currentPerformance.production_image_url || (lastProd && lastProd.image_url))
   renderPurchaseScreen()
 }
 
 function renderPurchaseScreen(){
   var reserved = currentPerformance.reserved_seating
   var html = ''
+  html += '<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 22px">'
+    + '<div><div style="font-size:11.5px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:3px">Your Performance</div>'
+    + '<div style="font-weight:800;font-size:16px">'+escH(fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time))+'</div>'
+    + (currentPerformance.venue_name ? '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(currentPerformance.venue_name)+'</div>' : '')
+    + '</div>'
+    + (lastPerfs.length > 1 ? '<button class="btn btn-secondary" style="padding:10px 16px;font-size:13.5px" onclick="goBackToPerformances()">← Change date</button>' : '')
+    + '</div>'
   if(lastPerfs.length > 1){
-    html += '<button class="btn btn-secondary" style="margin-bottom:14px" onclick="goBackToPerformances()">← Choose a Different Performance</button>'
+    // (back button lives in the performance card above)
   } else if(lastProd){
     // Only one date on sale means renderPerformancePicker (where the
     // synopsis normally lives) never ran — show it here instead so it's

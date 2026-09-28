@@ -36863,7 +36863,7 @@ def public_hold_seats(fid):
     if not session_token or not seat_ids:
         return jsonify({'error': 'session_token and seat_ids are required'}), 400
     conn = get_db()
-    perf = fetchone(conn, 'SELECT id FROM performances WHERE id=%s', (fid,))
+    perf = fetchone(conn, 'SELECT id, production_id FROM performances WHERE id=%s', (fid,))
     if not perf:
         conn.close(); return jsonify({'error': 'Performance not found'}), 404
     _clear_expired_holds(conn, fid)
@@ -36873,6 +36873,26 @@ def public_hold_seats(fid):
     if already_sold:
         conn.close()
         return jsonify({'error': 'Some seats were just sold to another buyer', 'taken': already_sold}), 409
+
+    # Authoritative per-performance limit check, right here at hold time —
+    # not just at checkout. The picker has its own client-side heads-up
+    # before this call even happens, but that's just a courtesy; someone
+    # could always call this endpoint directly, so a seat literally can't
+    # be held past the limit regardless of what the browser does. This
+    # can't check by email (nobody's entered one yet at this point in the
+    # flow) so it's scoped to this session_token's own live holds for the
+    # performance — new seat_ids already held by this same session (e.g.
+    # a repeat call re-confirming the same seats) don't count twice.
+    prod = fetchone(conn, 'SELECT max_tickets_per_performance FROM productions WHERE id=%s', (perf['production_id'],))
+    limit = (prod or {}).get('max_tickets_per_performance')
+    if limit is not None:
+        existing_held = fetchall(conn, 'SELECT seat_id FROM seat_holds WHERE performance_id=%s AND session_token=%s',
+            (fid, session_token)) or []
+        existing_seat_ids = {r['seat_id'] for r in existing_held}
+        combined = existing_seat_ids | set(seat_ids)
+        if len(combined) > limit:
+            conn.close()
+            return jsonify({'error': f"This show limits {limit} ticket{'s' if limit != 1 else ''} per performance per person, and you've already selected {len(existing_seat_ids)}."}), 400
 
     lost = []
     for sid in seat_ids:

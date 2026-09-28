@@ -37170,6 +37170,43 @@ def public_ticket_cart_status(cart_id):
 
 # ── ORDER / PATRON MANAGEMENT (staff) ────────────────────────────────────
 
+@app.route('/api/productions/<pid>/seat-holds', methods=['GET'])
+def get_production_seat_holds(pid):
+    """Every currently-live (non-expired) seat hold across this
+    production's performances — mainly so staff can see what a stuck or
+    abandoned checkout is holding onto and clear it themselves instead of
+    waiting out the 15-minute expiry, e.g. while testing or troubleshooting
+    a patron's report that a seat 'won't let them pick it'."""
+    err = require_auth()
+    if err: return err
+    performance_id = (request.args.get('performance_id') or '').strip()
+    conn = get_db()
+    perf_ids = [performance_id] if performance_id else [
+        r['id'] for r in fetchall(conn, 'SELECT id FROM performances WHERE production_id=%s', (pid,)) or []]
+    if not perf_ids:
+        conn.close(); return jsonify([])
+    holds = fetchall(conn, '''SELECT h.*, s.seat_label, pf.performance_date, pf.performance_time
+        FROM seat_holds h
+        JOIN seat_map_seats s ON s.id=h.seat_id
+        JOIN performances pf ON pf.id=h.performance_id
+        WHERE h.performance_id = ANY(%s) AND h.expires_at > NOW()
+        ORDER BY pf.performance_date, pf.performance_time, s.seat_label''', (perf_ids,)) or []
+    conn.close()
+    return jsonify(holds)
+
+@app.route('/api/seat-holds/<hold_id>', methods=['DELETE'])
+def delete_seat_hold(hold_id):
+    """Staff manually clearing one hold — releases it immediately instead
+    of waiting for the 15-minute expiry."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM seat_holds WHERE id=%s', (hold_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
 @app.route('/api/productions/<pid>/ticket-orders', methods=['GET'])
 def get_production_ticket_orders(pid):
     """The box-office view: every order across all of this production's

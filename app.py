@@ -1668,6 +1668,7 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS performance_location TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_color TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_image_url TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS ticket_logo_url TEXT",
         # A small logo/crest shown alongside the show's branding (cast list,
         # hero header) — separate from portal_image_url, which is the big
         # background photo behind the hero banner.
@@ -11531,6 +11532,11 @@ def create_production():
              d.get('start_date') or None, d.get('end_date') or None,
              d.get('description',''), d.get('status','upcoming'),
              d.get('default_elic_id') or None))
+    if d.get('image_url') or d.get('ticket_logo_url'):
+        # The INSERT above never took the photo — a poster chosen while
+        # creating a production used to be silently dropped.
+        execute(conn, 'UPDATE productions SET image_url=%s, ticket_logo_url=%s WHERE id=%s',
+                (d.get('image_url') or None, d.get('ticket_logo_url') or None, pid))
     lic_id = d.get('from_licensing_request_id')
     if lic_id:
         lr = fetchone(conn, "SELECT id FROM licensing_requests WHERE id=%s AND approved_to_produce=TRUE AND (production_id IS NULL OR production_id='')", (lic_id,))
@@ -11572,6 +11578,8 @@ def update_production(pid):
              d.get('description',''), d.get('status','upcoming'),
              d.get('default_elic_id') or None,
              d.get('image_url') or None, pid))
+    if 'ticket_logo_url' in d:
+        execute(conn, 'UPDATE productions SET ticket_logo_url=%s WHERE id=%s', (d.get('ticket_logo_url') or None, pid))
     conn.commit()
     prod = fetchone(conn, '''SELECT p.*, COALESCE(p.stage,'mainstage') as stage, v.name as default_elic_name FROM productions p LEFT JOIN elics el ON p.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE p.id=%s''', (pid,))
     prod['members'] = fetchall(conn, '''
@@ -37562,7 +37570,7 @@ def public_production_performances(slug):
     """Lists on-sale performances for a production's ticket page, so the
     page can show a date picker when there's more than one."""
     conn = get_db()
-    prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url,
+    prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url, ticket_logo_url,
         max_tickets_per_performance, charge_service_fee, service_fee_percent, service_fee_flat_cents,
         venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
     if not prod:
@@ -37586,6 +37594,7 @@ def public_seat_status(fid):
     session_token = request.args.get('session_token', '')
     conn = get_db()
     perf = fetchone(conn, '''SELECT pf.*, p.name AS production_name, p.portal_color, p.portal_logo_url,
+        p.image_url AS production_image_url, p.ticket_logo_url, p.slug AS production_slug,
         v.name AS venue_name, v.address AS venue_address, v.city AS venue_city, v.notes AS venue_notes
         FROM performances pf
         JOIN productions p ON pf.production_id=p.id

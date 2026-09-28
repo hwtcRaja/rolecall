@@ -754,6 +754,9 @@ function renderCart(){
       var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
       count++
       rows += '<div class="cart-row"><span>'+escH(seat?seat.seat_label:'')+(ticketTypes.length>1?' — '+seatTicketTypeSelect(sid):' '+escH(tt?tt.name:'')) +'</span><span>'+fmtMoney(tt?tt.price_cents:0)+'</span></div>'
+      if(seat && seat.obstructed_view){
+        rows += '<div style="font-size:12px;color:#b45309;margin:-4px 0 6px;padding-left:2px"> Limited view'+(seat.view_note?': '+escH(seat.view_note):'')+'</div>'
+      }
     })
   } else {
     ticketTypes.forEach(function(tt){
@@ -1033,7 +1036,8 @@ async function renderConfirmation(cartId){
         + '<div style="font-weight:700;font-size:14.5px">'+escH(e.production_name)+'</div>'
         + '<div style="color:var(--text-muted);font-size:13px;margin-bottom:8px">'+escH(fmtPerfDate(perf?perf.performance_date:'', perf?perf.performance_time:''))+'</div>'
         + e.tickets.map(function(t){
-            return '<div class="cart-row"><span>'+escH(t.seat_label||'Ticket')+'</span><span class="confirm-code">'+escH(t.confirmation_code||'')+'</span></div>'
+            return '<div class="cart-row"><span>'+escH(t.seat_label||'Ticket')+(t.section?' — '+escH(t.section):'')+'</span><span class="confirm-code">'+escH(t.confirmation_code||'')+'</span></div>'
+              + (t.obstructed_view ? '<div style="font-size:12px;color:#b45309;margin:-4px 0 6px"> Limited view'+(t.view_note?': '+escH(t.view_note):'')+'</div>' : '')
           }).join('')
         + (e.order.service_fee_cents ? '<div class="cart-row"><span>Service Fee</span><span>'+fmtMoney(e.order.service_fee_cents)+'</span></div>' : '')
         + '</div>'

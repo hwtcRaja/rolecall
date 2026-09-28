@@ -34829,8 +34829,10 @@ async function openTicketOrderDetail(oid){
     + '</div>'
     + tickets.map(function(t){
         return '<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;background:var(--bg);border-radius:var(--radius);margin-bottom:6px">'
-          + '<div><div style="font-weight:700;font-size:13.5px">'+escHtml(t.seat_label||'General Admission')+'</div>'
-          + '<div style="font-size:11.5px;color:var(--text-muted);font-family:monospace">'+escHtml(t.confirmation_code||'')+(t.checked_in_at?' · checked in':'')+'</div></div>'
+          + '<div><div style="font-weight:700;font-size:13.5px">'+escHtml(t.seat_label||'General Admission')+(t.section?' <span style="font-weight:400;color:var(--text-muted)">— '+escHtml(t.section)+'</span>':'')+'</div>'
+          + '<div style="font-size:11.5px;color:var(--text-muted);font-family:monospace">'+escHtml(t.confirmation_code||'')+(t.checked_in_at?' · checked in':'')+'</div>'
+          + (t.obstructed_view?'<div style="font-size:11.5px;color:#b45309;margin-top:2px"> Limited view'+(t.view_note?': '+escHtml(t.view_note):'')+'</div>':'')
+          + '</div>'
           + '<div style="display:flex;gap:8px;align-items:center">'
           + '<span style="font-size:13px;font-weight:700">'+fmtMoneyCents(t.price_cents)+'</span>'
           + (t.seat_id?'<button class="btn btn-secondary btn-sm" onclick="openMoveSeatModal(\''+t.id+'\',\''+order.performance_id+'\',\''+oid+'\')">Move Seat</button>':'')

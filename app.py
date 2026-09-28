@@ -2983,6 +2983,16 @@ def init_db():
         # with an optional note explaining why (a pillar, a side angle, etc).
         "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS obstructed_view BOOLEAN DEFAULT FALSE",
         "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS view_note TEXT DEFAULT ''",
+        # Section/limited-view info wasn't actually being copied from the
+        # seat map onto the finished ticket record at all -- meaning it
+        # never showed up anywhere past the live picker: not the cart, not
+        # the confirmation page or email, not the admin order view. Any of
+        # those (an usher checking someone's section, a patron re-reading
+        # their own confirmation) needs it captured at the moment the
+        # ticket is actually created, not just available while shopping.
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS section TEXT DEFAULT ''",
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS obstructed_view BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS view_note TEXT DEFAULT ''",
         # Defense in depth: even if some future code path or race condition
         # ever let two orders both finalize for the same reserved seat, the
         # database itself refuses the second one outright. Partial (WHERE
@@ -37139,7 +37149,9 @@ def public_ticket_checkout():
                     # misconfigured performance be checked out for free.
                     conn.close(); return jsonify({'error': f"Seat {seat['seat_label']} has no valid ticket type — please contact us."}), 400
                 line_items.append({'seat_id': sid, 'ticket_type_id': tt['id'],
-                    'seat_label': seat['seat_label'], 'price_cents': tt['price_cents']})
+                    'seat_label': seat['seat_label'], 'price_cents': tt['price_cents'],
+                    'section': seat.get('section') or '', 'obstructed_view': bool(seat.get('obstructed_view')),
+                    'view_note': seat.get('view_note') or ''})
         else:
             for sel in seat_selections:
                 tt = ticket_type_rows.get(sel.get('ticket_type_id'))
@@ -37277,11 +37289,13 @@ def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
         line_items = []
     for li in line_items:
         execute(conn, '''INSERT INTO tickets
-            (id, ticket_order_id, performance_id, seat_id, ticket_type_id, seat_label, price_cents, confirmation_code)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (id, ticket_order_id, performance_id, seat_id, ticket_type_id, seat_label, price_cents, confirmation_code,
+             section, obstructed_view, view_note)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
             (str(uuid.uuid4()), order_id, order['performance_id'], li.get('seat_id'),
              li.get('ticket_type_id'), li.get('seat_label') or '', li.get('price_cents') or 0,
-             uuid.uuid4().hex[:8].upper()))
+             uuid.uuid4().hex[:8].upper(), li.get('section') or '', bool(li.get('obstructed_view')),
+             li.get('view_note') or ''))
     execute(conn, "UPDATE ticket_orders SET status='completed' WHERE id=%s", (order_id,))
     execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND seat_id = ANY(%s)',
         (order['performance_id'], [li['seat_id'] for li in line_items if li.get('seat_id')]))
@@ -37290,7 +37304,9 @@ def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
         try:
             perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))
             prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) if perf else None
-            seat_list = ', '.join(li.get('seat_label','') for li in line_items) or f'{len(line_items)} ticket(s)'
+            seat_list = ', '.join(
+                (li.get('seat_label','') + (f" ({li['section']})" if li.get('section') else ''))
+                for li in line_items) or f'{len(line_items)} ticket(s)'
             send_email([order['guardian_email']], f"Your tickets — {(prod or {}).get('name','')}",
                 build_hwtc_email_html(f"Your tickets — {(prod or {}).get('name','')}",
                 f'<h2 style="color:#145466">You\'re all set!</h2>'

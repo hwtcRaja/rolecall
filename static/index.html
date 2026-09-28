@@ -13128,6 +13128,32 @@ async function submitCheckinWalkIn(contextType, contextId){
 // with a camera, over HTTPS) rather than opening a separate native camera
 // app, so it stays fast for a front desk checking people in quickly.
 let _checkinPhotoStream = null
+// Rear ("environment") camera by default, since staff are photographing
+// the person in front of them. The flip button switches, and each device
+// remembers its last choice.
+function _checkinCamFacing(){ try{ return localStorage.getItem('hwtc_checkin_cam') || 'environment' }catch(e){ return 'environment' } }
+async function startCheckinCamera(){
+ if(_checkinPhotoStream){ _checkinPhotoStream.getTracks().forEach(t=>t.stop()); _checkinPhotoStream=null }
+ const statusEl = document.getElementById('checkin-photo-status')
+ const btn = document.getElementById('checkin-photo-capture-btn')
+ if(statusEl){ statusEl.style.display = 'flex'; statusEl.textContent = 'Starting camera…' }
+ if(btn) btn.disabled = true
+ try{
+  _checkinPhotoStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:_checkinCamFacing()}}, audio:false})
+  const video = document.getElementById('checkin-photo-video')
+  if(!video){ _checkinPhotoStream.getTracks().forEach(t=>t.stop()); _checkinPhotoStream=null; return } // modal closed
+  video.srcObject = _checkinPhotoStream
+  if(statusEl) statusEl.style.display = 'none'
+  if(btn) btn.disabled = false
+ } catch(e){
+  if(statusEl) statusEl.textContent = 'Camera unavailable — you can skip and add a photo later'
+ }
+}
+function flipCheckinCamera(){
+ const next = _checkinCamFacing() === 'environment' ? 'user' : 'environment'
+ try{ localStorage.setItem('hwtc_checkin_cam', next) }catch(e){}
+ startCheckinCamera()
+}
 
 function closeCheckinPhotoModal(){
  if(_checkinPhotoStream){ _checkinPhotoStream.getTracks().forEach(t=>t.stop()); _checkinPhotoStream=null }
@@ -13148,6 +13174,7 @@ async function openCheckinPhotoModal(checkinId, contextType, contextId){
  <video id="checkin-photo-video" autoplay playsinline muted style="width:100%;height:100%;object-fit:cover;display:block"></video>
  <canvas id="checkin-photo-canvas" style="width:100%;height:100%;object-fit:cover;display:none"></canvas>
  <div id="checkin-photo-status" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font-size:13px">Starting camera…</div>
+ <button type="button" onclick="flipCheckinCamera()" title="Switch camera" style="position:absolute;top:10px;right:10px;background:rgba(0,0,0,0.55);color:#fff;border:1px solid rgba(255,255,255,0.35);border-radius:999px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer">⟲ Flip camera</button>
  </div>
  <div style="padding:16px 20px;display:flex;gap:10px" id="checkin-photo-actions">
  <button class="btn btn-secondary" style="flex:1" onclick="closeCheckinPhotoModal()">Skip</button>
@@ -13155,17 +13182,7 @@ async function openCheckinPhotoModal(checkinId, contextType, contextId){
  </div>
  </div>`
  document.body.appendChild(overlay)
- try{
- _checkinPhotoStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false})
- const video = document.getElementById('checkin-photo-video')
- if(!video) return // modal closed before camera resolved
- video.srcObject = _checkinPhotoStream
- document.getElementById('checkin-photo-status').style.display = 'none'
- document.getElementById('checkin-photo-capture-btn').disabled = false
- } catch(e){
- const statusEl = document.getElementById('checkin-photo-status')
- if(statusEl) statusEl.textContent = 'Camera unavailable — you can skip and add a photo later'
- }
+ await startCheckinCamera()
 }
 
 function captureCheckinPhoto(checkinId, contextType, contextId){

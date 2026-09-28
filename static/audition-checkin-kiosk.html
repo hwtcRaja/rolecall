@@ -232,6 +232,7 @@ async function openCamModal(checkinId){
       <video id="kiosk-cam-video" autoplay playsinline muted></video>
       <canvas id="kiosk-cam-canvas" style="display:none"></canvas>
       <div class="cam-status" id="kiosk-cam-status">Starting camera…</div>
+      <button type="button" onclick="flipKioskCamera()" title="Switch camera" style="position:absolute;top:10px;right:10px;z-index:2;background:rgba(0,0,0,0.55);color:#fff;border:1px solid rgba(255,255,255,0.35);border-radius:999px;padding:8px 14px;font-size:13px;font-weight:700;cursor:pointer">⟲ Flip camera</button>
     </div>
     <div class="modal-actions" id="kiosk-cam-actions">
       <button class="btn btn-secondary" onclick="closeCamModal()">Skip</button>
@@ -239,17 +240,33 @@ async function openCamModal(checkinId){
     </div>
   </div>`
   document.body.appendChild(overlay)
+  await startKioskCamera()
+}
+
+// Rear camera by default (photographing the person being checked in);
+// "Flip camera" switches, and this device remembers the choice.
+function _kioskCamFacing(){ try{ return localStorage.getItem('hwtc_checkin_cam') || 'environment' }catch(e){ return 'environment' } }
+async function startKioskCamera(){
+  if(_camStream){ _camStream.getTracks().forEach(function(t){ t.stop() }); _camStream=null }
+  var statusEl = document.getElementById('kiosk-cam-status')
+  var btn = document.getElementById('kiosk-cam-capture-btn')
+  if(statusEl){ statusEl.style.display = ''; statusEl.textContent = 'Starting camera…' }
+  if(btn) btn.disabled = true
   try{
-    _camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'}, audio:false})
+    _camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:_kioskCamFacing()}}, audio:false})
     var video = document.getElementById('kiosk-cam-video')
-    if(!video) return
+    if(!video){ _camStream.getTracks().forEach(function(t){ t.stop() }); _camStream=null; return }
     video.srcObject = _camStream
-    document.getElementById('kiosk-cam-status').style.display = 'none'
-    document.getElementById('kiosk-cam-capture-btn').disabled = false
+    if(statusEl) statusEl.style.display = 'none'
+    if(btn) btn.disabled = false
   } catch(e){
-    var statusEl = document.getElementById('kiosk-cam-status')
     if(statusEl) statusEl.textContent = 'Camera unavailable — skip and add a photo later from Room Control'
   }
+}
+function flipKioskCamera(){
+  var next = _kioskCamFacing() === 'environment' ? 'user' : 'environment'
+  try{ localStorage.setItem('hwtc_checkin_cam', next) }catch(e){}
+  startKioskCamera()
 }
 
 function captureKioskPhoto(checkinId){

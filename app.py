@@ -2960,6 +2960,23 @@ def init_db():
         # fee always shows as its own line, both to staff in the order
         # detail view and to the buyer in their confirmation.
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS service_fee_cents INTEGER DEFAULT 0",
+        # General-purpose labeled rectangle for a seat map -- not a seat,
+        # not interactive to a buyer, just a visual/orientation marker
+        # ("Backstage", "Wings Left", etc.) or a way to approximate a
+        # non-rectangular stage by layering a couple of these around the
+        # plain stage rect rather than needing a full polygon editor.
+        """CREATE TABLE IF NOT EXISTS seat_map_shapes (
+            id TEXT PRIMARY KEY,
+            seat_map_id TEXT NOT NULL REFERENCES seat_maps(id) ON DELETE CASCADE,
+            x NUMERIC NOT NULL DEFAULT 0,
+            y NUMERIC NOT NULL DEFAULT 0,
+            width NUMERIC NOT NULL DEFAULT 3,
+            height NUMERIC NOT NULL DEFAULT 2,
+            rotation NUMERIC NOT NULL DEFAULT 0,
+            label TEXT DEFAULT '',
+            fill_color TEXT DEFAULT '#94a3b8',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_seat_map_shapes_map ON seat_map_shapes(seat_map_id)",
         # Defense in depth: even if some future code path or race condition
         # ever let two orders both finalize for the same reserved seat, the
         # database itself refuses the second one outright. Partial (WHERE
@@ -36149,8 +36166,60 @@ def get_seat_map_detail(mid):
         conn.close(); return jsonify({'error': 'Seat map not found'}), 404
     sm['seats'] = fetchall(conn, '''SELECT * FROM seat_map_seats WHERE seat_map_id=%s
                                      ORDER BY section, row_name, seat_number''', (mid,))
+    sm['shapes'] = fetchall(conn, 'SELECT * FROM seat_map_shapes WHERE seat_map_id=%s', (mid,)) or []
     conn.close()
     return jsonify(sm)
+
+@app.route('/api/seat-maps/<mid>/shapes', methods=['POST'])
+def create_seat_map_shape(mid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    sid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO seat_map_shapes (id, seat_map_id, x, y, width, height, rotation, label, fill_color)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (sid, mid, d.get('x', 0), d.get('y', 0), d.get('width', 3), d.get('height', 2),
+         d.get('rotation', 0), (d.get('label') or '').strip(), d.get('fill_color') or '#94a3b8'))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_map_shapes WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/seat-map-shapes/<sid>', methods=['PUT'])
+def update_seat_map_shape(sid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    fields, params = [], []
+    for key in ('x','y','width','height','rotation'):
+        if key in d:
+            fields.append(f'{key}=%s'); params.append(d[key])
+    if 'label' in d:
+        fields.append('label=%s'); params.append((d['label'] or '').strip())
+    if 'fill_color' in d:
+        fields.append('fill_color=%s'); params.append(d['fill_color'] or '#94a3b8')
+    if not fields:
+        return jsonify({'error': 'Nothing to update'}), 400
+    conn = get_db()
+    params.append(sid)
+    execute(conn, f'UPDATE seat_map_shapes SET {", ".join(fields)} WHERE id=%s', tuple(params))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_map_shapes WHERE id=%s', (sid,))
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(row)
+
+@app.route('/api/seat-map-shapes/<sid>', methods=['DELETE'])
+def delete_seat_map_shape(sid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM seat_map_shapes WHERE id=%s', (sid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/venues/<vid>/seat-maps', methods=['POST'])
@@ -36863,6 +36932,7 @@ def public_seat_status(fid):
     _clear_expired_holds(conn, fid)
     seats = []
     stage = None
+    shapes = []
     if perf.get('reserved_seating') and perf.get('seat_map_id'):
         seats = fetchall(conn, 'SELECT * FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE ORDER BY y, x',
             (perf['seat_map_id'],))
@@ -36871,6 +36941,8 @@ def public_seat_status(fid):
         if sm and sm.get('stage_x') is not None:
             stage = {'x': sm['stage_x'], 'y': sm['stage_y'], 'width': sm.get('stage_width') or 8,
                 'depth': sm.get('stage_depth') or 2, 'rotation': sm.get('stage_rotation') or 0}
+        shapes = fetchall(conn, 'SELECT x, y, width, height, rotation, label, fill_color FROM seat_map_shapes WHERE seat_map_id=%s',
+            (perf['seat_map_id'],)) or []
         sold_ids = {r['seat_id'] for r in fetchall(conn,
             'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,))}
         held_rows = fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))
@@ -36889,7 +36961,7 @@ def public_seat_status(fid):
     if not perf.get('reserved_seating'):
         ga_sold = (fetchone(conn, "SELECT COUNT(*) AS c FROM tickets WHERE performance_id=%s AND seat_id IS NULL", (fid,)) or {}).get('c', 0)
     conn.close()
-    return jsonify({'performance': perf, 'seats': seats, 'ticket_types': ticket_types, 'ga_sold': ga_sold, 'stage': stage})
+    return jsonify({'performance': perf, 'seats': seats, 'ticket_types': ticket_types, 'ga_sold': ga_sold, 'stage': stage, 'shapes': shapes})
 
 
 @app.route('/api/public/performances/<fid>/hold-seats', methods=['POST'])

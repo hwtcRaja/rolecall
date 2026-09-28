@@ -105,6 +105,7 @@ var selectedSeats = {}   // seat_id -> ticket_type_id
 var showSeatLabels = false
 var gaQuantities = {}    // ticket_type_id -> quantity
 var stageInfo = null
+var mapShapes = []
 var holdTimer = null
 var holdExpiresAt = null
 var holdCountdownInterval = null
@@ -342,6 +343,7 @@ async function loadPerformance(fid){
   seats = data.seats || []
   ticketTypes = data.ticket_types || []
   stageInfo = data.stage || null
+  mapShapes = data.shapes || []
   // Restore any seats already held under this session (e.g. a page refresh
   // mid-checkout) into the cart, defaulting to the first ticket type — so
   // the picker and the cart agree on what's actually selected.
@@ -436,6 +438,7 @@ function renderPickerSVG(){
   var pad = 1.2
   var xs = seats.map(function(s){return s.x}), ys = seats.map(function(s){return s.y})
   if(stageInfo){ xs = xs.concat([stageInfo.x-stageInfo.width/2, stageInfo.x+stageInfo.width/2]); ys = ys.concat([stageInfo.y-stageInfo.depth/2, stageInfo.y+stageInfo.depth/2]) }
+  mapShapes.forEach(function(sh){ xs.push(sh.x-sh.width/2, sh.x+sh.width/2); ys.push(sh.y-sh.height/2, sh.y+sh.height/2) })
   var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad
   var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad
   var w = maxX-minX, h = maxY-minY
@@ -448,6 +451,15 @@ function renderPickerSVG(){
   } else {
     svg += '<text x="'+(minX+w/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
   }
+  // Free-standing labeled shapes staff added in the seat map editor
+  // ("Backstage", "Wings Left", etc.) — purely visual orientation
+  // context, not clickable, drawn before the seats so seats stay on top.
+  mapShapes.forEach(function(sh){
+    svg += '<g transform="translate('+sh.x+','+sh.y+') rotate('+sh.rotation+')">'
+      + '<rect x="'+(-sh.width/2)+'" y="'+(-sh.height/2)+'" width="'+sh.width+'" height="'+sh.height+'" rx="0.1" fill="'+sh.fill_color+'" opacity="0.85"/>'
+      + (sh.label ? '<text x="0" y="0.13" font-size="0.32" text-anchor="middle" fill="#fff" font-weight="700">'+escH(sh.label)+'</text>' : '')
+      + '</g>'
+  })
   // Row-end labels: one letter/number just past each physical end of
   // every row, grouped by section+row (so the same row letter in two
   // different sections is never conflated as one row). Uses whichever

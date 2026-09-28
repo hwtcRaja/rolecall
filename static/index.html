@@ -35176,6 +35176,7 @@ function tkOpenSeatEditor(mapId){
     +   '<div style="font-size:11px;color:var(--text-muted)">Drag a seat to move it (select 3+ and use Straighten &amp; Space Evenly to line them up) · Drag empty space to pan · Scroll to zoom · Shift-drag empty space to select multiple · Click the stage to move/resize/rotate it</div></div>'
     +   '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">'
     +     '<button class="btn btn-secondary btn-sm" id="ed-mode-add" onclick="edToggleAddMode()">+ Add Seat</button>'
+    +     '<button class="btn btn-secondary btn-sm" id="ed-mode-add-shape" onclick="edToggleAddShapeMode()"> Add Shape/Label</button>'
     +     '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted)"><input type="checkbox" id="ed-snap" checked onchange="_ed.gridSnap=this.checked" style="width:auto"/> Snap to grid</label>'
     +     '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted)"><input type="checkbox" id="ed-show-labels" onchange="_ed.showLabels=this.checked;edRenderCanvas()" style="width:auto"/> Show seat numbers</label>'
     +     '<button class="btn btn-secondary btn-sm" onclick="edZoom(1.25)">＋</button>'
@@ -35214,6 +35215,9 @@ async function edLoad(){
     depth: detail.stage_depth!=null ? parseFloat(detail.stage_depth) : 2,
     rotation: detail.stage_rotation!=null ? parseFloat(detail.stage_rotation) : 0,
   };
+  _ed.shapes = (detail.shapes||[]).map(function(s){ return Object.assign({}, s, {
+    x:parseFloat(s.x), y:parseFloat(s.y), width:parseFloat(s.width), height:parseFloat(s.height), rotation:parseFloat(s.rotation)
+  }) });
   edFitView();
   edRenderCanvas();
   edRenderSidePanel();
@@ -35236,6 +35240,14 @@ function edFitView(){
 function edToggleAddMode(){
   _ed.mode = _ed.mode==='add' ? 'select' : 'add';
   document.getElementById('ed-mode-add').className = 'btn btn-sm '+(_ed.mode==='add'?'btn-primary':'btn-secondary');
+  document.getElementById('ed-mode-add-shape').className = 'btn btn-sm btn-secondary';
+  edRenderSidePanel();
+}
+
+function edToggleAddShapeMode(){
+  _ed.mode = _ed.mode==='add-shape' ? 'select' : 'add-shape';
+  document.getElementById('ed-mode-add-shape').className = 'btn btn-sm '+(_ed.mode==='add-shape'?'btn-primary':'btn-secondary');
+  document.getElementById('ed-mode-add').className = 'btn btn-sm btn-secondary';
   edRenderSidePanel();
 }
 
@@ -35272,6 +35284,17 @@ function edRenderCanvas(){
       + '<text x="0" y="0.15" font-size="0.6" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">STAGE</text>'
       + '</g>';
   }
+  // Free-standing labeled rectangles — "Backstage", "Wings Left", an
+  // angled cut-corner to suggest a non-rectangular stage, etc. Not
+  // interactive to a buyer, just visual/orientation context; drawn after
+  // the stage but before seats so seats always stay clickable on top.
+  (_ed.shapes||[]).forEach(function(shp){
+    var isSelShape = _ed.selectedShapeId===shp.id;
+    svg += '<g class="ed-shape" data-id="'+shp.id+'" style="cursor:grab" transform="translate('+shp.x+','+shp.y+') rotate('+shp.rotation+')">'
+      + '<rect x="'+(-shp.width/2)+'" y="'+(-shp.height/2)+'" width="'+shp.width+'" height="'+shp.height+'" rx="0.1" fill="'+shp.fill_color+'" stroke="'+(isSelShape?'#facc15':'#fff')+'" stroke-width="'+(isSelShape?0.1:0.05)+'" opacity="0.85"/>'
+      + (shp.label ? '<text x="0" y="0.13" font-size="0.32" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">'+escHtml(shp.label)+'</text>' : '')
+      + '</g>';
+  });
   // Row-end labels: one letter/number at each physical end of every row,
   // grouped by section+row (so "Row A" in two different sections is never
   // conflated as the same row), using whichever two seats sit farthest
@@ -35334,21 +35357,37 @@ function edWireCanvasEvents(){
     var p = edToSvgPoint(evt, svg);
     var seatEl = evt.target.closest && evt.target.closest('.ed-seat');
     var stageEl = evt.target.closest && evt.target.closest('.ed-stage');
+    var shapeEl = evt.target.closest && evt.target.closest('.ed-shape');
     _ed.moved = false;
-    if(_ed.mode==='add' && !seatEl && !stageEl){
+    if(_ed.mode==='add' && !seatEl && !stageEl && !shapeEl){
       var x = edSnap(p.x), y = edSnap(p.y);
       edCreateSeatAt(x,y);
       return;
     }
+    if(_ed.mode==='add-shape' && !seatEl && !stageEl && !shapeEl){
+      edCreateShapeAt(edSnap(p.x), edSnap(p.y));
+      return;
+    }
     try{ svg.setPointerCapture(evt.pointerId) }catch(e){}
-    if(stageEl && !seatEl){
+    if(shapeEl){
       _ed.selected = {};
+      _ed.stageSelected = false;
+      _ed.selectedShapeId = shapeEl.getAttribute('data-id');
+      _ed.shapeDragging = true;
+      _ed.dragStart = p;
+      var shp = _ed.shapes.find(function(x){return x.id===_ed.selectedShapeId});
+      _ed.shapeOrigin = shp ? {x:shp.x, y:shp.y} : {x:0,y:0};
+      edRenderSidePanel();
+    } else if(stageEl && !seatEl){
+      _ed.selected = {};
+      _ed.selectedShapeId = null;
       _ed.stageSelected = true;
       _ed.stageDragging = true;
       _ed.dragStart = p;
       _ed.stageOrigin = {x:_ed.stage.x, y:_ed.stage.y};
       edRenderSidePanel();
     } else if(seatEl){
+      _ed.selectedShapeId = null;
       _ed.stageSelected = false;
       var id = seatEl.getAttribute('data-id');
       if(!evt.shiftKey && !_ed.selected[id]){ _ed.selected = {}; _ed.selected[id]=true; }
@@ -35364,10 +35403,13 @@ function edWireCanvasEvents(){
     } else if(evt.shiftKey){
       // Shift + drag on empty space = rubber-band multi-select
       _ed.stageSelected = false;
+      _ed.selectedShapeId = null;
       _ed.rubberBand = {x0:p.x, y0:p.y};
     } else {
       // Plain drag on empty space = pan the view (grab-and-drag, like a map)
       _ed.stageSelected = false;
+      _ed.selectedShapeId = null;
+      edRenderSidePanel();
       var rect = svg.getBoundingClientRect();
       _ed.panning = {
         startClientX: evt.clientX, startClientY: evt.clientY,
@@ -35379,7 +35421,17 @@ function edWireCanvasEvents(){
   });
   svg.addEventListener('pointermove', function(evt){
     var p = edToSvgPoint(evt, svg);
-    if(_ed.stageDragging && _ed.dragStart){
+    if(_ed.shapeDragging && _ed.dragStart){
+      _ed.moved = true;
+      var dxs = p.x - _ed.dragStart.x, dys = p.y - _ed.dragStart.y;
+      var shp = _ed.shapes.find(function(x){return x.id===_ed.selectedShapeId});
+      if(shp){
+        shp.x = edSnap(_ed.shapeOrigin.x + dxs);
+        shp.y = edSnap(_ed.shapeOrigin.y + dys);
+        var g = svg.querySelector('.ed-shape[data-id="'+shp.id+'"]');
+        if(g) g.setAttribute('transform', 'translate('+shp.x+','+shp.y+') rotate('+shp.rotation+')');
+      }
+    } else if(_ed.stageDragging && _ed.dragStart){
       _ed.moved = true;
       var dx = p.x - _ed.dragStart.x, dy = p.y - _ed.dragStart.y;
       _ed.stage.x = edSnap(_ed.stageOrigin.x + dx);
@@ -35415,7 +35467,12 @@ function edWireCanvasEvents(){
     }
   });
   svg.addEventListener('pointerup', function(evt){
-    if(_ed.stageDragging){
+    if(_ed.shapeDragging){
+      _ed.shapeDragging = false;
+      if(_ed.moved) edSaveShapePosition(_ed.selectedShapeId);
+      _ed.dragStart = null; _ed.shapeOrigin = null;
+      edRenderCanvas(); edRenderSidePanel();
+    } else if(_ed.stageDragging){
       _ed.stageDragging = false;
       if(_ed.moved) edSaveStage();
       _ed.dragStart = null; _ed.stageOrigin = null;
@@ -35465,6 +35522,65 @@ async function edSaveStage(){
   await api('/api/seat-maps/'+_ed.mapId+'/stage','PUT', {
     stage_x: st.x, stage_y: st.y, stage_width: st.width, stage_depth: st.depth, stage_rotation: st.rotation
   });
+}
+
+async function edCreateShapeAt(x,y){
+  var shape = await api('/api/seat-maps/'+_ed.mapId+'/shapes','POST', {x:x, y:y, width:3, height:2, label:'Backstage', fill_color:'#94a3b8'});
+  if(shape.error){ toast(shape.error,'error'); return; }
+  shape.x = parseFloat(shape.x); shape.y = parseFloat(shape.y);
+  shape.width = parseFloat(shape.width); shape.height = parseFloat(shape.height); shape.rotation = parseFloat(shape.rotation);
+  _ed.shapes.push(shape);
+  _ed.mode = 'select';
+  document.getElementById('ed-mode-add-shape').className = 'btn btn-sm btn-secondary';
+  _ed.selected = {}; _ed.stageSelected = false; _ed.selectedShapeId = shape.id;
+  edRenderCanvas(); edRenderSidePanel();
+}
+
+async function edSaveShapePosition(shapeId){
+  var shp = _ed.shapes.find(function(s){return s.id===shapeId});
+  if(!shp) return;
+  await api('/api/seat-map-shapes/'+shapeId,'PUT', {x:shp.x, y:shp.y});
+}
+
+async function edRotateShape(delta){
+  var shp = _ed.shapes.find(function(s){return s.id===_ed.selectedShapeId});
+  if(!shp) return;
+  shp.rotation = (shp.rotation + delta + 360) % 360;
+  await api('/api/seat-map-shapes/'+shp.id,'PUT', {rotation: shp.rotation});
+  edRenderCanvas(); edRenderSidePanel();
+}
+
+async function edResizeShape(field, value){
+  var shp = _ed.shapes.find(function(s){return s.id===_ed.selectedShapeId});
+  if(!shp) return;
+  shp[field] = Math.max(0.5, parseFloat(value)||0.5);
+  await api('/api/seat-map-shapes/'+shp.id,'PUT', {[field]: shp[field]});
+  edRenderCanvas();
+}
+
+async function edUpdateShapeLabel(value){
+  var shp = _ed.shapes.find(function(s){return s.id===_ed.selectedShapeId});
+  if(!shp) return;
+  shp.label = value;
+  await api('/api/seat-map-shapes/'+shp.id,'PUT', {label: value});
+  edRenderCanvas();
+}
+
+async function edUpdateShapeColor(value){
+  var shp = _ed.shapes.find(function(s){return s.id===_ed.selectedShapeId});
+  if(!shp) return;
+  shp.fill_color = value;
+  await api('/api/seat-map-shapes/'+shp.id,'PUT', {fill_color: value});
+  edRenderCanvas();
+}
+
+async function edDeleteShape(){
+  if(!_ed.selectedShapeId) return;
+  if(!confirm('Delete this shape/label?')) return;
+  await api('/api/seat-map-shapes/'+_ed.selectedShapeId,'DELETE');
+  _ed.shapes = _ed.shapes.filter(function(s){return s.id!==_ed.selectedShapeId});
+  _ed.selectedShapeId = null;
+  edRenderCanvas(); edRenderSidePanel();
 }
 
 function edRotateStage(delta){
@@ -35539,13 +35655,37 @@ function edRenderSidePanel(){
       + '</div>';
     return;
   }
+  if(_ed.selectedShapeId){
+    var shp = (_ed.shapes||[]).find(function(s){return s.id===_ed.selectedShapeId});
+    if(shp){
+      panel.innerHTML = '<div class="card" style="padding:14px">'
+        + '<div style="font-weight:700;font-size:13px;margin-bottom:10px">Shape / Label</div>'
+        + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Drag it on the map to reposition. Not visible to a buyer as a clickable thing — just orientation context (e.g. "Backstage"), or layer a couple of these around the stage to suggest a non-rectangular shape.</div>'
+        + '<div class="form-group"><label>Label</label><input type="text" value="'+escHtml(shp.label||'')+'" onchange="edUpdateShapeLabel(this.value)" placeholder="Backstage, Wings Left…"/></div>'
+        + '<div class="form-row"><div class="form-group"><label>Width</label><input type="number" step="0.5" value="'+shp.width+'" onchange="edResizeShape(\'width\',this.value)"/></div>'
+        + '<div class="form-group"><label>Height</label><input type="number" step="0.5" value="'+shp.height+'" onchange="edResizeShape(\'height\',this.value)"/></div></div>'
+        + '<div class="form-group"><label>Color</label><input type="color" value="'+(shp.fill_color||'#94a3b8')+'" onchange="edUpdateShapeColor(this.value)" style="height:36px"/></div>'
+        + '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px">'
+        + '<button class="btn btn-secondary btn-sm" onclick="edRotateShape(-15)">↺ Rotate</button>'
+        + '<button class="btn btn-secondary btn-sm" onclick="edRotateShape(15)">↻ Rotate</button>'
+        + '<span style="font-size:12px;color:var(--text-muted)">'+Math.round(shp.rotation)+'°</span>'
+        + '</div>'
+        + '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c);width:100%" onclick="edDeleteShape()">Delete shape</button>'
+        + '</div>';
+      return;
+    }
+  }
   var ids = Object.keys(_ed.selected);
   if(_ed.mode==='add'){
     panel.innerHTML = '<div class="card" style="padding:14px"><div style="font-weight:700;font-size:13px;margin-bottom:6px">Add Seat mode</div><div style="font-size:12px;color:var(--text-muted)">Click anywhere on the map to drop a new seat there. Click "+ Add Seat" again to turn this off.</div></div>';
     return;
   }
+  if(_ed.mode==='add-shape'){
+    panel.innerHTML = '<div class="card" style="padding:14px"><div style="font-weight:700;font-size:13px;margin-bottom:6px">Add Shape/Label mode</div><div style="font-size:12px;color:var(--text-muted)">Click anywhere on the map to drop a new labeled shape there. Click "+ Add Shape/Label" again to turn this off.</div></div>';
+    return;
+  }
   if(!ids.length){
-    panel.innerHTML = '<div class="card" style="padding:14px;color:var(--text-muted);font-size:13px">Click a seat to edit it, drag-select several to move them together, or click the stage to reposition it.</div>';
+    panel.innerHTML = '<div class="card" style="padding:14px;color:var(--text-muted);font-size:13px">Click a seat to edit it, drag-select several to move them together, click the stage to reposition it, or click a shape/label to edit it.</div>';
     return;
   }
   if(ids.length > 1){

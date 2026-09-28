@@ -701,12 +701,17 @@ async function doCheckout(){
 function renderCartPage(){
   setHero('Your Cart', null, null, 'Review everything before checking out')
   var cart = ticketCartGet()
+  // The cart can span more than one show, so there's no single "back to
+  // that show's page" destination that always makes sense — just return
+  // wherever the person actually came from.
+  var backBtn = '<button class="btn btn-secondary" style="margin-bottom:14px" onclick="history.back()">← Back</button>'
   if(!cart.length){
-    document.getElementById('app').innerHTML = '<div class="card"><div class="empty-state" style="text-align:center;padding:20px 0"><div style="font-size:32px;margin-bottom:8px"></div>Your cart is empty.</div></div>'
+    document.getElementById('app').innerHTML = backBtn
+      + '<div class="card"><div class="empty-state" style="text-align:center;padding:20px 0"><div style="font-size:32px;margin-bottom:8px"></div>Your cart is empty.</div></div>'
     return
   }
   var grandTotal = 0
-  var html = '<div class="card"><div class="section-title">'+cart.length+' Performance'+(cart.length===1?'':'s')+' in Your Cart</div>'
+  var html = backBtn + '<div class="card"><div class="section-title">'+cart.length+' Performance'+(cart.length===1?'':'s')+' in Your Cart</div>'
   html += cart.map(function(item, idx){
     var itemTotal = item.line_items.reduce(function(s,li){ return s+(li.price_cents||0) }, 0)
     grandTotal += itemTotal

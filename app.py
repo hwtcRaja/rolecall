@@ -6360,7 +6360,7 @@ def send_program_welcome(pid):
         y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (youth_id,))
         if y:
             guardians = fetchall(conn, "SELECT email, name FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (youth_id,))
-            pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+            pp = ensure_youth_passphrase(conn, y)
             greeting = f"{y['first_name']} {y['last_name']}"
             age = calc_age_from_dob(y.get('dob'))
             for g in guardians:
@@ -6409,7 +6409,7 @@ def send_program_welcome(pid):
             enrolled_sql += " AND y.portal_last_login IS NULL"
         enrolled = fetchall(conn, enrolled_sql, (pid,))
         for y in enrolled:
-            pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+            pp = ensure_youth_passphrase(conn, y)
             greeting = f"{y['first_name']} {y['last_name']}"
             age = calc_age_from_dob(y.get('dob'))
             # Prefer family passphrase if set
@@ -6543,7 +6543,7 @@ def get_welcome_recipients(pid):
 
     result = []
     for y in enrolled:
-        pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+        pp = ensure_youth_passphrase(conn, y)
         family_name = None
         family_id   = y.get('family_id')
         if family_id:
@@ -10738,11 +10738,111 @@ def calc_age_from_dob(dob_str):
     except Exception:
         return None
 
-def default_passphrase(first_name, last_name):
-    """Generate default portal passphrase: firstname_lastname_hwtc (lowercase)"""
+PASSPHRASE_WORDS = (
+    'apple','arrow','aspen','banjo','beacon','birch','bloom','breeze','brook','cactus','canyon','cedar',
+    'cello','cherry','cloud','clover','comet','coral','cricket','daisy','dolphin','dune','ember','falcon',
+    'fern','fiddle','finch','forest','fox','galaxy','garnet','ginger','glacier','harbor','hazel','heron',
+    'honey','island','ivy','jasmine','juniper','kayak','kite','lantern','lark','lemon','lilac','lotus',
+    'maple','marble','meadow','melody','mango','mint','moss','nectar','nova','oak','ocean','olive',
+    'orchid','otter','panda','pebble','pepper','piano','pine','planet','plum','poppy','prairie','quartz',
+    'rain','raven','reef','ribbon','river','robin','rocket','rose','saffron','sage','sail','sequoia',
+    'shell','sierra','silver','sky','sparrow','spruce','star','stone','summit','sunset','swan','thistle',
+    'thunder','tiger','topaz','trumpet','tulip','valley','velvet','violet','walnut','willow','wren','zephyr',
+)
+
+
+def _legacy_default_passphrase(first_name, last_name):
+    """The old guessable default (firstname_lastname_hwtc). Only used to
+    DETECT accounts still on it so they're made to choose a new one."""
     first = (first_name or '').strip().lower().replace(' ', '')
     last  = (last_name  or '').strip().lower().replace(' ', '')
     return f"{first}_{last}_hwtc"
+
+
+def default_passphrase(first_name=None, last_name=None):
+    """Random, easy-to-read portal passphrase, e.g. 'maple-otter-comet-42'.
+    Name arguments are ignored now (kept so existing callers don't change) —
+    a passphrase built from a child's name can be guessed by anyone who
+    knows the child."""
+    words = [secrets.choice(PASSPHRASE_WORDS) for _ in range(3)]
+    return '-'.join(words) + '-' + str(secrets.randbelow(90) + 10)
+
+
+def ensure_youth_passphrase(conn, y):
+    """Return y's stored passphrase, generating and saving one if missing
+    (previously some emails fell back to an unsaved name-based guess)."""
+    if y.get('passphrase'):
+        return y['passphrase']
+    pp = default_passphrase()
+    execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (pp, y['id']))
+    conn.commit()
+    y['passphrase'] = pp
+    return pp
+
+
+def _is_legacy_passphrase(pp, first_name, last_name):
+    return bool(pp) and pp.strip().lower() == _legacy_default_passphrase(first_name, last_name)
+
+
+def _portal_passphrase_from_request():
+    pp = request.headers.get('X-Portal-Passphrase') or request.args.get('passphrase') or ''
+    if not pp:
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict):
+            pp = body.get('passphrase') or ''
+    return (pp or '').strip().lower()
+
+
+def portal_identity(conn):
+    """Who is calling a /api/portal endpoint.
+    Returns (kind, youth_ids): kind is 'staff' (logged-in RoleCall user; youth_ids
+    None = unrestricted), 'family', 'participant', 'volunteer', or None.
+    Accounts still on the old name-based passphrase get no access until they
+    choose a new one."""
+    if 'user_id' in session:
+        return 'staff', None
+    pp = _portal_passphrase_from_request()
+    if not pp:
+        return None, set()
+    family = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s', (pp,))
+    if family:
+        rows = fetchall(conn, 'SELECT id FROM youth_participants WHERE family_id=%s', (family['id'],)) or []
+        return 'family', set(r['id'] for r in rows)
+    youth = fetchone(conn, 'SELECT id, first_name, last_name, family_id FROM youth_participants WHERE LOWER(passphrase)=%s', (pp,))
+    if youth:
+        if _is_legacy_passphrase(pp, youth.get('first_name'), youth.get('last_name')):
+            return None, set()
+        return 'participant', {youth['id']}
+    vol = fetchone(conn, 'SELECT id, name FROM volunteers WHERE LOWER(portal_passphrase)=%s', (pp,))
+    if vol:
+        parts = (vol.get('name') or '').strip().split(' ', 1)
+        if _is_legacy_passphrase(pp, parts[0] if parts else '', parts[1] if len(parts) > 1 else ''):
+            return None, set()
+        return 'volunteer', set()
+    return None, set()
+
+
+def portal_require_youth(conn, yid):
+    """None if the caller may act on participant yid, else an error response."""
+    kind, ids = portal_identity(conn)
+    if kind == 'staff':
+        return None
+    if kind is None:
+        return jsonify({'error': 'Please log in to the portal again.', 'portal_auth': True}), 401
+    if yid and ids and yid in ids:
+        return None
+    return jsonify({'error': 'Not allowed'}), 403
+
+
+def portal_require_youth_list(conn, yids):
+    kind, ids = portal_identity(conn)
+    if kind == 'staff':
+        return None
+    if kind is None:
+        return jsonify({'error': 'Please log in to the portal again.', 'portal_auth': True}), 401
+    if not isinstance(yids, list) or any(y not in ids for y in yids):
+        return jsonify({'error': 'Not allowed'}), 403
+    return None
 
 @app.route('/api/youth/backfill-passphrases', methods=['POST'])
 def backfill_passphrases():
@@ -13437,6 +13537,9 @@ def portal_auth():
 
     # Try individual youth passphrase
     youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase,))
+    if youth and _is_legacy_passphrase(passphrase, youth.get('first_name'), youth.get('last_name')):
+        conn.close()
+        return jsonify({'must_change': True, 'first_name': youth.get('first_name') or ''})
     if youth:
         execute(conn, 'UPDATE youth_participants SET portal_last_login=NOW() WHERE id=%s', (youth['id'],))
         conn.commit()
@@ -13448,6 +13551,11 @@ def portal_auth():
     # member (not tied to a family/youth login) gets into the portal, e.g.
     # to submit their own bio for staff to add to the actual program.
     volunteer = fetchone(conn, "SELECT * FROM volunteers WHERE LOWER(portal_passphrase)=%s", (passphrase,))
+    if volunteer:
+        _vparts = (volunteer.get('name') or '').strip().split(' ', 1)
+        if _is_legacy_passphrase(passphrase, _vparts[0] if _vparts else '', _vparts[1] if len(_vparts) > 1 else ''):
+            conn.close()
+            return jsonify({'must_change': True, 'first_name': _vparts[0] if _vparts else ''})
     if volunteer:
         productions = fetchall(conn, '''SELECT pm.role,
             p.id AS production_id, p.name AS production_name, p.status AS production_status,
@@ -13470,13 +13578,19 @@ def portal_change_passphrase():
     youth_id     = d.get('youth_id')
     if not current or not new_pp:
         return jsonify({'error': 'Current and new passphrase required'}), 400
-    if len(new_pp) < 4:
-        return jsonify({'error': 'New passphrase must be at least 4 characters'}), 400
+    if len(new_pp) < 8:
+        return jsonify({'error': 'New passphrase must be at least 8 characters'}), 400
+    if new_pp.lower().endswith('_hwtc') or new_pp.lower() == current:
+        return jsonify({'error': 'Please choose a new passphrase that isn\'t based on a name.'}), 400
     conn = get_db()
     # Try family passphrase
     family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (current,))
     if family:
         if change_type == 'individual' and youth_id:
+            in_family = fetchone(conn, 'SELECT id FROM youth_participants WHERE id=%s AND family_id=%s', (youth_id, family['id']))
+            if not in_family:
+                conn.close()
+                return jsonify({'error': 'Not allowed'}), 403
             # Change just this child's passphrase
             taken = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), youth_id))
             if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
@@ -13631,7 +13745,7 @@ def delete_bio_submission(pid, sid):
 def backfill_volunteer_passphrases():
     """Same idea as the existing youth passphrase backfill — one-time admin
     action to give every volunteer missing one a default portal passphrase
-    (firstname_lastname_hwtc), so staff can actually hand these out to cast
+    (random words), so staff can actually hand these out to cast
     members once they're cast."""
     err = require_admin()
     if err: return err
@@ -13702,6 +13816,9 @@ def portal_program_instructor(pid):
 @app.route('/api/portal/participant/<yid>')
 def portal_get_participant(yid):
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     errors = []
 
     # Program enrollments
@@ -13789,6 +13906,9 @@ def portal_get_participant(yid):
 @app.route('/api/portal/youth/<yid>/profile')
 def portal_youth_profile(yid):
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     youth = fetchone(conn, '''SELECT y.*, f.name as family_name
         FROM youth_participants y LEFT JOIN families f ON y.family_id=f.id
         WHERE y.id=%s''', (yid,))
@@ -13856,6 +13976,9 @@ def portal_set_shirt_size(yid):
     if size not in valid:
         return jsonify({'error': 'Invalid size'}), 400
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     execute(conn, 'UPDATE youth_participants SET shirt_size=%s WHERE id=%s', (size or None, yid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'shirt_size': size})
@@ -13868,6 +13991,9 @@ def portal_sign_youth_waiver(yid):
     if not waiver_type_id or not signed_name:
         return jsonify({'error': 'Waiver type and signature required'}), 400
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     # Verify waiver type exists and can be signed online
     wt = fetchone(conn, 'SELECT * FROM waiver_types WHERE id=%s AND can_sign_online=TRUE', (waiver_type_id,))
     if not wt:
@@ -13895,6 +14021,9 @@ def portal_sign_youth_waiver(yid):
 def portal_youth_request_update(yid):
     d = request.json or {}
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     # Log a note for staff to review
     nid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,date,hours,notes,status)
@@ -17310,6 +17439,10 @@ def remove_carpool_member(cid, mid):
 def portal_get_carpools():
     event_id = request.args.get('event_id')
     conn = get_db()
+    _kind, _ids = portal_identity(conn)
+    if _kind is None:
+        conn.close()
+        return jsonify([])
     try:
         if event_id:
             carpools = fetchall(conn, """SELECT c.*, COUNT(cm.id) as member_count
@@ -17326,9 +17459,13 @@ def portal_get_carpools():
                 AND (e.event_date IS NULL OR e.event_date >= CURRENT_DATE::text)
                 GROUP BY c.id, e.name, e.event_date ORDER BY e.name, c.name""")
         for c in carpools:
-            c['members'] = fetchall(conn,
-                'SELECT cm.id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s',
-                (c['id'],))
+            _mem = fetchall(conn,
+                'SELECT cm.id, cm.youth_id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s',
+                (c['id'],)) or []
+            _mine = _kind == 'staff' or any(m.get('youth_id') in _ids for m in _mem)
+            if not _mine:
+                c.pop('code', None)
+            c['members'] = [{'id': m['id'], 'first_name': m['first_name'], 'last_name': m['last_name']} for m in _mem]
         conn.close()
         return jsonify(carpools)
     except Exception as e:
@@ -17349,6 +17486,9 @@ def portal_create_carpool():
     if not event_id or not driver_name:
         return jsonify({'error': 'Event and driver name are required'}), 400
     conn = get_db()
+    _perr = portal_require_youth_list(conn, youth_ids)
+    if _perr:
+        conn.close(); return _perr
     event = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
     if not event:
         conn.close()
@@ -17384,6 +17524,9 @@ def portal_leave_carpool():
     if not carpool_id or not youth_ids:
         return jsonify({'error': 'Missing required fields'}), 400
     conn = get_db()
+    _perr = portal_require_youth_list(conn, youth_ids)
+    if _perr:
+        conn.close(); return _perr
     for yid in youth_ids:
         execute(conn, 'DELETE FROM carpool_members WHERE carpool_id=%s AND youth_id=%s', (carpool_id, yid))
     conn.commit()
@@ -17417,6 +17560,9 @@ def portal_join_carpool():
     if not youth_ids:
         return jsonify({'error': 'At least one child required'}), 400
     conn = get_db()
+    _perr = portal_require_youth_list(conn, youth_ids)
+    if _perr:
+        conn.close(); return _perr
     # Find carpool by ID or code
     if carpool_id:
         carpool = fetchone(conn, "SELECT * FROM carpools WHERE id=%s AND status='open'", (carpool_id,))
@@ -17433,7 +17579,7 @@ def portal_join_carpool():
         mid = str(uuid.uuid4())
         try:
             execute(conn, "INSERT INTO carpool_members (id,carpool_id,youth_id,added_by,added_via) VALUES (%s,%s,%s,%s,'portal') ON CONFLICT (carpool_id,youth_id) DO NOTHING",
-                (mid, carpool['id'], yid, passphrase or 'parent'))
+                (mid, carpool['id'], yid, 'parent'))
             added += 1
         except Exception: pass
     conn.commit()
@@ -18206,6 +18352,9 @@ def submit_portal_production_conflict():
         return jsonify({'error': 'Missing production or participant'}), 400
 
     conn = get_db()
+    _perr = portal_require_youth(conn, youth_id)
+    if _perr:
+        conn.close(); return _perr
     event = None
     if event_id:
         event = fetchone(conn, 'SELECT id, event_date, start_time, name FROM events WHERE id=%s', (event_id,))
@@ -18336,6 +18485,9 @@ def submit_portal_production_conflict():
 def portal_update_youth(yid):
     d = request.json or {}
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     # Queue for staff review
     pid = str(uuid.uuid4())
     execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,date,hours,notes,status) VALUES (%s,%s,'Profile Update Request',CURRENT_DATE,0,%s,'pending_review')",
@@ -18372,6 +18524,10 @@ def portal_program_events(pid):
 def portal_production_conflicts(pid):
     yid = request.args.get('youth_id')
     conn = get_db()
+    _kind, _ids = portal_identity(conn)
+    if _kind is None or (_kind != 'staff' and (not yid or yid not in _ids)):
+        conn.close()
+        return jsonify([])
     try:
         if yid:
             conflicts = fetchall(conn, '''SELECT pc.*, e.name as event_name, e.event_date
@@ -18382,6 +18538,12 @@ def portal_production_conflicts(pid):
             # Mark which ones belong to this youth
             for c in conflicts:
                 c['is_mine'] = str(c.get('youth_id','')) == str(yid)
+            if _kind != 'staff':
+                # Other families' call-outs: only what the "others" summary needs
+                conflicts = [c if c['is_mine'] else {
+                    'event_id': c.get('event_id'), 'event_name': c.get('event_name'),
+                    'event_date': c.get('event_date'), 'status': c.get('status'), 'is_mine': False}
+                    for c in conflicts]
         else:
             conflicts = []
     except Exception:
@@ -23197,8 +23359,7 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     merge = {
                         'program_name': program_name,
                         'family_greeting': reg.get('guardian_name') or 'Family',
-                        'passphrase': youth.get('passphrase') or default_passphrase(
-                            reg.get('child_first_name'), reg.get('child_last_name')),
+                        'passphrase': ensure_youth_passphrase(conn, youth),
                         'schedule_block': schedule_block,
                         'passphrase_block': passphrase_block,
                     }
@@ -24570,6 +24731,56 @@ def public_returning_family_prefill():
             'guardian_phone': (guardian or {}).get('phone') or '',
             'people': people,
         })
+    finally:
+        conn.close()
+
+
+@app.route('/api/portal/registration-link', methods=['POST'])
+def portal_registration_link():
+    """Signed prefill token for a family already logged into the portal, so
+    'Register' in the portal opens the public form with their info filled in.
+    The portal passphrase is the proof here (no email round-trip), and the
+    form only receives what the portal already shows this family."""
+    d = request.json or {}
+    passphrase = (d.get('passphrase') or '').strip().lower()
+    if not passphrase:
+        return jsonify({'error': 'Please log in again.'}), 401
+    if not _returning_prefill_enabled():
+        return jsonify({'error': 'Online re-registration is not available right now.'}), 503
+    conn = get_db()
+    try:
+        member_ids = []
+        family = fetchone(conn, 'SELECT id, email FROM families WHERE LOWER(passphrase)=%s', (passphrase,))
+        if family:
+            member_ids = [m['id'] for m in (fetchall(conn,
+                'SELECT id FROM youth_participants WHERE family_id=%s', (family['id'],)) or [])]
+        else:
+            youth = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase,))
+            if youth:
+                member_ids = [youth['id']]
+        if not member_ids:
+            return jsonify({'error': 'Please log in again.'}), 401
+
+        email = ''
+        for yid in member_ids:
+            g = fetchone(conn, '''SELECT email FROM youth_guardians
+                WHERE youth_id=%s AND COALESCE(email,'')<>''
+                ORDER BY is_primary DESC, created_at LIMIT 1''', (yid,))
+            if g:
+                email = g['email']
+                break
+        if not email:
+            for yid in member_ids:
+                y = fetchone(conn, "SELECT email FROM youth_participants WHERE id=%s AND COALESCE(email,'')<>''", (yid,))
+                if y:
+                    email = y['email']
+                    break
+        if not email and family and family.get('email'):
+            email = family['email']
+        if not email:
+            return jsonify({'error': "We don't have an email on file for your family yet. Please register from the program page, or contact HWTC staff."}), 400
+        token = _returning_serializer().dumps({'e': email.strip().lower()})
+        return jsonify({'ok': True, 'token': token})
     finally:
         conn.close()
 

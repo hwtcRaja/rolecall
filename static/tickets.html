@@ -26,22 +26,36 @@ body{margin:0;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',
 /* Site header: HWTC's own identity, fixed teal, the same on every show's
    page — never driven by --show-accent. This is what should say "you're
    on an HWTC site" before you ever see which show it is. */
-.site-header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 20px;position:sticky;top:0;z-index:100;box-shadow:0 2px 10px rgba(0,0,0,0.05)}
-.site-header-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:12px}
-.site-header img{height:48px;width:auto}
-.site-header span{font-size:14.5px;font-weight:700;color:var(--teal-dark);letter-spacing:0.1px}
+.site-header{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;position:sticky;top:0;z-index:100;box-shadow:0 1px 8px rgba(0,0,0,0.04)}
+.site-header-inner{max-width:900px;margin:0 auto;display:flex;align-items:center;gap:12px;min-height:44px}
+.site-header img{height:40px;width:auto;display:block}
+/* The logo already spells out the company name — the text is only a
+   fallback for when the image can't load. */
+.site-header .brand-text{display:none;font-size:14.5px;font-weight:700;color:var(--teal-dark);letter-spacing:0.1px}
+.site-header.no-logo .brand-text{display:inline}
 
 /* Hero: the ONE place a show's own color/art takes over. */
 .hero{background:var(--show-accent);color:#fff;padding:44px 20px 40px;position:relative;overflow:hidden}
-.hero::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 85% -20%,rgba(255,255,255,0.16),transparent 55%)}
-.hero-inner{max-width:900px;margin:0 auto;position:relative}
-.hero h1{margin:0 0 6px;font-family:'Playfair Display',Georgia,serif;font-weight:800;font-size:32px;letter-spacing:0.2px;line-height:1.15}
-.hero .sub{opacity:0.88;font-size:14.5px;font-weight:500}
-.hero-poster{padding:130px 20px 44px;background-size:cover;background-position:center 25%}
-.hero-poster::after{background:linear-gradient(180deg,rgba(0,0,0,0.05) 0%,rgba(0,0,0,0.55) 100%)}
-@media(max-width:520px){.hero-poster{padding:90px 18px 36px} .hero h1{font-size:26px}}
+.hero::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 85% -20%,rgba(255,255,255,0.16),transparent 55%);pointer-events:none}
+/* z-index keeps the title ABOVE the ::after shading — without it the
+   overlay painted on top of the text and made it look washed out. */
+.hero-inner{max-width:900px;margin:0 auto;position:relative;z-index:1}
+.hero h1{margin:0 0 6px;font-family:'Playfair Display',Georgia,serif;font-weight:800;font-size:34px;letter-spacing:0.2px;line-height:1.15;color:#fff}
+.hero .sub{font-size:13px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.85)}
+
+/* Show banner: the art fills the band; the title sits on a dark fade along
+   the bottom, lined up with the page content below it. */
+.hero-poster{display:flex;align-items:flex-end;min-height:clamp(220px,26vw,340px);padding:0 20px 58px;background-size:cover;background-position:center 30%}
+.hero-poster .hero-inner{width:100%}
+.hero-poster::after{background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(0,0,0,0.35) 65%,rgba(0,0,0,0.72) 100%)}
+.hero-poster h1{font-size:40px;text-shadow:0 2px 18px rgba(0,0,0,0.45)}
+.hero-poster .sub{text-shadow:0 1px 8px rgba(0,0,0,0.5)}
+@media(max-width:520px){.hero-poster{min-height:200px;padding:0 18px 50px} .hero h1,.hero-poster h1{font-size:26px}}
 
 .wrap{padding-top:26px}
+/* With a banner, the first card tucks up over its bottom edge instead of
+   leaving a strip of empty page between them. */
+body.has-poster .wrap{position:relative;z-index:2;margin-top:-30px;padding-top:0}
 .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;margin-bottom:16px;box-shadow:var(--shadow-md)}
 .venue-card{background:var(--teal-light);border-color:transparent}
 
@@ -85,8 +99,8 @@ label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0
 
 <div class="site-header">
   <div class="site-header-inner">
-    <img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" onerror="this.style.display='none'"/>
-    <span>Horizon West Theater Company</span>
+    <img src="/static/images/hwtc_logo_teal.png" alt="Horizon West Theater Company" onerror="this.style.display='none';this.closest('.site-header').classList.add('no-logo')"/>
+    <span class="brand-text">Horizon West Theater Company</span>
     <a href="/tickets/cart" id="cart-badge" style="display:none;margin-left:auto;font-size:13.5px;font-weight:700;color:var(--teal-dark);text-decoration:none;background:var(--teal-light);padding:6px 12px;border-radius:20px"></a>
   </div>
 </div>
@@ -223,6 +237,7 @@ async function api(path, method, body){
 function setHero(name, color, logo, sub, imageUrl){
   document.documentElement.style.setProperty('--show-accent', color || '#145466')
   var isPoster = !!imageUrl
+  document.body.classList.toggle('has-poster', isPoster)
   var style = isPoster ? ' style="background-image:url(\''+imageUrl.replace(/'/g,"%27")+'\')"' : ''
   // No small floating logo icon here — HWTC's own identity already lives
   // in the site header above; duplicating a tiny badge inside the hero

@@ -403,6 +403,9 @@ function renderPurchaseScreen(){
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.mine+'"></span>Selected</span>'
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.held+'"></span>Held by another buyer</span>'
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.sold+'"></span>Sold</span>'
+      + (seats.some(function(s){return s.accessible})
+          ? '<span><svg width="14" height="14" viewBox="-0.5 -0.5 1 1" style="vertical-align:middle;margin-right:5px"><circle cx="0" cy="0" r="0.5" fill="'+SEAT_STATUS_COLORS.available+'"/>'+wheelchairIconSvg(0, 0, 0.5, '#fff')+'</svg>Wheelchair accessible</span>'
+          : '')
       + (seats.some(function(s){return s.obstructed_view})
           ? '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.available+';border:2px dashed #f59e0b;box-sizing:border-box"></span>Limited view</span>'
           : '')
@@ -607,12 +610,12 @@ function renderPickerSVG(){
     // can coexist if someone deliberately picks an obstructed seat) and
     // the wheelchair icon (which stays centered in the dot as always).
     var obstructedStroke = s.obstructed_view ? ' stroke="#f59e0b" stroke-width="0.09" stroke-dasharray="0.09,0.07"' : ' stroke="#fff" stroke-width="0.05"'
-    var seatTitle = escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+(s.obstructed_view?' — Limited view'+(s.view_note?': '+escH(s.view_note):''):'')
+    var seatTitle = escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+(s.accessible?' — Wheelchair accessible':'')+(s.obstructed_view?' — Limited view'+(s.view_note?': '+escH(s.view_note):''):'')
     svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+r+'" fill="'+fill+'"'+obstructedStroke+'><title>'+seatTitle+'</title></circle>'
     if(picking){
       svg += '<text x="'+s.x+'" y="'+(s.y+0.16)+'" font-size="0.42" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">✓</text>'
     } else if(s.accessible){
-      svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.34" text-anchor="middle" fill="#fff"></text>'
+      svg += wheelchairIconSvg(s.x, s.y, r, status==='sold' ? '#6b7280' : '#fff')
     } else if(showSeatLabels && s.seat_label){
       var labelColor = status==='sold' ? '#6b7280' : '#fff'
       svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.3" text-anchor="middle" fill="'+labelColor+'" style="pointer-events:none">'+escH(s.seat_label)+'</text>'
@@ -622,6 +625,20 @@ function renderPickerSVG(){
   svg += rowLabelSvg
   svg += '</svg>'
   return svg
+}
+
+// International Symbol of Access, drawn as SVG (emoji don't render reliably
+// inside the seat dots). Centered on (cx,cy), sized to fit inside a seat of radius r.
+function wheelchairIconSvg(cx, cy, r, color){
+  var size = r * 1.55, k = size / 24
+  var tx = cx - size/2, ty = cy - size/2
+  var c = color || '#fff'
+  return '<g transform="translate('+tx+','+ty+') scale('+k+')" style="pointer-events:none" aria-hidden="true">'
+    + '<circle cx="12.5" cy="3.2" r="2.3" fill="'+c+'"/>'
+    + '<path d="M12 7.2 V14 H17.2 L19.6 20.2" fill="none" stroke="'+c+'" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M12 10.3 H16.4" fill="none" stroke="'+c+'" stroke-width="2.1" stroke-linecap="round"/>'
+    + '<path d="M9.2 10.9 A6.1 6.1 0 1 0 16.6 18.4" fill="none" stroke="'+c+'" stroke-width="2.1" stroke-linecap="round"/>'
+    + '</g>'
 }
 
 async function toggleSeat(seatId){
@@ -754,6 +771,9 @@ function renderCart(){
       var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
       count++
       rows += '<div class="cart-row"><span>'+escH(seat?seat.seat_label:'')+(ticketTypes.length>1?' — '+seatTicketTypeSelect(sid):' '+escH(tt?tt.name:'')) +'</span><span>'+fmtMoney(tt?tt.price_cents:0)+'</span></div>'
+      if(seat && seat.accessible){
+        rows += '<div style="font-size:12px;color:#145466;margin:-4px 0 6px;padding-left:2px">Wheelchair accessible space</div>'
+      }
       if(seat && seat.obstructed_view){
         rows += '<div style="font-size:12px;color:#b45309;margin:-4px 0 6px;padding-left:2px"> Limited view'+(seat.view_note?': '+escH(seat.view_note):'')+'</div>'
       }

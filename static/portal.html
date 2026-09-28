@@ -195,6 +195,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
  <div class="login-hint">Enter the passphrase given to you by HWTC staff.<br>Families share one passphrase · Individual participants have their own.</div>
  </div>
 
+ <!-- Shown when someone logs in with an old name-based passphrase -->
+ <div id="tab-must-change" style="display:none">
+ <div style="font-size:14px;font-weight:700;margin-bottom:6px" id="must-change-title">Time for a new passphrase</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.5">To keep your family's information safe, please choose a new passphrase. It needs at least 8 characters and shouldn't include a name. Something like <strong>blue-pancake-garden</strong> works well.</div>
+ <div class="login-field"><label>New passphrase</label><input type="password" id="mc-new" autocomplete="new-password"/></div>
+ <div class="login-field"><label>Confirm new passphrase</label><input type="password" id="mc-confirm" autocomplete="new-password" onkeydown="if(event.key==='Enter')submitMustChange()"/></div>
+ <button class="login-btn" id="mc-btn" onclick="submitMustChange()">Save &amp; Enter Portal →</button>
+ </div>
+
  <!-- Instructor tab -->
  <div id="tab-instructor" style="display:none">
  <div class="login-field">
@@ -257,6 +266,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
  <!-- Top-level tabs: Programs vs Profile -->
  <div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:20px">
  <button id="portal-tab-btn-programs" class="tab-btn active" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('programs',this)">Programs & Productions</button>
+ <button id="portal-tab-btn-register" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('register',this)">Register</button>
  <button id="portal-tab-btn-carpools" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('carpools',this)">Carpools</button>
  <button id="portal-tab-btn-profile" class="tab-btn" style="font-size:14px;padding:12px 20px" onclick="switchPortalMainTab('profile',this)">My Profile</button>
  </div>
@@ -344,6 +354,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
  <div id="cp-join-result" style="margin-top:12px;font-size:14px;text-align:center"></div>
  </div>
  </div>
+ <!-- Register tab: open programs, one click into a pre-filled registration form -->
+ <div id="portal-main-register" style="display:none">
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">Sign up for another class. Your family's information will already be filled in, so you just review it and pick your sessions.</div>
+ <div id="portal-register-alert"></div>
+ <div id="portal-register-list"></div>
+ </div>
+
  <div id="portal-main-profile" style="display:none">
  <div id="portal-profile-content">
  <div class="loading"><div class="spinner"></div>Loading profile…</div>
@@ -399,6 +416,57 @@ let instructorContextId = null
 let instructorContextType = null
 let instructorData = null
 
+// Every /api/portal call identifies the logged-in family/participant by
+// passphrase header, so the server can check they're allowed to see or
+// change that child's record.
+;(function(){
+ const _origFetch = window.fetch.bind(window)
+ window.fetch = function(input, init){
+  try{
+   const url = typeof input === 'string' ? input : (input && input.url) || ''
+   const pp = portalSession && portalSession.passphrase
+   if(pp && url.indexOf('/api/portal') === 0){
+    init = Object.assign({}, init || {})
+    const h = new Headers(init.headers || (typeof input !== 'string' && input.headers) || {})
+    if(!h.has('X-Portal-Passphrase')) h.set('X-Portal-Passphrase', pp)
+    init.headers = h
+   }
+  }catch(e){}
+  return _origFetch(input, init)
+ }
+})()
+
+let _mustChangeCurrent = ''
+
+function showMustChange(current, firstName){
+ _mustChangeCurrent = current
+ document.getElementById('tab-family').style.display = 'none'
+ document.getElementById('tab-must-change').style.display = ''
+ document.getElementById('error-msg').style.display = 'none'
+ if(firstName) document.getElementById('must-change-title').textContent = 'Welcome, '+firstName+'! Time for a new passphrase'
+ const f = document.getElementById('mc-new'); if(f) f.focus()
+}
+
+async function submitMustChange(){
+ const n = document.getElementById('mc-new').value.trim()
+ const c = document.getElementById('mc-confirm').value.trim()
+ if(n.length < 8){ showError('Your new passphrase needs at least 8 characters.'); return }
+ if(n !== c){ showError('The two passphrases don\'t match.'); return }
+ const btn = document.getElementById('mc-btn')
+ btn.disabled = true; btn.textContent = 'Saving...'
+ try{
+  const r = await fetch('/api/portal/change-passphrase',{method:'POST',headers:{'Content-Type':'application/json'},
+   body: JSON.stringify({current_passphrase: _mustChangeCurrent, new_passphrase: n, change_type: 'auto'})})
+  const d = await r.json()
+  if(!r.ok || d.error){ showError(d.error || 'Could not save. Please try again.'); btn.disabled=false; btn.textContent='Save & Enter Portal →'; return }
+  document.getElementById('tab-must-change').style.display = 'none'
+  document.getElementById('tab-family').style.display = ''
+  document.getElementById('login-passphrase').value = n
+  _mustChangeCurrent = ''
+  doLogin()
+ }catch(e){ showError('Connection error'); btn.disabled=false; btn.textContent='Save & Enter Portal →' }
+}
+
 // ── LOGIN ──
 function switchLoginTab(tab){
  document.querySelectorAll('.login-tab').forEach((t,i)=>{
@@ -418,6 +486,7 @@ async function doLogin(){
  const r = await fetch('/api/portal/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({passphrase:pass})})
  const d = await r.json()
  if(!r.ok){ showError(d.error||'Passphrase not found'); if(btn){ btn.disabled=false; btn.textContent='Enter Portal...' }; return }
+ if(d.must_change){ if(btn){ btn.disabled=false; btn.textContent='Enter Portal →' }; showMustChange(pass, d.first_name); return }
  portalSession = d
  if(d.type==='family') enterFamilyPortal(d)
  else if(d.type==='volunteer') enterVolunteerPortal(d)
@@ -683,8 +752,56 @@ function switchPortalMainTab(tab, btn){
  document.getElementById('portal-main-programs').style.display = tab==='programs'?'':'none'
  document.getElementById('portal-main-carpools').style.display = tab==='carpools'?'':'none'
  document.getElementById('portal-main-profile').style.display = tab==='profile'?'':'none'
+ document.getElementById('portal-main-register').style.display = tab==='register'?'':'none'
  if(tab==='profile') loadPortalProfile()
+ if(tab==='register') loadPortalRegisterTab()
  if(tab==='carpools') loadPortalCarpools()
+}
+
+// ── Register tab ─────────────────────────────────────────────────────────────
+function portalFmtPrice(c){ return c>0 ? '$'+(c/100).toFixed(2) : 'Free' }
+function portalFmtDate(d){ if(!d) return ''; try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return d } }
+function portalEsc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+
+async function loadPortalRegisterTab(){
+ const el = document.getElementById('portal-register-list')
+ if(!el) return
+ el.innerHTML = '<div class="loading"><div class="spinner"></div>Loading classes…</div>'
+ let progs = []
+ try{ progs = await fetch('/api/public/programs',{cache:'no-store'}).then(r=>r.json()) }catch(e){ progs = [] }
+ if(!Array.isArray(progs) || !progs.length){
+  el.innerHTML = '<div class="empty-state"><div class="icon"></div>No classes are open for registration right now. Check back soon!</div>'
+  return
+ }
+ el.innerHTML = '<div class="program-grid">' + progs.map(function(p){
+  const full = p.spots_remaining === 0
+  const dates = p.start_date ? portalFmtDate(p.start_date) + (p.end_date && p.end_date !== p.start_date ? ' – ' + portalFmtDate(p.end_date) : '') : ''
+  return '<div style="background:#fff;border:1.5px solid var(--border);border-radius:var(--radius);padding:16px">'
+   + '<div style="font-weight:700;font-size:15px;color:var(--teal-dark);margin-bottom:4px">'+portalEsc(p.name)+'</div>'
+   + (dates ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">'+portalEsc(dates)+'</div>' : '')
+   + '<div style="font-size:13px;font-weight:700;margin-bottom:12px">'+portalFmtPrice(p.price)+(full ? ' <span style="color:#b45309;font-weight:600">· Waitlist</span>' : '')+'</div>'
+   + '<button class="btn btn-primary" style="width:100%" onclick="portalStartRegistration(\''+portalEsc(p.slug||p.id)+'\', this)">'+(full ? 'Join Waitlist' : 'Register')+'</button>'
+   + '</div>'
+ }).join('') + '</div>'
+}
+
+async function portalStartRegistration(slug, btn){
+ const alertEl = document.getElementById('portal-register-alert')
+ if(alertEl) alertEl.innerHTML = ''
+ if(btn){ btn.disabled = true; btn.textContent = 'Opening…' }
+ try{
+  const r = await fetch('/api/portal/registration-link',{method:'POST',headers:{'Content-Type':'application/json'},
+   body: JSON.stringify({passphrase: portalSession?.passphrase || ''})}).then(r=>r.json())
+  if(r && r.ok && r.token){
+   window.location.href = '/register/' + encodeURIComponent(slug) + '?rt=' + encodeURIComponent(r.token)
+   return
+  }
+  // No token (e.g. no email on file) — still let them register, just not pre-filled
+  if(alertEl) alertEl.innerHTML = '<div style="background:#fef2f2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:12px">'+portalEsc((r && r.error) || 'Could not load your info.')+' <a href="/register/'+encodeURIComponent(slug)+'">Continue to the form</a></div>'
+ }catch(e){
+  if(alertEl) alertEl.innerHTML = '<div style="background:#fef2f2;border:1.5px solid #fca5a5;color:#991b1b;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:12px">Network error. Please try again.</div>'
+ }
+ if(btn){ btn.disabled = false; btn.textContent = 'Register' }
 }
 
 async function loadPortalProfile(){
@@ -1281,8 +1398,8 @@ async function changePortalPassphrase(){
  if(newPP!== confirm){
  if(result) result.innerHTML='<span style="color:#dc2626">New passphrases do not match.</span>'; return
  }
- if(newPP.length < 4){
- if(result) result.innerHTML='<span style="color:#dc2626">New passphrase must be at least 4 characters.</span>'; return
+ if(newPP.length < 8){
+ if(result) result.innerHTML='<span style="color:#dc2626">New passphrase must be at least 8 characters.</span>'; return
  }
  // If family mode and logged in as family, change family passphrase
  // If individual mode, change just this child's passphrase

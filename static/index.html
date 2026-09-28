@@ -10049,7 +10049,7 @@ async function backfillEnrolledDates(){
 }
 
 async function backfillPassphrases(){
- if(!confirm('Set default passphrase (firstname_lastname_hwtc) for all participants who don\'t have one yet?\n\nThis will NOT change anyone who already has a passphrase.')) return
+ if(!confirm('Generate a random portal passphrase for all participants who don\'t have one yet?\n\nThis will NOT change anyone who already has a passphrase.')) return
  const res = await api('/api/youth/backfill-passphrases','POST')
  if(res?.error){toast(res.error,'error');return}
  toast(` Set passphrases for ${res.updated} participant${res.updated!==1?'s':''}`)
@@ -35255,6 +35255,19 @@ async function tkTogglePreview(mapId){
    this is the real fix: drag seats (individually or as a group) to match
    the actual venue, add/remove seats to correct counts, and edit each
    seat's row/number/section/accessible flag directly. ── */
+// International Symbol of Access, drawn as SVG (emoji don't render reliably
+// inside the seat dots). Centered on (cx,cy), sized to fit inside a seat of radius r.
+function wheelchairIconSvg(cx, cy, r, color){
+  var size = r * 1.55, k = size / 24
+  var tx = cx - size/2, ty = cy - size/2
+  var c = color || '#fff'
+  return '<g transform="translate('+tx+','+ty+') scale('+k+')" style="pointer-events:none" aria-hidden="true">'
+    + '<circle cx="12.5" cy="3.2" r="2.3" fill="'+c+'"/>'
+    + '<path d="M12 7.2 V14 H17.2 L19.6 20.2" fill="none" stroke="'+c+'" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M12 10.3 H16.4" fill="none" stroke="'+c+'" stroke-width="2.1" stroke-linecap="round"/>'
+    + '<path d="M9.2 10.9 A6.1 6.1 0 1 0 16.6 18.4" fill="none" stroke="'+c+'" stroke-width="2.1" stroke-linecap="round"/>'
+    + '</g>'
+}
 var _ed = null; // editor state, reset each time the editor opens
 
 function tkOpenSeatEditor(mapId){
@@ -35439,7 +35452,7 @@ function edRenderCanvas(){
     var dash = (s.obstructed_view && !sel) ? ' stroke-dasharray="0.09,0.07"' : '';
     var titleTxt = escHtml(s.seat_label||'')+(s.obstructed_view?' — Limited view'+(s.view_note?': '+escHtml(s.view_note):''):'');
     svg += '<circle data-id="'+s.id+'" class="ed-seat" cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+strokeWidth+'"'+dash+' style="cursor:grab"><title>'+titleTxt+'</title></circle>';
-    if(s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff" style="pointer-events:none"></text>';
+    if(s.accessible) svg += wheelchairIconSvg(s.x, s.y, seatR, '#fff');
     if(_ed.showLabels && s.seat_label && !s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.13)+'" font-size="0.26" text-anchor="middle" fill="#fff" style="pointer-events:none">'+escHtml(s.seat_label)+'</text>';
   });
   svg += rowLabelSvg;
@@ -35897,11 +35910,11 @@ function renderSeatMapSVG(seats, opts){
   }
   seats.forEach(function(s){
     var fill = opts.statusColors && s.status ? (opts.statusColors[s.status]||'#ccc') : (sections[s.section||'']||'#999');
-    var titleTxt = (s.seat_label||'')+(s.section?' · '+s.section:'');
+    var titleTxt = (s.seat_label||'')+(s.section?' · '+s.section:'')+(s.accessible?' — Wheelchair accessible':'');
     svg += '<g'+(opts.clickable?' style="cursor:pointer" data-seat-id="'+s.id+'" class="seat-dot" onclick="tkSeatClicked && tkSeatClicked(\''+s.id+'\')"':'')+'>'
     svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="#fff" stroke-width="0.05">'
     svg += '<title>'+titleTxt+'</title></circle>';
-    if(s.accessible){ svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.32" text-anchor="middle" fill="#fff"></text>'; }
+    if(s.accessible){ svg += wheelchairIconSvg(s.x, s.y, seatR, '#fff'); }
     svg += '</g>';
   });
   svg += '</svg>';

@@ -34793,6 +34793,85 @@ def finalize_donation(conn, donation_id):
 
 # ── Marquee admin routes ─────────────────────────────────────────────────────
 
+@app.route('/api/marquee/box-office', methods=['GET'])
+def marquee_box_office():
+    """Ticket sales metrics for Marquee's Box Office tab -- a genuinely
+    separate revenue stream from the program_registrations-based
+    'productions' revenue already in the main dashboard (that's cast/
+    participation fees, e.g. Rising Stars; this is audience tickets to
+    actually watch a show), so it's kept as its own clearly-labeled
+    section rather than folded into or conflated with that number."""
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    totals = fetchone(conn, '''SELECT
+        COALESCE(SUM(t.price_cents),0) AS ticket_revenue,
+        COALESCE(SUM(o.service_fee_cents),0) AS fee_revenue,
+        COUNT(t.id) AS tickets_sold
+        FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+        WHERE o.status='completed' ''')
+    upcoming_count = (fetchone(conn, '''SELECT COUNT(*) AS c FROM performances
+        WHERE status IN ('on_sale','sold_out') AND performance_date >= CURRENT_DATE::text''') or {}).get('c', 0)
+    by_show = fetchall(conn, '''SELECT p.id, p.name,
+        COALESCE(SUM(t.price_cents),0) AS revenue,
+        COUNT(t.id) AS tickets_sold,
+        COUNT(DISTINCT pf.id) FILTER (WHERE pf.status IN ('on_sale','sold_out')) AS active_performances
+        FROM productions p
+        JOIN performances pf ON pf.production_id=p.id
+        LEFT JOIN tickets t ON t.performance_id=pf.id
+        LEFT JOIN ticket_orders o ON o.id=t.ticket_order_id AND o.status='completed'
+        GROUP BY p.id, p.name
+        HAVING COUNT(pf.id) > 0
+        ORDER BY revenue DESC''') or []
+    conn.close()
+    return jsonify({
+        'ticket_revenue': totals.get('ticket_revenue', 0),
+        'fee_revenue': totals.get('fee_revenue', 0),
+        'tickets_sold': totals.get('tickets_sold', 0),
+        'upcoming_performances': upcoming_count,
+        'shows': by_show,
+    })
+
+@app.route('/api/marquee/ticket-orders', methods=['GET'])
+def marquee_ticket_orders():
+    """Same search as the per-production Orders & Patrons panel, but
+    across every show at once, for the Box Office tab -- optionally
+    narrowed to one production via ?production_id=."""
+    err = require_permission('marquee', 'view')
+    if err: return err
+    q = (request.args.get('q') or '').strip()
+    production_id = (request.args.get('production_id') or '').strip()
+    conn = get_db()
+    where = []
+    params = []
+    if production_id:
+        where.append('pf.production_id=%s')
+        params.append(production_id)
+    if q:
+        where.append('(t.guardian_name ILIKE %s OR t.guardian_email ILIKE %s OR t.guardian_phone ILIKE %s)')
+        like = f'%{q}%'
+        params.extend([like, like, like])
+    where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
+    orders = fetchall(conn, f'''SELECT t.*, pf.name AS performance_name, pf.performance_date, pf.performance_time,
+        p.name AS production_name
+        FROM ticket_orders t
+        JOIN performances pf ON pf.id=t.performance_id
+        JOIN productions p ON p.id=pf.production_id
+        {where_sql}
+        ORDER BY t.created_at DESC LIMIT 150''', tuple(params)) or []
+    if orders:
+        order_ids = [o['id'] for o in orders]
+        tix = fetchall(conn, 'SELECT ticket_order_id, seat_label FROM tickets WHERE ticket_order_id = ANY(%s)', (order_ids,)) or []
+        by_order = {}
+        for t in tix:
+            by_order.setdefault(t['ticket_order_id'], []).append(t['seat_label'])
+        for o in orders:
+            o['seat_labels'] = by_order.get(o['id'], [])
+            o['ticket_count'] = len(o['seat_labels'])
+    conn.close()
+    return jsonify(orders)
+
+
 @app.route('/api/marquee/orders', methods=['GET'])
 def marquee_orders():
     err = require_permission('marquee', 'view')

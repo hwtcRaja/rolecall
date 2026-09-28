@@ -1651,6 +1651,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div class="page-body">
     <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:3px;margin-bottom:20px;width:fit-content;flex-wrap:wrap" id="marquee-tabs">
       <button class="marquee-tab" data-tab="dashboard" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:var(--surface);cursor:pointer">Dashboard</button>
+      <button class="marquee-tab" data-tab="boxoffice" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Box Office</button>
       <button class="marquee-tab" data-tab="catalog" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Catalog</button>
       <button class="marquee-tab" data-tab="orders" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Orders</button>
       <button class="marquee-tab" data-tab="registrations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Registrations</button>
@@ -1658,6 +1659,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <button class="marquee-tab" data-tab="donations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Donations</button>
     </div>
     <div id="marquee-tab-dashboard"></div>
+    <div id="marquee-tab-boxoffice" style="display:none"></div>
     <div id="marquee-tab-catalog" style="display:none"></div>
     <div id="marquee-tab-orders" style="display:none"></div>
     <div id="marquee-tab-registrations" style="display:none"></div>
@@ -33488,6 +33490,7 @@ async function renderMarqueeTab(tab, filterValue){
   if(!el) return
   el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>'
   if(tab==='dashboard') await renderMarqueeDashboard(el)
+  else if(tab==='boxoffice') await renderMarqueeBoxOffice(el)
   else if(tab==='catalog') await renderMarqueeCatalog(el)
   else if(tab==='registrations') await renderMarqueeRegistrations(el, filterValue)
   else if(tab==='orders') await renderMarqueeOrders(el)
@@ -34020,6 +34023,99 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
 }
 
 // ── Orders tab ────────────────────────────────────────────────────────────────
+
+var _mqBoxOfficeProdFilter = ''
+var _mqBoxOfficeQuery = ''
+
+async function renderMarqueeBoxOffice(el){
+  var data = await api('/api/marquee/box-office')
+  if(!data || data.error){ el.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load box office data.</div>'; return }
+  function fmtMoney(c){ return '$'+((c||0)/100).toFixed(2) }
+  var html = ''
+
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:8px">'
+    + '<div style="background:#f0fdf4;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#166534">'+fmtMoney(data.ticket_revenue)+'</div><div style="font-size:11px;font-weight:600;color:#166534;margin-top:2px">Ticket Revenue</div></div>'
+    + '<div style="background:#e0f2fe;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#145466">'+(data.tickets_sold||0)+'</div><div style="font-size:11px;font-weight:600;color:#145466;margin-top:2px">Tickets Sold</div></div>'
+    + '<div style="background:#fffbeb;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#92400e">'+fmtMoney(data.fee_revenue)+'</div><div style="font-size:11px;font-weight:600;color:#92400e;margin-top:2px">Service Fees Collected</div></div>'
+    + '<div style="background:#ede9fe;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#6d28d9">'+(data.upcoming_performances||0)+'</div><div style="font-size:11px;font-weight:600;color:#6d28d9;margin-top:2px">Upcoming Performances</div></div>'
+    + '</div>'
+  html += '<div style="font-size:11px;color:var(--text-hint);margin:-2px 0 20px">Ticket sales — audience tickets to watch a show. This is separate from any production\'s registration revenue on the main Dashboard (e.g. Rising Stars cast fees), which is a different thing people are paying for.</div>'
+
+  var shows = data.shows || []
+  if(shows.length){
+    html += '<div class="card" style="padding:16px 18px;margin-bottom:20px">'
+      + '<div style="font-weight:700;font-size:14px;margin-bottom:10px">By Show</div>'
+      + shows.map(function(s){
+          return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
+            + '<div><div style="font-weight:600;font-size:13.5px">'+escHtml(s.name)+'</div>'
+            + '<div style="font-size:11.5px;color:var(--text-muted)">'+s.tickets_sold+' ticket'+(s.tickets_sold===1?'':'s')+' sold · '+s.active_performances+' upcoming performance'+(s.active_performances===1?'':'s')+'</div></div>'
+            + '<div style="display:flex;align-items:center;gap:10px">'
+            + '<span style="font-weight:700;font-size:13.5px">'+fmtMoney(s.revenue)+'</span>'
+            + '<button class="btn btn-secondary btn-sm" onclick="_mqBoxOfficeProdFilter=\''+s.id+'\';renderMarqueeBoxOfficeOrders()">View Orders</button>'
+            + '</div></div>'
+        }).join('')
+      + '</div>'
+  } else {
+    html += '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);margin-bottom:20px">No shows with ticketing set up yet.</div>'
+  }
+
+  html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
+    + '<div style="font-weight:700;font-size:14px">Ticket Orders</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + '<input type="text" id="mq-boxoffice-search" placeholder="Search name, email, phone…" value="'+escHtml(_mqBoxOfficeQuery)+'" style="width:220px" onkeydown="if(event.key===\'Enter\'){_mqBoxOfficeQuery=this.value;renderMarqueeBoxOfficeOrders()}"/>'
+    + '<select id="mq-boxoffice-prod-filter" onchange="_mqBoxOfficeProdFilter=this.value;renderMarqueeBoxOfficeOrders()">'
+    + '<option value="">All shows</option>'
+    + shows.map(function(s){ return '<option value="'+s.id+'"'+(_mqBoxOfficeProdFilter===s.id?' selected':'')+'>'+escHtml(s.name)+'</option>' }).join('')
+    + '</select>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'mq-boxoffice-search\').value=\'\';_mqBoxOfficeQuery=\'\';_mqBoxOfficeProdFilter=\'\';renderMarqueeBoxOfficeOrders()">Clear</button>'
+    + '</div></div>'
+  html += '<div id="mq-boxoffice-orders-holder">Loading…</div>'
+
+  el.innerHTML = html
+  renderMarqueeBoxOfficeOrders()
+}
+
+async function renderMarqueeBoxOfficeOrders(){
+  var holder = document.getElementById('mq-boxoffice-orders-holder')
+  if(!holder) return
+  holder.innerHTML = 'Loading…'
+  var qEl = document.getElementById('mq-boxoffice-search')
+  if(qEl) _mqBoxOfficeQuery = qEl.value.trim()
+  var params = new URLSearchParams()
+  if(_mqBoxOfficeQuery) params.set('q', _mqBoxOfficeQuery)
+  if(_mqBoxOfficeProdFilter) params.set('production_id', _mqBoxOfficeProdFilter)
+  var orders = await api('/api/marquee/ticket-orders?'+params.toString())
+  if(!Array.isArray(orders) || !orders.length){
+    holder.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No matching orders.</div>'
+    return
+  }
+  function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '—' }
+  function fmtDate(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return String(d).slice(0,10) } }
+  var statusMap = {completed:'background:#dcfce7;color:#166534', pending:'background:#fef3c7;color:#92400e'}
+  holder.innerHTML = '<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
+    + '<thead><tr style="border-bottom:2px solid var(--border)">'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Contact</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Show</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Performance</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Seats</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Total</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Status</th>'
+    + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Date</th>'
+    + '</tr></thead><tbody>'
+    + orders.map(function(o){
+        var when = fmtDate(o.performance_date)+(o.performance_time?' · '+tkFmtTime(o.performance_time):'')
+        return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="openTicketOrderDetail(\''+o.id+'\')">'
+          + '<td style="padding:8px">'+escHtml(o.guardian_name||'')+'<div style="color:var(--text-muted);font-size:11px">'+escHtml(o.guardian_email||'')+'</div></td>'
+          + '<td style="padding:8px">'+escHtml(o.production_name||'')+'</td>'
+          + '<td style="padding:8px">'+escHtml(when)+'</td>'
+          + '<td style="padding:8px">'+escHtml((o.seat_labels||[]).join(', ')||o.ticket_count+' ticket(s)')+'</td>'
+          + '<td style="padding:8px;font-weight:700">'+fmtMoney(o.total_cents)+'</td>'
+          + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;'+(statusMap[o.status]||'')+'">'+escHtml(o.status||'')+'</span></td>'
+          + '<td style="padding:8px;color:var(--text-muted)">'+fmtDate(o.created_at)+'</td>'
+          + '</tr>'
+      }).join('')
+    + '</tbody></table></div>'
+}
 
 async function renderMarqueeOrders(el){
   var data = await api('/api/marquee/orders')

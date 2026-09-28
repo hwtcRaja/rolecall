@@ -75,6 +75,55 @@ var orderId = urlParams.get('order')
 function cartGet(){ try{ return JSON.parse(localStorage.getItem('hwtc_cart')||'[]') }catch(e){ return [] } }
 function cartSave(items){ localStorage.setItem('hwtc_cart', JSON.stringify(items)) }
 function guardianGet(){ try{ return JSON.parse(localStorage.getItem('hwtc_cart_guardian')||'{}') }catch(e){ return {} } }
+function guardianSave(g){ try{ localStorage.setItem('hwtc_cart_guardian', JSON.stringify(g)) }catch(e){} }
+
+// ── Returning-family prefill (same emailed-link flow as the registration page) ──
+var _cartPrefillToken = urlParams.get('rt') || ''
+var _cartPrefilled = false
+var _cartPrefillError = ''
+
+async function loadCartPrefill(){
+  if(!_cartPrefillToken) return
+  try{ history.replaceState(null, '', location.pathname) }catch(e){}
+  var r = await apiFetch('/api/public/returning-family/prefill?rt='+encodeURIComponent(_cartPrefillToken))
+  if(r && r.ok){
+    var g = guardianGet()
+    var first = (r.people||[])[0] || {}
+    g.name = r.guardian_name || g.name || ''
+    g.email = r.email || g.email || ''
+    g.phone = r.guardian_phone || g.phone || ''
+    g.ec_name = first.emergency_contact_name || g.ec_name || ''
+    g.ec_phone = first.emergency_contact_phone || g.ec_phone || ''
+    guardianSave(g)
+    _cartPrefilled = true
+  } else if(r && r.error){ _cartPrefillError = r.error }
+}
+
+function buildCartReturningBanner(g){
+  if(_cartPrefilled){
+    return '<div class="alert alert-info" style="margin-bottom:12px">Welcome back! We filled in your info from our records. Please check that it\'s still current.</div>'
+  }
+  if(g && g.email) return ''
+  return '<div style="background:#f0f9ff;border:1.5px solid #bae6fd;border-radius:10px;padding:12px 14px;margin-bottom:14px">'
+    + '<div style="font-weight:700;color:#0d3d4d;margin-bottom:4px">Registered with us before?</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+    + '<input id="returning-email" type="email" placeholder="your@email.com" style="flex:1;min-width:180px"/>'
+    + '<button type="button" class="btn" id="returning-send-btn" onclick="requestCartReturningLink()" style="width:auto;background:#145466;color:#fff;padding:9px 16px">Email me a link</button>'
+    + '</div>'
+    + '<div id="returning-msg" style="font-size:13px;margin-top:8px;color:#145466">'+escHtml(_cartPrefillError)+'</div>'
+    + '</div>'
+}
+
+async function requestCartReturningLink(){
+  var email = ((document.getElementById('returning-email')||{}).value||'').trim()
+  var msg = document.getElementById('returning-msg')
+  var btn = document.getElementById('returning-send-btn')
+  if(!email || email.indexOf('@') < 0){ msg.textContent = 'Please enter your email address.'; return }
+  btn.disabled = true; btn.textContent = 'Sending...'
+  var r = await apiFetch('/api/public/returning-family/request-link', 'POST', {email: email, slug: 'cart'})
+  btn.disabled = false; btn.textContent = 'Email me a link'
+  msg.textContent = (r && r.message) ? r.message : 'Something went wrong. You can still fill in the form below.'
+}
 
 async function apiFetch(path, method, body){
   const opts = {method:method||'GET', headers:{'Content-Type':'application/json'}}
@@ -140,6 +189,7 @@ function render(){
 
   // ── Guardian info ──
   html += '<div class="card"><div class="card-header"><h2>Your Information <span class="step-badge">Filled once for all programs</span></h2></div><div class="card-body">'
+    + buildCartReturningBanner(g)
     + '<div class="grid-2">'
     + '<div class="form-group"><label>Your Name *</label><input id="g-name" value="'+escHtml(g.name||'')+'" placeholder="First and last name"/></div>'
     + '<div class="form-group"><label>Email *</label><input id="g-email" type="email" value="'+escHtml(g.email||'')+'" placeholder="your@email.com"/></div>'
@@ -259,6 +309,9 @@ async function checkout(){
       guardian_phone: phone.trim(),
       ec_name: ecName.trim(),
       ec_phone: ecPhone.trim(),
+      reviewed_fields: (_cartPrefilled && (it.reviewed_fields||[]).indexOf('emergency_contact') < 0)
+        ? (it.reviewed_fields||[]).concat(['emergency_contact'])
+        : (it.reviewed_fields||[]),
     })
   })
 
@@ -360,7 +413,7 @@ async function initConfirmation(){
   document.getElementById('app').innerHTML = html
 }
 
-if(isConfirmation){ initConfirmation() } else { render() }
+if(isConfirmation){ initConfirmation() } else { loadCartPrefill().then(render) }
 </script>
 </body>
 </html>

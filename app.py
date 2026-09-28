@@ -2096,6 +2096,8 @@ def init_db():
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS min_age INTEGER""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS max_age INTEGER""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS age_grace_days INTEGER DEFAULT 30""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS is_private BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS private_key TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
         # The real amount Square actually processed for this registration's order —
         # captured from the payment.completed webhook. Revenue reporting should
@@ -10127,6 +10129,11 @@ def save_registration_settings(pid):
          int(d['max_age']) if d.get('max_age') not in (None, '') else None,
          int(d.get('age_grace_days') or 30),
          pid))
+    if 'is_private' in d:
+        make_private = bool(d.get('is_private'))
+        cur = fetchone(conn, 'SELECT private_key FROM youth_programs WHERE id=%s', (pid,)) or {}
+        key = cur.get('private_key') or (secrets.token_urlsafe(9) if make_private else None)
+        execute(conn, 'UPDATE youth_programs SET is_private=%s, private_key=%s WHERE id=%s', (make_private, key, pid))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
     conn.close()
@@ -10249,7 +10256,7 @@ def validate_discount(slug):
         return jsonify({'valid': False, 'error': 'Code required'})
     conn = get_db()
     prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
-    if not prog:
+    if not prog or program_hidden_from_request(prog):
         conn.close()
         return jsonify({'valid': False, 'error': 'Program not found'})
     dc, dc_table = find_discount_code(conn, code, 'program_id', prog['id'])
@@ -24589,6 +24596,22 @@ RETURNING_LINK_COOLDOWN = 120             # seconds between emails to one addres
 _returning_link_last_sent = {}            # email -> epoch seconds (per worker; best-effort)
 
 
+def program_hidden_from_request(p):
+    """True if p is a private class and this request didn't bring its link key.
+    Private classes don't appear in any listing and can only be opened with
+    /register/<slug>?k=<key>. Logged-in staff can always preview."""
+    if not p or not p.get('is_private'):
+        return False
+    if 'user_id' in session:
+        return False
+    k = request.args.get('k') or ''
+    if not k:
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict):
+            k = body.get('k') or ''
+    return not (p.get('private_key') and hmac.compare_digest(str(k), str(p['private_key'])))
+
+
 def _returning_serializer():
     return URLSafeTimedSerializer(app.secret_key, salt=RETURNING_PREFILL_SALT)
 
@@ -24636,7 +24659,9 @@ def public_returning_family_request_link():
         elif is_production:
             target = fetchone(conn, 'SELECT id, name, slug FROM productions WHERE slug=%s OR id=%s', (slug, slug))
         else:
-            target = fetchone(conn, 'SELECT id, name, slug FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+            target = fetchone(conn, 'SELECT id, name, slug, is_private, private_key FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+            if target and program_hidden_from_request(target):
+                target = None
         if slug != 'cart' and (not target or not _returning_family_known(conn, email)):
             return jsonify(generic)
     finally:
@@ -24646,6 +24671,8 @@ def public_returning_family_request_link():
     token = _returning_serializer().dumps({'e': email})
     path_prefix = 'production/' if (is_production and slug != 'cart') else ''
     link = 'https://rolecall.hwtco.org/register/' + path_prefix + (target.get('slug') or slug) + '?rt=' + token
+    if target.get('is_private') and target.get('private_key'):
+        link += '&k=' + target['private_key']
     prog_name = target.get('name') or 'HWTC'
     body = (
         '<p>Hi there,</p>'
@@ -24790,7 +24817,7 @@ def public_program_info(slug):
     """Public program info — no auth needed."""
     conn = get_db()
     p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
-    if not p:
+    if not p or program_hidden_from_request(p):
         conn.close()
         return jsonify({'error': 'Program not found'}), 404
     # Attach counts
@@ -24814,7 +24841,7 @@ def public_program_info(slug):
     if p.get('form_fields'):
         try: p['form_fields'] = json.loads(p['form_fields'])
         except: p['form_fields'] = {}
-    for k in ['default_elic_id','created_by','updated_by','square_catalog_item_id']:
+    for k in ['default_elic_id','created_by','updated_by','square_catalog_item_id','private_key']:
         p.pop(k, None)
     return jsonify(p)
 
@@ -24825,7 +24852,7 @@ def public_submit_registration(slug):
     d = request.json or {}
     conn = get_db()
     p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
-    if not p:
+    if not p or program_hidden_from_request(p):
         conn.close()
         return jsonify({'error': 'Program not found'}), 404
 
@@ -26256,6 +26283,7 @@ def public_programs_list():
         start_date, end_date, sibling_discount_enabled,
         sibling_discount_type, sibling_discount_value
         FROM youth_programs WHERE registration_status='open'
+          AND COALESCE(is_private, FALSE) = FALSE
         ORDER BY start_date ASC NULLS LAST, name ASC""")
     for p in progs:
         count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (p['id'],)) or {}).get('c', 0)
@@ -26847,8 +26875,8 @@ def delete_program_session(pid, sid):
 @app.route('/api/public/program/<slug>/sessions', methods=['GET'])
 def public_program_sessions(slug):
     conn = get_db()
-    prog = fetchone(conn, "SELECT id FROM youth_programs WHERE slug=%s OR id=%s", (slug, slug))
-    if not prog:
+    prog = fetchone(conn, "SELECT id, is_private, private_key FROM youth_programs WHERE slug=%s OR id=%s", (slug, slug))
+    if not prog or program_hidden_from_request(prog):
         conn.close()
         return jsonify([])
     sessions = fetchall(conn, '''SELECT ps.id, ps.name, ps.day_of_week, ps.start_time,
@@ -31128,6 +31156,45 @@ def public_audition_schedule_page(context_type, context_id):
     auto-generated overview of this show's actual scheduled events, not a
     manually-typed URL, so it can never go stale."""
     return send_from_directory('static', 'audition-schedule.html')
+
+@app.route('/tv')
+def tv_page():
+    """Short address for a lobby TV: rolecall.hwtco.org/tv. It finds whatever
+    audition is running today and shows that lobby display, switching on its
+    own as auditions start and end, so the TV can be left on this page."""
+    resp = send_from_directory('static', 'tv.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/public/tv/active')
+def public_tv_active():
+    """Auditions happening today (slots scheduled today, or anyone checked in
+    today), with the lobby-display URL for each."""
+    today = today_eastern().isoformat()
+    conn = get_db()
+    try:
+        rows = fetchall(conn, """SELECT DISTINCT context_type, context_id FROM (
+                SELECT context_type, context_id FROM audition_slots
+                  WHERE slot_date=%s AND COALESCE(status,'open') != 'cancelled'
+                UNION
+                SELECT context_type, context_id FROM audition_checkins
+                  WHERE checkin_date=%s::date
+            ) t""", (today, today)) or []
+        out = []
+        for r in rows:
+            rid, name, logo, slug = _resolve_audition_context(conn, r['context_type'], r['context_id'])
+            if not rid:
+                continue
+            url = ('/audition/' + slug + '/queue') if slug else ('/audition-queue/' + r['context_type'] + '/' + rid)
+            out.append({'key': r['context_type'] + ':' + rid, 'name': name or 'Auditions', 'url': url})
+        out.sort(key=lambda x: x['name'])
+    finally:
+        conn.close()
+    resp = jsonify(out)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
 
 @app.route('/audition/<slug>/queue')
 def public_audition_queue_page_by_slug(slug):

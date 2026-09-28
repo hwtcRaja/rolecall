@@ -8,8 +8,10 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
-  --show-accent:#145466;
-  --teal:#0d9488; --teal-dark:#0f766e; --teal-light:#ccfbf1;
+  /* HWTC brand blue (#16728b). --teal-dark is the main brand color used
+     for buttons/links; --teal is a lighter step for hovers and borders. */
+  --show-accent:#16728b;
+  --teal:#2a8fab; --teal-dark:#16728b; --teal-light:#e3f1f5;
   --bg:#f7f7f5; --surface:#ffffff; --border:#e5e5e0; --border-md:#d4d4cc;
   --text:#1f2937; --text-muted:#6b7280; --text-hint:#9ca3af;
   --green:#16a34a; --green-light:#dcfce7;
@@ -27,7 +29,11 @@ body{margin:0;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',
    page — never driven by --show-accent. This is what should say "you're
    on an HWTC site" before you ever see which show it is. */
 .site-header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 28px;position:sticky;top:0;z-index:100;box-shadow:0 1px 8px rgba(0,0,0,0.04)}
-.site-header-inner{display:flex;align-items:center;gap:12px;min-height:56px}
+/* Three columns so the logo stays truly centered even when the cart
+   badge shows up on the right. */
+.site-header-inner{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;min-height:56px}
+.site-header .brand{grid-column:2;display:flex;align-items:center;gap:10px}
+.site-header #cart-badge{grid-column:3;justify-self:end}
 .site-header img{height:60px;width:auto;display:block}
 @media(max-width:520px){.site-header{padding:8px 16px} .site-header img{height:46px}}
 /* The logo already spells out the company name — the text is only a
@@ -78,7 +84,8 @@ body.has-poster .wrap{position:relative;z-index:2;margin-top:-30px;padding-top:0
    own site keeps its buttons in its own brand color no matter what's
    playing. Only the hero changes per show. */
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 22px;border-radius:var(--radius);border:none;font-size:14.5px;font-weight:700;cursor:pointer;font-family:inherit;transition:transform 0.08s ease,box-shadow 0.15s ease}
-.btn-primary{background:var(--teal-dark);color:#fff;box-shadow:0 4px 14px rgba(15,118,110,0.35)}
+.btn-primary{background:var(--teal-dark);color:#fff;box-shadow:0 4px 14px rgba(22,114,139,0.32)}
+.btn-primary:not(:disabled):hover{background:#125f74}
 .btn-primary:not(:disabled):hover{transform:translateY(-1px)}
 .btn-primary:disabled{opacity:0.4;cursor:not-allowed;box-shadow:none}
 .btn-secondary{background:var(--bg);color:var(--text);border:1.5px solid var(--border-md)}
@@ -113,9 +120,11 @@ label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0
 
 <div class="site-header">
   <div class="site-header-inner">
-    <img src="/static/images/hwtc_logo_teal.png" alt="Horizon West Theater Company" onerror="this.style.display='none';this.closest('.site-header').classList.add('no-logo')"/>
-    <span class="brand-text">Horizon West Theater Company</span>
-    <a href="/tickets/cart" id="cart-badge" style="display:none;margin-left:auto;font-size:13.5px;font-weight:700;color:var(--teal-dark);text-decoration:none;background:var(--teal-light);padding:6px 12px;border-radius:20px"></a>
+    <div class="brand">
+      <img src="/static/images/hwtc_logo_teal.png" alt="Horizon West Theater Company" onerror="this.style.display='none';this.closest('.site-header').classList.add('no-logo')"/>
+      <span class="brand-text">Horizon West Theater Company</span>
+    </div>
+    <a href="/tickets/cart" id="cart-badge" style="display:none;font-size:13.5px;font-weight:700;color:var(--teal-dark);text-decoration:none;background:var(--teal-light);padding:6px 12px;border-radius:20px"></a>
   </div>
 </div>
 <div id="hero-slot"></div>
@@ -249,7 +258,7 @@ async function api(path, method, body){
 }
 
 function setHero(name, color, logo, sub, imageUrl){
-  document.documentElement.style.setProperty('--show-accent', color || '#145466')
+  document.documentElement.style.setProperty('--show-accent', color || '#16728b')
   var isPoster = !!imageUrl
   document.body.classList.toggle('has-poster', isPoster)
   var style = isPoster ? ' style="background-image:url(\''+imageUrl.replace(/'/g,"%27")+'\')"' : ''
@@ -564,7 +573,7 @@ function wirePickerZoomEvents(){
   svg.addEventListener('touchcancel', function(){ pinchStartDist = null })
 }
 
-var SEAT_STATUS_COLORS = {available:'#0d9488', mine:'#145466', held:'#d97706', sold:'#d1d5db'}
+var SEAT_STATUS_COLORS = {available:'#16728b', mine:'#0a3a48', held:'#d97706', sold:'#d1d5db'}
 
 function renderPickerSVG(){
   if(!seats.length) return '<div style="color:var(--text-muted);padding:20px;text-align:center">No seat map configured for this performance yet.</div>'
@@ -820,7 +829,7 @@ function renderCart(){
       count++
       rows += '<div class="cart-row"><span>'+escH(seat?seat.seat_label:'')+(ticketTypes.length>1?' — '+seatTicketTypeSelect(sid):' '+escH(tt?tt.name:'')) +'</span><span>'+fmtMoney(tt?tt.price_cents:0)+'</span></div>'
       if(seat && seat.accessible){
-        rows += '<div style="font-size:12px;color:#145466;margin:-4px 0 6px;padding-left:2px">Wheelchair accessible space</div>'
+        rows += '<div style="font-size:12px;color:#16728b;margin:-4px 0 6px;padding-left:2px">Wheelchair accessible space</div>'
       }
       if(seat && seat.obstructed_view){
         rows += '<div style="font-size:12px;color:#b45309;margin:-4px 0 6px;padding-left:2px"> Limited view'+(seat.view_note?': '+escH(seat.view_note):'')+'</div>'

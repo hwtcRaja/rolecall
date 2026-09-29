@@ -33641,6 +33641,8 @@ async function renderMarqueeDashboard(el){
 function renderMarqueeDashboardBody(el, data){
   var rc = data.reg_counts || {}
   function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '$0.00' }
+  // signed version for net figures, which can go below zero
+  function fmtNet(c){ c = c||0; return (c<0?'−':'')+'$'+(Math.abs(c)/100).toFixed(2) }
   function toggleSessionRoster(id){
     var el = document.getElementById(id)
     if(el) el.style.display = el.style.display==='none' ? '' : 'none'
@@ -33659,8 +33661,12 @@ function renderMarqueeDashboardBody(el, data){
     ['', 'Open in Catalog', data.open_products||0, '#e0f2fe', '#145466'],
     ['', 'Confirmed Revenue', fmtMoney(data.confirmed_revenue||0), '#f0fdf4', '#166534'],
     ['', 'Expected Revenue', fmtMoney(data.expected_revenue||0), '#fffbeb', '#92400e'],
+  ].concat((data.instruction_cost_total||0) > 0 ? [
+    ['', 'Planned Instructor Pay', '−'+fmtMoney(data.instruction_cost_total), '#fef2f2', '#991b1b'],
+    ['', 'Net After Instructors', fmtNet(data.net_confirmed_revenue), (data.net_confirmed_revenue||0)<0?'#fef2f2':'#ecfdf5', (data.net_confirmed_revenue||0)<0?'#991b1b':'#065f46'],
+  ] : []).concat([
     ['', 'Donations (YTD)', '$'+(data.donations_ytd||0).toFixed(2), '#fefce8', '#92400e'],
-  ]
+  ])
   stats.forEach(function(s){
     html += '<div style="background:'+s[3]+';border-radius:12px;padding:14px 16px">'
       + '<div style="font-size:20px;margin-bottom:6px">'+s[0]+'</div>'
@@ -33731,13 +33737,32 @@ function renderMarqueeDashboardBody(el, data){
         + typeBadge
         + '<span style="font-size:11px;padding:2px 8px;border-radius:20px;font-weight:700;background:'+statusBg+'">'+escHtml(p.registration_status||'')+'</span>'
         + (p.comped_count>0 ? '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:#fce7f3;color:#9d174d">'+p.comped_count+' comp\'d</span>' : '')
+        + (p.paid_instruction ? '<span style="font-size:10px;padding:2px 7px;border-radius:20px;font-weight:700;background:#fef3c7;color:#92400e" title="An instructor is paid for this program; the net figure subtracts their planned pay">Paid instruction</span>' : '')
         + '</div>'
         + '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
         + '<span style="font-size:12px;color:var(--text-muted)"><strong>'+p.confirmed_count+'</strong> confirmed'+(p.waitlisted_count>0?' &middot; <strong>'+p.waitlisted_count+'</strong> waitlisted':'')+'</span>'
         + (p.capacity ? '<span style="font-size:12px;color:'+(fillPct>=90?'#d97706':'var(--text-muted)')+'">'+(fillPct>=90?'<strong>':'')+''+fillPct+'% full'+(fillPct>=90?'</strong>':'')+'</span>' : '')
         + '<span style="font-size:14px;font-weight:800;color:'+(progRevenue>0?'#166534':'var(--text-muted)')+';background:'+(progRevenue>0?'#f0fdf4':'transparent')+';padding:'+(progRevenue>0?'2px 10px':'0')+';border-radius:20px" title="Confirmed revenue">'+fmtMoney(progRevenue)+'</span>'
         + (progExpected>progRevenue ? '<span style="font-size:11px;color:#92400e" title="Expected revenue, if pending Step Up charges and waitlist convert">→ '+fmtMoney(progExpected)+' expected</span>' : '')
+        + (p.paid_instruction ? (function(){
+            var net = p.net_confirmed_cents||0
+            var basis = p.instruction_basis==='per_class'
+                ? p.instruction_classes+' class'+(p.instruction_classes!==1?'es':'')+' × $'+Number(p.instruction_rate||0).toFixed(2)
+              : p.instruction_basis==='hourly'
+                ? p.instruction_hours+' hrs ('+p.instruction_classes+' class'+(p.instruction_classes!==1?'es':'')+') × $'+Number(p.instruction_rate||0).toFixed(2)+'/hr'
+              : p.instruction_basis==='estimate' ? 'program\'s expected-pay estimate (no pay rate or no classes scheduled yet)'
+              : 'no pay rate or estimate set on the program'
+            return '<span style="font-size:12px;color:#991b1b" title="Planned instructor pay: '+escHtml(basis)+'">− '+fmtMoney(p.instruction_cost_cents||0)+' instructor</span>'
+              + '<span style="font-size:13px;font-weight:800;padding:2px 10px;border-radius:20px;background:'+(net<0?'#fef2f2':'#ecfdf5')+';color:'+(net<0?'#991b1b':'#065f46')+'" title="Confirmed revenue minus planned instructor pay">= '+fmtNet(net)+' net</span>'
+          })() : '')
         + '</div>'
+        + (p.paid_instruction ? '<div style="margin-top:4px;font-size:10.5px;color:var(--text-hint)">Instructor pay: '
+            + (p.instruction_basis==='per_class' ? p.instruction_classes+' scheduled class'+(p.instruction_classes!==1?'es':'')+' × $'+Number(p.instruction_rate||0).toFixed(2)+' per class'
+              : p.instruction_basis==='hourly' ? p.instruction_hours+' scheduled hrs across '+p.instruction_classes+' class'+(p.instruction_classes!==1?'es':'')+' × $'+Number(p.instruction_rate||0).toFixed(2)+'/hr'
+              : p.instruction_basis==='estimate' ? 'using the program\'s expected-pay estimate ('+fmtMoney(p.instruction_cost_cents||0)+'). Add a pay rate and schedule classes for an exact figure'
+              : '<strong style="color:#b45309">no pay rate set.</strong> Add one in the program\'s settings so this net is accurate')
+            + (p.instruction_classes ? ' · '+(p.instruction_classes_paid||0)+' of '+p.instruction_classes+' paid in BloomBooks' : '')
+            + '</div>' : '')
         + (p.capacity&&!p.sessions_enabled ? '<div style="margin-top:5px;height:4px;background:#e5e7eb;border-radius:2px;width:min(200px,100%)"><div style="height:100%;background:'+(fillPct>=90?'#d97706':fillPct>=70?'#f59e0b':'#145466')+';border-radius:2px;width:'+Math.min(fillPct||0,100)+'%"></div></div>' : '')
         + ((p.step_up_revenue_cents>0 || p.estimate_revenue_cents>0 || p.step_up_pending_cents>0) ? '<div style="margin-top:4px;font-size:10.5px;color:var(--text-hint)">'
             + (p.square_revenue_cents>0 ? ' '+fmtMoney(p.square_revenue_cents)+' via Square' : '')

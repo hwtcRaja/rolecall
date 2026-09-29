@@ -1651,15 +1651,18 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   <div class="page-body">
     <div style="display:flex;gap:2px;background:var(--gray-100);border-radius:var(--radius);padding:3px;margin-bottom:20px;width:fit-content;flex-wrap:wrap" id="marquee-tabs">
       <button class="marquee-tab" data-tab="dashboard" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:var(--surface);cursor:pointer">Dashboard</button>
-      <button class="marquee-tab" data-tab="boxoffice" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Box Office</button>
-      <button class="marquee-tab" data-tab="catalog" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Catalog</button>
-      <button class="marquee-tab" data-tab="orders" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Orders</button>
+      <button class="marquee-tab" data-tab="programs" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Programs &amp; Classes</button>
+      <button class="marquee-tab" data-tab="boxoffice" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Ticket Sales</button>
+      <button class="marquee-tab" data-tab="enrollment" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Enrollment</button>
       <button class="marquee-tab" data-tab="registrations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Registrations</button>
+      <button class="marquee-tab" data-tab="orders" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Orders</button>
       <button class="marquee-tab" data-tab="discounts" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Promotions</button>
       <button class="marquee-tab" data-tab="donations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Donations</button>
     </div>
     <div id="marquee-tab-dashboard"></div>
+    <div id="marquee-tab-programs" style="display:none"></div>
     <div id="marquee-tab-boxoffice" style="display:none"></div>
+    <div id="marquee-tab-enrollment" style="display:none"></div>
     <div id="marquee-tab-catalog" style="display:none"></div>
     <div id="marquee-tab-orders" style="display:none"></div>
     <div id="marquee-tab-registrations" style="display:none"></div>
@@ -33539,8 +33542,10 @@ function loadMarqueePage(){
 
 function switchMarqueeTab(tab, filterValue){
   _marqueeTab = tab
+  // Catalog lives under Programs & Classes, so that tab stays highlighted
+  var navTab = tab === 'catalog' ? 'programs' : tab
   document.querySelectorAll('.marquee-tab').forEach(function(b){
-    var isActive = b.dataset.tab === tab
+    var isActive = b.dataset.tab === navTab
     b.style.background = isActive ? 'var(--surface)' : 'transparent'
     b.style.color = isActive ? '' : 'var(--text-muted)'
   })
@@ -33559,8 +33564,10 @@ async function renderMarqueeTab(tab, filterValue){
   if(!el) return
   el.innerHTML = '<div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div>'
   if(tab==='dashboard') await renderMarqueeDashboard(el)
+  else if(tab==='programs') await renderMarqueeBreakdownTab(el, 'program')
+  else if(tab==='enrollment') await renderMarqueeBreakdownTab(el, 'production')
   else if(tab==='boxoffice') await renderMarqueeBoxOffice(el)
-  else if(tab==='catalog') await renderMarqueeCatalog(el)
+  else if(tab==='catalog'){ el.innerHTML = marqueeProgramsSubnav('catalog') + '<div id="mq-catalog-body"></div>'; await renderMarqueeCatalog(document.getElementById('mq-catalog-body')) }
   else if(tab==='registrations') await renderMarqueeRegistrations(el, filterValue)
   else if(tab==='orders') await renderMarqueeOrders(el)
   else if(tab==='discounts') await renderMarqueeDiscounts(el)
@@ -33572,8 +33579,32 @@ let _mqDashProgFilter = 'active' // 'active' | 'past' | 'all'
 
 function setMqDashProgFilter(f){
   _mqDashProgFilter = f
-  var el = document.getElementById('marquee-tab-dashboard')
-  if(el && _mqDashData) renderMarqueeDashboardBody(el, _mqDashData)
+  var kind = _marqueeTab === 'enrollment' ? 'production' : 'program'
+  var el = document.getElementById('mq-breakdown-body')
+  if(el && _mqDashData) renderMarqueeDashboardBody(el, _mqDashData, {kind: kind})
+}
+
+// Sub-navigation inside Programs & Classes (breakdown vs. catalog)
+function marqueeProgramsSubnav(active){
+  function pill(key, label){
+    var on = active === key
+    return '<span onclick="switchMarqueeTab(\''+key+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid '+(on?'var(--teal)':'var(--border)')+';background:'+(on?'var(--teal)':'transparent')+';color:'+(on?'#fff':'var(--text-muted)')+'">'+label+'</span>'
+  }
+  return '<div style="display:flex;gap:8px;margin-bottom:16px">'+pill('programs','Programs &amp; Sessions')+pill('catalog','Catalog')+'</div>'
+}
+
+// Programs & Classes / Enrollment tabs: the detailed per-program breakdown
+async function renderMarqueeBreakdownTab(el, kind){
+  var data = await api('/api/marquee/overview')
+  _mqDashData = data
+  if(!data || data.error){ el.innerHTML='<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load.</div>'; return }
+  el.innerHTML = (kind === 'program' ? marqueeProgramsSubnav('programs') : '')
+    + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">'
+    + (kind === 'program'
+        ? 'Every class and program with its sessions, rosters, and (for instructed courses) instructor pay and net. For money by month/quarter/year, use the Dashboard.'
+        : 'Rising Stars and Teen Show enrollment fees, with rosters. For money by month/quarter/year, use the Dashboard.')
+    + '</div><div id="mq-breakdown-body"></div>'
+  renderMarqueeDashboardBody(document.getElementById('mq-breakdown-body'), data, {kind: kind})
 }
 
 async function toggleRegComped(rid, value){
@@ -33631,14 +33662,186 @@ async function runMarqueeResplit(){
   if(resultEl) resultEl.textContent = msg
 }
 
-async function renderMarqueeDashboard(el){
-  var data = await api('/api/marquee/overview')
-  _mqDashData = data
-  if(!data || data.error){ el.innerHTML='<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load dashboard.</div>'; return }
-  renderMarqueeDashboardBody(el, data)
+// ── Marquee Dashboard: three buckets + one period filter for everything ──
+var _mqPeriod = 'active'
+var _mqCustomStart = ''
+var _mqCustomEnd = ''
+var MQ_PERIODS = [['active','Active now'],['month','This month'],['last_month','Last month'],['quarter','This quarter'],['year','This year'],['last_year','Last year'],['custom','Custom']]
+
+function setMqPeriod(p){
+  _mqPeriod = p
+  var el = document.getElementById('marquee-tab-dashboard')
+  if(p === 'custom' && !(_mqCustomStart && _mqCustomEnd)){
+    // show the date inputs without loading until both dates are picked
+    if(el && _mqDashSummary) renderMarqueeDashboardSummary(el, _mqDashSummary)
+    return
+  }
+  if(el) renderMarqueeDashboard(el)
+}
+function setMqCustomRange(){
+  _mqCustomStart = (document.getElementById('mq-custom-start')||{}).value || ''
+  _mqCustomEnd = (document.getElementById('mq-custom-end')||{}).value || ''
+  if(_mqCustomStart && _mqCustomEnd) renderMarqueeDashboard(document.getElementById('marquee-tab-dashboard'))
 }
 
-function renderMarqueeDashboardBody(el, data){
+var _mqDashSummary = null
+async function renderMarqueeDashboard(el){
+  var q = '?period='+encodeURIComponent(_mqPeriod)
+  if(_mqPeriod === 'custom') q += '&start='+encodeURIComponent(_mqCustomStart)+'&end='+encodeURIComponent(_mqCustomEnd)
+  var data = await api('/api/marquee/summary'+q)
+  if(!data || data.error){ el.innerHTML='<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load dashboard.</div>'; return }
+  _mqDashSummary = data
+  renderMarqueeDashboardSummary(el, data)
+}
+
+function renderMarqueeDashboardSummary(el, data){
+  function m(c){ c = c||0; return (c<0?'−':'')+'$'+(Math.abs(c)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) }
+  function fmtD(s){ if(!s) return ''; try{ return new Date(s+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return s } }
+  var b = data.buckets || {}, P = b.programs||{}, T = b.tickets||{}, E = b.enrollment||{}, tot = data.total||{}
+  var isActive = data.period === 'active'
+  var html = ''
+
+  // filter bar
+  html += '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:8px">'
+    + MQ_PERIODS.map(function(p){
+        var on = _mqPeriod === p[0]
+        return '<span onclick="setMqPeriod(\''+p[0]+'\')" style="padding:7px 14px;border-radius:20px;font-size:12.5px;font-weight:700;cursor:pointer;border:1.5px solid '+(on?'var(--teal)':'var(--border)')+';background:'+(on?'var(--teal)':'transparent')+';color:'+(on?'#fff':'var(--text-muted)')+'">'+p[1]+'</span>'
+      }).join('')
+    + (_mqPeriod === 'custom'
+        ? '<span style="display:inline-flex;gap:6px;align-items:center;margin-left:4px"><input type="date" id="mq-custom-start" value="'+escHtml(_mqCustomStart)+'" onchange="setMqCustomRange()" style="width:auto;padding:6px 8px;font-size:12.5px"/>'
+          + '<span style="font-size:12px;color:var(--text-muted)">to</span><input type="date" id="mq-custom-end" value="'+escHtml(_mqCustomEnd)+'" onchange="setMqCustomRange()" style="width:auto;padding:6px 8px;font-size:12.5px"/></span>'
+        : '')
+    + '</div>'
+  html += '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:18px;line-height:1.5">'
+    + (isActive
+        ? '<strong>Active now:</strong> everything for classes that are enrolling or still running, shows with upcoming performances, and Rising Stars / Teen Show enrollments still in progress, whenever it was paid. Instructor pay is the full planned amount for those classes.'
+        : (_mqPeriod === 'custom' && !(_mqCustomStart && _mqCustomEnd))
+          ? 'Pick a start and end date.'
+          : '<strong>'+fmtD(data.start)+' – '+fmtD(data.end_inclusive)+':</strong> money that came in during these dates (by payment date), matching your deposits. Instructor pay counts classes scheduled in these dates.')
+    + '</div>'
+
+  // bucket cards
+  function card(title, big, lines, bg, fg, tab){
+    return '<div onclick="'+(tab?'switchMarqueeTab(\''+tab+'\')':'')+'" style="background:'+bg+';border-radius:12px;padding:14px 16px;'+(tab?'cursor:pointer':'')+'">'
+      + '<div style="font-size:11px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:'+fg+';opacity:0.8;margin-bottom:6px">'+title+'</div>'
+      + '<div style="font-size:22px;font-weight:800;color:'+fg+'">'+big+'</div>'
+      + lines.map(function(l){ return '<div style="font-size:12px;color:'+fg+';margin-top:3px">'+l+'</div>' }).join('')
+      + '</div>'
+  }
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:8px">'
+    + card('Programs &amp; Classes', m(P.gross_cents),
+        (P.instructor_cost_cents ? ['− '+m(P.instructor_cost_cents)+' instructors', '<strong>'+m(P.net_cents)+' net</strong>'] : [])
+          .concat([(P.enrolled||0)+' enrolled · '+(P.count||0)+' program'+(P.count===1?'':'s')]),
+        '#f0fdf4', '#166534', 'programs')
+    + card('Ticket Sales', m(T.gross_cents),
+        [(T.tickets||0)+' ticket'+(T.tickets===1?'':'s')+' · '+(T.orders||0)+' order'+(T.orders===1?'':'s')].concat(T.fee_cents ? [m(T.fee_cents)+' of that is service fees'] : []),
+        '#eff6ff', '#1e40af', 'boxoffice')
+    + card('Enrollment', m(E.gross_cents),
+        [(E.enrolled||0)+' enrolled · Rising Stars &amp; Teen Show'],
+        '#f5f3ff', '#5b21b6', 'enrollment')
+    + card('Total', m(tot.gross_cents),
+        tot.instructor_cost_cents ? ['− '+m(tot.instructor_cost_cents)+' instructors', '<strong>'+m(tot.net_cents)+' net</strong>'] : ['Programs + tickets + enrollment'],
+        '#0f172a', '#ffffff', '')
+    + '</div>'
+  var dons = data.donations || {}
+  var pendingBits = []
+  if((P.pending_step_up_cents||0)+(E.pending_step_up_cents||0)) pendingBits.push(m((P.pending_step_up_cents||0)+(E.pending_step_up_cents||0))+' in Step Up holds not charged yet')
+  if(isActive && ((P.waitlist_value_cents||0)+(E.waitlist_value_cents||0))) pendingBits.push(m((P.waitlist_value_cents||0)+(E.waitlist_value_cents||0))+' more if the waitlists convert')
+  html += '<div style="font-size:12px;color:var(--text-muted);margin-bottom:22px">'
+    + 'Donations '+escHtml(dons.label||'')+': <strong>$'+Number(dons.amount||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})+'</strong> ('+(dons.count||0)+'), not included in the total.'
+    + (pendingBits.length ? ' Not counted above: '+pendingBits.join(' · ')+'.' : '')
+    + '</div>'
+
+  // shared row helpers
+  function statusPill(r){
+    var st = r.registration_status || ''
+    var bg = st==='open' ? '#dcfce7;color:#166534' : '#f3f4f6;color:#6b7280'
+    return '<span style="font-size:10.5px;padding:2px 8px;border-radius:20px;font-weight:700;background:'+bg+'">'+escHtml(st)+'</span>'
+  }
+  function sectionHead(title, total, tab, extra){
+    return '<div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+      + '<span style="font-size:14.5px;font-weight:800">'+title+'</span>'
+      + '<span style="font-size:13px;font-weight:800;color:#166534">'+total+'</span>'
+      + (extra||'')
+      + '<span style="flex:1"></span>'
+      + '<button class="btn btn-secondary btn-sm" onclick="switchMarqueeTab(\''+tab+'\')">Details →</button></div>'
+  }
+  function empty(msg){ return '<div style="padding:18px 20px;font-size:13px;color:var(--text-muted)">'+msg+'</div>' }
+
+  // ── Programs & Classes ──
+  var progs = data.programs || []
+  var instr = progs.filter(function(r){ return r.paid_instruction })
+  var plain = progs.filter(function(r){ return !r.paid_instruction })
+  function progRow(r){
+    var cap = r.capacity ? ' / '+r.capacity : ''
+    return '<div style="display:flex;align-items:center;gap:12px;padding:10px 20px;border-top:1px solid var(--border);flex-wrap:wrap">'
+      + '<div style="flex:1;min-width:200px"><div style="font-weight:700;font-size:13.5px">'+escHtml(r.name)+' '+statusPill(r)+'</div>'
+      + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">'+(r.enrolled||0)+cap+' enrolled'
+      + (r.waitlisted ? ' · '+r.waitlisted+' waitlisted' : '')
+      + (r.paid_instruction && r.instruction_basis ? ' · instructor: '+(r.instruction_basis==='per_class' ? r.instruction_classes+' class'+(r.instruction_classes===1?'':'es')+' × $'+Number(r.instruction_rate||0).toFixed(2)
+          : r.instruction_basis==='hourly' ? r.instruction_hours+' hrs × $'+Number(r.instruction_rate||0).toFixed(2)+'/hr'
+          : r.instruction_basis==='estimate' ? 'using the program\'s pay estimate'
+          : '<strong style="color:#b45309">no pay rate set</strong>') : '')
+      + '</div></div>'
+      + '<div style="text-align:right;font-size:13px;min-width:110px"><div style="font-weight:700">'+m(r.gross_cents)+'</div>'
+      + (r.paid_instruction ? '<div style="font-size:11.5px;color:#991b1b">− '+m(r.instructor_cost_cents)+'</div>' : '') + '</div>'
+      + (r.paid_instruction ? '<div style="text-align:right;min-width:100px;font-size:13.5px;font-weight:800;color:'+(r.net_cents<0?'#991b1b':'#065f46')+'">'+m(r.net_cents)+'<div style="font-size:10.5px;font-weight:600;color:var(--text-muted)">net</div></div>' : '<div style="min-width:100px"></div>')
+      + '</div>'
+  }
+  function groupHead(label, rows, withNet){
+    var g = rows.reduce(function(t,r){ return t+(r.gross_cents||0) },0)
+    var c = rows.reduce(function(t,r){ return t+(r.instructor_cost_cents||0) },0)
+    return '<div style="padding:9px 20px;background:var(--bg);border-top:1px solid var(--border);display:flex;gap:14px;align-items:center;flex-wrap:wrap">'
+      + '<span style="font-size:11px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted)">'+label+' ('+rows.length+')</span>'
+      + '<span style="font-size:12px;font-weight:700;color:#166534">'+m(g)+'</span>'
+      + (withNet ? '<span style="font-size:12px;color:#991b1b">− '+m(c)+' instructors</span><span style="font-size:12px;font-weight:800;color:'+(g-c<0?'#991b1b':'#065f46')+'">= '+m(g-c)+' net</span>' : '')
+      + '</div>'
+  }
+  html += '<div class="card" style="margin-bottom:16px;overflow:hidden">'
+    + sectionHead('Programs &amp; Classes', m(P.gross_cents), 'programs', P.instructor_cost_cents ? '<span style="font-size:12.5px;font-weight:700;color:#065f46">'+m(P.net_cents)+' net</span>' : '')
+  if(!progs.length) html += empty(isActive ? 'No classes are enrolling or running right now.' : 'No program money came in during these dates.')
+  if(instr.length) html += groupHead('Instructed courses', instr, true) + instr.map(progRow).join('')
+  if(plain.length) html += groupHead('Not instructed', plain, false) + plain.map(progRow).join('')
+  html += '</div>'
+
+  // ── Ticket Sales ──
+  var shows = data.ticket_shows || []
+  html += '<div class="card" style="margin-bottom:16px;overflow:hidden">'
+    + sectionHead('Ticket Sales', m(T.gross_cents), 'boxoffice', '<span style="font-size:12px;color:var(--text-muted)">'+(T.tickets||0)+' tickets</span>')
+  if(!shows.length) html += empty(isActive ? 'No shows with upcoming performances.' : 'No tickets were sold during these dates.')
+  shows.forEach(function(sh){
+    html += '<div style="padding:10px 20px;border-top:1px solid var(--border)">'
+      + '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:200px;font-weight:700;font-size:13.5px">'+escHtml(sh.name)+'</div>'
+      + '<div style="font-size:12px;color:var(--text-muted)">'+sh.tickets+' ticket'+(sh.tickets===1?'':'s')+(sh.fee_cents?' · '+m(sh.fee_cents)+' fees':'')+'</div>'
+      + '<div style="min-width:110px;text-align:right;font-weight:700;font-size:13px">'+m(sh.gross_cents)+'</div></div>'
+      + ((sh.performances||[]).length ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'
+          + sh.performances.map(function(pf){
+              return '<span style="font-size:11px;padding:3px 9px;border-radius:14px;background:var(--bg);border:1px solid var(--border)">'+fmtD(pf.date)+(pf.time?' '+escHtml(tkFmtTime(pf.time)):'')+' · '+pf.tickets+' sold</span>'
+            }).join('') + '</div>' : '')
+      + '</div>'
+  })
+  html += '</div>'
+
+  // ── Enrollment ──
+  var enr = data.enrollment || []
+  html += '<div class="card" style="margin-bottom:16px;overflow:hidden">'
+    + sectionHead('Enrollment', m(E.gross_cents), 'enrollment', '<span style="font-size:12px;color:var(--text-muted)">Rising Stars &amp; Teen Show</span>')
+  if(!enr.length) html += empty(isActive ? 'No Rising Stars or Teen Show enrollment in progress.' : 'No enrollment money came in during these dates.')
+  enr.forEach(function(r){
+    html += '<div style="display:flex;align-items:center;gap:12px;padding:10px 20px;border-top:1px solid var(--border);flex-wrap:wrap">'
+      + '<div style="flex:1;min-width:200px"><div style="font-weight:700;font-size:13.5px">'+escHtml(r.name)+' '+statusPill(r)+'</div>'
+      + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">'+(r.enrolled||0)+(r.capacity?' / '+r.capacity:'')+' enrolled'+(r.waitlisted?' · '+r.waitlisted+' waitlisted':'')
+      + (r.pending_step_up_cents ? ' · '+m(r.pending_step_up_cents)+' Step Up pending' : '') + '</div></div>'
+      + '<div style="min-width:110px;text-align:right;font-weight:700;font-size:13px">'+m(r.gross_cents)+'</div></div>'
+  })
+  html += '</div>'
+
+  el.innerHTML = html
+}
+
+
+function renderMarqueeDashboardBody(el, data, opts){
+  opts = opts || {kind: 'program'}
   var rc = data.reg_counts || {}
   function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '$0.00' }
   // signed version for net figures, which can go below zero
@@ -33652,6 +33855,7 @@ function renderMarqueeDashboardBody(el, data){
 
   var html = ''
 
+  if(opts.showStats){
   // ── Stat cards ──
   html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:20px">'
   var stats = [
@@ -33677,9 +33881,12 @@ function renderMarqueeDashboardBody(el, data){
   html += '</div>'
   html += '<div style="font-size:11px;color:var(--text-hint);margin:-14px 0 20px">Confirmed = money actually in hand (excludes pending Step Up holds and comp\'d enrollments). Expected adds pending Step Up and waitlist on top \u2014 the optimistic number, not what\'s collected. Both totals are scoped to active (non-draft) programs and productions, matching the breakdown below. <strong>Use Confirmed for BloomBooks.</strong></div>'
 
+  }
+
+  if(opts.kind === 'program'){
   // ── Quick actions ──
   html += '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">'
-    + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=catalog]\').click()" style="font-size:13px">View Catalog</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="switchMarqueeTab(\'catalog\')" style="font-size:13px">View Catalog</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=orders]\').click()" style="font-size:13px">View All Orders</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="document.querySelector(\'.marquee-tab[data-tab=registrations]\').click()" style="font-size:13px">View Registrations</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(window.location.origin+\'/donate\').then(function(){ toast(\'Donation link copied!\',\'success\') })" style="font-size:13px">Copy Donation Link</button>'
@@ -33689,8 +33896,14 @@ function renderMarqueeDashboardBody(el, data){
   html += '<div id="marquee-resplit-result" style="font-size:12px;color:var(--text-muted);margin-bottom:4px"></div>'
   html += '<div id="marquee-backfill-result" style="font-size:12px;color:var(--text-muted);margin-bottom:16px"></div>'
 
+  }
+
   // ── Program breakdown ──
-  var allPrograms = data.program_breakdown || []
+  var allPrograms = (data.program_breakdown || []).filter(function(p){ return (p.type||'program') === opts.kind })
+  if(opts.kind === 'program'){
+    // instructed courses first, so the two groups read as separate lists
+    allPrograms = allPrograms.slice().sort(function(a,b){ return (b.paid_instruction?1:0) - (a.paid_instruction?1:0) })
+  }
   var sessions = data.session_breakdown || []
   var regsByProgram = data.regs_by_program || {}
   var activeCount = allPrograms.filter(function(p){ return p.registration_status==='open' }).length
@@ -33717,9 +33930,21 @@ function renderMarqueeDashboardBody(el, data){
     sessions.forEach(function(s){ if(!sessByProg[s.program_id]) sessByProg[s.program_id]=[]; sessByProg[s.program_id].push(s) })
 
     html += '<div class="card" style="margin-bottom:16px">'
-      + '<div style="padding:14px 20px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700">Programs &amp; Sessions</div>'
+      + '<div style="padding:14px 20px;border-bottom:1px solid var(--border);font-size:14px;font-weight:700">'+(opts.kind==='production'?'Rising Stars &amp; Teen Show Enrollment':'Programs &amp; Sessions')+'</div>'
+    var _grpLast = null
+    function _grpHeader(isInstr){
+      var rows = programs.filter(function(x){ return !!x.paid_instruction === isInstr })
+      var gross = rows.reduce(function(t,x){ return t+(x.confirmed_revenue_cents||0) },0)
+      var cost = rows.reduce(function(t,x){ return t+(x.instruction_cost_cents||0) },0)
+      return '<div style="padding:10px 20px;background:var(--bg);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;flex-wrap:wrap">'
+        + '<span style="font-size:11.5px;font-weight:800;letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted)">'+(isInstr?'Instructed courses':'Not instructed')+' ('+rows.length+')</span>'
+        + '<span style="font-size:12px;color:#166534;font-weight:700">'+fmtMoney(gross)+' confirmed</span>'
+        + (isInstr ? '<span style="font-size:12px;color:#991b1b">− '+fmtMoney(cost)+' instructor</span><span style="font-size:12px;font-weight:800;color:'+(gross-cost<0?'#991b1b':'#065f46')+'">= '+fmtNet(gross-cost)+' net</span>' : '')
+        + '</div>'
+    }
 
     programs.forEach(function(p){
+      if(opts.kind === 'program' && _grpLast !== !!p.paid_instruction){ _grpLast = !!p.paid_instruction; html += _grpHeader(_grpLast) }
       var fillPct = p.capacity ? Math.round((p.confirmed_count/p.capacity)*100) : null
       var progSessions = sessByProg[p.id] || []
       var progRevenue = p.confirmed_revenue_cents || 0
@@ -33851,6 +34076,7 @@ function renderMarqueeDashboardBody(el, data){
   }
 
 
+  if(opts.showRecent){
   var orders = data.recent_orders || []
   html += '<div class="card" style="margin-bottom:16px">'
     + '<div style="padding:14px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">'
@@ -33914,6 +34140,7 @@ function renderMarqueeDashboardBody(el, data){
   }
   html += '</div>'
 
+  }
   el.innerHTML = html
 }
 

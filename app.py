@@ -2986,6 +2986,13 @@ def init_db():
             grace_until TEXT,
             grace_note TEXT DEFAULT '')""",
         "INSERT INTO donor_benefit_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
+        # Per-production access for staff users who shouldn't see every show
+        """CREATE TABLE IF NOT EXISTS user_production_access (
+            user_id TEXT NOT NULL,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            level TEXT NOT NULL DEFAULT 'view',
+            created_at TIMESTAMP DEFAULT NOW(),
+            PRIMARY KEY (user_id, production_id))""",
         # Talent database: one record per person across every audition, so
         # staff can keep notes and see someone's history at a glance.
         """CREATE TABLE IF NOT EXISTS talent_people (
@@ -3455,6 +3462,7 @@ def require_admin():
 # Mirrors PERM_LEGACY_FALLBACK in index.html - keep the two in sync.
 PERM_LEGACY_FALLBACK = {
     'talent': 'productions',
+    'email_log': 'email',
     'waivers': 'volunteers',
     'carpools': 'youth',
     'notifications': 'settings',
@@ -3483,6 +3491,230 @@ def resolve_perm_level(perms, section):
     if legacy and perms.get(legacy):
         return perms[legacy]
     return 'none'
+
+
+# ── Per-section permissions enforced on the server ────────────────────────
+# Several sidebar tabs used to be guarded only by "logged in" (or by their
+# parent section), so hiding a tab in Settings didn't stop its API. Each
+# route below now checks its own section. The first key listed is the tab's
+# own permission: if a user has it set explicitly, that alone decides.
+# Otherwise any of the listed keys (with the usual parent fallback) grants
+# access, so nobody loses access on deploy.
+SECTION_ROUTE_PERMS = {
+    # donors (main page) — also hosts the Benefit Tracker
+    **{fn: (['donors'], ['donors']) for fn in (
+        'get_donors', 'create_donor', 'donor_summary', 'get_all_donations', 'bulk_update_donations',
+        'update_donor', 'delete_donor', 'merge_donors', 'get_donor_detail', 'add_donation', 'update_donation',
+        'delete_donation', 'send_thank_you', 'record_benefit_use', 'set_donor_tier', 'set_donor_benefit_override',
+        'get_all_donations_list')},
+    **{fn: (['donor_tiers', 'donors'], ['donor_tiers', 'donors']) for fn in (
+        'update_tier_benefit', 'delete_tier_benefit', 'delete_benefit_use', 'donor_benefit_settings_api',
+        'set_benefit_uses_allowed', 'set_benefit_code_settings', 'generate_benefit_codes', 'void_benefit_code',
+        'donors_for_benefit', 'get_all_donor_benefits')},
+    'get_donor_tiers': (['donor_tiers', 'donors'], ['donor_tiers']),
+    **{fn: (['donor_tiers'], ['donor_tiers']) for fn in ('create_donor_tier', 'update_donor_tier', 'delete_donor_tier', 'add_tier_benefit')},
+    **{fn: (['donor_campaigns', 'donors'], ['donor_campaigns']) for fn in ('get_donor_campaigns', 'get_campaign_benefits')},
+    **{fn: (['donor_campaigns'], ['donor_campaigns']) for fn in (
+        'create_campaign_benefit', 'update_campaign_benefit', 'delete_campaign_benefit',
+        'create_donor_campaign', 'update_donor_campaign', 'delete_donor_campaign')},
+    'get_donor_email_templates': (['donor_templates', 'donors'], ['donor_templates']),
+    **{fn: (['donor_templates'], ['donor_templates']) for fn in (
+        'create_donor_email_template', 'update_donor_email_template', 'delete_donor_email_template')},
+    # email
+    'get_email_log': (['email_log'], ['email_log']),
+    'get_email_templates': (['email_templates', 'email'], ['email_templates']),
+    **{fn: (['email_templates'], ['email_templates']) for fn in (
+        'update_email_template', 'create_email_template', 'delete_email_template', 'reset_system_template', 'test_template_email')},
+    # reports
+    'get_event_logs': (['event_logs'], ['event_logs']),
+    'get_event_log_report': (['event_logs', 'events'], ['event_logs']),
+    # participants
+    'get_carpools': (['carpools', 'kiosk', 'events'], ['carpools', 'events']),
+    **{fn: (['carpools', 'events'], ['carpools', 'events']) for fn in (
+        'create_carpool', 'update_carpool', 'delete_carpool', 'add_carpool_member', 'remove_carpool_member')},
+    # productions
+    **{fn: (['show_contracts', 'productions'], ['show_contracts', 'productions']) for fn in (
+        'get_production_contracts', 'upload_production_contract', 'delete_production_contract')},
+    # youth productions
+    **{fn: (['step_up_holds', 'rising_stars', 'youth', 'productions'], ['step_up_holds', 'rising_stars', 'youth', 'productions']) for fn in (
+        'list_step_up_holds', 'list_step_up_members', 'charge_step_up_hold', 'release_step_up_hold')},
+}
+
+
+def _perms_allow(perms, keys, level):
+    ok = ('view', 'edit') if level == 'view' else ('edit',)
+    own = keys[0]
+    if perms.get(own):                       # explicit setting on the tab itself wins
+        return perms[own] in ok
+    return any(resolve_perm_level(perms, k) in ok for k in keys)
+
+
+@app.before_request
+def _enforce_section_permissions():
+    rule = SECTION_ROUTE_PERMS.get(request.endpoint or '')
+    if not rule or 'user_id' not in session or session.get('role') == 'admin':
+        return None                          # the route's own checks handle logged-out users
+    level = 'view' if request.method in ('GET', 'HEAD', 'OPTIONS') else 'edit'
+    keys = rule[0] if level == 'view' else rule[1]
+    try:
+        conn = get_db()
+        u = fetchone(conn, 'SELECT role, role_permissions FROM users WHERE id=%s', (session['user_id'],))
+        conn.close()
+    except Exception:
+        u = None
+    if u and u.get('role') == 'admin':
+        return None
+    perms = json.loads((u or {}).get('role_permissions') or '{}')
+    if _perms_allow(perms, keys, level):
+        return None
+    return jsonify({'error': f'Permission denied: need {level} access for {keys[0].replace("_", " ")}. Contact an admin to update your permissions.'}), 403
+
+
+# ── Per-production access ─────────────────────────────────────────────────
+# Anyone with section access to productions (Productions or Youth
+# Productions; Marquee for registration/ticket screens; Sign-In/Kiosk for
+# audition check-in) keeps working on every show, as before. Everyone else
+# (e.g. a choreographer, stage manager, or director's assistant) only
+# reaches the productions they've been granted in Settings → Users, at the
+# level granted (view = look only; edit = make changes). Directors also
+# keep access to shows they direct.
+_PA_MARQUEE_HINTS = ('registration', 'discount-code', 'performance', 'ticket', 'seat-hold', 'notify-interest', 'interest-list')
+_PA_CHECKIN_HINTS = ('checkin', 'schedule', 'call-next')
+
+
+def production_grants_for_user(conn, user_id):
+    rows = fetchall(conn, 'SELECT production_id, level FROM user_production_access WHERE user_id=%s', (user_id,)) or []
+    return {r['production_id']: r['level'] for r in rows}
+
+
+def _pa_production_for_request(conn):
+    """Which production (if any) this staff request is about."""
+    va = request.view_args or {}
+    path = request.path or ''
+    if path.startswith('/api/productions/'):
+        if va.get('pid'):
+            return va['pid']
+        if va.get('mid') and '/api/productions/members/' in path:
+            r = fetchone(conn, 'SELECT production_id FROM production_members WHERE id=%s', (va['mid'],))
+            return (r or {}).get('production_id') or '__none__'
+        if va.get('cid') and '/api/productions/contracts/' in path:
+            r = fetchone(conn, 'SELECT production_id FROM production_contracts WHERE id=%s', (va['cid'],))
+            return (r or {}).get('production_id') or '__none__'
+        if va.get('qid') and '/api/productions/contract-qa/' in path:
+            r = fetchone(conn, 'SELECT production_id FROM production_contract_qa WHERE id=%s', (va['qid'],))
+            return (r or {}).get('production_id') or '__none__'
+        return None
+    if path.startswith('/api/auditions/'):
+        if va.get('context_type') == 'production' and va.get('context_id'):
+            return va['context_id']
+        if va.get('sid') and '/submissions/' in path:
+            r = fetchone(conn, 'SELECT context_type, context_id FROM audition_submissions WHERE id=%s', (va['sid'],))
+            return r['context_id'] if r and r.get('context_type') == 'production' else None
+        if va.get('cid') and '/checkins/' in path:
+            r = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (va['cid'],))
+            return r['context_id'] if r and r.get('context_type') == 'production' else None
+        if request.method in ('POST', 'PUT') and path.rstrip('/') in ('/api/auditions/checkin', '/api/auditions/checkins/call-next'):
+            body = request.get_json(silent=True) or {}
+            if body.get('context_type') == 'production':
+                return body.get('context_id')
+    return None
+
+
+def _pa_is_director_of(conn, user_id, production_id):
+    me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (user_id,))
+    email = ((me or {}).get('email') or '').strip().lower()
+    if not email:
+        return False
+    return bool(fetchone(conn, '''SELECT 1 AS x FROM production_members pm JOIN volunteers v ON v.id=pm.volunteer_id
+        WHERE pm.production_id=%s AND lower(v.email)=%s AND pm.role ILIKE %s''', (production_id, email, '%director%')))
+
+
+# Audition pages the public (and families) load; never gated here
+_PA_PUBLIC_ENDPOINTS = {'get_audition_settings', 'get_audition_slots', 'list_audition_materials', 'get_cast_list'}
+
+
+@app.before_request
+def _enforce_production_access():
+    path = request.path or ''
+    if not (path.startswith('/api/productions/') or path.startswith('/api/auditions/')):
+        return None
+    if request.method in ('GET', 'HEAD') and request.endpoint in _PA_PUBLIC_ENDPOINTS:
+        return None
+    if 'user_id' not in session or session.get('role') == 'admin':
+        return None
+    conn = get_db()
+    try:
+        pid = _pa_production_for_request(conn)
+        if not pid:
+            return None
+        u = fetchone(conn, 'SELECT role, role_permissions FROM users WHERE id=%s', (session['user_id'],))
+        if not u or u.get('role') == 'admin':
+            return None
+        perms = json.loads(u.get('role_permissions') or '{}')
+        level = 'view' if request.method in ('GET', 'HEAD', 'OPTIONS') else 'edit'
+        ok_levels = ('view', 'edit') if level == 'view' else ('edit',)
+        section_keys = ['productions', 'rising_stars']
+        if any(h in path for h in _PA_MARQUEE_HINTS):
+            section_keys.append('marquee')
+        if path.startswith('/api/auditions/') and any(h in path for h in _PA_CHECKIN_HINTS):
+            section_keys.append('kiosk')
+        if any(resolve_perm_level(perms, k) in ok_levels for k in section_keys):
+            return None
+        grant = production_grants_for_user(conn, session['user_id']).get(pid)
+        if grant in ok_levels:
+            return None
+        if u.get('role') == 'director' and _pa_is_director_of(conn, session['user_id'], pid):
+            return None                      # the route's own director checks still apply
+        if grant == 'view' and level == 'edit':
+            return jsonify({'error': 'You have view-only access to this production.'}), 403
+        return jsonify({'error': 'You don\'t have access to this production. Ask an admin to grant it in Settings → Users.'}), 403
+    finally:
+        conn.close()
+
+
+def productions_visible_to_user(conn):
+    """None = every production; otherwise the set of ids this user may see."""
+    if session.get('role') == 'admin':
+        return None
+    u = fetchone(conn, 'SELECT role, role_permissions FROM users WHERE id=%s', (session.get('user_id'),))
+    if not u or u.get('role') == 'admin':
+        return None
+    perms = json.loads(u.get('role_permissions') or '{}')
+    if any(resolve_perm_level(perms, k) in ('view', 'edit') for k in ('productions', 'rising_stars', 'marquee')):
+        return None
+    grants = production_grants_for_user(conn, session['user_id'])
+    if not grants and u.get('role') != 'director':
+        return None                          # unchanged for staff who were never scoped
+    ids = set(grants.keys())
+    if u.get('role') == 'director':
+        me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+        email = ((me or {}).get('email') or '').strip().lower()
+        if email:
+            for r in fetchall(conn, '''SELECT DISTINCT pm.production_id FROM production_members pm
+                    JOIN volunteers v ON v.id=pm.volunteer_id WHERE lower(v.email)=%s AND pm.role ILIKE %s''',
+                    (email, '%director%')) or []:
+                ids.add(r['production_id'])
+    return ids
+
+
+@app.route('/api/users/<uid>/production-access', methods=['GET', 'PUT'])
+def user_production_access_api(uid):
+    err = require_permission('settings', 'edit') if request.method == 'PUT' else require_permission('settings', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            grants = (request.json or {}).get('grants') or {}
+            execute(conn, 'DELETE FROM user_production_access WHERE user_id=%s', (uid,))
+            for pid, lvl in grants.items():
+                if lvl in ('view', 'edit'):
+                    execute(conn, '''INSERT INTO user_production_access (user_id, production_id, level)
+                        VALUES (%s,%s,%s) ON CONFLICT (user_id, production_id) DO UPDATE SET level=EXCLUDED.level''',
+                        (uid, pid, lvl))
+            conn.commit()
+        return jsonify({'grants': production_grants_for_user(conn, uid)})
+    finally:
+        conn.close()
 
 
 def current_user_board_role_match(conn, role_keyword):
@@ -4423,6 +4655,13 @@ def me():
         except Exception: perms = {}
     result = {'id': u['id'], 'name': u['name'], 'email': u['email'],
               'role': u['role'], 'permissions': perms}
+    if u['role'] != 'admin':
+        try:
+            conn = get_db()
+            result['production_grants'] = production_grants_for_user(conn, u['id'])
+            conn.close()
+        except Exception:
+            result['production_grants'] = {}
     if session.get('real_admin_id'):
         result['impersonating'] = True
         result['real_admin_name'] = session.get('real_admin_name', '')
@@ -12108,6 +12347,12 @@ def get_productions():
         LEFT JOIN elics el ON p.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
         ORDER BY p.start_date DESC NULLS LAST""")
+    visible = productions_visible_to_user(conn)
+    if visible is not None:
+        grants = production_grants_for_user(conn, session['user_id'])
+        prods = [p for p in prods if p['id'] in visible]
+        for p in prods:
+            p['my_access'] = grants.get(p['id'], 'edit')
     for p in prods:
         p['members'] = fetchall(conn, '''
             SELECT pm.*, v.name as volunteer_name, v.email as volunteer_email, v.phone as volunteer_phone

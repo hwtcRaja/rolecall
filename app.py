@@ -3454,6 +3454,7 @@ def require_admin():
 
 # Mirrors PERM_LEGACY_FALLBACK in index.html - keep the two in sync.
 PERM_LEGACY_FALLBACK = {
+    'talent': 'productions',
     'waivers': 'volunteers',
     'carpools': 'youth',
     'notifications': 'settings',
@@ -7355,7 +7356,7 @@ def backfill_talent_links(conn, limit=5000):
 def _require_talent_access(level='view'):
     if session.get('role') == 'director':
         return jsonify({'error': 'The talent database is staff-only'}), 403
-    return require_permission('productions', level)
+    return require_permission('talent', level)
 
 
 _talent_ctx_cache = {}
@@ -7555,7 +7556,7 @@ def get_audition_submissions(context_type, context_id):
             return jsonify([])
     # Talent history: how often this person has auditioned / been cast
     # elsewhere, plus staff notes. Not shown to directors (cross-show data).
-    if session.get('role') != 'director' and rows:
+    if session.get('role') != 'director' and rows and not require_permission('talent', 'view'):
         try:
             unlinked = [r for r in rows if not r.get('talent_person_id')]
             for r in unlinked:

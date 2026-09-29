@@ -4543,36 +4543,36 @@ const NAV_PERM_MAP = {
  'rentals': 'rentals', // always visible
  'volunteers': 'volunteers',
  'directors': 'directors',
- 'waivers': 'volunteers',
+ 'waivers': 'waivers',
  'hours': 'hours',
  'email': 'email',
- 'email-log': 'email',
- 'email-templates-page': 'email',
+ 'email-log': 'email_log',
+ 'email-templates-page': 'email_templates',
  'events': 'events',
  'marquee': 'marquee',
  'refund-requests': 'refund_requests',
  'productions': 'productions',
- 'show-contracts': 'productions',
+ 'show-contracts': 'show_contracts',
  'licensing': 'licensing',
  'talent': 'talent',
  'youth': 'youth',
  'youth-programs-page': 'programs',
  'rising-stars-page':'rising_stars',
- 'step-up-holds': ['rising_stars','youth','productions'],
+ 'step-up-holds': 'step_up_holds',
  'portal-admin': 'portal_admin',
  'youth-signin': 'kiosk',
- 'carpools': 'youth',
- 'event-logs': 'reports',
+ 'carpools': 'carpools',
+ 'event-logs': 'event_logs',
  'reports': 'reports',
- 'notifications': 'settings',
+ 'notifications': 'notifications',
  'settings': 'settings',
  'board': 'board',
  'inbox': 'inbox',
  'donors': 'donors',
  'donor-detail': 'donors',
- 'donor-campaigns': 'donors',
- 'donor-tiers': 'donors',
- 'donor-templates': 'donors',
+ 'donor-campaigns': 'donor_campaigns',
+ 'donor-tiers': 'donor_tiers',
+ 'donor-templates': 'donor_templates',
  'oncall': 'oncall',
  'hours-store': 'hours_store',
  'responsibility': 'responsibility_grid',
@@ -4586,6 +4586,17 @@ const PERM_LEGACY_FALLBACK = {
  'talent': 'productions',
  'space_requests': 'rentals',
  'foh_training': 'events',
+ 'waivers': 'volunteers',
+ 'carpools': 'youth',
+ 'notifications': 'settings',
+ 'show_contracts': 'productions',
+ 'step_up_holds': 'rising_stars',
+ 'event_logs': 'reports',
+ 'email_templates': 'email',
+ 'email_log': 'email',
+ 'donor_campaigns': 'donors',
+ 'donor_tiers': 'donors',
+ 'donor_templates': 'donors',
 }
 
 function resolvePermLevel(section){
@@ -4597,8 +4608,23 @@ function resolvePermLevel(section){
  if(legacy && perms[legacy]) return perms[legacy]
  return null
 }
-function canView(section){ return!section || currentUser?.role==='admin' || ['view','edit'].includes(resolvePermLevel(section)) }
-function canEdit(section){ return!section || currentUser?.role==='admin' || resolvePermLevel(section)==='edit' }
+// Per-production grants (Settings → Users → Production access): someone with
+// no Productions permission but access to specific shows still gets the
+// Productions tab, listing only those shows. The server enforces each show.
+function productionGrantLevels(){ return Object.values(currentUser?.production_grants||{}) }
+function canView(section){
+ if(!section || currentUser?.role==='admin' || ['view','edit'].includes(resolvePermLevel(section))) return true
+ return section==='productions' && productionGrantLevels().length > 0
+}
+function canEdit(section){
+ if(!section || currentUser?.role==='admin' || resolvePermLevel(section)==='edit') return true
+ if(section==='productions' && productionGrantLevels().length){
+  // inside a show, follow that show's grant; elsewhere, any edit grant
+  if(window._openProductionAccess) return window._openProductionAccess === 'edit'
+  return productionGrantLevels().indexOf('edit') >= 0
+ }
+ return false
+}
 function canViewAny(sections){ return Array.isArray(sections) ? sections.some(canView): canView(sections) }
 function canEditAny(sections){ return Array.isArray(sections) ? sections.some(canEdit): canEdit(sections) }
 
@@ -4687,6 +4713,7 @@ window.addEventListener('DOMContentLoaded',async()=>{
 // ═══════════════════════════════════════════════════════════════
 function navTo(page,el){
  closeMobileNav();
+ if(page !== 'production-detail') window._openProductionAccess = null
  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'))
  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
  const pg=document.getElementById('page-'+page)
@@ -17949,6 +17976,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
 let prodDetailFromPage = 'productions'
 function openProductionDetail(prodId, fromPage){
  currentProdId=prodId
+ window._openProductionAccess = (allProductions.find(x=>x.id===prodId)||{}).my_access || null
  prodDetailFromPage = fromPage||(['rising_stars','teen_show'].includes(allProductions.find(p=>p.id===prodId)?.stage)?'rising-stars-page':'productions')
  const p=allProductions.find(p=>p.id===prodId)
  if(!p) return
@@ -18416,7 +18444,7 @@ function openUserEditModal(uid){
  table.appendChild(tbody)
 
  PERM_SECTIONS.forEach(s=>{
- const curVal = perms[s.key] || 'none'
+ const curVal = perms[s.key] || (s.parent ? 'inherit' : 'none')
  const tr = document.createElement('tr')
  tr.style.borderBottom = '1px solid var(--border)'
 
@@ -18436,7 +18464,8 @@ function openUserEditModal(uid){
  const sel = document.createElement('select')
  sel.id = 'perm-sel-' + uid + '-' + s.key
  sel.style.cssText = 'padding:5px 8px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none;background:var(--surface);cursor:pointer'
- ;[['none','No Access'],['view','View Only'],['edit','View & Edit']].forEach(([val,label])=>{
+ const _parentLabel = s.parent ? ((PERM_SECTIONS.find(x=>x.key===s.parent)||{}).label||s.parent).trim() : ''
+ ;(s.parent ? [['inherit','Same as '+_parentLabel]] : []).concat([['none','No Access'],['view','View Only'],['edit','View & Edit']]).forEach(([val,label])=>{
  const opt = document.createElement('option')
  opt.value = val
  opt.textContent = label
@@ -18445,9 +18474,9 @@ function openUserEditModal(uid){
  })
  // Color the select based on value
  const colorSel = ()=>{
- const colors = {none:'var(--text-muted)',view:'var(--blue-600)',edit:'var(--green-600)'}
+ const colors = {none:'var(--text-muted)',view:'var(--blue-600)',edit:'var(--green-600)',inherit:'var(--text-muted)'}
  sel.style.color = colors[sel.value]||'var(--text-muted)'
- sel.style.fontWeight = sel.value==='none'?'400':'700'
+ sel.style.fontWeight = (sel.value==='none'||sel.value==='inherit')?'400':'700'
  }
  colorSel()
  sel.addEventListener('change', colorSel)
@@ -18456,6 +18485,16 @@ function openUserEditModal(uid){
  tbody.appendChild(tr)
  })
  permSection.appendChild(table)
+
+ // Production access: specific shows for people without Productions access
+ const paWrap = document.createElement('div')
+ paWrap.id = 'prod-access-'+uid
+ paWrap.style.cssText = 'margin-top:18px;padding-top:14px;border-top:1px solid var(--border)'
+ paWrap.innerHTML = '<div style="font-size:13px;font-weight:700;margin-bottom:4px">Production access</div>'
+  + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">Give access to specific shows only. This matters when <strong>Productions</strong> and <strong>Youth Productions</strong> above are No Access. Anyone with those already sees every show. Covers the show\'s cast/crew, schedule, conflicts, announcements, registrations, auditions and check-in.</div>'
+  + '<div class="pa-list" style="font-size:12.5px;color:var(--text-muted)">Loading shows…</div>'
+ permSection.appendChild(paWrap)
+ loadUserProductionAccess(uid)
 
  // Save button
  const saveBtn = document.createElement('button')
@@ -18534,11 +18573,36 @@ function revokeAll(uid){
  })
 }
 
+async function loadUserProductionAccess(uid){
+ const wrap = document.getElementById('prod-access-'+uid); if(!wrap) return
+ const list = wrap.querySelector('.pa-list')
+ const [prods, access] = await Promise.all([api('/api/productions'), api('/api/users/'+uid+'/production-access')])
+ const grants = (access && access.grants) || {}
+ const rows = (Array.isArray(prods)?prods:[]).filter(p=>p.status!=='archived' || grants[p.id])
+ if(!rows.length){ list.textContent = 'No productions yet.'; return }
+ list.innerHTML = '<div style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)">'
+  + rows.map(p=>{ const g = grants[p.id]||''
+     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;border-bottom:1px solid var(--border)">'
+      + '<div style="flex:1;color:var(--text);font-weight:600">'+escHtml(p.name)+'<span style="font-weight:400;color:var(--text-muted);font-size:11px"> · '+escHtml(p.stage==='rising_stars'?'Rising Stars':p.stage==='teen_show'?'Teen Show':'Mainstage')+(p.status?' · '+escHtml(p.status):'')+'</span></div>'
+      + '<select data-pid="'+p.id+'" class="pa-sel" style="padding:4px 8px;font-size:12px;width:auto">'
+      + [['','No access'],['view','View only'],['edit','View & Edit']].map(o=>'<option value="'+o[0]+'"'+(o[0]===g?' selected':'')+'>'+o[1]+'</option>').join('')
+      + '</select></div>' }).join('') + '</div>'
+}
+
 async function saveUserPermissions(uid){
+ // production-specific access saves alongside the section permissions
+ const paWrap = document.getElementById('prod-access-'+uid)
+ if(paWrap && paWrap.querySelector('.pa-sel')){
+  const grants = {}
+  paWrap.querySelectorAll('.pa-sel').forEach(sel=>{ if(sel.value) grants[sel.dataset.pid] = sel.value })
+  const pr = await api('/api/users/'+uid+'/production-access','PUT',{grants})
+  if(pr && pr.error){ toast(pr.error,'error'); return }
+ }
  const perms = {}
  PERM_SECTIONS.forEach(s=>{
  const sel = document.getElementById('perm-sel-'+uid+'-'+s.key)
- perms[s.key] = sel ? sel.value: 'none'
+ const v = sel ? sel.value : (s.parent ? 'inherit' : 'none')
+ if(v !== 'inherit') perms[s.key] = v   // left out = follows its parent section
  })
 
  const statusEl = document.getElementById('perm-save-status-'+uid)
@@ -18584,32 +18648,43 @@ async function resetUserPassword(uid, name){
 
 const PERM_SECTIONS = [
  {key:'volunteers', label:'Volunteers', desc:'Volunteer profiles & history'},
+ {key:'waivers', label:'  ↳ Waivers', desc:'Waivers page: signed waivers and waiver types', parent:'volunteers'},
  {key:'directors', label:'Directors', desc:'Director interest & submissions'},
  {key:'events', label:'Events & Calendar', desc:'Create and manage events'},
  {key:'hours', label:'Time Tracking', desc:'Hours, approvals, kiosk sessions'},
- {key:'email', label:'Email & Templates', desc:'Send emails & manage templates'},
+ {key:'email', label:'Email', desc:'Send emails'},
+ {key:'email_log', label:'  ↳ Email Log', desc:'History of every email RoleCall has sent', parent:'email'},
+ {key:'email_templates', label:'  ↳ Email Templates', desc:'System email templates (welcome, confirmations, reminders)', parent:'email'},
  {key:'productions', label:'Productions', desc:'Cast, crew, production detail'},
+ {key:'show_contracts', label:'  ↳ Show Contracts', desc:'Upload show contracts and ask questions about them', parent:'productions'},
+ {key:'licensing', label:'  ↳ Licensing Requests', desc:'Show licensing requests & contract/renewal tracking', parent:'productions'},
+ {key:'talent', label:'  ↳ Talent Database', desc:'Everyone who has auditioned across all shows: history, notes, tags, merging duplicates. Includes minors\' contact info. Never available to Directors.', parent:'productions'},
  {key:'rising_stars', label:'Youth Productions', desc:'Rising Stars & Teen Show productions and portal content'},
+ {key:'step_up_holds', label:'  ↳ Step Up Holds', desc:'Saved Step Up cards: charge or release holds', parent:'rising_stars'},
  {key:'youth', label:'Participants', desc:'Youth profiles & guardians'},
+ {key:'carpools', label:'  ↳ Carpools', desc:'Carpool groups and members', parent:'youth'},
  {key:'programs', label:'Programs & Classes', desc:'Program enrollment & schedule'},
  {key:'portal_admin', label:'Portal Content', desc:'Announcements, files, team'},
  {key:'kiosk', label:'Sign-In / Kiosk', desc:'Open and close events on kiosk'},
- {key:'reports', label:'Reports & Logs', desc:'Event logs, email reports'},
+ {key:'reports', label:'Reports', desc:'Reports'},
+ {key:'event_logs', label:'  ↳ Event Logs', desc:'Event incident/summary logs and their reports', parent:'reports'},
  {key:'board', label:'Board', desc:'Board member management, meetings & position applications'},
  {key:'inbox', label:'Inbox', desc:'Shared info@ inbox — view, assign, and reply to conversations'},
  {key:'settings', label:'Settings', desc:'Users, system configuration'},
- {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, tiers'},
+ {key:'notifications', label:'  ↳ Notifications', desc:'Notifications page', parent:'settings'},
+ {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, benefit tracker'},
+ {key:'donor_campaigns', label:'  ↳ Campaigns', desc:'Create and edit fundraising campaigns', parent:'donors'},
+ {key:'donor_tiers', label:'  ↳ Tiers & Benefits', desc:'Giving tiers and their benefits', parent:'donors'},
+ {key:'donor_templates', label:'  ↳ Donor Email Templates', desc:'Thank-you and donor email templates', parent:'donors'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
  {key:'refund_requests', label:'Refund Requests', desc:'Review, approve, and process refund requests — actually charges back to Square'},
  {key:'rentals', label:'Artistic Partnership', desc:'Create and manage Artistic Partnership requests & agreements'},
  {key:'oncall', label:'On-Call Schedule', desc:'Manage who answers calls & texts to the Twilio number'},
  {key:'hours_store', label:'Hours Store', desc:'Manage store items, exchange rate, and redemption requests'},
  {key:'responsibility_grid', label:'Responsibility Grid', desc:'RACI grid, process flows, and org chart across all board & committee roles'},
- {key:'licensing', label:'Licensing Requests', desc:'Show licensing requests & contract/renewal tracking (falls back to Productions access if not set)'},
- {key:'talent', label:'Talent Database', desc:'Everyone who has auditioned across all shows: history, notes, tags, merging duplicates. Includes minors\' contact info (falls back to Productions access if not set; never available to Directors)'},
- {key:'space_requests', label:'Request a Space', desc:'Review, approve, and deny staff space/date requests (submitting a request stays open to all staff; falls back to Artistic Partnership access if not set)'},
+ {key:'space_requests', label:'Request a Space', parent:'rentals', desc:'Review, approve, and deny staff space/date requests (submitting a request stays open to all staff; falls back to Artistic Partnership access if not set)'},
  {key:'surveys', label:'Surveys', desc:'Create surveys, manage questions, and view response results'},
- {key:'foh_training', label:'FOH Training', desc:'Front of House training content, quiz questions, and who has passed (falls back to Events access if not set)'},
+ {key:'foh_training', label:'FOH Training', parent:'events', desc:'Front of House training content, quiz questions, and who has passed (falls back to Events access if not set)'},
  {key:'studio_after_dark', label:'Studio After Dark', desc:'Manage the monthly volunteer lottery — entries, the draw, confirmations, door check-in, and the live performer picker'},
 ]
 

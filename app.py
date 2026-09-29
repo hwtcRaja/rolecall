@@ -2973,6 +2973,54 @@ def init_db():
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_ip TEXT",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS card_fingerprint TEXT",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS limit_flag TEXT",
+        # Benefit eligibility: a donor can use their tier's benefits for a
+        # window (default one year) after the donation that reached the tier.
+        "ALTER TABLE donors ADD COLUMN IF NOT EXISTS tier_achieved_date TEXT",
+        "ALTER TABLE donors ADD COLUMN IF NOT EXISTS benefits_override_until TEXT",
+        "ALTER TABLE donor_tier_benefits ADD COLUMN IF NOT EXISTS uses_allowed INTEGER DEFAULT 1",
+        "ALTER TABLE donor_benefit_usage ADD COLUMN IF NOT EXISTS quantity INTEGER DEFAULT 1",
+        """CREATE TABLE IF NOT EXISTS donor_benefit_settings (
+            id INTEGER PRIMARY KEY DEFAULT 1,
+            window_days INTEGER DEFAULT 365,
+            grace_until TEXT,
+            grace_note TEXT DEFAULT '')""",
+        "INSERT INTO donor_benefit_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
+        # Donor benefit codes (auto-generated, one per donor per benefit;
+        # comp codes are one per donor per show).
+        "ALTER TABLE donor_tier_benefits ADD COLUMN IF NOT EXISTS benefit_type TEXT DEFAULT 'manual'",
+        "ALTER TABLE donor_tier_benefits ADD COLUMN IF NOT EXISTS code_percent INTEGER",
+        "ALTER TABLE donor_tier_benefits ADD COLUMN IF NOT EXISTS code_max_tickets INTEGER",
+        "ALTER TABLE donor_tier_benefits ADD COLUMN IF NOT EXISTS code_max_people INTEGER",
+        "ALTER TABLE donor_tier_benefits ADD COLUMN IF NOT EXISTS code_comp_tickets INTEGER",
+        """CREATE TABLE IF NOT EXISTS benefit_codes (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            donor_id TEXT NOT NULL REFERENCES donors(id) ON DELETE CASCADE,
+            benefit_id TEXT NOT NULL REFERENCES donor_tier_benefits(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL,
+            percent INTEGER,
+            max_tickets INTEGER,
+            max_people INTEGER,
+            comp_tickets INTEGER,
+            production_id TEXT REFERENCES productions(id) ON DELETE CASCADE,
+            cart_discount_code_id TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT NOW(),
+            created_by TEXT)""",
+        "CREATE INDEX IF NOT EXISTS ix_benefit_codes_donor ON benefit_codes(donor_id, benefit_id)",
+        """CREATE TABLE IF NOT EXISTS benefit_code_redemptions (
+            id TEXT PRIMARY KEY,
+            code_id TEXT NOT NULL REFERENCES benefit_codes(id) ON DELETE CASCADE,
+            ticket_order_id TEXT,
+            registration_id TEXT,
+            tickets INTEGER DEFAULT 0,
+            discount_cents INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS benefit_code_id TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS discount_cents INTEGER DEFAULT 0",
+        "ALTER TABLE cart_discount_codes ADD COLUMN IF NOT EXISTS max_participants INTEGER",
+        "ALTER TABLE cart_discount_codes ADD COLUMN IF NOT EXISTS applies_to TEXT DEFAULT 'all'",
+        "ALTER TABLE cart_discount_codes ADD COLUMN IF NOT EXISTS benefit_code_id TEXT",
         # When money actually came in, for Marquee's period filters. Set by
         # triggers so every path that confirms/charges/completes is covered
         # without touching each one; older rows are backfilled from created_at.
@@ -10358,9 +10406,45 @@ def find_discount_code(conn, code, scope_column, scope_id):
     if dc:
         return dc, 'discount_codes'
     dc = fetchone(conn, 'SELECT * FROM cart_discount_codes WHERE code=%s AND active=TRUE', (code,))
+    if dc and not benefit_cart_code_usable(conn, dc, scope_column):
+        return None, None
     if dc:
         return dc, 'cart_discount_codes'
     return None, None
+
+
+def benefit_cart_code_usable(conn, dc, scope_column='program_id'):
+    """Donor class codes only work on classes (not show enrollment) and only
+    while the donor is inside their benefit window."""
+    if (dc.get('applies_to') or 'all') == 'programs' and scope_column != 'program_id':
+        return False
+    if dc.get('benefit_code_id'):
+        bc = fetchone(conn, 'SELECT * FROM benefit_codes WHERE id=%s', (dc['benefit_code_id'],))
+        if not bc or bc.get('status') != 'active':
+            return False
+        donor = fetchone(conn, 'SELECT * FROM donors WHERE id=%s', (bc['donor_id'],))
+        if not donor or not donor_benefit_window(donor, donor_benefit_settings(conn))[2]:
+            return False
+    return True
+
+
+def capped_participants(dc, count):
+    cap = dc.get('max_participants')
+    return min(count, int(cap)) if cap else count
+
+
+def mark_benefit_cart_code_used(conn, dc, context=''):
+    """A donor class code was just applied to a registration: log it."""
+    if not dc or not dc.get('benefit_code_id'):
+        return
+    bc = fetchone(conn, 'SELECT * FROM benefit_codes WHERE id=%s', (dc['benefit_code_id'],))
+    if not bc:
+        return
+    execute(conn, '''INSERT INTO benefit_code_redemptions (id, code_id, registration_id, discount_cents)
+        VALUES (%s,%s,NULL,0)''', (str(uuid.uuid4()), bc['id']))
+    execute(conn, '''INSERT INTO donor_benefit_usage (id, donor_id, benefit_id, notes, recorded_by, quantity)
+        VALUES (%s,%s,%s,%s,%s,1)''', (str(uuid.uuid4()), bc['donor_id'], bc['benefit_id'],
+        'Code ' + bc['code'] + (' · ' + context if context else ''), 'Class registration'))
 
 
 @app.route('/api/public/program/<slug>/validate-discount', methods=['POST'])
@@ -10395,8 +10479,8 @@ def validate_discount(slug):
         label = f'Sibling discount: {dc["discount_value"]}{"%" if dc["discount_type"]=="percent" else "¢"} off each additional participant'
     else:
         if dc['discount_type'] == 'percent':
-            discount_amount = int(basket * dc['discount_value'] / 100)
-            label = f'{dc["discount_value"]}% off'
+            discount_amount = int(price * capped_participants(dc, num_regs) * dc['discount_value'] / 100)
+            label = f'{dc["discount_value"]}% off' + (f' (up to {dc["max_participants"]} people)' if dc.get('max_participants') else '')
         else:
             discount_amount = min(dc['discount_value'] * num_regs, basket)
             label = f'${dc["discount_value"]/100:.2f} off'
@@ -12308,6 +12392,18 @@ def get_donor_detail(did):
         SELECT * FROM donor_communications WHERE donor_id=%s ORDER BY sent_at DESC''', (did,))
     # Cumulative tier benefits (this tier + all lower tiers)
     donor['benefits'] = get_cumulative_benefits(conn, donor.get('tier_id'))
+    if donor.get('tier_id') and not donor.get('tier_achieved_date'):
+        donor['tier_achieved_date'] = compute_tier_achieved_date(conn, did, donor['tier_id'])
+        execute(conn, 'UPDATE donors SET tier_achieved_date=%s WHERE id=%s', (donor['tier_achieved_date'], did))
+        conn.commit()
+    donor['benefit_status'] = donor_benefit_status(conn, donor, benefits=donor['benefits'], usage=donor['benefit_usage'])
+    donor['benefit_codes'] = fetchall(conn, '''SELECT bc.*, b.name AS benefit_name, p.name AS production_name,
+            (SELECT COUNT(*) FROM benefit_code_redemptions r WHERE r.code_id=bc.id) AS redemptions
+        FROM benefit_codes bc JOIN donor_tier_benefits b ON b.id=bc.benefit_id
+        LEFT JOIN productions p ON p.id=bc.production_id
+        WHERE bc.donor_id=%s ORDER BY bc.created_at DESC''', (did,)) or []
+    for bc in donor['benefit_codes']:
+        bc['description'] = describe_benefit_code(bc)
 
     # Campaign-specific benefits  -  for each campaign this donor has donated to,
     # show which benefits they've earned based on their total to that campaign
@@ -12365,6 +12461,11 @@ def recalc_donor_totals(conn, donor_id):
         execute(conn, '''UPDATE donors SET total_donated=%s,
             first_donation_date=%s, last_donation_date=%s, tier_id=%s WHERE id=%s''',
             (total, first_date, last_date, new_tier_id, donor_id))
+        try:
+            execute(conn, 'UPDATE donors SET tier_achieved_date=%s WHERE id=%s',
+                    (compute_tier_achieved_date(conn, donor_id, new_tier_id), donor_id))
+        except Exception as e:
+            app.logger.warning(f'tier_achieved_date update failed: {e}')
     else:
         execute(conn, '''UPDATE donors SET total_donated=%s,
             first_donation_date=%s, last_donation_date=%s WHERE id=%s''',
@@ -12600,9 +12701,14 @@ def record_benefit_use(did):
     d = request.json or {}
     uid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO donor_benefit_usage (id,donor_id,benefit_id,notes,recorded_by)
-        VALUES (%s,%s,%s,%s,%s)''',
-        (uid, did, d.get('benefit_id'), d.get('notes',''), session.get('user_name','')))
+    try:
+        qty = max(1, int(d.get('quantity') or 1))
+    except (TypeError, ValueError):
+        qty = 1
+    used_at = (d.get('used_on') or '')[:10] or None
+    execute(conn, '''INSERT INTO donor_benefit_usage (id,donor_id,benefit_id,notes,recorded_by,quantity,used_at)
+        VALUES (%s,%s,%s,%s,%s,%s,COALESCE(%s::timestamp, NOW()))''',
+        (uid, did, d.get('benefit_id'), d.get('notes',''), session.get('user_name',''), qty, used_at))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -18958,6 +19064,294 @@ def toggle_waiver_required(tid):
     return jsonify({'ok': True, 'required_all': new_val, 'required_for_volunteering': new_val})
 
 # ── Donors missing routes ──
+# ── Donor benefit eligibility ─────────────────────────────────────────────
+# A donor's tier benefits can be used for `window_days` (default 365) after
+# the donation that first brought their lifetime giving up to that tier.
+# Staff can extend one donor (benefits_override_until) or everyone at once
+# with a grace date (for catching up while usage wasn't being tracked).
+# Each benefit allows `uses_allowed` uses per eligibility window; usage is
+# counted from the tier-achieved date forward.
+
+def donor_benefit_settings(conn):
+    row = fetchone(conn, 'SELECT * FROM donor_benefit_settings WHERE id=1') or {}
+    return {'window_days': int(row.get('window_days') or 365),
+            'grace_until': row.get('grace_until') or '', 'grace_note': row.get('grace_note') or ''}
+
+
+def compute_tier_achieved_date(conn, donor_id, tier_id):
+    """Date of the donation that pushed lifetime giving up to the tier's
+    minimum (running total by donation date)."""
+    if not tier_id:
+        return None
+    tier = fetchone(conn, 'SELECT min_amount FROM donor_tiers WHERE id=%s', (tier_id,))
+    if not tier:
+        return None
+    need = float(tier.get('min_amount') or 0)
+    rows = fetchall(conn, '''SELECT donation_date, amount FROM donor_donations
+        WHERE donor_id=%s AND payment_status='received' ORDER BY donation_date, created_at''', (donor_id,)) or []
+    running = 0.0
+    for r in rows:
+        running += float(r.get('amount') or 0)
+        if running >= need:
+            return str(r['donation_date'])[:10]
+    return str(rows[-1]['donation_date'])[:10] if rows else None
+
+
+def donor_benefit_window(donor, settings):
+    """(start, until, eligible_now, reason) for a donor dict with
+    tier_achieved_date / benefits_override_until."""
+    import datetime as _d
+    today_s = today_eastern().isoformat()
+    start = (donor.get('tier_achieved_date') or '')[:10]
+    natural = ''
+    if start:
+        try:
+            natural = (_d.date.fromisoformat(start) + _d.timedelta(days=settings['window_days'])).isoformat()
+        except Exception:
+            natural = ''
+    candidates = [(natural, 'one year from reaching the tier')]
+    if donor.get('benefits_override_until'):
+        candidates.append((donor['benefits_override_until'][:10], 'extended for this donor'))
+    if settings.get('grace_until') and donor.get('tier_id'):
+        candidates.append((settings['grace_until'][:10], 'grace period for everyone'))
+    until, reason = max([c for c in candidates if c[0]] or [('', '')], key=lambda c: c[0])
+    eligible = bool(donor.get('tier_id')) and bool(until) and today_s <= until
+    return start, until, eligible, reason
+
+
+def donor_benefit_status(conn, donor, settings=None, benefits=None, usage=None):
+    """Per-benefit eligibility for one donor: allowed/used/remaining in the
+    current window."""
+    settings = settings or donor_benefit_settings(conn)
+    start, until, eligible, reason = donor_benefit_window(donor, settings)
+    benefits = benefits if benefits is not None else get_cumulative_benefits(conn, donor.get('tier_id'))
+    if usage is None:
+        usage = fetchall(conn, 'SELECT * FROM donor_benefit_usage WHERE donor_id=%s ORDER BY used_at DESC', (donor['id'],)) or []
+    out = []
+    for b in benefits:
+        if not b.get('is_trackable'):
+            continue
+        uses = [u for u in usage if u['benefit_id'] == b['id'] and (not start or str(u.get('used_at') or '')[:10] >= start)]
+        used = sum(int(u.get('quantity') or 1) for u in uses)
+        allowed = int(b.get('uses_allowed') or 1)
+        out.append({'benefit_id': b['id'], 'name': b['name'], 'tier_name': b.get('tier_name'),
+                    'allowed': allowed, 'used': used, 'remaining': max(0, allowed - used),
+                    'last_used_at': str(uses[0]['used_at']) if uses else None})
+    return {'window_start': start, 'eligible_until': until, 'eligible_now': eligible,
+            'eligible_reason': reason, 'benefits': out}
+
+
+@app.route('/api/donor-benefit-settings', methods=['GET', 'PUT'])
+def donor_benefit_settings_api():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            d = request.json or {}
+            try:
+                window = max(1, int(d.get('window_days') or 365))
+            except (TypeError, ValueError):
+                window = 365
+            execute(conn, 'UPDATE donor_benefit_settings SET window_days=%s, grace_until=%s, grace_note=%s WHERE id=1',
+                    (window, (d.get('grace_until') or '')[:10] or None, (d.get('grace_note') or '')[:300]))
+            conn.commit()
+        return jsonify(donor_benefit_settings(conn))
+    finally:
+        conn.close()
+
+
+@app.route('/api/donors/<did>/benefit-eligibility', methods=['PUT'])
+def set_donor_benefit_override(did):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, 'UPDATE donors SET benefits_override_until=%s WHERE id=%s', ((d.get('until') or '')[:10] or None, did))
+    if d.get('tier_achieved_date') is not None:
+        execute(conn, 'UPDATE donors SET tier_achieved_date=%s WHERE id=%s', ((d.get('tier_achieved_date') or '')[:10] or None, did))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/donor-benefits/<bid>/uses-allowed', methods=['PUT'])
+def set_benefit_uses_allowed(bid):
+    err = require_auth()
+    if err: return err
+    try:
+        n = max(1, int((request.json or {}).get('uses_allowed') or 1))
+    except (TypeError, ValueError):
+        n = 1
+    conn = get_db()
+    execute(conn, 'UPDATE donor_tier_benefits SET uses_allowed=%s WHERE id=%s', (n, bid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'uses_allowed': n})
+
+
+@app.route('/api/donor-benefits/<bid>/code-settings', methods=['PUT'])
+def set_benefit_code_settings(bid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    t = d.get('benefit_type') or 'manual'
+    if t != 'manual' and t not in BENEFIT_CODE_TYPES:
+        return jsonify({'error': 'Unknown benefit type'}), 400
+    def num(k):
+        try:
+            v = int(d.get(k)) if d.get(k) not in (None, '') else None
+            return v if v is None or v > 0 else None
+        except (TypeError, ValueError):
+            return None
+    conn = get_db()
+    execute(conn, '''UPDATE donor_tier_benefits SET benefit_type=%s, code_percent=%s, code_max_tickets=%s,
+        code_max_people=%s, code_comp_tickets=%s WHERE id=%s''',
+        (t, num('code_percent'), num('code_max_tickets'), num('code_max_people'), num('code_comp_tickets'), bid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/donor-benefits/<bid>/generate-codes', methods=['POST'])
+def generate_benefit_codes(bid):
+    """Give every donor who can still use this benefit their own code
+    (skips anyone who already has an active one). Comp codes need a show."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    production_id = d.get('production_id') or None
+    conn = get_db()
+    try:
+        b = fetchone(conn, '''SELECT b.*, t.min_amount AS tier_min FROM donor_tier_benefits b
+            JOIN donor_tiers t ON t.id=b.tier_id WHERE b.id=%s''', (bid,))
+        if not b:
+            return jsonify({'error': 'Benefit not found'}), 404
+        if (b.get('benefit_type') or 'manual') not in BENEFIT_CODE_TYPES:
+            return jsonify({'error': 'Set this benefit\'s type first (2-for-1, % off, class, or comps).'}), 400
+        if b['benefit_type'] == 'comp_per_show' and not production_id:
+            return jsonify({'error': 'Pick the show these comp codes are for.'}), 400
+        settings = donor_benefit_settings(conn)
+        donors = fetchall(conn, '''SELECT dn.* FROM donors dn JOIN donor_tiers t ON t.id=dn.tier_id
+            WHERE COALESCE(dn.status,'active')='active' AND t.min_amount >= %s''', (b['tier_min'],)) or []
+        only = set(d.get('donor_ids') or [])
+        made = existing = skipped = 0
+        for dn in donors:
+            if only and dn['id'] not in only:
+                continue
+            if not dn.get('tier_achieved_date'):
+                dn['tier_achieved_date'] = compute_tier_achieved_date(conn, dn['id'], dn['tier_id'])
+            usage = fetchall(conn, 'SELECT * FROM donor_benefit_usage WHERE donor_id=%s AND benefit_id=%s', (dn['id'], bid)) or []
+            st = donor_benefit_status(conn, dn, settings, benefits=[b], usage=usage)
+            info = st['benefits'][0] if st['benefits'] else {'remaining': 1}
+            if not st['eligible_now'] or (b['benefit_type'] != 'comp_per_show' and info['remaining'] <= 0):
+                skipped += 1
+                continue
+            had = fetchone(conn, '''SELECT 1 AS x FROM benefit_codes WHERE donor_id=%s AND benefit_id=%s AND status='active'
+                AND COALESCE(production_id,'')=%s''', (dn['id'], bid, production_id or ''))
+            generate_benefit_code(conn, dn, b, production_id)
+            if had: existing += 1
+            else: made += 1
+        conn.commit()
+        return jsonify({'ok': True, 'created': made, 'already_had': existing, 'skipped': skipped})
+    finally:
+        conn.close()
+
+
+@app.route('/api/benefit-codes/<cid>/void', methods=['POST'])
+def void_benefit_code(cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    c = fetchone(conn, 'SELECT * FROM benefit_codes WHERE id=%s', (cid,))
+    if not c:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    execute(conn, "UPDATE benefit_codes SET status='void' WHERE id=%s", (cid,))
+    if c.get('cart_discount_code_id'):
+        execute(conn, 'UPDATE cart_discount_codes SET active=FALSE WHERE id=%s', (c['cart_discount_code_id'],))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/donor-benefits/<bid>/donors')
+def donors_for_benefit(bid):
+    """Everyone who has this benefit (their tier or a higher one includes it),
+    with eligibility and usage, so staff can reach out. ?status=
+    unused (eligible, uses left) | used | expired | all. ?format=csv exports."""
+    err = require_auth()
+    if err: return err
+    status = request.args.get('status') or 'unused'
+    production_id = request.args.get('production_id') or ''
+    conn = get_db()
+    try:
+        b = fetchone(conn, '''SELECT b.*, t.min_amount AS tier_min, t.name AS tier_name FROM donor_tier_benefits b
+            JOIN donor_tiers t ON t.id=b.tier_id WHERE b.id=%s''', (bid,))
+        if not b:
+            return jsonify({'error': 'Benefit not found'}), 404
+        settings = donor_benefit_settings(conn)
+        donors = fetchall(conn, '''SELECT dn.id, dn.display_name, dn.email, dn.phone, dn.tier_id, dn.tier_achieved_date,
+                dn.benefits_override_until, dn.total_donated, t.name AS tier_name
+            FROM donors dn JOIN donor_tiers t ON t.id=dn.tier_id
+            WHERE COALESCE(dn.status,'active')='active' AND t.min_amount >= %s
+            ORDER BY dn.display_name''', (b['tier_min'],)) or []
+        # fill in reached-tier dates for donors from before this was tracked
+        filled = False
+        for dn in donors:
+            if not dn.get('tier_achieved_date'):
+                dn['tier_achieved_date'] = compute_tier_achieved_date(conn, dn['id'], dn['tier_id'])
+                if dn['tier_achieved_date']:
+                    execute(conn, 'UPDATE donors SET tier_achieved_date=%s WHERE id=%s', (dn['tier_achieved_date'], dn['id']))
+                    filled = True
+        if filled:
+            conn.commit()
+        ids = [d['id'] for d in donors]
+        usage = fetchall(conn, 'SELECT * FROM donor_benefit_usage WHERE benefit_id=%s AND donor_id = ANY(%s) ORDER BY used_at DESC',
+                         (bid, ids)) if ids else []
+        by_donor = {}
+        for u in usage or []:
+            by_donor.setdefault(u['donor_id'], []).append(u)
+        codes = {}
+        if ids:
+            for c in fetchall(conn, '''SELECT donor_id, code FROM benefit_codes WHERE benefit_id=%s AND status='active'
+                    AND COALESCE(production_id,'')=%s AND donor_id = ANY(%s)''', (bid, production_id, ids)) or []:
+                codes[c['donor_id']] = c['code']
+        rows = []
+        for dn in donors:
+            st = donor_benefit_status(conn, dn, settings, benefits=[b], usage=by_donor.get(dn['id'], []))
+            info = st['benefits'][0] if st['benefits'] else {'allowed': 1, 'used': 0, 'remaining': 1, 'last_used_at': None}
+            if not st['eligible_now']:
+                state = 'expired'
+            elif info['remaining'] > 0:
+                state = 'unused'
+            else:
+                state = 'used'
+            row = {'donor_id': dn['id'], 'name': dn['display_name'], 'email': dn.get('email') or '',
+                   'phone': dn.get('phone') or '', 'tier_name': dn['tier_name'],
+                   'tier_achieved_date': st['window_start'], 'eligible_until': st['eligible_until'],
+                   'eligible_reason': st['eligible_reason'], 'state': state,
+                   'allowed': info['allowed'], 'used': info['used'], 'remaining': info['remaining'],
+                   'last_used_at': info['last_used_at'], 'code': codes.get(dn['id'], '')}
+            if status == 'all' or status == state:
+                rows.append(row)
+        if request.args.get('format') == 'csv':
+            import csv, io
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(['Name', 'Email', 'Phone', 'Tier', 'Reached tier', 'Eligible until', 'Status', 'Used', 'Allowed', 'Last used', 'Code'])
+            for r in rows:
+                w.writerow([r['name'], r['email'], r['phone'], r['tier_name'], r['tier_achieved_date'], r['eligible_until'],
+                            r['state'], r['used'], r['allowed'], (r['last_used_at'] or '')[:10], r['code']])
+            from flask import Response
+            safe = ''.join(ch if ch.isalnum() else '-' for ch in b['name']).strip('-')[:40] or 'benefit'
+            return Response(buf.getvalue(), mimetype='text/csv',
+                            headers={'Content-Disposition': 'attachment; filename=' + safe + '-' + status + '.csv'})
+        return jsonify({'benefit': {'id': b['id'], 'name': b['name'], 'tier_name': b['tier_name'],
+                                    'uses_allowed': int(b.get('uses_allowed') or 1),
+                                    'benefit_type': b.get('benefit_type') or 'manual',
+                                    'code_percent': b.get('code_percent'), 'code_max_tickets': b.get('code_max_tickets'),
+                                    'code_max_people': b.get('code_max_people'), 'code_comp_tickets': b.get('code_comp_tickets')},
+                        'settings': settings, 'donors': rows})
+    finally:
+        conn.close()
+
+
 @app.route('/api/donor-benefits')
 def get_all_donor_benefits():
     err = require_auth()
@@ -25289,10 +25683,11 @@ def public_submit_registration(slug):
                     discount_amount = per_child * (participant_count - 1)
                 elif not is_sib_code:
                     if dc['discount_type'] == 'percent':
-                        discount_amount = int(basket * dc['discount_value'] / 100)
+                        discount_amount = int(price * capped_participants(dc, participant_count) * dc['discount_value'] / 100)
                     else:
                         discount_amount = min(dc['discount_value'] * participant_count, basket)
                 execute(conn, f'UPDATE {dc_table} SET uses=uses+1 WHERE id=%s', (dc['id'],))
+                mark_benefit_cart_code_used(conn, dc, p.get('name') or '')
         else:
             discount_code = ''  # invalid, ignore
 
@@ -25759,8 +26154,8 @@ def validate_production_discount(slug):
         label = f'Sibling discount: {dc["discount_value"]}{"%" if dc["discount_type"]=="percent" else "¢"} off each additional participant'
     else:
         if dc['discount_type'] == 'percent':
-            discount_amount = int(basket * dc['discount_value'] / 100)
-            label = f'{dc["discount_value"]}% off'
+            discount_amount = int(price * capped_participants(dc, num_regs) * dc['discount_value'] / 100)
+            label = f'{dc["discount_value"]}% off' + (f' (up to {dc["max_participants"]} people)' if dc.get('max_participants') else '')
         else:
             discount_amount = min(dc['discount_value'] * num_regs, basket)
             label = f'${dc["discount_value"]/100:.2f} off'
@@ -26434,6 +26829,8 @@ def validate_cart_discount():
         return jsonify({'valid': False, 'error': 'Code required'})
     conn = get_db()
     dc = fetchone(conn, "SELECT * FROM cart_discount_codes WHERE UPPER(code)=%s AND active=TRUE", (code,))
+    if dc and not benefit_cart_code_usable(conn, dc, 'program_id'):
+        dc = None
     conn.close()
     if not dc:
         return jsonify({'valid': False, 'error': 'Invalid or expired code'})
@@ -26557,14 +26954,26 @@ def cart_checkout():
     cart_code_used = ''
     if cart_code and total_cents > 0:
         cdc = fetchone(conn, "SELECT * FROM cart_discount_codes WHERE UPPER(code)=%s AND active=TRUE", (cart_code,))
+        if cdc and not benefit_cart_code_usable(conn, cdc, 'program_id'):
+            cdc = None
         if cdc and (not cdc.get('max_uses') or cdc.get('uses', 0) < cdc['max_uses']):
             min_spend = cdc.get('min_spend') or 0
             if not (min_spend > 0 and total_cents < min_spend):
-                if cdc['discount_type'] == 'percent':
+                if cdc['discount_type'] == 'percent' and cdc.get('max_participants'):
+                    # e.g. a donor's 30% off a class for up to 2 people: apply to
+                    # the most expensive participants in the cart, up to the cap
+                    units = []
+                    for it in line_items:
+                        n = max(1, int(it.get('participant_count') or 1))
+                        units += [int(it.get('effective_price') or 0) / n] * n
+                    units.sort(reverse=True)
+                    cart_discount_amount = int(sum(units[:int(cdc['max_participants'])]) * cdc['discount_value'] / 100)
+                elif cdc['discount_type'] == 'percent':
                     cart_discount_amount = int(total_cents * cdc['discount_value'] / 100)
                 else:
                     cart_discount_amount = min(cdc['discount_value'], total_cents)
                 execute(conn, 'UPDATE cart_discount_codes SET uses=uses+1 WHERE id=%s', (cdc['id'],))
+                mark_benefit_cart_code_used(conn, cdc, 'class cart')
                 cart_code_used = cart_code
 
     final_total = max(0, total_cents - cart_discount_amount)
@@ -38349,7 +38758,10 @@ def public_ticket_checkout():
             fee_cents = round(subtotal * pct / 100) + flat
         groups.append({'performance_id': fid, 'prod_name': (prod or {}).get('name',''),
             'limit': (prod or {}).get('max_tickets_per_performance'), 'line_items': line_items,
-            'fee_cents': fee_cents})
+            'fee_cents': fee_cents, 'production_id': perf['production_id'],
+            'charge_service_fee': (prod or {}).get('charge_service_fee'),
+            'service_fee_percent': (prod or {}).get('service_fee_percent'),
+            'service_fee_flat_cents': (prod or {}).get('service_fee_flat_cents')})
 
     # A buyer who backs out of Square's payment page and checks out again
     # shouldn't be blocked by their own abandoned checkout. Retire their
@@ -38378,6 +38790,19 @@ def public_ticket_checkout():
         if cancelled:
             execute(conn, "UPDATE ticket_orders SET status='superseded' WHERE cart_id=%s AND status='pending'", (cart_ref,))
     conn.commit()
+
+    # Donor benefit code (2-for-1, % off, comps). Applied after the buyer's
+    # own abandoned checkouts are retired above, so retrying isn't blocked
+    # by their earlier attempt holding the code.
+    benefit_code = None
+    promo_code = (d.get('promo_code') or '').strip()
+    if promo_code:
+        benefit_code, perr = lookup_ticket_benefit_code(conn, promo_code)
+        if not perr:
+            _disc, perr = apply_benefit_code_to_groups(benefit_code, groups)
+        if perr:
+            conn.close()
+            return jsonify({'error': perr, 'promo_error': True}), 400
 
     # Policing the per-performance limit: this is the authoritative check
     # (the picker only offers a softer, client-side version). Tickets this
@@ -38412,16 +38837,20 @@ def public_ticket_checkout():
         grand_total += total_cents + grp['fee_cents']
         order_id = str(uuid.uuid4())
         order_ids.append(order_id)
+        grp_discount = int(grp.get('discount_cents') or 0)
         execute(conn, '''INSERT INTO ticket_orders
             (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json, total_cents, service_fee_cents, status, cart_id,
-             buyer_email_key, buyer_phone_key, buyer_device_id, buyer_ip)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s,%s)''',
+             buyer_email_key, buyer_phone_key, buyer_device_id, buyer_ip, benefit_code_id, discount_cents)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s,%s,%s,%s)''',
             (order_id, grp['performance_id'], guardian_name, guardian_email, guardian_phone,
              json.dumps(grp['line_items']), total_cents, grp['fee_cents'], cart_id,
-             email_key, phone_key, device_id or None, buyer_ip or None))
+             email_key, phone_key, device_id or None, buyer_ip or None,
+             benefit_code['id'] if (benefit_code and grp_discount) else None, grp_discount))
         for li in grp['line_items']:
+            if li['price_cents'] <= 0:
+                continue   # comped by a donor code; nothing to charge
             sq_line_items.append({
-                'name': (f"{grp['prod_name']} — {li['seat_label'] or 'Ticket'}")[:191],
+                'name': (f"{grp['prod_name']} — {li['seat_label'] or 'Ticket'}" + (' (donor code)' if li.get('benefit_discount_cents') else ''))[:191],
                 'quantity': '1',
                 'base_price_money': {'amount': li['price_cents'], 'currency': 'USD'},
             })
@@ -38479,6 +38908,258 @@ def public_ticket_checkout():
         conn.close()
         app.logger.error(f'Ticket checkout Square error: {e}')
         return jsonify({'error': str(e)}), 500
+
+
+# ── Donor benefit codes ───────────────────────────────────────────────────
+# Benefit types a tier benefit can be set to (Tiers & Benefits → type):
+#   bogo_tickets     2-for-1: on one ticket order for one show, every second
+#                    ticket is free, up to code_max_tickets tickets (default 4)
+#   pct_ticket_order code_percent% off one ticket order (default 10)
+#   pct_class        code_percent% off one class registration for up to
+#                    code_max_people people (default 30% / 2)
+#   comp_per_show    code_comp_tickets free tickets for one show (default 15);
+#                    a separate code per show
+# Each donor gets their own code. A code only works while the donor is
+# inside their benefit window (their year, a grace date, or an extension),
+# and redeeming it records the benefit use automatically.
+BENEFIT_CODE_TYPES = {
+    'bogo_tickets':     {'label': '2-for-1 tickets', 'prefix': '2FOR1'},
+    'pct_ticket_order': {'label': '% off a ticket order', 'prefix': 'TIX'},
+    'pct_class':        {'label': '% off a class', 'prefix': 'CLASS'},
+    'comp_per_show':    {'label': 'Comp tickets per show', 'prefix': 'COMP'},
+}
+_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+
+
+def _benefit_code_params(b):
+    t = b.get('benefit_type') or 'manual'
+    return {
+        'kind': t,
+        'percent': int(b.get('code_percent') or (10 if t == 'pct_ticket_order' else 30 if t == 'pct_class' else 0)),
+        'max_tickets': int(b.get('code_max_tickets') or 4) if t == 'bogo_tickets' else None,
+        'max_people': int(b.get('code_max_people') or 2) if t == 'pct_class' else None,
+        'comp_tickets': int(b.get('code_comp_tickets') or 15) if t == 'comp_per_show' else None,
+    }
+
+
+def describe_benefit_code(c):
+    k = c.get('kind')
+    if k == 'bogo_tickets':
+        return '2-for-1 tickets (up to %d tickets, one show)' % (c.get('max_tickets') or 4)
+    if k == 'pct_ticket_order':
+        return '%d%% off your ticket order' % (c.get('percent') or 0)
+    if k == 'pct_class':
+        return '%d%% off one class for up to %d people' % (c.get('percent') or 0, c.get('max_people') or 2)
+    if k == 'comp_per_show':
+        return '%d complimentary tickets' % (c.get('comp_tickets') or 0)
+    return 'Donor benefit'
+
+
+def generate_benefit_code(conn, donor, benefit, production_id=None):
+    """Create (or return the existing active) code for one donor + benefit
+    (+ show, for comp codes)."""
+    params = _benefit_code_params(benefit)
+    if params['kind'] not in BENEFIT_CODE_TYPES:
+        return None
+    if params['kind'] == 'comp_per_show' and not production_id:
+        return None
+    existing = fetchone(conn, '''SELECT * FROM benefit_codes WHERE donor_id=%s AND benefit_id=%s AND status='active'
+        AND COALESCE(production_id,'')=%s''', (donor['id'], benefit['id'], production_id or ''))
+    if existing:
+        return existing
+    prefix = BENEFIT_CODE_TYPES[params['kind']]['prefix']
+    for _ in range(10):
+        code = 'HWTC-' + prefix + '-' + ''.join(secrets.choice(_CODE_ALPHABET) for _ in range(6))
+        if not fetchone(conn, 'SELECT 1 AS x FROM benefit_codes WHERE code=%s', (code,)) and \
+           not fetchone(conn, 'SELECT 1 AS x FROM cart_discount_codes WHERE UPPER(code)=%s', (code,)):
+            break
+    cid = str(uuid.uuid4())
+    cart_code_id = None
+    if params['kind'] == 'pct_class':
+        # Class codes ride on the existing registration discount system as a
+        # one-use cart-wide code, limited to classes and to N people.
+        cart_code_id = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO cart_discount_codes
+            (id, code, discount_type, discount_value, max_uses, uses, active, description, max_participants, applies_to, benefit_code_id)
+            VALUES (%s,%s,'percent',%s,1,0,TRUE,%s,%s,'programs',%s)''',
+            (cart_code_id, code, params['percent'], 'Donor benefit: ' + (donor.get('display_name') or ''),
+             params['max_people'], cid))
+    execute(conn, '''INSERT INTO benefit_codes (id, code, donor_id, benefit_id, kind, percent, max_tickets, max_people,
+            comp_tickets, production_id, cart_discount_code_id, created_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (cid, code, donor['id'], benefit['id'], params['kind'], params['percent'] or None, params['max_tickets'],
+         params['max_people'], params['comp_tickets'], production_id, cart_code_id, session.get('user_name', '') if session else ''))
+    return fetchone(conn, 'SELECT * FROM benefit_codes WHERE id=%s', (cid,))
+
+
+def _benefit_code_usage(conn, code_row):
+    """(orders_used, tickets_used) counting paid orders plus unpaid
+    checkouts from the last TICKET_PENDING_WINDOW_MINUTES."""
+    rows = fetchall(conn, "SELECT seats_json, status, discount_cents FROM ticket_orders WHERE benefit_code_id=%s AND "
+                    "(status='completed' OR (status='pending' AND created_at > NOW() - INTERVAL '"
+                    + str(TICKET_PENDING_WINDOW_MINUTES) + " minutes'))", (code_row['id'],)) or []
+    carts = set()
+    tickets = 0
+    for r in rows:
+        tickets += sum(1 for li in json.loads(r.get('seats_json') or '[]') if li.get('benefit_discount_cents'))
+    orders = len(fetchall(conn, "SELECT DISTINCT cart_id FROM ticket_orders WHERE benefit_code_id=%s AND "
+                          "(status='completed' OR (status='pending' AND created_at > NOW() - INTERVAL '"
+                          + str(TICKET_PENDING_WINDOW_MINUTES) + " minutes'))", (code_row['id'],)) or [])
+    return orders, tickets
+
+
+def lookup_ticket_benefit_code(conn, code):
+    """Return (code_row, error). Checks it exists, is a ticket code, the
+    donor is still inside their benefit window, and it has uses left."""
+    code = (code or '').strip().upper()
+    if not code:
+        return None, None
+    c = fetchone(conn, 'SELECT * FROM benefit_codes WHERE UPPER(code)=%s', (code,))
+    if not c:
+        return None, 'That code wasn\'t found. Check for typos.'
+    if c['status'] != 'active':
+        return None, 'That code is no longer active.'
+    if c['kind'] == 'pct_class':
+        return None, 'That code is for class registration, not tickets.'
+    donor = fetchone(conn, 'SELECT * FROM donors WHERE id=%s', (c['donor_id'],))
+    if not donor:
+        return None, 'That code is no longer active.'
+    _, until, eligible, _ = donor_benefit_window(donor, donor_benefit_settings(conn))
+    if not eligible:
+        return None, 'This donor benefit expired on ' + (until or 'an earlier date') + '.'
+    orders, tickets = _benefit_code_usage(conn, c)
+    if c['kind'] == 'comp_per_show':
+        c['comp_remaining'] = max(0, int(c.get('comp_tickets') or 0) - tickets)
+        if c['comp_remaining'] <= 0:
+            return None, 'All of this code\'s complimentary tickets have been used.'
+    else:
+        allowed = int((fetchone(conn, 'SELECT uses_allowed FROM donor_tier_benefits WHERE id=%s', (c['benefit_id'],)) or {}).get('uses_allowed') or 1)
+        if orders >= allowed:
+            return None, 'This code has already been used.'
+    return c, None
+
+
+def apply_benefit_code_to_groups(code_row, groups):
+    """Discount ticket groups in place. Each group: {production_id,
+    line_items[{price_cents,...}], charge_service_fee, service_fee_percent,
+    service_fee_flat_cents, fee_cents}. Returns (total_discount_cents, note)
+    or (0, error message) if nothing in the cart qualifies."""
+    kind = code_row['kind']
+    total = 0
+
+    def discount(li, cents):
+        cents = max(0, min(int(cents), int(li['price_cents'])))
+        if cents:
+            li.setdefault('original_price_cents', li['price_cents'])
+            li['price_cents'] -= cents
+            li['benefit_discount_cents'] = li.get('benefit_discount_cents', 0) + cents
+        return cents
+
+    if kind == 'pct_ticket_order':
+        pct = int(code_row.get('percent') or 0)
+        for g in groups:
+            for li in g['line_items']:
+                total += discount(li, round(li['price_cents'] * pct / 100.0))
+    elif kind == 'bogo_tickets':
+        # one show: the group with the most tickets (ties: first). Free the
+        # cheaper ticket of each pair, up to max_tickets tickets.
+        cands = [g for g in groups if len(g['line_items']) >= 2]
+        if not cands:
+            return 0, '2-for-1 needs at least 2 tickets for one show.'
+        g = max(cands, key=lambda x: len(x['line_items']))
+        items = sorted(g['line_items'], key=lambda li: -li['price_cents'])[:int(code_row.get('max_tickets') or 4)]
+        for i in range(1, len(items), 2):
+            total += discount(items[i], items[i]['price_cents'])
+    elif kind == 'comp_per_show':
+        remaining = int(code_row.get('comp_remaining') or 0)
+        matched = False
+        for g in groups:
+            if g.get('production_id') != code_row.get('production_id'):
+                continue
+            matched = True
+            for li in sorted(g['line_items'], key=lambda x: -x['price_cents']):
+                if remaining <= 0:
+                    break
+                total += discount(li, li['price_cents'])
+                remaining -= 1
+        if not matched:
+            return 0, 'This comp code is for a different show.'
+    for g in groups:
+        sub = sum(li['price_cents'] for li in g['line_items'])
+        if g.get('charge_service_fee') and sub > 0:
+            g['fee_cents'] = round(sub * float(g.get('service_fee_percent') or 0) / 100) + int(g.get('service_fee_flat_cents') or 0)
+        elif sub == 0:
+            g['fee_cents'] = 0   # fully comped: no service fee
+        g['discount_cents'] = sum(li.get('benefit_discount_cents', 0) for li in g['line_items'])
+    if total <= 0:
+        return 0, 'Nothing in your cart qualifies for this code.'
+    return total, None
+
+
+def record_benefit_code_redemption(conn, order):
+    """Called once a ticket order is paid: log the redemption and mark the
+    donor's benefit used."""
+    code_id = order.get('benefit_code_id')
+    if not code_id:
+        return
+    c = fetchone(conn, 'SELECT * FROM benefit_codes WHERE id=%s', (code_id,))
+    if not c:
+        return
+    items = json.loads(order.get('seats_json') or '[]')
+    tickets = sum(1 for li in items if li.get('benefit_discount_cents'))
+    execute(conn, '''INSERT INTO benefit_code_redemptions (id, code_id, ticket_order_id, tickets, discount_cents)
+        VALUES (%s,%s,%s,%s,%s)''', (str(uuid.uuid4()), code_id, order['id'], tickets, int(order.get('discount_cents') or 0)))
+    # one benefit use per checkout (a cart can hold several orders)
+    already = fetchone(conn, '''SELECT 1 AS x FROM ticket_orders o WHERE o.cart_id=%s AND o.id<>%s AND o.status='completed'
+        AND o.benefit_code_id=%s''', (order.get('cart_id') or '', order['id'], code_id))
+    if not already:
+        prod = fetchone(conn, '''SELECT p.name FROM performances pf JOIN productions p ON p.id=pf.production_id
+            WHERE pf.id=%s''', (order['performance_id'],)) or {}
+        execute(conn, '''INSERT INTO donor_benefit_usage (id, donor_id, benefit_id, notes, recorded_by, quantity)
+            VALUES (%s,%s,%s,%s,%s,1)''', (str(uuid.uuid4()), c['donor_id'], c['benefit_id'],
+            'Code ' + c['code'] + ' · ' + (prod.get('name') or 'tickets') + ' · ' + str(tickets) + ' ticket(s)', 'Ticket checkout'))
+    conn.commit()
+
+
+@app.route('/api/public/ticket-promo/preview', methods=['POST'])
+def public_ticket_promo_preview():
+    """Estimate what a donor code takes off the current cart (prices from
+    the real ticket types). Checkout re-checks everything."""
+    d = request.json or {}
+    conn = get_db()
+    try:
+        c, err = lookup_ticket_benefit_code(conn, d.get('code'))
+        if err or not c:
+            return jsonify({'valid': False, 'error': err or 'Enter a code'})
+        groups = []
+        for entry in d.get('cart') or []:
+            perf = fetchone(conn, 'SELECT id, production_id FROM performances WHERE id=%s', (entry.get('performance_id'),))
+            if not perf:
+                continue
+            prod = fetchone(conn, 'SELECT charge_service_fee, service_fee_percent, service_fee_flat_cents FROM productions WHERE id=%s',
+                            (perf['production_id'],)) or {}
+            tts = {t['id']: t for t in (fetchall(conn, 'SELECT id, price_cents FROM ticket_types WHERE id = ANY(%s)',
+                   ([s.get('ticket_type_id') for s in entry.get('seats') or []],)) or [])}
+            items = []
+            for sel in entry.get('seats') or []:
+                tt = tts.get(sel.get('ticket_type_id'))
+                if not tt:
+                    continue
+                qty = 1 if sel.get('seat_id') else max(1, int(sel.get('quantity') or 1))
+                items += [{'price_cents': int(tt['price_cents'] or 0)} for _ in range(qty)]
+            sub = sum(li['price_cents'] for li in items)
+            fee = (round(sub * float(prod.get('service_fee_percent') or 0) / 100) + int(prod.get('service_fee_flat_cents') or 0)) \
+                if prod.get('charge_service_fee') and sub else 0
+            groups.append(dict(prod, production_id=perf['production_id'], line_items=items, fee_cents=fee))
+        before = sum(sum(li['price_cents'] for li in g['line_items']) + g['fee_cents'] for g in groups)
+        disc, err = apply_benefit_code_to_groups(c, groups)
+        if err:
+            return jsonify({'valid': False, 'error': err})
+        after = sum(sum(li['price_cents'] for li in g['line_items']) + g['fee_cents'] for g in groups)
+        return jsonify({'valid': True, 'code': c['code'], 'label': describe_benefit_code(c),
+                        'savings_cents': before - after})
+    finally:
+        conn.close()
 
 
 # ── Per-performance ticket limit: who counts as "the same buyer" ──────────
@@ -38631,6 +39312,11 @@ def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
         flag_ticket_order_if_over_limit(conn, order_id)
     except Exception as e:
         app.logger.warning(f'Ticket limit flag check failed: {e}')
+    try:
+        if order.get('benefit_code_id'):
+            record_benefit_code_redemption(conn, fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (order_id,)))
+    except Exception as e:
+        app.logger.warning(f'Benefit code redemption record failed: {e}')
     if order.get('guardian_email'):
         try:
             perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))

@@ -233,6 +233,19 @@ function currentPerformanceLineItems(){
   })
   return items
 }
+// Long-lived per-browser id (unlike the per-tab session token), so the
+// per-performance limit also counts earlier orders from this device.
+function getDeviceId(){
+  try{
+    var id = localStorage.getItem('hwtc_ticket_device')
+    if(!id){
+      id = 'dv_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12)
+      localStorage.setItem('hwtc_ticket_device', id)
+    }
+    return id
+  }catch(e){ return '' }
+}
+
 function getSessionToken(){
   if(sessionToken) return sessionToken
   try{
@@ -494,7 +507,7 @@ function renderPurchaseScreen(){
     + '<div class="form-group"><label>Name *</label><input type="text" id="tk-name"/></div>'
     + '<div class="form-row">'
     + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
-    + '<div class="form-group"><label>Phone</label><input type="tel" id="tk-phone"/></div>'
+    + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
     + '</div>'
     + '<div id="checkout-error"></div>'
     + '<button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="checkout-btn" onclick="doCheckout()" disabled>Checkout</button>'
@@ -983,6 +996,8 @@ async function doCheckout(){
   var errEl = document.getElementById('checkout-error')
   errEl.innerHTML = ''
   if(!name || !email){ errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">Name and email are required.</div>'; return }
+  var phoneDigits = phone.replace(/\D/g,'').replace(/^1(?=\d{10}$)/,'')
+  if(phoneDigits.length !== 10){ errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">Please enter a 10-digit phone number.</div>'; return }
 
   var cart = buildFullCartPayload()
   if(!cart.length){ errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">No tickets selected.</div>'; return }
@@ -991,7 +1006,7 @@ async function doCheckout(){
   btn.disabled = true; btn.textContent = 'Processing…'
   var res = await api('/api/public/ticket-checkout','POST',{
     session_token: getSessionToken(), guardian_name: name, guardian_email: email, guardian_phone: phone,
-    cart: cart, donation_cents: selectedDonationCents
+    device_id: getDeviceId(), cart: cart, donation_cents: selectedDonationCents
   })
   if(res.error){
     errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">'+escH(res.error)+'</div>'
@@ -1050,7 +1065,7 @@ function renderCartPage(){
     + '<div class="form-group"><label>Name *</label><input type="text" id="tk-name"/></div>'
     + '<div class="form-row">'
     + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
-    + '<div class="form-group"><label>Phone</label><input type="tel" id="tk-phone"/></div>'
+    + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
     + '</div>'
     + '<div id="checkout-error"></div>'
     + '<button class="btn btn-primary" style="width:100%" id="checkout-btn" onclick="doCheckout()">Checkout</button>'

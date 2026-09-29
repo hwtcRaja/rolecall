@@ -34095,6 +34095,27 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
 
 var _mqBoxOfficeProdFilter = ''
 var _mqBoxOfficeQuery = ''
+var _mqBoxOfficeFlaggedOnly = false
+
+// Ticket-limit flags (set after payment when the same card, internet
+// connection, or email/phone/device looks like it went over a show's
+// per-performance limit). They're for staff review only; nothing is
+// blocked or refunded automatically.
+var TICKET_FLAG_TEXT = {
+  over_limit: 'Same email, phone, or device went over the limit',
+  same_card:  'Same payment card used under a different email',
+  same_ip:    'Same internet connection under a different email (weak signal: households, schools and phone carriers share these)'
+}
+function ticketFlagObj(o){
+  var f = o && o.limit_flag
+  if(typeof f === 'string'){ try{ f = JSON.parse(f) }catch(e){ f = null } }
+  return (f && f.reasons && f.reasons.length) ? f : null
+}
+function ticketFlagBadge(o){
+  var f = ticketFlagObj(o)
+  if(!f) return ''
+  return ' <span title="'+escHtml(f.reasons.map(function(r){ return TICKET_FLAG_TEXT[r]||r }).join('; '))+'" style="display:inline-block;margin-top:3px;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:700;background:#ffedd5;color:#9a3412">Possible over-limit buyer</span>'
+}
 
 async function renderMarqueeBoxOffice(el){
   var data = await api('/api/marquee/box-office')
@@ -34136,7 +34157,8 @@ async function renderMarqueeBoxOffice(el){
     + '<option value="">All shows</option>'
     + shows.map(function(s){ return '<option value="'+s.id+'"'+(_mqBoxOfficeProdFilter===s.id?' selected':'')+'>'+escHtml(s.name)+'</option>' }).join('')
     + '</select>'
-    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'mq-boxoffice-search\').value=\'\';_mqBoxOfficeQuery=\'\';_mqBoxOfficeProdFilter=\'\';renderMarqueeBoxOfficeOrders()">Clear</button>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;margin:0"><input type="checkbox" style="width:auto" '+(_mqBoxOfficeFlaggedOnly?'checked':'')+' onchange="_mqBoxOfficeFlaggedOnly=this.checked;renderMarqueeBoxOfficeOrders()"/>Flagged only</label>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'mq-boxoffice-search\').value=\'\';_mqBoxOfficeQuery=\'\';_mqBoxOfficeProdFilter=\'\';_mqBoxOfficeFlaggedOnly=false;renderMarqueeBoxOfficeOrders()">Clear</button>'
     + '</div></div>'
   html += '<div id="mq-boxoffice-orders-holder">Loading…</div>'
 
@@ -34153,6 +34175,7 @@ async function renderMarqueeBoxOfficeOrders(){
   var params = new URLSearchParams()
   if(_mqBoxOfficeQuery) params.set('q', _mqBoxOfficeQuery)
   if(_mqBoxOfficeProdFilter) params.set('production_id', _mqBoxOfficeProdFilter)
+  if(_mqBoxOfficeFlaggedOnly) params.set('flagged', '1')
   var orders = await api('/api/marquee/ticket-orders?'+params.toString())
   if(!Array.isArray(orders) || !orders.length){
     holder.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No matching orders.</div>'
@@ -34174,7 +34197,7 @@ async function renderMarqueeBoxOfficeOrders(){
     + orders.map(function(o){
         var when = fmtDate(o.performance_date)+(o.performance_time?' · '+tkFmtTime(o.performance_time):'')
         return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="openTicketOrderDetail(\''+o.id+'\')">'
-          + '<td style="padding:8px">'+escHtml(o.guardian_name||'')+'<div style="color:var(--text-muted);font-size:11px">'+escHtml(o.guardian_email||'')+'</div></td>'
+          + '<td style="padding:8px">'+escHtml(o.guardian_name||'')+'<div style="color:var(--text-muted);font-size:11px">'+escHtml(o.guardian_email||'')+'</div>'+ticketFlagBadge(o)+'</td>'
           + '<td style="padding:8px">'+escHtml(o.production_name||'')+'</td>'
           + '<td style="padding:8px">'+escHtml(when)+'</td>'
           + '<td style="padding:8px">'+escHtml((o.seat_labels||[]).join(', ')||o.ticket_count+' ticket(s)')+'</td>'
@@ -34971,7 +34994,7 @@ async function searchTicketOrders(pid){
     return '<div onclick="openTicketOrderDetail(\''+o.id+'\')" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius);margin-bottom:6px;cursor:pointer;background:var(--surface)">'
       + '<div><div style="font-weight:700;font-size:13.5px">'+escHtml(o.guardian_name)+'</div>'
       + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(o.guardian_email)+(o.guardian_phone?' · '+escHtml(o.guardian_phone):'')+'</div>'
-      + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+escHtml(when)+' · '+escHtml(seats)+'</div></div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+escHtml(when)+' · '+escHtml(seats)+'</div>'+ticketFlagBadge(o)+'</div>'
       + '<div style="text-align:right;flex-shrink:0">'
       + '<div style="font-weight:700;font-size:13.5px">'+fmtMoneyCents(o.total_cents)+'</div>'
       + '<span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:20px;'+(o.status==='completed'?'background:#dcfce7;color:#166534':'background:#fef3c7;color:#92400e')+'">'+escHtml(o.status)+'</span>'
@@ -34986,7 +35009,24 @@ async function openTicketOrderDetail(oid){
   if(data.error){ toast(data.error,'error'); return }
   var order = data.order, perf = data.performance, tickets = data.tickets||[]
   var when = perf ? tkFmtDate(perf.performance_date)+(perf.performance_time?' · '+tkFmtTime(perf.performance_time):'') : ''
-  var body =
+  var flag = ticketFlagObj(order)
+  var related = data.related_orders || []
+  var flagHtml = flag
+    ? '<div style="background:#fff7ed;border:1.5px solid #fdba74;border-radius:var(--radius);padding:12px 14px;margin-bottom:16px">'
+      + '<div style="font-weight:800;font-size:13.5px;color:#9a3412;margin-bottom:4px">Possible over-limit buyer (limit '+flag.limit+' per performance)</div>'
+      + flag.reasons.map(function(r){ return '<div style="font-size:12.5px;color:#7c2d12">• '+escHtml(TICKET_FLAG_TEXT[r]||r)+'</div>' }).join('')
+      + (related.length
+          ? '<div style="font-size:12px;font-weight:700;color:#7c2d12;margin-top:8px">Related orders</div>'
+            + related.map(function(r){
+                return '<div onclick="openTicketOrderDetail(\''+r.id+'\')" style="cursor:pointer;font-size:12.5px;padding:6px 8px;margin-top:4px;background:#fff;border:1px solid #fed7aa;border-radius:6px">'
+                  + escHtml(r.guardian_name||'')+' · '+escHtml(r.guardian_email||'')+(r.guardian_phone?' · '+escHtml(r.guardian_phone):'')
+                  + ' <strong>('+r.ticket_count+' ticket'+(r.ticket_count!==1?'s':'')+')</strong></div>'
+              }).join('')
+          : '')
+      + '<div style="font-size:11.5px;color:#9a3412;margin-top:8px">Nothing was blocked automatically. Refund extra tickets if you decide it\'s the same person.</div>'
+      + '</div>'
+    : ''
+  var body = flagHtml +
     '<div style="margin-bottom:16px">'
     + '<div style="font-size:16px;font-weight:800">'+escHtml(order.guardian_name)+'</div>'
     + '<div style="font-size:13px;color:var(--text-muted)">'+escHtml(order.guardian_email)+(order.guardian_phone?' · '+escHtml(order.guardian_phone):'')+'</div>'

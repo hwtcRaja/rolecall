@@ -203,7 +203,8 @@ function addCurrentSelectionToCart(){
     line_items: lineItems,
     charge_service_fee: lastProd ? !!lastProd.charge_service_fee : false,
     service_fee_percent: lastProd ? lastProd.service_fee_percent : 0,
-    service_fee_flat_cents: lastProd ? lastProd.service_fee_flat_cents : 0
+    service_fee_flat_cents: lastProd ? lastProd.service_fee_flat_cents : 0,
+    default_donation_cents: defaultDonationForCurrentShow()
   })
   ticketCartSave(cart)
   // The holds behind these selections stay exactly as they were — only
@@ -899,9 +900,23 @@ function updateCheckoutButtonState(){
 // --- Optional donation add-on, rides along in the same checkout -------
 var selectedDonationCents = 0
 var donationCustomActive = false
+var donationTouched = false   // once the buyer picks anything, stop applying the show's default
 var DONATION_PRESETS = [500, 1000, 1500, 2000]
 
-function renderDonationSection(){
+// Each show can pre-select a donation amount (set in Ticketing Settings),
+// e.g. $5 for a free show. On the cart page, the highest default among
+// the shows in the cart wins.
+function defaultDonationForCurrentShow(){
+  var v = (lastProd && lastProd.default_donation_cents) || (currentPerformance && currentPerformance.default_donation_cents) || 0
+  return parseInt(v, 10) || 0
+}
+function defaultDonationCents(onCartPage){
+  if(!onCartPage && currentPerformance) return defaultDonationForCurrentShow()
+  return ticketCartGet().reduce(function(m, item){ return Math.max(m, parseInt(item.default_donation_cents, 10) || 0) }, 0)
+}
+
+function renderDonationSection(onCartPage){
+  if(!donationTouched){ selectedDonationCents = defaultDonationCents(onCartPage); donationCustomActive = false }
   return '<div class="card"><div id="donation-card">'+donationCardInnerHTML()+'</div></div>'
 }
 
@@ -928,12 +943,14 @@ function refreshDonationCard(){
 }
 
 function selectDonationPreset(cents){
+  donationTouched = true
   donationCustomActive = false
   selectedDonationCents = cents
   refreshDonationCard()
 }
 
 function selectDonationCustom(){
+  donationTouched = true
   donationCustomActive = true
   refreshDonationCard()
   var input = document.getElementById('donation-custom-input')
@@ -1016,7 +1033,7 @@ async function doCheckout(){
   // Only clear the persisted cart once the order(s) are actually created
   // — an error above means nothing was charged, so leave it intact.
   ticketCartSave([])
-  selectedDonationCents = 0; donationCustomActive = false
+  selectedDonationCents = 0; donationCustomActive = false; donationTouched = false
   if(res.type === 'payment_required' && res.payment_url){
     window.location.href = res.payment_url
     return
@@ -1058,7 +1075,7 @@ function renderCartPage(){
   html += '<div class="total-row"><span>Cart Total</span><span>'+fmtMoney(grandTotal)+'</span></div>'
   html += '</div>'
 
-  html += renderDonationSection()
+  html += renderDonationSection(true)
 
   html += '<div class="card">'
     + '<div class="section-title">Your info</div>'

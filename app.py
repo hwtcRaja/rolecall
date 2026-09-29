@@ -1138,8 +1138,9 @@ def init_db():
         # public, numbers-only display page (no names — privacy, especially
         # with minors auditioning) can be put up on a lobby screen so people
         # know where they stand without a staffer having to announce it.
-        # queue_number resets each day (scoped by checkin_date) since
-        # auditions can run over more than one day.
+        # queue_number keeps counting across every day of the same audition
+        # (day 2 picks up where day 1 left off, so numbers never repeat);
+        # the live queue itself still only shows today's check-ins.
         """CREATE TABLE IF NOT EXISTS audition_checkins (
             id TEXT PRIMARY KEY,
             context_type TEXT NOT NULL,
@@ -7334,18 +7335,22 @@ def checkin_for_audition():
     conn = get_db()
     if submission_id:
         already = fetchone(conn, """SELECT id FROM audition_checkins
-            WHERE submission_id=%s AND checkin_date=CURRENT_DATE AND status NOT IN ('no_show')""", (submission_id,))
+            WHERE submission_id=%s AND checkin_date=%s AND status NOT IN ('no_show')""", (submission_id, today_eastern()))
         if already:
             conn.close()
             return jsonify({'error': 'Already checked in today'}), 400
+    # Continue numbering from any earlier audition day for this show
     next_num = fetchone(conn, """SELECT COALESCE(MAX(queue_number),0)+1 AS n FROM audition_checkins
-        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE""", (context_type, context_id))
+        WHERE context_type=%s AND context_id=%s""", (context_type, context_id))
     qnum = next_num['n']
     cid = str(uuid.uuid4())
+    # checkin_date is set to the Eastern date explicitly: the database's
+    # CURRENT_DATE is UTC, which flips to "tomorrow" at 8 PM during evening
+    # auditions and used to split one night's queue in two.
     execute(conn, """INSERT INTO audition_checkins
-        (id, context_type, context_id, submission_id, walk_in_name, queue_number, checked_in_by)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)""",
-        (cid, context_type, context_id, submission_id, walk_in_name, qnum, session.get('name') or session.get('email') or ''))
+        (id, context_type, context_id, submission_id, walk_in_name, queue_number, checked_in_by, checkin_date)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (cid, context_type, context_id, submission_id, walk_in_name, qnum, session.get('name') or session.get('email') or '', today_eastern()))
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'id': cid, 'queue_number': qnum})
@@ -7364,8 +7369,8 @@ def get_audition_checkins(context_type, context_id):
         s.crew_interest, s.crew_roles_requested, s.crew_experience, s.birthday
         FROM audition_checkins c
         LEFT JOIN audition_submissions s ON s.id=c.submission_id
-        WHERE c.context_type=%s AND c.context_id=%s AND c.checkin_date=CURRENT_DATE
-        ORDER BY c.queue_number ASC""", (context_type, context_id))
+        WHERE c.context_type=%s AND c.context_id=%s AND c.checkin_date=%s
+        ORDER BY c.queue_number ASC""", (context_type, context_id, today_eastern()))
     conn.close()
     rows = rows or []
     for r in rows:
@@ -7385,8 +7390,8 @@ def call_audition_checkin(cid):
     # Only one person "called" (now auditioning) at a time — whoever was
     # previously called is assumed done and moves to completed.
     execute(conn, """UPDATE audition_checkins SET status='completed', completed_at=NOW()
-        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='called'""",
-        (row['context_type'], row['context_id']))
+        WHERE context_type=%s AND context_id=%s AND checkin_date=%s AND status='called'""",
+        (row['context_type'], row['context_id'], today_eastern()))
     execute(conn, "UPDATE audition_checkins SET status='called', called_at=NOW() WHERE id=%s", (cid,))
     conn.commit()
     conn.close()
@@ -7402,11 +7407,11 @@ def call_next_audition_checkin():
     if err: return err
     conn = get_db()
     execute(conn, """UPDATE audition_checkins SET status='completed', completed_at=NOW()
-        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='called'""",
-        (context_type, context_id))
+        WHERE context_type=%s AND context_id=%s AND checkin_date=%s AND status='called'""",
+        (context_type, context_id, today_eastern()))
     nxt = fetchone(conn, """SELECT id FROM audition_checkins
-        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='waiting'
-        ORDER BY queue_number ASC LIMIT 1""", (context_type, context_id))
+        WHERE context_type=%s AND context_id=%s AND checkin_date=%s AND status='waiting'
+        ORDER BY queue_number ASC LIMIT 1""", (context_type, context_id, today_eastern()))
     if nxt:
         execute(conn, "UPDATE audition_checkins SET status='called', called_at=NOW() WHERE id=%s", (nxt['id'],))
     conn.commit()
@@ -8285,11 +8290,11 @@ def _public_queue_snapshot(conn, context_type, context_id):
     this is what the lobby-screen display polls, and it should never leak a
     name, especially with minors auditioning."""
     called = fetchone(conn, """SELECT queue_number FROM audition_checkins
-        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='called'
-        ORDER BY called_at DESC LIMIT 1""", (context_type, context_id))
+        WHERE context_type=%s AND context_id=%s AND checkin_date=%s AND status='called'
+        ORDER BY called_at DESC LIMIT 1""", (context_type, context_id, today_eastern()))
     waiting = fetchall(conn, """SELECT queue_number FROM audition_checkins
-        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='waiting'
-        ORDER BY queue_number ASC LIMIT 6""", (context_type, context_id))
+        WHERE context_type=%s AND context_id=%s AND checkin_date=%s AND status='waiting'
+        ORDER BY queue_number ASC LIMIT 6""", (context_type, context_id, today_eastern()))
     waiting_nums = [w['queue_number'] for w in waiting]
     return {
         'now_serving': called['queue_number'] if called else None,

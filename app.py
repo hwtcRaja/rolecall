@@ -5172,29 +5172,50 @@ def _get_store_eligible_hours(conn, volunteer_id):
     manual_bonus = manual_bonus_row['t'] if manual_bonus_row else 0
     return (base or 0) + flat_bonus_hours + (manual_bonus or 0)
 
+def _hours_store_program_live(prog):
+    """A program's store items are offered only while its registration is
+    actually open and the program isn't finished/archived."""
+    return (bool(prog.get('hours_store_enabled'))
+            and (prog.get('registration_status') or 'draft') == 'open'
+            and (prog.get('status') or 'active') not in ('completed', 'archived'))
+
+
+def _hours_store_session_live(sess, today_iso):
+    if (sess.get('status') or 'open') in ('closed', 'cancelled', 'full'):
+        return False
+    end = (sess.get('end_date') or sess.get('start_date') or '').strip()
+    return not end or end >= today_iso
+
+
 def sync_hours_store_for_program(conn, program_id):
-    """Create/update/retire auto-synced store_items to match a program's current
-    hours_store_enabled flag, price, sessions, and bundle settings. Only ever touches
-    rows with auto_synced=true so manually-created store items are never disturbed."""
+    """Create/update/retire auto-synced store_items to match a program's
+    current settings AND status. Items are active only while the program's
+    store is enabled, registration is open, the program isn't completed or
+    archived, and (for per-session items) the session is open and hasn't
+    ended. Only ever touches rows with auto_synced=true, so manually-created
+    store items are never disturbed."""
     prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (program_id,))
     if not prog:
         return
-    if not prog.get('hours_store_enabled'):
-        execute(conn, 'UPDATE store_items SET active=false WHERE linked_program_id=%s AND auto_synced=true', (program_id,))
+    if not _hours_store_program_live(prog):
+        execute(conn, 'UPDATE store_items SET active=false WHERE linked_program_id=%s AND auto_synced=true AND active=true', (program_id,))
+        conn.commit()
         return
 
+    today_iso = today_eastern().isoformat()
     if prog.get('sessions_enabled'):
         sessions = fetchall(conn, 'SELECT * FROM program_sessions WHERE program_id=%s ORDER BY sort_order', (program_id,)) or []
         seen_session_ids = set()
         for s in sessions:
             price = s['price_override'] if s.get('price_override') is not None else (prog.get('price') or 0)
             seen_session_ids.add(s['id'])
+            live = _hours_store_session_live(s, today_iso)
             existing = fetchone(conn, 'SELECT id FROM store_items WHERE linked_session_id=%s AND auto_synced=true', (s['id'],))
             item_name = f"{prog['name']} — {s['name']}"
             if existing:
-                execute(conn, 'UPDATE store_items SET name=%s, price_cents=%s, active=true WHERE id=%s',
-                    (item_name, price, existing['id']))
-            else:
+                execute(conn, 'UPDATE store_items SET name=%s, price_cents=%s, active=%s WHERE id=%s',
+                    (item_name, price, live, existing['id']))
+            elif live:
                 iid = str(uuid.uuid4())
                 execute(conn, '''INSERT INTO store_items
                     (id, name, price_cents, linked_program_id, linked_session_id, auto_synced, active)
@@ -5206,8 +5227,12 @@ def sync_hours_store_for_program(conn, program_id):
             (program_id, tuple(seen_session_ids) if seen_session_ids else ('',))) or []
         for st in stale:
             execute(conn, 'UPDATE store_items SET active=false WHERE id=%s', (st['id'],))
-        # bundle item, if enabled
-        if prog.get('bundle_enabled') and prog.get('bundle_price'):
+        # program switched to sessions: retire the old whole-program item
+        execute(conn, '''UPDATE store_items SET active=false WHERE linked_program_id=%s AND auto_synced=true
+            AND linked_session_id IS NULL AND COALESCE(is_bundle_item,false)=false''', (program_id,))
+        # bundle item, if enabled (only while at least one session is still offered)
+        any_live = any(_hours_store_session_live(s, today_iso) for s in sessions)
+        if prog.get('bundle_enabled') and prog.get('bundle_price') and any_live:
             existing = fetchone(conn, 'SELECT id FROM store_items WHERE linked_program_id=%s AND is_bundle_item=true AND auto_synced=true', (program_id,))
             bundle_name = f"{prog['name']} — {prog.get('bundle_label') or 'Full Bundle'}"
             if existing:
@@ -5223,7 +5248,7 @@ def sync_hours_store_for_program(conn, program_id):
     else:
         price = prog.get('price') or 0
         existing = fetchone(conn, '''SELECT id FROM store_items WHERE linked_program_id=%s AND auto_synced=true
-            AND linked_session_id IS NULL AND is_bundle_item=false''', (program_id,))
+            AND linked_session_id IS NULL AND COALESCE(is_bundle_item,false)=false''', (program_id,))
         if existing:
             execute(conn, 'UPDATE store_items SET name=%s, price_cents=%s, active=true WHERE id=%s',
                 (prog['name'], price, existing['id']))
@@ -5231,6 +5256,42 @@ def sync_hours_store_for_program(conn, program_id):
             iid = str(uuid.uuid4())
             execute(conn, '''INSERT INTO store_items (id, name, price_cents, linked_program_id, auto_synced, active)
                 VALUES (%s,%s,%s,%s,true,true)''', (iid, prog['name'], price, program_id))
+        # program switched away from sessions: retire session + bundle items
+        execute(conn, '''UPDATE store_items SET active=false WHERE linked_program_id=%s AND auto_synced=true
+            AND (linked_session_id IS NOT NULL OR is_bundle_item=true)''', (program_id,))
+    conn.commit()
+
+
+def sync_hours_store_all(conn):
+    """Re-check every program that has (or should have) synced store items.
+    Runs nightly and on startup so items for sessions that have ended, or
+    programs closed before this sync existed, get retired. Uses an advisory
+    lock so several app workers starting at once don't double-create items."""
+    got = fetchone(conn, 'SELECT pg_try_advisory_lock(%s) AS ok', (740512,)) or {}
+    if not got.get('ok'):
+        return
+    try:
+        _sync_hours_store_all_locked(conn)
+    finally:
+        try:
+            fetchone(conn, 'SELECT pg_advisory_unlock(%s) AS ok', (740512,))
+        except Exception:
+            pass
+
+
+def _sync_hours_store_all_locked(conn):
+    rows = fetchall(conn, '''SELECT id FROM youth_programs WHERE hours_store_enabled=true
+        UNION SELECT DISTINCT linked_program_id FROM store_items
+        WHERE auto_synced=true AND active=true AND linked_program_id IS NOT NULL''') or []
+    for r in rows:
+        try:
+            sync_hours_store_for_program(conn, r['id'])
+        except Exception as e:
+            app.logger.warning(f'Hours store sync failed for program {r["id"]}: {e}')
+            try: conn.rollback()
+            except Exception: pass
+    # synced items whose program was deleted (FK set to NULL)
+    execute(conn, 'UPDATE store_items SET active=false WHERE auto_synced=true AND active=true AND linked_program_id IS NULL')
     conn.commit()
 
 @app.route('/api/admin/hours-store/settings', methods=['GET'])
@@ -6142,6 +6203,7 @@ def update_youth_program(pid):
              float(d.get('pay_rate_amount') or 0),
              pid))
     conn.commit()
+    sync_hours_store_for_program(conn, pid)   # name, status, and bundle feed the store items
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
     return jsonify(row)
@@ -6162,6 +6224,7 @@ def set_program_registration_status(pid):
         return jsonify({'error': 'Program not found'}), 404
     execute(conn, 'UPDATE youth_programs SET registration_status=%s WHERE id=%s', (reg_status, pid))
     conn.commit()
+    sync_hours_store_for_program(conn, pid)
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
     return jsonify(row)
@@ -6182,6 +6245,7 @@ def set_program_archive_status(pid):
         return jsonify({'error': 'Program not found'}), 404
     execute(conn, 'UPDATE youth_programs SET status=%s WHERE id=%s', (status, pid))
     conn.commit()
+    sync_hours_store_for_program(conn, pid)
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
     conn.close()
     return jsonify(row)
@@ -6258,6 +6322,7 @@ def delete_youth_program(pid):
     # Clear any FK references that don't cascade
     execute(conn, 'UPDATE youth_sign_ins SET program_id=NULL WHERE program_id=%s', (pid,))
     execute(conn, 'UPDATE events SET program_id=NULL WHERE program_id=%s', (pid,))
+    execute(conn, 'UPDATE store_items SET active=false WHERE linked_program_id=%s AND auto_synced=true', (pid,))
     execute(conn, 'DELETE FROM youth_programs WHERE id=%s', (pid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -18915,6 +18980,15 @@ def reject_profile_update(uid):
     return jsonify({'ok': True})
 
 init_db()
+
+# One pass on every deploy retires store items left active by programs that
+# closed before the hours store followed program status.
+try:
+    _hs_conn = get_db()
+    sync_hours_store_all(_hs_conn)
+    _hs_conn.close()
+except Exception as _hs_e:
+    app.logger.warning(f'Startup hours store sync skipped: {_hs_e}')
 try:
     _seed_conn = get_db()
     seed_system_email_templates(_seed_conn)
@@ -29412,6 +29486,15 @@ def _start_oncall_scheduler():
         scheduler.add_job(_check_scheduled_reports_precise, CronTrigger(minute='*'), id='scheduled_reports_check',
                           max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.add_job(_daily_auto_close, CronTrigger(hour=2, minute=0), id='daily_auto_close',
+                          max_instances=1, coalesce=True)
+        def _daily_hours_store_sync():
+            try:
+                conn = get_db()
+                sync_hours_store_all(conn)
+                conn.close()
+            except Exception as e:
+                app.logger.warning(f'Daily hours store sync error: {e}')
+        scheduler.add_job(_daily_hours_store_sync, CronTrigger(hour=2, minute=10), id='daily_hours_store_sync',
                           max_instances=1, coalesce=True)
         scheduler.add_job(sad_auto_open_due_lotteries, CronTrigger(minute='*'), id='sad_auto_open',
                           max_instances=1, coalesce=True, misfire_grace_time=30)

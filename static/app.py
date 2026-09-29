@@ -8,10 +8,13 @@ import hmac
 import os
 import uuid
 import json
+import secrets
 from datetime import datetime, date, timedelta
+from decimal import Decimal
 from werkzeug.utils import secure_filename
 import requests
 import re
+import random
 app = Flask(__name__, static_folder='static')
 app.secret_key = os.environ.get('SECRET_KEY', 'rollcall-dev-key')
 CORS(app, supports_credentials=True)
@@ -62,7 +65,7 @@ def seed_system_email_templates(conn=None):
          'Sent to admins/recipients when an ELIC closes an event via the kiosk.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px;border-radius:10px 10px 0 0;color:#fff">
-    <h2 style="margin:0">🔒 Event Closed: {{event_name}}</h2>
+    <h2 style="margin:0"> Event Closed: {{event_name}}</h2>
     <p style="opacity:0.8;margin:6px 0 0">Closed by {{elic_name}} on {{date}}</p>
   </div>
   <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
@@ -92,7 +95,7 @@ def seed_system_email_templates(conn=None):
          'Sent to volunteers when they are invited to sign up for an event.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px;border-radius:10px 10px 0 0;color:#fff">
-    <h2 style="margin:0">🎭 Volunteer Opportunity</h2>
+    <h2 style="margin:0"> Volunteer Opportunity</h2>
   </div>
   <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:24px;border-radius:0 0 10px 10px">
     <p>Hi {{volunteer_name}},</p>
@@ -110,16 +113,16 @@ def seed_system_email_templates(conn=None):
   <p>Hi {{name}},</p>
   <p>We\'re scheduling the board meeting for <strong>{{month}} {{year}}</strong> and need to know your availability. Please click below and mark any dates you <strong>cannot</strong> attend.</p>
   <div style="text-align:center;margin:28px 0">
-    <a href="{{link}}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">📅 Submit My Availability</a>
+    <a href="{{link}}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block"> Submit My Availability</a>
   </div>
   <p style="font-size:13px;color:#888">This link is unique to you. You can update your availability at any time by clicking it again.</p>
 </div>'''),
 
-        ('disney_reminder', '🐭 Reminder: Submit Your Volunteer Hours  -  Disney VoluntEARS', 'disney_reminder',
+        ('disney_reminder', ' Reminder: Submit Your Volunteer Hours  -  Disney VoluntEARS', 'disney_reminder',
          'Sent to Disney Cast Members who have logged hours, reminding them to submit to VoluntEARS.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;text-align:center">
-    <div style="font-size:48px;margin-bottom:8px">🐭</div>
+    <div style="font-size:48px;margin-bottom:8px"></div>
     <h2 style="color:#fff;margin:0;font-size:22px">Your Volunteer Hours Make a Difference!</h2>
   </div>
   <div style="background:#fff;padding:28px 32px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
@@ -224,7 +227,7 @@ def seed_system_email_templates(conn=None):
          'Sent to admins/guardians when an unauthorized pickup attempt is detected at the kiosk.',
          '''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto;border:2px solid #dc2626;border-radius:10px;overflow:hidden">
   <div style="background:#dc2626;padding:16px 24px;color:#fff">
-    <h2 style="margin:0">⚠️ Unauthorized Pickup Attempt</h2>
+    <h2 style="margin:0"> Unauthorized Pickup Attempt</h2>
   </div>
   <div style="padding:24px">
     <p>An unauthorized pickup attempt was detected for <strong>{{participant_name}}</strong>.</p>
@@ -236,7 +239,7 @@ def seed_system_email_templates(conn=None):
          'Welcome to {{program_name}}  -  HWTC RoleCall',
          'welcome_email',
          'Sent to everyone enrolled in a program — youth and adult registrants alike. Includes their portal passphrase and, when available, what they registered for (sessions, dates/times). Wording automatically adapts for adult registrants (no "your child"/pick-up language). Supports {{program_name}}, {{passphrase}}, {{family_greeting}}, {{schedule_block}}, {{passphrase_block}}, {{intro_block}}, {{portal_tagline}}, {{passphrase_reminder_line}}, {{closing_line}} merge tags.',
-         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}}  -  HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; }\n  .step-block { margin-bottom: 2.5rem; }\n  .step-header-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }\n  .step-header-table td { vertical-align: top; padding: 0; }\n  .step-header-icon-cell { width: 48px; padding-right: 14px !important; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; text-align: center; line-height: 34px; font-size: 15px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { }\n  .section-card { margin-bottom: 8px; }\n  .section-card-table { width: 100%; border-collapse: collapse; }\n  .section-card-table td { vertical-align: top; padding: 0; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; text-align: center; line-height: 34px; font-size: 16px; }\n  .section-icon-cell { width: 48px; padding-right: 11px !important; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { margin-bottom: 4px; }\n  .ann-chip { margin-right: 6px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall  -  {{portal_tagline}}</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    {{intro_block}}\n\n    {{schedule_block}}\n\n    {{passphrase_block}}\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started  -  three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">1</td>\n          <td>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">2</td>\n          <td>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to {{passphrase_reminder_line}}</div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">My Profile  -  changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title">🔑 Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">3</td>\n          <td>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during {{program_name}}.</div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell">📢</td>\n              <td>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </td>\n            </tr></table>\n            </div>\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell">🚗</td>\n              <td>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families  -  create a carpool or join an existing one for any scheduled day</div>\n              </td>\n            </tr></table>\n            </div>\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell">👤</td>\n              <td>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </td>\n            </tr></table>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">Stay in the loop</h2>\n\n    <p>Schedule updates, materials, and important reminders for {{program_name}} will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first whenever you have a question!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements  -  inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">What to bring on day one</span>\n            </div>\n            <div class="ann-item-body">A quick checklist to make your first day as smooth as possible.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you join us. Please review any supply list, schedule, or dress code details before your first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    {{closing_line}}\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
+         '<!DOCTYPE html>\n<html lang="en">\n<head>\n<meta charset="UTF-8"/>\n<meta name="viewport" content="width=device-width, initial-scale=1.0"/>\n<title>Welcome to {{program_name}}  -  HWTC RoleCall</title>\n<style>\n  * { box-sizing: border-box; margin: 0; padding: 0; }\n  body { font-family: Georgia, \'Times New Roman\', serif; background: #f5f4f0; color: #1a1a18; }\n  .wrapper { max-width: 640px; margin: 32px auto; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 16px rgba(0,0,0,0.08); }\n\n  /* Header */\n  .header { background: #0d4a38; padding: 40px 40px 32px; text-align: center; }\n  .header-logo { font-size: 11px; font-weight: 600; letter-spacing: 0.15em; text-transform: uppercase; color: rgba(255,255,255,0.6); margin-bottom: 10px; }\n  .header h1 { font-size: 28px; font-weight: 400; color: #fff; line-height: 1.3; margin-bottom: 6px; }\n  .header-sub { font-size: 14px; color: rgba(255,255,255,0.65); }\n  .header-rule { width: 40px; height: 2px; background: #1D9E75; margin: 16px auto 0; }\n\n  /* Body */\n  .body { padding: 36px 40px; }\n  p { font-size: 15px; line-height: 1.75; margin-bottom: 1rem; color: #2c2c2a; }\n  strong { font-weight: 600; }\n  a { color: #0F6E56; }\n\n  /* Callout */\n  .callout { background: #E1F5EE; border-left: 3px solid #1D9E75; border-radius: 0 8px 8px 0; padding: 14px 18px; margin: 1.5rem 0; }\n  .callout p { font-size: 14px; margin: 0; color: #085041; }\n  .callout strong { color: #04342C; }\n\n  /* Steps */\n  .steps { margin: 2rem 0; }\n  .step-block { margin-bottom: 2.5rem; }\n  .step-header-table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }\n  .step-header-table td { vertical-align: top; padding: 0; }\n  .step-header-icon-cell { width: 48px; padding-right: 14px !important; }\n  .step-num { width: 34px; height: 34px; border-radius: 50%; background: #1D9E75; color: #fff; text-align: center; line-height: 34px; font-size: 15px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .step-title { font-size: 16px; font-weight: 600; color: #0d4a38; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .step-desc { font-size: 14px; color: #5f5e5a; line-height: 1.65; }\n  code { background: #f1efe8; border: 1px solid #d3d1c7; border-radius: 4px; padding: 1px 6px; font-family: \'Courier New\', monospace; font-size: 13px; color: #0d4a38; }\n\n  /* Screenshot frame */\n  .screen { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 10px; padding: 20px; margin-top: 0; }\n  .screen-label { font-size: 10px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: #888780; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n\n  /* Login mockup */\n  .login-card { max-width: 280px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; padding: 24px 20px; }\n  .login-logo-wrap { width: 44px; height: 44px; background: #0d4a38; border-radius: 10px; display: flex; align-items: center; justify-content: center; margin: 0 auto 10px; }\n  .login-logo-icon { color: #fff; font-size: 20px; }\n  .login-app-name { font-size: 14px; font-weight: 600; text-align: center; color: #1a1a18; margin-bottom: 18px; font-family: -apple-system, sans-serif; }\n  .login-label { font-size: 11px; color: #888780; margin-bottom: 4px; font-family: -apple-system, sans-serif; }\n  .login-input { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 6px; padding: 8px 10px; font-size: 13px; color: #888780; margin-bottom: 10px; font-family: monospace; letter-spacing: 2px; }\n  .login-btn { background: #1D9E75; color: #fff; border-radius: 6px; padding: 9px; text-align: center; font-size: 13px; font-weight: 600; font-family: -apple-system, sans-serif; }\n\n  /* Passphrase mockup */\n  .pp-card { max-width: 340px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .pp-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .pp-tab { padding: 8px 14px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .pp-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .pp-body { padding: 16px 18px; }\n  .pp-section-title { font-size: 13px; font-weight: 600; color: #1a1a18; margin-bottom: 12px; font-family: -apple-system, sans-serif; }\n  .pp-field-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #888780; margin-bottom: 3px; font-family: -apple-system, sans-serif; }\n  .pp-field { background: #f5f4f0; border: 1px solid #d3d1c7; border-radius: 5px; padding: 7px 9px; font-size: 12px; color: #888780; margin-bottom: 8px; font-family: monospace; letter-spacing: 1px; }\n  .pp-save-btn { background: #1D9E75; color: #fff; border-radius: 5px; padding: 7px 14px; font-size: 12px; font-weight: 600; display: inline-block; font-family: -apple-system, sans-serif; }\n\n  /* Sections grid */\n  .sections-grid { }\n  .section-card { margin-bottom: 8px; }\n  .section-card-table { width: 100%; border-collapse: collapse; }\n  .section-card-table td { vertical-align: top; padding: 0; }\n  .section-card { background: #fff; border: 1px solid #d3d1c7; border-radius: 8px; padding: 11px 13px; }\n  .section-icon { width: 34px; height: 34px; background: #E1F5EE; border-radius: 8px; text-align: center; line-height: 34px; font-size: 16px; }\n  .section-icon-cell { width: 48px; padding-right: 11px !important; }\n  .section-name { font-size: 13px; font-weight: 600; color: #0d4a38; font-family: -apple-system, sans-serif; margin-bottom: 2px; }\n  .section-desc { font-size: 12px; color: #888780; line-height: 1.5; font-family: -apple-system, sans-serif; }\n\n  /* Announcements mockup */\n  .ann-card { max-width: 380px; margin: 0 auto; background: #fff; border: 1px solid #d3d1c7; border-radius: 10px; overflow: hidden; }\n  .ann-tabs { display: flex; border-bottom: 1px solid #d3d1c7; background: #f5f4f0; }\n  .ann-tab { padding: 7px 12px; font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; }\n  .ann-tab.active { color: #0F6E56; border-bottom: 2px solid #1D9E75; font-weight: 600; background: #fff; }\n  .ann-badge { background: #E1F5EE; color: #0F6E56; border-radius: 10px; padding: 1px 6px; font-size: 10px; margin-left: 3px; }\n  .ann-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; }\n  .ann-item { border: 1px solid #d3d1c7; border-radius: 7px; padding: 10px 12px; }\n  .ann-item-head { margin-bottom: 4px; }\n  .ann-chip { margin-right: 6px; }\n  .ann-chip { background: #E1F5EE; color: #0F6E56; font-size: 9px; font-weight: 700; letter-spacing: 0.08em; padding: 2px 7px; border-radius: 10px; text-transform: uppercase; font-family: -apple-system, sans-serif; }\n  .ann-item-title { font-size: 12px; font-weight: 600; color: #1a1a18; font-family: -apple-system, sans-serif; }\n  .ann-item-body { font-size: 12px; color: #5f5e5a; line-height: 1.5; font-family: -apple-system, sans-serif; }\n  .ann-item-date { font-size: 10px; color: #b4b2a9; margin-top: 5px; font-family: -apple-system, sans-serif; }\n\n  /* Divider */\n  .rule { border: none; border-top: 1px solid #e8e6e0; margin: 2rem 0; }\n\n  /* CTA */\n  .cta { text-align: center; padding: 2rem 0 0.5rem; }\n  .cta-btn { display: inline-block; background: #1D9E75; color: #fff; text-decoration: none; padding: 12px 32px; border-radius: 8px; font-size: 14px; font-weight: 600; font-family: -apple-system, sans-serif; }\n  .cta-url { font-size: 12px; color: #888780; margin-top: 10px; font-family: -apple-system, sans-serif; }\n\n  /* Footer */\n  .footer { background: #f5f4f0; border-top: 1px solid #e8e6e0; padding: 20px 40px; text-align: center; }\n  .footer p { font-size: 12px; color: #888780; font-family: -apple-system, sans-serif; margin-bottom: 4px; }\n</style>\n</head>\n<body>\n<div class="wrapper">\n\n  <!-- Header -->\n  <div class="header">\n    <div class="header-logo">Horizon West Theater Company</div>\n    <h1>Welcome to {{program_name}}!</h1>\n    <div class="header-sub">Introducing RoleCall  -  {{portal_tagline}}</div>\n    <div class="header-rule"></div>\n  </div>\n\n  <!-- Body -->\n  <div class="body">\n\n    <p>Dear {{family_greeting}},</p>\n\n    {{intro_block}}\n\n    {{schedule_block}}\n\n    {{passphrase_block}}\n\n    <hr class="rule"/>\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1.5rem;font-family:-apple-system,sans-serif;">Getting started  -  three steps</h2>\n\n    <div class="steps">\n\n      <!-- Step 1 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">1</td>\n          <td>\n            <div class="step-title">Visit the portal</div>\n            <div class="step-desc">Open your browser and go to <a href="https://rolecall.hwtco.org/portal">rolecall.hwtco.org/portal</a></div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">Portal login screen</div>\n          <div class="login-card">\n            <div class="login-logo-wrap">\n              <svg class="login-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M2 20h20M5 20V8l7-5 7 5v12"/><path d="M9 20v-5h6v5"/></svg>\n            </div>\n            <div class="login-app-name">HWTC Family Portal</div>\n            <div class="login-label">Your passphrase</div>\n            <div class="login-input">· · · · · · · · · · · ·</div>\n            <div class="login-btn">Sign In</div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 2 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">2</td>\n          <td>\n            <div class="step-title">Sign in and set your passphrase</div>\n            <div class="step-desc">Use your temporary passphrase: <code style="background:#f1efe8;border:1px solid #d3d1c7;border-radius:4px;padding:1px 6px;font-family:\'Courier New\',monospace;font-size:13px;color:#0d4a38">{{passphrase}}</code>. Once inside, go to <strong>My Profile</strong> and change it to {{passphrase_reminder_line}}</div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">My Profile  -  changing your passphrase</div>\n          <div class="pp-card">\n            <div class="pp-tabs">\n              <div class="pp-tab">Programs</div>\n              <div class="pp-tab">Carpools</div>\n              <div class="pp-tab active">My Profile</div>\n            </div>\n            <div class="pp-body">\n              <div class="pp-section-title"> Change Passphrase</div>\n              <div class="pp-field-label">Current passphrase</div>\n              <div class="pp-field">· · · · · · · · · ·</div>\n              <div class="pp-field-label">New passphrase</div>\n              <div class="pp-field" style="background:#fff;border-color:#1D9E75;">&nbsp;</div>\n              <div class="pp-field-label">Confirm new passphrase</div>\n              <div class="pp-field" style="background:#fff;">&nbsp;</div>\n              <div class="pp-save-btn">Update Passphrase</div>\n            </div>\n          </div>\n        </div>\n      </div>\n\n      <!-- Step 3 -->\n      <div class="step-block">\n        <table class="step-header-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n          <td class="step-num step-header-icon-cell">3</td>\n          <td>\n            <div class="step-title">Explore the portal</div>\n            <div class="step-desc">Take a few minutes to look around. The three main areas cover everything you\'ll need during {{program_name}}.</div>\n          </td>\n        </tr></table>\n        <div class="screen">\n          <div class="screen-label">Portal sections at a glance</div>\n          <div class="sections-grid">\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell"></td>\n              <td>\n                <div class="section-name">Programs</div>\n                <div class="section-desc">Announcements from your instructor, downloadable files, rehearsal schedules, and program information</div>\n              </td>\n            </tr></table>\n            </div>\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell"></td>\n              <td>\n                <div class="section-name">Carpools</div>\n                <div class="section-desc">Coordinate rides with other families  -  create a carpool or join an existing one for any scheduled day</div>\n              </td>\n            </tr></table>\n            </div>\n            <div class="section-card">\n            <table class="section-card-table" role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>\n              <td class="section-icon section-icon-cell"></td>\n              <td>\n                <div class="section-name">My Profile</div>\n                <div class="section-desc">Review and sign required waivers, update contact details, and manage your passphrase</div>\n              </td>\n            </tr></table>\n            </div>\n          </div>\n        </div>\n      </div>\n\n    </div><!-- end steps -->\n\n    <hr class="rule"/>\n\n    <h2 style="font-size:18px;font-weight:600;color:#0d4a38;margin-bottom:1rem;font-family:-apple-system,sans-serif;">Stay in the loop</h2>\n\n    <p>Schedule updates, materials, and important reminders for {{program_name}} will be posted in the <strong>Announcements</strong> section of your program inside RoleCall. Check there first whenever you have a question!</p>\n\n    <div class="screen" style="margin-top:1.25rem;">\n      <div class="screen-label">Announcements  -  inside your program</div>\n      <div class="ann-card">\n        <div class="ann-tabs">\n          <div class="ann-tab">Overview</div>\n          <div class="ann-tab active">Announcements <span class="ann-badge">2</span></div>\n          <div class="ann-tab">Files</div>\n        </div>\n        <div class="ann-body">\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">What to bring on day one</span>\n            </div>\n            <div class="ann-item-body">A quick checklist to make your first day as smooth as possible.</div>\n            <div class="ann-item-date">June 10, 2026</div>\n          </div>\n          <div class="ann-item">\n            <div class="ann-item-head">\n              <span class="ann-chip">Published</span>\n              <span class="ann-item-title">Welcome to {{program_name}}!</span>\n            </div>\n            <div class="ann-item-body">We are thrilled to have you join us. Please review any supply list, schedule, or dress code details before your first day.</div>\n            <div class="ann-item-date">June 5, 2026</div>\n          </div>\n        </div>\n      </div>\n    </div>\n\n    <hr class="rule"/>\n\n    {{closing_line}}\n\n    <p style="margin-bottom:4px;">With excitement,</p>\n    <p style="font-weight:600;margin-bottom:2px;">The HWTC Team</p>\n    <p style="font-size:13px;color:#888780;font-family:-apple-system,sans-serif;">Horizon West Theater Company</p>\n\n    <div class="cta">\n      <a class="cta-btn" href="https://rolecall.hwtco.org/portal">Sign In to RoleCall</a>\n      <div class="cta-url">rolecall.hwtco.org/portal</div>\n    </div>\n\n  </div><!-- end body -->\n\n  <div class="footer">\n    <p>Horizon West Theater Company</p>\n    <p>Questions? Contact us through the portal or reply to this email.</p>\n  </div>\n\n</div>\n</body>\n</html>\n'),
 
     ]
 
@@ -258,6 +261,23 @@ def seed_system_email_templates(conn=None):
                     (str(uuid.uuid4()), key.replace('_',' ').title(), subject, body, key, description))
             except Exception as e:
                 app.logger.warning(f'Failed to seed template {key}: {e}')
+
+def _giving_programs_for(employer_program_text):
+    """A volunteer's employer_program is free text that can now name more than
+    one program (e.g. "Disney Cast Member, Universal Team Member") for anyone
+    who qualifies for both. Returns a list of program dicts — empty, one, or
+    both — instead of picking a single either/or branch like this used to."""
+    prog = (employer_program_text or '').lower()
+    programs = []
+    if 'disney' in prog:
+        programs.append({'key': 'disney', 'label': 'Disney Cast Member',
+                          'submit_name': 'Disney VoluntEARS', 'submit_link': 'https://disneyvoluntears.com',
+                          'icon': '', 'tmpl_key': 'disney_reminder'})
+    if 'universal' in prog:
+        programs.append({'key': 'universal', 'label': 'Universal Team Member',
+                          'submit_name': 'Universal Giving', 'submit_link': 'https://universalgiving.org',
+                          'icon': '', 'tmpl_key': 'universal_reminder'})
+    return programs
 
 def get_system_template(conn, key):
     """Get a system email template by key, returns None if not found."""
@@ -498,6 +518,19 @@ def init_db():
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(production_id, volunteer_id))''')
 
+    # Co-instructors — additional instructors beyond youth_programs.instructor_id
+    # (the "primary" instructor, kept as-is for pay tracking / bio display /
+    # everything that already assumes a single instructor). Anyone in this
+    # table gets the same "My Programs" dashboard visibility and instructor
+    # portal access as the primary instructor, without becoming the one
+    # tracked for pay or shown as the program's bio/photo.
+    c.execute('''CREATE TABLE IF NOT EXISTS program_co_instructors (
+        id TEXT PRIMARY KEY,
+        program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
+        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(program_id, volunteer_id))''')
+
     # add active column to users
     conn.commit()
 
@@ -700,6 +733,19 @@ def init_db():
         registration_id TEXT,
         created_at TIMESTAMP DEFAULT NOW())""")
 
+    # One-click sign-off links for the President/Treasurer notification
+    # email — the token itself (long, random, delivered only to that
+    # officer's inbox) is the credential, so this doesn't need a login
+    # session the way the in-app button does. Single-use and expiring.
+    c.execute("""CREATE TABLE IF NOT EXISTS refund_approval_tokens (
+        token TEXT PRIMARY KEY,
+        refund_request_id TEXT NOT NULL REFERENCES refund_requests(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        officer_email TEXT NOT NULL,
+        expires_at TIMESTAMP NOT NULL,
+        used_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW())""")
+
     # event types (customizable)
     c.execute("""CREATE TABLE IF NOT EXISTS event_types (
         id TEXT PRIMARY KEY, name TEXT UNIQUE NOT NULL,
@@ -712,10 +758,17 @@ def init_db():
     # Rising Stars / Workshops & Classes / Mainstage Production each get
     # their own swatch instead of sharing generic Rehearsal/Performance
     # colors with every other production.
+    # Rename the legacy 'Mainstage Production' event type to 'Productions' (run before the
+    # seed loop below, which now seeds 'Productions' — renaming first avoids a name collision).
+    try:
+        c.execute("UPDATE event_types SET name='Productions' WHERE name='Mainstage Production'")
+    except Exception:
+        pass
+
     for et in [
         ('Rehearsal', 'amber'), ('Performance', 'teal'), ('Meeting', 'blue'),
         ('Build Day', 'pink'), ('Strike', 'purple'), ('Other', 'gray'),
-        ('Mainstage Production', 'indigo'), ('Rising Stars', 'cyan'),
+        ('Productions', 'indigo'), ('Rising Stars', 'cyan'),
         ('Workshop / Class', 'green'), ('Artistic Partnership', 'violet'),
     ]:
         c.execute("INSERT INTO event_types (id,name,color) VALUES (%s,%s,%s) ON CONFLICT (name) DO NOTHING",
@@ -729,6 +782,18 @@ def init_db():
         is_master BOOLEAN DEFAULT FALSE,
         active BOOLEAN DEFAULT TRUE,
         notes TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(volunteer_id))""")
+
+    # Per-instructor kiosk PIN — mirrors elics above. Entering it at the kiosk
+    # both identifies the instructor (skips volunteer search entirely, same as
+    # ELIC login) and marks whatever they log next as paid instruction,
+    # regardless of whether the automatic instructor/program match applies.
+    c.execute("""CREATE TABLE IF NOT EXISTS paid_instructors (
+        id TEXT PRIMARY KEY,
+        volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+        pin TEXT NOT NULL,
+        active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW(),
         UNIQUE(volunteer_id))""")
 
@@ -834,6 +899,11 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS default_elic_id TEXT",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS default_elic_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS program_id TEXT",
+        # Links a real calendar event to the specific program_sessions row it
+        # represents, so a program's auto-generated session and a real,
+        # hours-loggable event don't end up as two separate calendar entries
+        # for the same class meeting.
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS linked_session_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS requires_background_check BOOLEAN DEFAULT FALSE",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_date TEXT",
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS background_check_status TEXT DEFAULT 'none'",
@@ -873,7 +943,23 @@ def init_db():
             approved BOOLEAN DEFAULT TRUE,
             created_at TIMESTAMP DEFAULT NOW(),
             created_by_portal BOOLEAN DEFAULT FALSE)""",
+        # Two-way SMS relay for call-out alerts: lets a crew member reply to
+        # the "so-and-so called out" text and have it reach the parent who
+        # submitted it (and vice versa), the same way the on-call line relays
+        # customer texts, since both share the one Twilio number.
+        """CREATE TABLE IF NOT EXISTS callout_relay_threads (
+            id TEXT PRIMARY KEY,
+            production_conflict_id TEXT REFERENCES production_conflicts(id) ON DELETE CASCADE,
+            guardian_phone TEXT,
+            guardian_name TEXT,
+            youth_name TEXT,
+            production_name TEXT,
+            crew_alert_phones TEXT DEFAULT '[]',
+            active_crew_phone TEXT,
+            last_message_at TIMESTAMP DEFAULT NOW(),
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE",
+        "ALTER TABLE callout_relay_threads ALTER COLUMN guardian_phone DROP NOT NULL",
         # portal features
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS family_id TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS passphrase TEXT",
@@ -1000,6 +1086,9 @@ def init_db():
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_role TEXT",
         "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS submitter_passphrase TEXT",
         """ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_slots BOOLEAN DEFAULT FALSE""",
+        # Lets staff hide the Auditions tab entirely for programs/productions
+        # that never use it, instead of it always showing "not currently open".
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS tab_visible BOOLEAN DEFAULT TRUE",
         """CREATE TABLE IF NOT EXISTS audition_slots (
             id TEXT PRIMARY KEY,
             context_type TEXT NOT NULL,
@@ -1014,7 +1103,258 @@ def init_db():
             status TEXT DEFAULT 'open',
             created_at TIMESTAMP DEFAULT NOW())""",
         """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS slot_id TEXT REFERENCES audition_slots(id) ON DELETE SET NULL""",
-        """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'""",
+         """ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS audition_type TEXT DEFAULT 'virtual'""",
+        # Real file uploads for resume/headshot (replacing link-only) and a
+        # short video clip option alongside the existing full-length video
+        # link — small files only (uses the same GitHub-backed storage as
+        # other small uploads in the app), so this is separate from
+        # video_url, which stays for linking out to a longer video.
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS resume_file_url TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS headshot_file_url TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS video_clip_url TEXT",
+        # Back-of-house / crew interest — a separate section on the same
+        # form, not a separate flow. A submitter can express cast interest,
+        # crew interest, or both on one submission.
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS crew_interest BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS crew_roles_requested TEXT DEFAULT '[]'",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS crew_experience TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS allow_crew_interest BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS crew_roles TEXT DEFAULT '[]'",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS crew_instructions TEXT",
+        # Staff-uploaded audition materials (sides, sheet music, tracks) that
+        # auditionees can download from the public form before their slot.
+         """CREATE TABLE IF NOT EXISTS audition_materials (
+            id TEXT PRIMARY KEY,
+            context_type TEXT NOT NULL,
+            context_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            file_url TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        # Day-of check-in queue — a front-desk staffer checks someone in
+        # (either an existing submission or a walk-in who never submitted
+        # online), which hands them a queue number for that day. A single
+        # public, numbers-only display page (no names — privacy, especially
+        # with minors auditioning) can be put up on a lobby screen so people
+        # know where they stand without a staffer having to announce it.
+        # queue_number resets each day (scoped by checkin_date) since
+        # auditions can run over more than one day.
+        """CREATE TABLE IF NOT EXISTS audition_checkins (
+            id TEXT PRIMARY KEY,
+            context_type TEXT NOT NULL,
+            context_id TEXT NOT NULL,
+            submission_id TEXT REFERENCES audition_submissions(id) ON DELETE SET NULL,
+            walk_in_name TEXT,
+            queue_number INTEGER NOT NULL,
+            status TEXT NOT NULL DEFAULT 'waiting',
+            checkin_date DATE NOT NULL DEFAULT CURRENT_DATE,
+            checked_in_at TIMESTAMP DEFAULT NOW(),
+            called_at TIMESTAMP,
+            completed_at TIMESTAMP,
+            checked_in_by TEXT)""",
+        "CREATE INDEX IF NOT EXISTS ix_aud_checkins_ctx_date ON audition_checkins(context_type, context_id, checkin_date)",
+        # A quick snapshot photo taken at check-in (not the same as their
+        # submitted headshot, which may be old, absent, or not obviously
+        # them at a glance from across a room) — shown on the room-control
+        # kiosk so whoever's running the room can visually match a face to
+        # a number, especially useful for a walk-in with no submission at all.
+        "ALTER TABLE audition_checkins ADD COLUMN IF NOT EXISTS checkin_photo_url TEXT",
+        # ── Studio After Dark: monthly volunteer lottery event ──────────────
+        # One row per monthly occurrence (first Saturday). Tracks the whole
+        # lifecycle as a simple status string rather than a scheduler, since
+        # this is a brand-new program — staff trigger each phase (open the
+        # lottery, run the draw, send confirmations) by hand from the admin
+        # panel rather than everything firing automatically on a timer.
+        # Lifecycle: not_open -> open -> closed -> drawn -> confirmations_sent
+        # -> checkin_open -> completed
+        """CREATE TABLE IF NOT EXISTS studio_after_dark_events (
+            id TEXT PRIMARY KEY,
+            event_date DATE NOT NULL,
+            performer_slots INTEGER NOT NULL DEFAULT 15,
+            audience_slots INTEGER NOT NULL DEFAULT 40,
+            lottery_status TEXT NOT NULL DEFAULT 'not_open',
+            lottery_opens_at TIMESTAMP,
+            lottery_closes_at TIMESTAMP,
+            confirm_deadline TIMESTAMP,
+            drawn_at TIMESTAMP,
+            confirmations_sent_at TIMESTAMP,
+            linked_event_id TEXT REFERENCES events(id) ON DELETE SET NULL,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        # Added after the table's first deploy — CREATE TABLE IF NOT EXISTS
+        # above is a no-op once the table already exists, so new columns
+        # need their own ALTER statements to actually reach a live database.
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS start_time TEXT DEFAULT '7:30 PM'",
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS end_time TEXT DEFAULT '10:00 PM'",
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS scheduled_open_at TIMESTAMP",
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS scheduled_draw_at TIMESTAMP",
+        # Waitlist size per category — drawn right alongside the winners
+        # (same draw, ranked in order) so a decline can promote the next
+        # person immediately rather than needing a whole second drawing.
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS performer_waitlist_size INTEGER NOT NULL DEFAULT 5",
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS audience_waitlist_size INTEGER NOT NULL DEFAULT 5",
+        # One entry per volunteer per occurrence — they can ask to be
+        # considered for performing, audience, or both. status walks through
+        # entered -> selected_performer/selected_audience -> confirmed
+        # (or stays not_selected / expires if they never confirm) ->
+        # checked_in on the night itself. confirm_token authorizes the
+        # public confirm page/link (like every other self-service token in
+        # this app); checkin_code is what the QR code actually encodes.
+        """CREATE TABLE IF NOT EXISTS sad_entries (
+            id TEXT PRIMARY KEY,
+            sad_event_id TEXT NOT NULL REFERENCES studio_after_dark_events(id) ON DELETE CASCADE,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            wants_performer BOOLEAN NOT NULL DEFAULT FALSE,
+            wants_audience BOOLEAN NOT NULL DEFAULT TRUE,
+            status TEXT NOT NULL DEFAULT 'entered',
+            selected_category TEXT,
+            entered_at TIMESTAMP DEFAULT NOW(),
+            selected_at TIMESTAMP,
+            confirm_token TEXT UNIQUE,
+            confirmed_at TIMESTAMP,
+            checkin_code TEXT UNIQUE,
+            checked_in_at TIMESTAMP,
+            performer_called_at TIMESTAMP,
+            UNIQUE(sad_event_id, volunteer_id))""",
+        "CREATE INDEX IF NOT EXISTS ix_sad_entries_event ON sad_entries(sad_event_id, status)",
+        # Tracked per-category (not a single shared field) since someone can
+        # end up on both waitlists at once — e.g. waitlisted for performer
+        # but flat-out not selected for audience, or vice versa.
+        "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS performer_waitlist_position INTEGER",
+        "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS audience_waitlist_position INTEGER",
+        # A promoted waitlister needs their own fresh (usually much shorter)
+        # deadline — the event's original confirm_deadline has often already
+        # passed by the time someone declines and a replacement is needed.
+        # NULL means "use the event's deadline", same as before.
+        "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS entry_confirm_deadline TIMESTAMP",
+        # Space/date requests — any staff member can request a space for a
+        # one-off date or a recurring class/program schedule, check it
+        # against the calendar (reusing the same conflict-checking as
+        # external rentals), and submit for the facilities manager to
+        # approve. Approval creates the actual calendar events, and — for
+        # a brand-new program — the program record itself, with its
+        # schedule already populated.
+        """CREATE TABLE IF NOT EXISTS space_requests (
+            id TEXT PRIMARY KEY,
+            requester_user_id TEXT,
+            requester_name TEXT DEFAULT '',
+            requester_email TEXT DEFAULT '',
+            title TEXT NOT NULL,
+            purpose TEXT DEFAULT '',
+            space_id TEXT REFERENCES rental_spaces(id) ON DELETE SET NULL,
+            is_new_program BOOLEAN DEFAULT FALSE,
+            program_type TEXT DEFAULT 'class',
+            program_price INTEGER DEFAULT 0,
+            program_min_age INTEGER,
+            program_max_age INTEGER,
+            program_instructor_id TEXT,
+            recurring BOOLEAN DEFAULT FALSE,
+            meeting_days TEXT DEFAULT '[]',
+            start_date TEXT,
+            end_date TEXT,
+            specific_dates TEXT DEFAULT '[]',
+            start_time TEXT DEFAULT '',
+            end_time TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            denial_reason TEXT DEFAULT '',
+            approved_by TEXT DEFAULT '',
+            approved_at TIMESTAMP,
+            created_program_id TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        # Roles move from a flat comma-separated list to structured
+        # {name, description} objects, so families can see what a role
+        # actually involves when picking. Old-format plain-string roles
+        # already saved are handled gracefully wherever roles are read
+        # (treated as {name: string, description: ''}), so nothing needs
+        # a data migration here.
+        #
+        # Optional extra questions on the public form — each is a simple
+        # per-field toggle plus a free-form custom question builder for
+        # anything else (special skills, instrument, etc).
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_age_check BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_pronouns BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_phone BOOLEAN DEFAULT FALSE",
+         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS collect_how_heard BOOLEAN DEFAULT FALSE",
+        # Roles asked about by default (matching existing behavior) but
+        # some shows — a talent showcase, for instance — don't have
+        # distinct roles to ask about at all, so this can turn the whole
+        # section off rather than just making it optional to answer.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS ask_roles BOOLEAN DEFAULT TRUE",
+         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS custom_questions TEXT DEFAULT '[]'",
+        # Richer info-card fields for the public form — splitting the old
+        # single "location" into a name + address, plus production-level
+        # context (director, performance dates/location, a rehearsal
+        # schedule link) that families want to see before auditioning.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS location_name TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS location_address TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS director TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS performance_dates TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS performance_location TEXT",
+         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS rehearsal_schedule_url TEXT",
+        # Custom banner image (like program/production cover photos) and an
+        # audition end time so it can show as a real range, not just a
+        # single start time.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS banner_image_url TEXT",
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS audition_time_end TEXT",
+        # Multiple audition dates — audition_date/audition_time/audition_time_end
+        # (singular) are kept in sync with the first entry here for backward
+        # compatibility with anything still reading those directly; this is
+        # the field that actually supports more than one date/time.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS audition_dates TEXT DEFAULT '[]'",
+        # Rehearsal schedule is no longer a manually-typed external URL —
+        # it's an auto-generated link to a live overview of this show's
+        # actual scheduled events, so it can't go stale. This just tracks
+        # whether staff want that link shown at all.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS show_rehearsal_schedule BOOLEAN DEFAULT FALSE",
+        # One-time backfill: anything already saved in the old single
+        # `location` field moves into location_address (the more specific
+        # of the two new fields), so existing productions don't lose what
+        # they already typed in.
+        """UPDATE audition_settings SET location_address = location
+           WHERE (location_address IS NULL OR location_address = '')
+             AND location IS NOT NULL AND location != ''""",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS is_minor BOOLEAN",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS birthday TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS pronouns TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS phone TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS how_heard TEXT",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS custom_answers TEXT DEFAULT '{}'",
+        # A slug on the production/program lets the audition URL read like
+        # /audition/production/together-home-for-the-holidays instead of a
+        # raw UUID. Backfilled below for anything that doesn't have one yet
+        # (a plain lowercase-hyphenated version of the name, de-duplicated
+        # by appending a short suffix on collision).
+        """DO $$
+           DECLARE r RECORD; base TEXT; candidate TEXT; n INT;
+           BEGIN
+               FOR r IN SELECT id, name FROM productions WHERE slug IS NULL OR slug='' LOOP
+                   base := regexp_replace(lower(trim(r.name)), '[^a-z0-9]+', '-', 'g');
+                   base := trim(both '-' from base);
+                   IF base = '' THEN base := 'show'; END IF;
+                   candidate := base; n := 1;
+                   WHILE EXISTS (SELECT 1 FROM productions WHERE slug=candidate AND id!=r.id) LOOP
+                       n := n + 1;
+                       candidate := base || '-' || n;
+                   END LOOP;
+                   UPDATE productions SET slug=candidate WHERE id=r.id;
+               END LOOP;
+           END $$;""",
+        """DO $$
+           DECLARE r RECORD; base TEXT; candidate TEXT; n INT;
+           BEGIN
+               FOR r IN SELECT id, name FROM youth_programs WHERE slug IS NULL OR slug='' LOOP
+                   base := regexp_replace(lower(trim(r.name)), '[^a-z0-9]+', '-', 'g');
+                   base := trim(both '-' from base);
+                   IF base = '' THEN base := 'program'; END IF;
+                   candidate := base; n := 1;
+                   WHILE EXISTS (SELECT 1 FROM youth_programs WHERE slug=candidate AND id!=r.id) LOOP
+                       n := n + 1;
+                       candidate := base || '-' || n;
+                   END LOOP;
+                   UPDATE youth_programs SET slug=candidate WHERE id=r.id;
+               END LOOP;
+           END $$;""",
         """CREATE TABLE IF NOT EXISTS volunteer_groups (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL UNIQUE,
@@ -1086,6 +1426,46 @@ def init_db():
             size_bytes INTEGER DEFAULT 0,
             uploaded_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_published BOOLEAN DEFAULT FALSE",
+        # Countdown to build hype for the cast list reveal — set independently
+        # of actually publishing, so staff can announce "cast list drops
+        # Friday at 7pm" before casting is even finalized.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_reveal_at TIMESTAMP",
+        # A cast list can be "queued" — built and ready, but held back until
+        # cast_list_reveal_at passes, so clicking Publish before the
+        # countdown ends doesn't spoil the reveal.
+        "ALTER TABLE audition_settings ADD COLUMN IF NOT EXISTS cast_list_queued BOOLEAN DEFAULT FALSE",
+        # Cast list grouping/designations — section groups the published list
+        # into headers like "Principals" / "Ensemble"; title is an optional
+        # badge for things like "Dance Captain" or "Vocal Captain" that sit
+        # alongside (not instead of) a person's role.
+        "ALTER TABLE youth_production_members ADD COLUMN IF NOT EXISTS cast_section TEXT DEFAULT ''",
+        "ALTER TABLE youth_production_members ADD COLUMN IF NOT EXISTS cast_title TEXT DEFAULT ''",
+        # A place for cast/crew (adult volunteers) or a family (on behalf of
+        # their kid) to submit a bio + headshot for staff to review and
+        # manually incorporate into the actual program/playbill — this is
+        # NOT wired to any public page. It's purely an intake inbox; only
+        # staff ever read from it (see the bio-submissions admin endpoints).
+        """CREATE TABLE IF NOT EXISTS bio_submissions (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE CASCADE,
+            youth_id TEXT REFERENCES youth_participants(id) ON DELETE CASCADE,
+            submitter_name TEXT DEFAULT '',
+            bio TEXT DEFAULT '',
+            headshot_url TEXT DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'submitted',
+            submitted_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_bio_submissions_prod ON bio_submissions(production_id)",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_section TEXT DEFAULT ''",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS cast_title TEXT DEFAULT ''",
+        # Family-portal tab order — a JSON array of tab ids, e.g. ["overview",
+        # "castlist","schedule",...]. Empty/missing means use the built-in
+        # default order. Any tab id not in the saved list (new tabs added
+        # later, or ones that don't apply to this show) is appended after
+        # the ordered ones, so this never has to be kept exhaustively in sync.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_tab_order TEXT DEFAULT '[]'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS portal_tab_order TEXT DEFAULT '[]'",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_occurrence_id TEXT",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS show_on_lobby BOOLEAN DEFAULT TRUE",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rental_request_id TEXT",
@@ -1185,6 +1565,21 @@ def init_db():
             sender_name TEXT,
             body TEXT NOT NULL,
             sent_at TIMESTAMP DEFAULT NOW())""",
+        # One-time backfill: message threads only ever resolved family_id
+        # by matching the shared family-level passphrase — but a parent can
+        # just as validly log into the portal with one specific child's own
+        # passphrase (see portal_auth), and doing so left family_id NULL on
+        # any thread they started. That broke the reply notification email
+        # (family lookup came up empty) and made the thread invisible from
+        # any other login for that same family. This resolves those old
+        # threads the same way portal_auth itself would. Only touches rows
+        # where family_id is still NULL, so it's a no-op once repaired.
+        """UPDATE portal_message_threads t
+           SET family_id = COALESCE(
+               (SELECT f.id FROM families f WHERE LOWER(f.passphrase) = LOWER(t.family_passphrase)),
+               (SELECT y.family_id FROM youth_participants y WHERE LOWER(y.passphrase) = LOWER(t.family_passphrase))
+           )
+           WHERE t.family_id IS NULL AND t.family_passphrase IS NOT NULL AND t.family_passphrase != ''""",
         "UPDATE board_meeting_attendance SET attendance_type='in_person' WHERE attended=TRUE AND (attendance_type IS NULL OR attendance_type='absent')",
         "UPDATE board_meeting_attendance SET attendance_type='absent' WHERE attended=FALSE AND (attendance_type IS NULL OR attendance_type='in_person')",
         "ALTER TABLE youth_waivers ADD COLUMN IF NOT EXISTS signed_name TEXT",
@@ -1193,6 +1588,7 @@ def init_db():
         "ALTER TABLE event_rsvps ADD COLUMN IF NOT EXISTS last_invited_at TIMESTAMP",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS carpools_enabled BOOLEAN DEFAULT FALSE",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS push_count INTEGER DEFAULT 0",
+        "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS pushed_at TIMESTAMP",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'published'",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS program_id TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS production_id TEXT",
@@ -1207,7 +1603,7 @@ def init_db():
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS template_key TEXT UNIQUE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS is_system BOOLEAN DEFAULT FALSE",
         "ALTER TABLE email_templates ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''",
-        "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff','instructor')",
+         "UPDATE users SET role='staff' WHERE role NOT IN ('admin','staff','instructor','director')",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS body_draft TEXT",
         "ALTER TABLE portal_announcements ADD COLUMN IF NOT EXISTS title_draft TEXT",
         """CREATE TABLE IF NOT EXISTS kiosk_sessions (
@@ -1223,11 +1619,66 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS nav_icons (
             key TEXT PRIMARY KEY,
             lucide_name TEXT NOT NULL)""",
+        # A few nav items were renamed in the sidebar over time but the
+        # Settings icon picker rows kept the old key, silently orphaning
+        # any icon already saved there. Carry a saved icon over to the
+        # current key the one time it's needed; harmless no-op after that.
+        """UPDATE nav_icons SET key='production-signin' WHERE key='cast-signin'
+           AND NOT EXISTS (SELECT 1 FROM nav_icons WHERE key='production-signin')""",
+        """UPDATE nav_icons SET key='youth-programs-page' WHERE key='programs'
+           AND NOT EXISTS (SELECT 1 FROM nav_icons WHERE key='youth-programs-page')""",
+        """UPDATE nav_icons SET key='rising-stars-page' WHERE key='rising-stars'
+           AND NOT EXISTS (SELECT 1 FROM nav_icons WHERE key='rising-stars-page')""",
+        # The rename above only helps if someone had actually managed to
+        # save an icon under the old (broken) key — since that row never
+        # worked, nobody could. Seed a real default for these three so
+        # they show something instead of staying blank forever.
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('production-signin', 'clipboard-list') ON CONFLICT (key) DO NOTHING",
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('youth-programs-page', 'book-open') ON CONFLICT (key) DO NOTHING",
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('rising-stars-page', 'star') ON CONFLICT (key) DO NOTHING",
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('refund-requests', 'rotate-ccw') ON CONFLICT (key) DO NOTHING",
+        # One-time backfill: registrations paid for as part of a multi-item
+        # cart never got their own amount_paid_cents set (only the
+        # cart_orders row carried the real total), so they've been sitting
+        # at $0 — or in some cases the full program price, once other code
+        # fell back to a price-based estimate — ever since even though
+        # they were genuinely paid for a specific split amount. Cart data
+        # is authoritative for any registration that came out of a cart,
+        # so this corrects the amount whenever it doesn't match what the
+        # cart actually charged for that item, not just when it's blank.
+        """UPDATE program_registrations pr SET amount_paid_cents = sub.charge_now
+           FROM (
+               SELECT (item->>'registration_id') AS registration_id,
+                      (item->>'charge_now')::int AS charge_now
+               FROM cart_orders co, jsonb_array_elements(co.items_json::jsonb) AS item
+               WHERE item->>'charge_now' IS NOT NULL
+           ) sub
+           WHERE sub.registration_id = pr.id
+             AND sub.charge_now > 0
+             AND pr.status = 'confirmed'
+             AND (pr.amount_paid_cents IS NULL OR pr.amount_paid_cents != sub.charge_now)""",
+        # Dual sign-off required before any refund can actually be processed
+        # through Square — separate from the general approve/deny status,
+        # which just tracks whether the request itself is legitimate.
+        "ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS president_approved_by TEXT",
+        "ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS president_approved_at TIMESTAMP",
+        "ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS treasurer_approved_by TEXT",
+        "ALTER TABLE refund_requests ADD COLUMN IF NOT EXISTS treasurer_approved_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS performance_location TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_color TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_image_url TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS ticket_logo_url TEXT",
+        # A small logo/crest shown alongside the show's branding (cast list,
+        # hero header) — separate from portal_image_url, which is the big
+        # background photo behind the hero banner.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_logo_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS director TEXT",
+        # youth_programs never got this column even though _resolve_audition_context
+        # (used for both productions and programs) has always queried it —
+        # meaning any program-type audition lookup was broken. Productions
+        # got the column above; this is the same thing for programs.
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS portal_logo_url TEXT",
         # meet the team
         """CREATE TABLE IF NOT EXISTS production_team_members (
             id TEXT PRIMARY KEY,
@@ -1622,6 +2073,14 @@ def init_db():
         "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS bb_contractor_id INTEGER",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS instructor_expected_pay REAL DEFAULT 0",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS is_paid_instruction BOOLEAN DEFAULT FALSE",
+        # Per-unit instructor pay rate — separate from instructor_expected_pay (a manually
+        # entered lump-sum estimate). This drives BloomBooks' per-session payment picker:
+        # 'per_class' pays pay_rate_amount flat per session; 'hourly' pays
+        # pay_rate_amount x the program's scheduled session length (meeting_start_time to
+        # meeting_end_time below) — there's no per-session time tracking, so hourly pay is
+        # always the program's own meeting length, not manually logged hours.
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS pay_rate_type TEXT DEFAULT 'hourly'",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS pay_rate_amount REAL DEFAULT 0",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS final_payment_due_note TEXT DEFAULT ''",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS last_resent_at TIMESTAMP""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS resend_count INTEGER DEFAULT 0""",
@@ -1638,6 +2097,8 @@ def init_db():
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS min_age INTEGER""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS max_age INTEGER""",
         """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS age_grace_days INTEGER DEFAULT 30""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS is_private BOOLEAN DEFAULT FALSE""",
+        """ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS private_key TEXT""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS sibling_discount_amount INTEGER DEFAULT 0""",
         # The real amount Square actually processed for this registration's order —
         # captured from the payment.completed webhook. Revenue reporting should
@@ -1646,6 +2107,71 @@ def init_db():
         # NULL for registrations with no confirmed Square payment (free, comp,
         # or pre-dating this column) — those fall back to the old estimate.
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS amount_paid_cents INTEGER""",
+        # Tracks that a refund actually happened for this registration,
+        # separate from status — a refunded registration might still be
+        # "confirmed" (family kept their spot, got money back for another
+        # reason) or "cancelled" (unenrolled too), so this needs its own
+        # flag rather than overloading status. refund_amount_cents lets
+        # revenue totals subtract exactly what was returned, even for a
+        # partial refund.
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS refunded_at TIMESTAMP",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS refund_amount_cents INTEGER DEFAULT 0",
+        # One-time backfill: refunds processed before refunded_at/
+        # refund_amount_cents existed never got the linked registration
+        # updated, so they still show as full-price "confirmed" with no
+        # Refunded badge even though the money genuinely went back.
+        # Only touches registrations that don't already have a refund
+        # recorded, so it can't double-count anything the app already
+        # tracked correctly going forward.
+        """UPDATE program_registrations pr
+           SET refunded_at = COALESCE(rr.reviewed_at, rr.created_at, NOW()),
+               refund_amount_cents = COALESCE(rr.refund_amount_cents, 0)
+           FROM refund_requests rr
+           WHERE rr.registration_id = pr.id
+             AND rr.status = 'processed'
+             AND rr.square_refund_id IS NOT NULL AND rr.square_refund_id != ''
+             AND pr.refunded_at IS NULL""",
+        # One-off correction: refund RFD-QPP3H7NN was linked to the wrong
+        # program (Eloise's "Booked! The Audition Song Workshop" registration
+        # instead of her "Crack the Score" one). Repoints the refund request
+        # and moves the refund tracking to the correct registration. Scoped
+        # tightly to this one ref_number and self-disarms once corrected
+        # (the != check goes false), so it's safe to leave in place.
+        """DO $$
+           DECLARE
+               correct_reg_id TEXT;
+               wrong_reg_id TEXT;
+               correct_prog_name TEXT;
+           BEGIN
+               SELECT pr.id, yp.name INTO correct_reg_id, correct_prog_name
+               FROM program_registrations pr
+               JOIN youth_participants y ON y.id = pr.youth_id
+               JOIN youth_programs yp ON yp.id = pr.program_id
+               JOIN youth_guardians g ON g.youth_id = y.id
+               WHERE y.first_name = 'Eloise' AND y.last_name = 'Kellough'
+                 AND LOWER(g.email) = 'caroline82480@gmail.com'
+                 AND yp.name ILIKE '%Crack the Score%'
+                 AND pr.status = 'confirmed'
+               LIMIT 1;
+
+               SELECT registration_id INTO wrong_reg_id
+               FROM refund_requests WHERE ref_number = 'RFD-QPP3H7NN';
+
+               IF correct_reg_id IS NOT NULL AND correct_reg_id IS DISTINCT FROM wrong_reg_id THEN
+                   UPDATE refund_requests
+                   SET registration_id = correct_reg_id, program_name = correct_prog_name
+                   WHERE ref_number = 'RFD-QPP3H7NN';
+
+                   IF wrong_reg_id IS NOT NULL THEN
+                       UPDATE program_registrations SET refunded_at = NULL, refund_amount_cents = 0
+                       WHERE id = wrong_reg_id;
+                   END IF;
+
+                   UPDATE program_registrations
+                   SET refunded_at = COALESCE(refunded_at, NOW()), refund_amount_cents = 2000
+                   WHERE id = correct_reg_id;
+               END IF;
+           END $$;""",
         # A comp'd (complimentary/free) enrollment — still a real confirmed
         # registration, just $0 by design rather than an unpaid gap. Kept as
         # a flag rather than a separate status so it still shows up
@@ -1665,8 +2191,15 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pickup_contacts TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS photo_consent BOOLEAN DEFAULT FALSE""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS reviewed_fields TEXT DEFAULT ''""",
         """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS grade TEXT DEFAULT ''""",
+        # A participant's own email — separate from youth_guardians, which
+        # is about a parent/guardian contact. Adults registering themselves
+        # for adult programs have their own email captured directly here
+        # instead of only living in a "guardian" record that never really
+        # applied to them.
+        """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS email TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS grade TEXT DEFAULT ''""",
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS is_minor BOOLEAN DEFAULT TRUE""",
         """ALTER TABLE events ADD COLUMN IF NOT EXISTS is_external BOOLEAN DEFAULT FALSE""",
@@ -1693,8 +2226,15 @@ def init_db():
             status TEXT DEFAULT 'open',
             sort_order INTEGER DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW())""",
-        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
-        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'""",
+        # Per-session age requirements — same opt-in min/max/grace pattern as the
+        # program level (youth_programs.min_age etc). NULL on a session means
+        # "inherit the program's age requirement"; a session only overrides when
+        # it has its own value set. This is what lets something like "Private
+        # Vocal Workshops" require, say, 16+ for one instructor's session slots
+        # while leaving the program itself open to any age.
+        "ALTER TABLE program_sessions ADD COLUMN IF NOT EXISTS min_age INTEGER",
+        "ALTER TABLE program_sessions ADD COLUMN IF NOT EXISTS max_age INTEGER",
+        "ALTER TABLE program_sessions ADD COLUMN IF NOT EXISTS age_grace_days INTEGER",
         """CREATE TABLE IF NOT EXISTS pending_donations (
             id TEXT PRIMARY KEY,
             name TEXT NOT NULL,
@@ -1751,6 +2291,8 @@ def init_db():
             waitlist_payment_expires_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW(),
             updated_at TIMESTAMP DEFAULT NOW())""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS session_ids TEXT DEFAULT '[]'""",
+        """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS registration_form_type TEXT DEFAULT 'youth'""",
         """CREATE TABLE IF NOT EXISTS interest_list_entries (
             id TEXT PRIMARY KEY,
             program_id TEXT NOT NULL REFERENCES youth_programs(id) ON DELETE CASCADE,
@@ -1950,6 +2492,36 @@ def init_db():
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS bio TEXT DEFAULT ''",
         "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS photo_url TEXT DEFAULT ''",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS event_date TEXT",
+
+        # ── Front of House shifts: role-level training gate + training module/quiz ──
+        "ALTER TABLE event_roles ADD COLUMN IF NOT EXISTS requires_foh_training BOOLEAN DEFAULT FALSE",
+        """CREATE TABLE IF NOT EXISTS foh_training (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL DEFAULT 'Front of House Support Training',
+            description TEXT DEFAULT '',
+            slides_url TEXT DEFAULT '',
+            slides_filename TEXT DEFAULT '',
+            slides_original_name TEXT DEFAULT '',
+            pass_percent INTEGER NOT NULL DEFAULT 80,
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS foh_quiz_questions (
+            id TEXT PRIMARY KEY,
+            question TEXT NOT NULL,
+            options TEXT NOT NULL DEFAULT '[]',
+            correct_index INTEGER NOT NULL DEFAULT 0,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS foh_training_results (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL,
+            name TEXT DEFAULT '',
+            email TEXT NOT NULL,
+            score INTEGER NOT NULL DEFAULT 0,
+            total INTEGER NOT NULL DEFAULT 0,
+            passed BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        'CREATE INDEX IF NOT EXISTS ix_foh_results_email ON foh_training_results(LOWER(email))',
+        "DELETE FROM event_types WHERE name='Front of House Shift' AND id NOT IN (SELECT DISTINCT event_type_id FROM events WHERE event_type_id IS NOT NULL)",
         # missing tables
         """CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
@@ -2163,6 +2735,35 @@ def init_db():
             last_sent_at TIMESTAMP,
             next_send_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS sms_enabled BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS sms_phones TEXT DEFAULT ''",
+        # HH:MM, America/New_York — checked to the exact minute by a
+        # dedicated per-minute scheduler job (see _start_oncall_scheduler),
+        # same mechanism the on-call alert already uses for precise timing.
+        "ALTER TABLE scheduled_reports ADD COLUMN IF NOT EXISTS send_time TEXT DEFAULT '09:00'",
+        # One row per time a report actually fires — a real, queryable log so
+        # "did it send, and did anything go wrong" never again has to be
+        # answered by guessing or digging through server logs. The token (for
+        # report types that have a live-link, like payroll) also lives here.
+        """CREATE TABLE IF NOT EXISTS scheduled_report_runs (
+            id TEXT PRIMARY KEY,
+            scheduled_report_id TEXT REFERENCES scheduled_reports(id) ON DELETE CASCADE,
+            report_type TEXT NOT NULL,
+            token TEXT,
+            fired_at TIMESTAMP DEFAULT NOW(),
+            success BOOLEAN DEFAULT FALSE,
+            email_sent_to TEXT DEFAULT '',
+            email_error TEXT,
+            sms_sent_to TEXT DEFAULT '',
+            sms_errors TEXT,
+            note TEXT)""",
+        "ALTER TABLE scheduled_report_runs DROP CONSTRAINT IF EXISTS scheduled_report_runs_token_key",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS success BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS email_sent_to TEXT DEFAULT ''",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS email_error TEXT",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS sms_sent_to TEXT DEFAULT ''",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS sms_errors TEXT",
+        "ALTER TABLE scheduled_report_runs ADD COLUMN IF NOT EXISTS note TEXT",
 
         # Missing tables that get referenced
         """CREATE TABLE IF NOT EXISTS schedule_conflicts (
@@ -2266,6 +2867,154 @@ def init_db():
         "CREATE TABLE IF NOT EXISTS performances (\n        id            TEXT PRIMARY KEY,\n        production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,\n        venue_id      TEXT REFERENCES venues(id) ON DELETE SET NULL,\n        seat_map_id   TEXT REFERENCES seat_maps(id) ON DELETE SET NULL,\n        name          TEXT DEFAULT '',\n        performance_date TEXT NOT NULL,\n        performance_time TEXT DEFAULT '',\n        doors_time    TEXT DEFAULT '',\n        reserved_seating BOOLEAN DEFAULT TRUE,\n        ga_capacity   INTEGER,\n        sales_open_at  TEXT DEFAULT '',\n        sales_close_at TEXT DEFAULT '',\n        status        TEXT DEFAULT 'draft',\n        notes         TEXT DEFAULT '',\n        created_at    TIMESTAMP DEFAULT NOW(),\n        updated_at    TIMESTAMP DEFAULT NOW())",
         "CREATE TABLE IF NOT EXISTS ticket_types (\n        id             TEXT PRIMARY KEY,\n        performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,\n        name           TEXT NOT NULL,\n        price_cents    INTEGER NOT NULL DEFAULT 0,\n        description    TEXT DEFAULT '',\n        quantity_limit INTEGER,\n        sort_order     INTEGER DEFAULT 0,\n        active         BOOLEAN DEFAULT TRUE,\n        created_at     TIMESTAMP DEFAULT NOW())",
         'CREATE INDEX IF NOT EXISTS ix_seat_map_seats_map ON seat_map_seats(seat_map_id)',
+        # x/y started as INTEGER, which silently truncates the fractional
+        # coordinates that angled/rotated seat layouts need (sin/cos math),
+        # collapsing rotated seats onto whole-number positions and mangling
+        # the shape. NUMERIC keeps the precision.
+        'ALTER TABLE seat_map_seats ALTER COLUMN x TYPE NUMERIC USING x::numeric',
+        'ALTER TABLE seat_map_seats ALTER COLUMN y TYPE NUMERIC USING y::numeric',
+        # Stage position/orientation — was always auto-drawn below whatever
+        # seats existed, with no way to place it where it actually sits in
+        # the room. NULL means "not set yet", so the editor still falls back
+        # to the old auto-position until someone drags it once.
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_x NUMERIC",
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_y NUMERIC",
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_width NUMERIC DEFAULT 8",
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_depth NUMERIC DEFAULT 2",
+        "ALTER TABLE seat_maps ADD COLUMN IF NOT EXISTS stage_rotation NUMERIC DEFAULT 0",
+        # Ticket types move from "one set per performance" to "one catalog
+        # per production, toggled on per performance" — so staff create
+        # "Adult $20 / Student $15" once and just pick which apply to each
+        # date, instead of re-typing them for every performance.
+        "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS production_id TEXT REFERENCES productions(id) ON DELETE CASCADE",
+        "ALTER TABLE ticket_types ALTER COLUMN performance_id DROP NOT NULL",
+        """UPDATE ticket_types SET production_id = (
+            SELECT pf.production_id FROM performances pf WHERE pf.id = ticket_types.performance_id
+        ) WHERE production_id IS NULL AND performance_id IS NOT NULL""",
+        """CREATE TABLE IF NOT EXISTS performance_ticket_types (
+        performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
+        ticket_type_id TEXT NOT NULL REFERENCES ticket_types(id) ON DELETE CASCADE,
+        PRIMARY KEY (performance_id, ticket_type_id))""",
+        # Any ticket type that already belonged to a performance (the old
+        # model) starts out enabled there, so nothing that was on sale
+        # disappears when this migration runs.
+        """INSERT INTO performance_ticket_types (performance_id, ticket_type_id)
+            SELECT performance_id, id FROM ticket_types WHERE performance_id IS NOT NULL
+            ON CONFLICT DO NOTHING""",
+        # Ticket sales: an order (one checkout, possibly several seats),
+        # the individual tickets it produces once paid, and short-lived
+        # holds so two people can't buy the same seat while one of them
+        # is mid-checkout.
+        """CREATE TABLE IF NOT EXISTS ticket_orders (
+        id              TEXT PRIMARY KEY,
+        performance_id  TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
+        guardian_name   TEXT DEFAULT '',
+        guardian_email  TEXT DEFAULT '',
+        guardian_phone  TEXT DEFAULT '',
+        seats_json      TEXT DEFAULT '[]',
+        total_cents     INTEGER DEFAULT 0,
+        status          TEXT DEFAULT 'pending',
+        square_order_id TEXT,
+        square_checkout_id TEXT,
+        created_at      TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS tickets (
+        id                TEXT PRIMARY KEY,
+        ticket_order_id   TEXT NOT NULL REFERENCES ticket_orders(id) ON DELETE CASCADE,
+        performance_id    TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
+        seat_id           TEXT REFERENCES seat_map_seats(id) ON DELETE SET NULL,
+        ticket_type_id    TEXT REFERENCES ticket_types(id) ON DELETE SET NULL,
+        seat_label        TEXT DEFAULT '',
+        price_cents       INTEGER DEFAULT 0,
+        confirmation_code TEXT,
+        checked_in_at     TIMESTAMP,
+        created_at        TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS seat_holds (
+        id             TEXT PRIMARY KEY,
+        performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
+        seat_id        TEXT NOT NULL REFERENCES seat_map_seats(id) ON DELETE CASCADE,
+        session_token  TEXT NOT NULL,
+        expires_at     TIMESTAMP NOT NULL,
+        created_at     TIMESTAMP DEFAULT NOW(),
+        UNIQUE(performance_id, seat_id))""",
+        'CREATE INDEX IF NOT EXISTS ix_tickets_order ON tickets(ticket_order_id)',
+        # A multi-performance cart checkout creates one ticket_orders row
+        # per performance (each keeps its own line items/total, same as a
+        # single-performance order always has), all sharing one cart_id
+        # and, once paid, the same square_order_id/checkout_id -- same
+        # pattern as the existing multi-program registration cart. cart_id
+        # is how the confirmation page finds every sibling order once
+        # payment completes, since Square only redirects with one reference.
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS cart_id TEXT",
+        "CREATE INDEX IF NOT EXISTS ix_ticket_orders_cart ON ticket_orders(cart_id)",
+        # Per-performance cap on how many tickets one buyer can get for a
+        # single performance -- null means no limit. Lives on the
+        # production (not per-performance) since a show's policy is
+        # normally the same across all its dates.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS max_tickets_per_performance INTEGER",
+        # Optional per-show service fee to cover Square's own processing
+        # cost, added on top of ticket price at checkout rather than
+        # coming out of what the show actually receives. Percent + flat
+        # cents (not a single hardcoded number) since Square's own rate
+        # has changed before and will again -- staff can adjust these to
+        # match instead of needing a code change each time.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS charge_service_fee BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS service_fee_percent NUMERIC(5,2) DEFAULT 3.0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS service_fee_flat_cents INTEGER DEFAULT 30",
+        # Tracked per order (not folded silently into total_cents) so the
+        # fee always shows as its own line, both to staff in the order
+        # detail view and to the buyer in their confirmation.
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS service_fee_cents INTEGER DEFAULT 0",
+        # Buyer signals for the per-performance ticket limit: blocked on
+        # email/phone/device at checkout; flagged (never blocked) on card/IP.
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_email_key TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_phone_key TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_device_id TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_ip TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS card_fingerprint TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS limit_flag TEXT",
+        "CREATE INDEX IF NOT EXISTS ix_ticket_orders_perf_buyer ON ticket_orders(performance_id, buyer_email_key)",
+        # General-purpose labeled rectangle for a seat map -- not a seat,
+        # not interactive to a buyer, just a visual/orientation marker
+        # ("Backstage", "Wings Left", etc.) or a way to approximate a
+        # non-rectangular stage by layering a couple of these around the
+        # plain stage rect rather than needing a full polygon editor.
+        """CREATE TABLE IF NOT EXISTS seat_map_shapes (
+            id TEXT PRIMARY KEY,
+            seat_map_id TEXT NOT NULL REFERENCES seat_maps(id) ON DELETE CASCADE,
+            x NUMERIC NOT NULL DEFAULT 0,
+            y NUMERIC NOT NULL DEFAULT 0,
+            width NUMERIC NOT NULL DEFAULT 3,
+            height NUMERIC NOT NULL DEFAULT 2,
+            rotation NUMERIC NOT NULL DEFAULT 0,
+            label TEXT DEFAULT '',
+            fill_color TEXT DEFAULT '#94a3b8',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_seat_map_shapes_map ON seat_map_shapes(seat_map_id)",
+        # Same idea as the existing "accessible" flag -- a simple per-seat
+        # marker (not a separate ticket type/price) so a buyer can see and
+        # understand a limited/obstructed view before picking that seat,
+        # with an optional note explaining why (a pillar, a side angle, etc).
+        "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS obstructed_view BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS view_note TEXT DEFAULT ''",
+        # Section/limited-view info wasn't actually being copied from the
+        # seat map onto the finished ticket record at all -- meaning it
+        # never showed up anywhere past the live picker: not the cart, not
+        # the confirmation page or email, not the admin order view. Any of
+        # those (an usher checking someone's section, a patron re-reading
+        # their own confirmation) needs it captured at the moment the
+        # ticket is actually created, not just available while shopping.
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS section TEXT DEFAULT ''",
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS obstructed_view BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS view_note TEXT DEFAULT ''",
+        # Defense in depth: even if some future code path or race condition
+        # ever let two orders both finalize for the same reserved seat, the
+        # database itself refuses the second one outright. Partial (WHERE
+        # seat_id IS NOT NULL) since general-admission tickets legitimately
+        # have no seat_id and there can be many of those per performance.
+        """CREATE UNIQUE INDEX IF NOT EXISTS ux_tickets_performance_seat
+            ON tickets(performance_id, seat_id) WHERE seat_id IS NOT NULL""",
+        'CREATE INDEX IF NOT EXISTS ix_tickets_perf ON tickets(performance_id)',
+        'CREATE INDEX IF NOT EXISTS ix_seat_holds_perf ON seat_holds(performance_id)',
         'CREATE INDEX IF NOT EXISTS ix_performances_production ON performances(production_id)',
         'CREATE INDEX IF NOT EXISTS ix_ticket_types_perf ON ticket_types(performance_id)',
 
@@ -2355,6 +3104,70 @@ def init_db():
             read_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT NOW())""",
         'CREATE INDEX IF NOT EXISTS ix_rental_messages_request ON rental_messages(request_id)',
+
+        # Verified Volunteer badge — staff-applied stamp (Admin / Volunteer
+        # Coordinator only, enforced at the route level via require_permission)
+        # marking someone as vetted/known-good. Timestamp+name rather than a
+        # plain boolean so the profile can show who verified them and when.
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS verified_at TIMESTAMP",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS verified_by TEXT",
+
+        # Wall of Fame — hand-on-the-wall recognition. wall_eligible_at is
+        # auto-set (see sync_wall_of_fame_eligibility) the first time someone
+        # crosses 52 lifetime hours OR completes at least one production;
+        # once set it's never cleared even if hours are later corrected down,
+        # since it records a milestone that was genuinely reached. wall_added_at
+        # is a separate, manual confirmation staff set once the physical
+        # handprint actually goes up.
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS wall_eligible_at TIMESTAMP",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS wall_added_at TIMESTAMP",
+        "ALTER TABLE volunteers ADD COLUMN IF NOT EXISTS wall_added_by TEXT",
+
+        # On-Call Schedule self-signup — staff mark a shift "Open" (blank
+        # person_name/phone, already allowed by the existing create/update
+        # routes) and post it publicly; members request to claim it here.
+        # Kept as a review queue rather than an instant claim since on-call
+        # shifts drive live Twilio call routing — staff still confirms who
+        # actually gets assigned.
+        """CREATE TABLE IF NOT EXISTS oncall_signup_requests (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            shift_id TEXT NOT NULL REFERENCES on_call_schedule(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            phone TEXT NOT NULL,
+            email TEXT DEFAULT '',
+            notes TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            reviewed_by TEXT DEFAULT '',
+            reviewed_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_oncall_signup_shift ON oncall_signup_requests(shift_id)",
+        # Signups are now picked from the Board of Directors roster rather
+        # than free-typed — this traces a request back to the actual
+        # board_members row it was picked from (name/email come from there,
+        # not from client-supplied text).
+        "ALTER TABLE oncall_signup_requests ADD COLUMN IF NOT EXISTS board_member_id TEXT REFERENCES board_members(id) ON DELETE SET NULL",
+
+        # Trust Mode — lets a permitted ELIC skip the authorized-pickup
+        # name/selection step at drop-off and pick-up for a specific event
+        # (staff know the families and the extra step is pure friction),
+        # toggled live on the kiosk itself rather than from an admin
+        # settings screen. Scoped per-event (not global) so it naturally
+        # resets for events where verification still matters, and gated by
+        # can_toggle_trust_mode so not just any ELIC PIN can flip it.
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS trust_mode BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE elics ADD COLUMN IF NOT EXISTS can_toggle_trust_mode BOOLEAN DEFAULT FALSE",
+
+        # Admin "log in as" impersonation — lets an admin test the app as
+        # another user without their password. Every session is logged here
+        # (who, as whom, when it started/ended) for accountability.
+        """CREATE TABLE IF NOT EXISTS impersonation_log (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            admin_user_id TEXT NOT NULL,
+            admin_name TEXT DEFAULT '',
+            target_user_id TEXT NOT NULL,
+            target_name TEXT DEFAULT '',
+            started_at TIMESTAMP DEFAULT NOW(),
+            ended_at TIMESTAMP)""",
 ]:
         try:
             c.execute(col_sql)
@@ -2397,6 +3210,35 @@ def init_db():
                 c.execute(
                     "INSERT INTO donor_tiers (id,name,min_amount,max_amount,color,sort_order) VALUES (%s,%s,%s,%s,%s,%s)",
                     (str(_uuid2.uuid4()), name, min_a, max_a, color, sort)
+                )
+            conn.commit()
+    except Exception:
+        conn.rollback()
+
+    # Seed the singleton Front of House training module + a starter quiz, so the
+    # admin UI always has something to edit rather than a blank slate.
+    try:
+        c.execute("SELECT COUNT(*) FROM foh_training")
+        if c.fetchone()[0] == 0:
+            import uuid as _uuid3
+            c.execute(
+                "INSERT INTO foh_training (id,title,description,pass_percent) VALUES (%s,%s,%s,%s)",
+                (str(_uuid3.uuid4()), 'Front of House Support Training',
+                 'Complete this short training before signing up for a House Manager, Concessions, Ticket Scanning, Usher, or other Front of House shift.',
+                 80)
+            )
+            starter_questions = [
+                ('What is the first thing a Front of House volunteer should do when arriving for a shift?',
+                 ['Check in with the House Manager', 'Go straight to their assigned post', 'Wait by the front door', 'Call the box office'], 0),
+                ('If a patron has a question you don\u2019t know the answer to, you should:', 
+                 ['Guess so they don\u2019t feel unhelped', 'Find the House Manager or another staff member', 'Tell them to look it up online', 'Ignore the question'], 1),
+                ('Latecomers during a performance should generally be:', 
+                 ['Seated immediately in their original seats', 'Held until an appropriate pause and seated by an usher', 'Turned away entirely', 'Allowed to stand in the aisle'], 1),
+            ]
+            for i, (q, opts, correct) in enumerate(starter_questions):
+                c.execute(
+                    "INSERT INTO foh_quiz_questions (id,question,options,correct_index,sort_order) VALUES (%s,%s,%s,%s,%s)",
+                    (str(_uuid3.uuid4()), q, json.dumps(opts), correct, i)
                 )
             conn.commit()
     except Exception:
@@ -2509,6 +3351,8 @@ PERM_LEGACY_FALLBACK = {
     'donor_tiers': 'donors',
     'donor_templates': 'donors',
     'daily_overview': 'productions',
+    'space_requests': 'rentals',
+    'foh_training': 'events',
 }
 
 
@@ -2522,6 +3366,175 @@ def resolve_perm_level(perms, section):
     if legacy and perms.get(legacy):
         return perms[legacy]
     return 'none'
+
+
+def current_user_board_role_match(conn, role_keyword):
+    """Checks whether the logged-in user is listed on the board roster
+    (board_members, matched by email — a separate roster from login
+    accounts) holding the given role. Matches loosely on the free-text
+    role field but explicitly excludes 'vice' so 'Vice President' can never
+    satisfy a 'president' check. Returns the board member's name if
+    matched, else None. Used to gate refund processing on a real person
+    holding that specific office, not just anyone with app permissions."""
+    if 'user_id' not in session:
+        return None
+    user = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+    if not user or not user.get('email'):
+        return None
+    bm = fetchone(conn, """SELECT name FROM board_members
+        WHERE LOWER(email)=LOWER(%s) AND status='active'
+          AND role ILIKE %s AND role NOT ILIKE %s""",
+        (user['email'], f'%{role_keyword}%', '%vice%'))
+    return bm['name'] if bm else None
+
+
+def find_board_officer(conn, role_keyword):
+    """Looks up whoever currently holds a given office on the board roster
+    (not tied to the logged-in user — used for notifying the right person,
+    as opposed to current_user_board_role_match which verifies identity).
+    Same 'vice' exclusion so a notification never goes to a VP instead of
+    the actual President. Returns {'name', 'email'} or None."""
+    bm = fetchone(conn, """SELECT name, email FROM board_members
+        WHERE status='active' AND role ILIKE %s AND role NOT ILIKE %s
+        ORDER BY created_at LIMIT 1""",
+        (f'%{role_keyword}%', '%vice%'))
+    return bm if bm else None
+
+
+def _refund_request_email_details_html(rr):
+    """Shared 'whole request' block for the board notification emails —
+    everything a President/Treasurer would want to see without having to
+    open RoleCall first."""
+    type_labels = {'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
+    req_type = type_labels.get(rr.get('request_type',''), rr.get('request_type',''))
+    amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'Not yet set'
+    start_row = f'<tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Program Starts</td><td style="padding:4px 0">{rr["program_start_date"]}</td></tr>' if rr.get('program_start_date') else ''
+    rows = f'''<table style="width:100%;border-collapse:collapse;font-size:13.5px;color:#374151;margin:14px 0">
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Participant</td><td style="padding:4px 0"><strong>{rr.get('participant_name','') or '—'}</strong></td></tr>
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Program</td><td style="padding:4px 0">{rr.get('program_name','') or '—'}</td></tr>
+        {start_row}
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Request Type</td><td style="padding:4px 0">{req_type}</td></tr>
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Amount</td><td style="padding:4px 0"><strong>{amount}</strong></td></tr>
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap;vertical-align:top">Requester</td><td style="padding:4px 0">{rr.get('requester_name','')}<br>{rr.get('requester_email','')}{'<br>'+rr['requester_phone'] if rr.get('requester_phone') else ''}</td></tr>
+        <tr><td style="padding:4px 8px 4px 0;color:#6b7280;white-space:nowrap">Reference #</td><td style="padding:4px 0">{rr.get('ref_number','')}</td></tr>
+        </table>'''
+    reason_block = ''
+    if rr.get('reason_category') or rr.get('reason_detail'):
+        cat = rr.get('reason_category') or ''
+        cat_label = f' — {cat}' if cat and cat != 'staff_initiated' else ''
+        reason_block = (f'<div style="background:#f9fafb;border-radius:8px;padding:12px 14px;margin:0 0 14px;font-size:13.5px;color:#374151">'
+            f'<div style="font-weight:700;margin-bottom:4px">Reason{cat_label}</div>'
+            f'<div>{rr.get("reason_detail") or "(no additional detail provided)"}</div></div>')
+    replacement_block = ''
+    if rr.get('request_type') == 'find_replacement' and (rr.get('replacement_name') or rr.get('replacement_email')):
+        replacement_block = (f'<div style="font-size:13.5px;color:#374151;margin:0 0 14px">'
+            f'<strong>Suggested Replacement:</strong> {rr.get("replacement_name","")} {rr.get("replacement_email","")}</div>')
+    return rows + reason_block + replacement_block
+
+
+def notify_reviewer_ready_to_process(conn, refund_request_id):
+    """Tells whoever began the approval process (reviewed_by) once BOTH
+    officers have signed off — that's the actual 'go ahead' signal for
+    them to open RoleCall and hit Process Refund via Square. Safe to call
+    after any single sign-off; it only actually sends once both are in."""
+    try:
+        rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (refund_request_id,))
+        if not rr or not rr.get('president_approved_by') or not rr.get('treasurer_approved_by'):
+            return
+        if not rr.get('reviewed_by'):
+            return
+        user = fetchone(conn, "SELECT email FROM users WHERE name=%s AND email IS NOT NULL AND email!=''", (rr['reviewed_by'],))
+        if not user:
+            return
+        amount = f"${(rr['refund_amount_cents']/100):.2f}" if rr.get('refund_amount_cents') else 'amount not yet set'
+        subject = f"Ready to process — {rr.get('ref_number','')}"
+        body_html = (
+            f'<p>Hi {rr.get("reviewed_by","")},</p>'
+            f'<p>Both the President ({rr.get("president_approved_by","")}) and Treasurer ({rr.get("treasurer_approved_by","")}) have signed off on this refund request — it\'s ready to process:</p>'
+            f'<p><strong>{rr.get("participant_name") or rr.get("requester_name","")}</strong> — {rr.get("program_name","")}<br>'
+            f'{amount} · {rr.get("ref_number","")}</p>'
+            f'<p><a href="{APP_BASE_URL}/#refund-requests">Open in RoleCall to process it</a></p>')
+        send_email(user['email'], subject, build_hwtc_email_html(subject, body_html), source='refund_signoff_needed')
+    except Exception as e:
+        app.logger.warning(f'Refund ready-to-process notification failed: {e}')
+
+
+def create_refund_approval_token(conn, refund_request_id, role, officer_email):
+    """One-click sign-off link for the notification email — long random
+    token, single-use, expires in 14 days (long enough to be useful, short
+    enough that an old email lying around isn't a standing risk)."""
+    import secrets
+    token = secrets.token_urlsafe(32)
+    execute(conn, '''INSERT INTO refund_approval_tokens (token, refund_request_id, role, officer_email, expires_at)
+        VALUES (%s,%s,%s,%s, NOW() + INTERVAL '14 days')''',
+        (token, refund_request_id, role, officer_email))
+    # Committed immediately, not left for the caller — the email that
+    # includes this token gets sent right after this returns, and the
+    # calling functions (notify_board_refund_signoff_needed etc.) don't
+    # always commit again before their connection closes. Without this,
+    # the INSERT was getting silently rolled back on close, so the token
+    # in the email never actually existed in the database — exactly what
+    # produced "Invalid Link" on a link that looked completely correct.
+    conn.commit()
+    return token
+
+
+def notify_board_refund_signoff_needed(conn, refund_request_id):
+    """New refund request notification — tells the President and Treasurer
+    a request is waiting on their sign-off. Best-effort: a missing/failed
+    email here shouldn't block the request from being created."""
+    try:
+        rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (refund_request_id,))
+        if not rr:
+            return
+        reviewer = rr.get('reviewed_by') or 'A staff member'
+        details_html = _refund_request_email_details_html(rr)
+        for role_keyword in ('president', 'treasurer'):
+            officer = find_board_officer(conn, role_keyword)
+            if not officer or not officer.get('email'):
+                continue
+            token = create_refund_approval_token(conn, refund_request_id, role_keyword, officer['email'])
+            approve_url = f'{APP_BASE_URL}/api/public/refund-approve?token={token}'
+            subject = f"Refund request needs your sign-off — {rr.get('ref_number','')}"
+            body_html = (
+                f'<p>Hi {officer.get("name","")},</p>'
+                f'<p>{reviewer} began the approval process on a refund request — it needs sign-off from both the President and Treasurer before it can be processed:</p>'
+                f'{details_html}'
+                f'<p style="margin:20px 0"><a href="{approve_url}" style="background:#145466;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Approve as {role_keyword.capitalize()}</a></p>'
+                f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first — the button above signs off immediately, without opening the app.</p>')
+            send_email(officer['email'], subject, build_hwtc_email_html(subject, body_html), source='refund_signoff_needed')
+    except Exception as e:
+        app.logger.warning(f'Refund sign-off notification failed: {e}')
+
+
+def notify_other_officer_signoff_pending(conn, refund_request_id, just_signed_role):
+    """After one officer signs off, nudges whichever one hasn't yet —
+    otherwise a half-approved request could just sit there with no one
+    aware it's still waiting on them specifically."""
+    try:
+        rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (refund_request_id,))
+        if not rr:
+            return
+        other_role = 'treasurer' if just_signed_role == 'president' else 'president'
+        if rr.get(f'{other_role}_approved_by'):
+            return  # already signed too — nothing to nudge
+        officer = find_board_officer(conn, other_role)
+        if not officer or not officer.get('email'):
+            return
+        signer_name = rr.get(f'{just_signed_role}_approved_by', '')
+        details_html = _refund_request_email_details_html(rr)
+        token = create_refund_approval_token(conn, refund_request_id, other_role, officer['email'])
+        approve_url = f'{APP_BASE_URL}/api/public/refund-approve?token={token}'
+        subject = f"Your sign-off still needed — {rr.get('ref_number','')}"
+        body_html = (
+            f'<p>Hi {officer.get("name","")},</p>'
+            f'<p>{signer_name} ({just_signed_role.capitalize()}) has signed off on a refund request — it still needs your sign-off as {other_role.capitalize()} before it can be processed:</p>'
+            f'{details_html}'
+            f'<p style="margin:20px 0"><a href="{approve_url}" style="background:#145466;color:#fff;padding:12px 22px;border-radius:8px;text-decoration:none;font-weight:600;display:inline-block">Approve as {other_role.capitalize()}</a></p>'
+            f'<p style="font-size:13px;color:#6b7280">Or <a href="{APP_BASE_URL}/#refund-requests">review it in RoleCall</a> first.</p>')
+        send_email(officer['email'], subject, build_hwtc_email_html(subject, body_html), source='refund_signoff_needed')
+    except Exception as e:
+        app.logger.warning(f'Refund sign-off nudge failed: {e}')
 
 
 def today_eastern():
@@ -2573,6 +3586,52 @@ def waiver_applies_to_age(waiver_row, age):
     return True
 
 
+WALL_OF_FAME_HOURS_THRESHOLD = 52
+
+def sync_wall_of_fame_eligibility(conn):
+    """One-shot, idempotent bulk check: flags any volunteer who has crossed
+    52 lifetime hours OR completed at least one production (production
+    status 'completed'/'archived', and not a 'dropped' membership) as
+    Wall of Fame eligible, by stamping wall_eligible_at the first time this
+    is true. Only ever sets the timestamp — never clears it — so an
+    eligibility already earned is never taken back by a later hours
+    correction. Safe to call on every volunteers list/detail load; cheap at
+    nonprofit scale and wrapped so a failure here never blocks the request
+    it was called from."""
+    try:
+        execute(conn, f"""
+            UPDATE volunteers v SET wall_eligible_at = NOW()
+            WHERE wall_eligible_at IS NULL
+              AND (
+                COALESCE((SELECT SUM(h.hours) FROM hours h WHERE h.volunteer_id = v.id), 0) >= {WALL_OF_FAME_HOURS_THRESHOLD}
+                OR EXISTS (
+                    SELECT 1 FROM production_members pm
+                    JOIN productions p ON p.id = pm.production_id
+                    WHERE pm.volunteer_id = v.id
+                      AND pm.status != 'dropped'
+                      AND p.status IN ('completed', 'archived')
+                )
+              )
+        """)
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+
+
+def get_volunteer_hours_summary(conn, vol_id):
+    """All-time / YTD / by-year hours breakdown for one volunteer. Dates in
+    the hours table are stored as 'YYYY-MM-DD' text, so the year is just the
+    first 4 characters — no date parsing needed."""
+    this_year = str(date.today().year)
+    all_time = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (vol_id,))['t']
+    ytd = fetchone(conn, "SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s AND LEFT(date,4)=%s", (vol_id, this_year))['t']
+    year_rows = fetchall(conn, """SELECT LEFT(date,4) as year, COALESCE(SUM(hours),0) as hours
+        FROM hours WHERE volunteer_id=%s GROUP BY LEFT(date,4) ORDER BY year DESC""", (vol_id,))
+    by_year = {r['year']: float(r['hours']) for r in year_rows if r['year']}
+    return {'all_time': float(all_time), 'ytd': float(ytd), 'by_year': by_year}
+
+
 def require_permission(section, level='edit'):
     """Allow admin OR a user with edit/view permission for the given section."""
     if 'user_id' not in session:
@@ -2606,12 +3665,12 @@ def require_own_program(pid, fallback_section='youth'):
     """Access check for program-scoped routes that also need to work for
     the restricted 'instructor' role: admins and anyone with normal
     section permission pass through as before (via require_permission);
-    an 'instructor' role user is only let through for a program where
-    they're the assigned instructor — matched by their login email
-    against the volunteer record linked as youth_programs.instructor_id
-    (the same field already used elsewhere for instructor pay/contact).
-    This is intentionally narrow: it doesn't change access for any
-    existing role, it only adds a new restricted path for 'instructor'."""
+    an 'instructor' role user is let through for a program where they're
+    either the primary instructor (youth_programs.instructor_id) or listed
+    as a co-instructor (program_co_instructors) — matched by their login
+    email against the volunteer record either way. This is intentionally
+    narrow: it doesn't change access for any existing role, it only adds a
+    new restricted path for 'instructor'."""
     if 'user_id' not in session:
         return jsonify({'error': 'Unauthorized'}), 401
     if session.get('role') == 'admin':
@@ -2619,13 +3678,45 @@ def require_own_program(pid, fallback_section='youth'):
     if session.get('role') == 'instructor':
         conn = get_db()
         me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
-        prog = fetchone(conn, '''SELECT v.email AS instructor_email FROM youth_programs yp
-            LEFT JOIN volunteers v ON v.id=yp.instructor_id WHERE yp.id=%s''', (pid,))
-        conn.close()
         my_email = (me or {}).get('email', '').strip().lower()
-        prog_email = (prog or {}).get('instructor_email') or ''
-        if not prog or not prog_email or prog_email.strip().lower() != my_email:
+        match = fetchone(conn, '''SELECT 1 FROM youth_programs yp
+            LEFT JOIN volunteers v ON v.id=yp.instructor_id
+            WHERE yp.id=%s AND lower(v.email)=%s
+            UNION
+            SELECT 1 FROM program_co_instructors pci
+            JOIN volunteers v2 ON v2.id=pci.volunteer_id
+            WHERE pci.program_id=%s AND lower(v2.email)=%s''',
+            (pid, my_email, pid, my_email))
+        conn.close()
+        if not my_email or not match:
             return jsonify({'error': 'You can only manage your own programs'}), 403
+        return None
+    return require_permission(fallback_section)
+
+
+def require_own_production(pid, fallback_section='productions'):
+    """Same idea as require_own_program, for the 'director' role — a
+    director is scoped to whichever production(s) they're listed on in
+    production_members with a role containing 'director' (Director,
+    Co-Director, Assistant Director, etc. — matched loosely rather than
+    requiring an exact title), matched by their login email against the
+    volunteer record. Admins and anyone with normal section permission
+    pass through as before; this only adds a new restricted path."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if session.get('role') == 'admin':
+        return None
+    if session.get('role') == 'director':
+        conn = get_db()
+        me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+        my_email = (me or {}).get('email', '').strip().lower()
+        match = fetchone(conn, '''SELECT 1 FROM production_members pm
+            JOIN volunteers v ON v.id=pm.volunteer_id
+            WHERE pm.production_id=%s AND lower(v.email)=%s AND pm.role ILIKE %s''',
+            (pid, my_email, '%director%'))
+        conn.close()
+        if not my_email or not match:
+            return jsonify({'error': 'You can only manage your own productions'}), 403
         return None
     return require_permission(fallback_section)
 
@@ -2665,8 +3756,8 @@ def get_recipient_emails(settings=None):
 
 def build_hwtc_email_html(subject, body_html, footer_note=''):
     """Wrap content in the standard HWTC branded email template."""
-    footer_note = footer_note or 'You are receiving this email because you are enrolled in our Volunteer Management System, RoleCall. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'
-    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_white.png'
+    footer_note = footer_note or 'You are receiving this email from Horizon West Theater Company. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'
+    logo_url = 'https://rolecall.hwtco.org/static/images/hwtc_logo_white.png'
     return f'''<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
@@ -2677,7 +3768,7 @@ body{{font-family:Georgia,'Times New Roman',serif;background:#f5f4f0;color:#1a1a
 .wrapper{{max-width:620px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,0.08)}}
 .header{{background:#0d3d4d;padding:28px 40px;text-align:center}}
 .header-logo{{margin-bottom:12px}}
-.header-logo img{{height:48px;display:inline-block}}
+.header-logo img{{height:48px;display:inline-block;mix-blend-mode:screen}}
 .header h1{{font-size:22px;font-weight:400;color:#fff;line-height:1.35;margin-bottom:0}}
 .header-rule{{width:40px;height:2px;background:#1b708d;margin:14px auto 0}}
 .body{{padding:36px 40px}}
@@ -2704,6 +3795,58 @@ hr{{border:none;border-top:1px solid #e8e6e0;margin:1.75rem 0}}
   </div>
   <div class="footer">
     <p><strong>Horizon West Theater Company</strong> &mdash; <a href="https://hwtco.org" style="color:#0F6E56">hwtco.org</a></p>
+    <p style="margin-top:6px">{footer_note}</p>
+  </div>
+</div>
+</body></html>'''
+
+
+def build_sad_email_html(subject, body_html, footer_note=''):
+    """Same idea as build_hwtc_email_html, but themed to match the Studio
+    After Dark pages (dark background, pink/purple accent, the actual SAD
+    logo) instead of the standard HWTC letter template — so an SAD email
+    feels like part of the same experience as the entry/confirm pages
+    instead of a generic notice. Email clients have much weaker CSS support
+    than a browser (Outlook in particular ignores gradients entirely), so
+    this leans on solid accent colors with a gradient only as a bonus where
+    it happens to render, and inline-safe fonts rather than the Google Fonts
+    used on the actual pages."""
+    footer_note = footer_note or 'Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#f472b6">info@hwtco.org</a>.'
+    logo_url = 'https://irp.cdn-website.com/ab1f5fdb/dms3rep/multi/opt/SADLogo-bd629fa1-1920w.png'
+    return f'''<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>{subject}</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;background:#0b0714;color:rgba(255,255,255,0.85)}}
+.wrapper{{max-width:600px;margin:0 auto;background:#0b0714}}
+.top-bar{{height:5px;background-color:#ec4899;background-image:linear-gradient(90deg,#7c3aed,#ec4899,#f472b6)}}
+.header{{padding:36px 32px 24px;text-align:center}}
+.header img{{max-width:220px;width:70%;height:auto}}
+.subject-line{{font-size:19px;font-weight:700;color:#fff;margin-top:20px;line-height:1.4}}
+.body{{padding:8px 36px 32px}}
+.body-inner{{background:#15101f;border:1px solid rgba(255,255,255,0.12);border-radius:14px;padding:28px 26px}}
+p{{font-size:15px;line-height:1.7;margin-bottom:1rem;color:rgba(255,255,255,0.82)}}
+strong{{font-weight:700;color:#fff}}
+a{{color:#f472b6}}
+.footer{{border-top:1px solid rgba(255,255,255,0.1);padding:22px 32px 32px;text-align:center}}
+.footer p{{font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:4px}}
+</style></head>
+<body>
+<div class="wrapper">
+  <div class="top-bar"></div>
+  <div class="header">
+    <img src="{logo_url}" alt="Studio After Dark"/>
+    <div class="subject-line">{subject}</div>
+  </div>
+  <div class="body">
+    <div class="body-inner">
+      {body_html}
+    </div>
+  </div>
+  <div class="footer">
+    <p><strong style="color:rgba(255,255,255,0.6)">Horizon West Theater Company</strong></p>
     <p style="margin-top:6px">{footer_note}</p>
   </div>
 </div>
@@ -2746,6 +3889,7 @@ def build_waitlist_promoted_email_html(guardian_name, child_name, program_name, 
     return f'''
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px 28px;text-align:center;border-radius:12px 12px 0 0">
+    <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:40px;margin-bottom:14px"/>
     <h1 style="color:#fff;margin:0;font-size:21px;font-weight:700">{heading}</h1>
     <p style="color:rgba(255,255,255,0.82);margin:6px 0 0;font-size:14px">{program_name}</p>
   </div>
@@ -2769,6 +3913,7 @@ def build_waitlist_email_html(guardian_name, program_name, position_desc, is_plu
     return f'''
 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:32px 28px;text-align:center;border-radius:12px 12px 0 0">
+    <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:40px;margin-bottom:14px"/>
     <h1 style="color:#fff;margin:0;font-size:21px;font-weight:700">You're on the Waitlist</h1>
     <p style="color:rgba(255,255,255,0.82);margin:6px 0 0;font-size:14px">{program_name}</p>
   </div>
@@ -2910,6 +4055,12 @@ def serialize_row(r):
     for k, v in r.items():
         if isinstance(v, (datetime, date)):
             out[k] = v.isoformat()
+        elif isinstance(v, Decimal):
+            # Postgres NUMERIC columns (e.g. seat x/y) come back as Decimal,
+            # which can't be JSON-serialized and can't be mixed with plain
+            # floats in arithmetic (TypeError). Normalize once here so every
+            # caller just gets an ordinary Python number.
+            out[k] = float(v)
         else:
             out[k] = v
     return out
@@ -2952,6 +4103,23 @@ def fetchone(conn, sql, params=()):
 def execute(conn, sql, params=()):
     with conn.cursor() as c:
         c.execute(sql, params)
+
+def maybe_auto_reveal_cast_list(conn, context_type, context_id, row):
+    """If a cast list is queued (Publish was clicked while a countdown was
+    still running) and the reveal time has now passed, flip it live. Shared
+    by both the public cast-list endpoint and the admin settings endpoint so
+    the reveal shows up the moment anyone — family or staff — next loads
+    either page, without needing a background job."""
+    if not row or not row.get('cast_list_queued') or row.get('cast_list_published'):
+        return row
+    reveal_at = parse_db_datetime(row.get('cast_list_reveal_at'))
+    if not reveal_at or reveal_at <= now_eastern():
+        execute(conn, """UPDATE audition_settings SET cast_list_published=TRUE, cast_list_queued=FALSE,
+            updated_at=NOW() WHERE context_type=%s AND context_id=%s""", (context_type, context_id))
+        conn.commit()
+        row['cast_list_published'] = True
+        row['cast_list_queued'] = False
+    return row
 
 def get_waiver_summary(conn, vol_id):
     from datetime import date as _date, datetime as _datetime
@@ -3030,6 +4198,9 @@ def login():
     conn.close()
     if not user: return jsonify({'error': 'Invalid email or password'}), 401
     if not user.get('active', True): return jsonify({'error': 'Your account has been deactivated. Contact an administrator.'}), 403
+    session.pop('real_admin_id', None)
+    session.pop('real_admin_name', None)
+    session.pop('impersonation_log_id', None)
     session['user_id'] = user['id']
     session['user_name'] = user['name']
     session['role'] = user['role']
@@ -3047,6 +4218,81 @@ def logout():
     session.clear()
     return jsonify({'ok': True})
 
+@app.route('/api/admin/impersonate', methods=['POST'])
+def start_impersonation():
+    """Let a genuine admin act as another user for testing, without their
+    password. 'Genuine admin' is checked against real_admin_id if already
+    impersonating (so switching targets mid-session doesn't require
+    dropping back to yourself first), or the live session role otherwise —
+    either way it's re-verified against the users table, not just trusted
+    from the session, since role_permissions/role can change underneath a
+    long-lived session."""
+    real_admin_id = session.get('real_admin_id') or session.get('user_id')
+    if not real_admin_id:
+        return jsonify({'error': 'Not logged in'}), 401
+    conn = get_db()
+    admin_row = fetchone(conn, 'SELECT id, name, role FROM users WHERE id=%s', (real_admin_id,))
+    if not admin_row or admin_row['role'] != 'admin':
+        conn.close()
+        return jsonify({'error': 'Admin access required'}), 403
+    d = request.get_json(silent=True) or {}
+    target_id = d.get('user_id')
+    if not target_id:
+        conn.close(); return jsonify({'error': 'user_id is required'}), 400
+    if target_id == real_admin_id:
+        conn.close(); return jsonify({'error': "That's your own account — just use it directly"}), 400
+    target = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (target_id,))
+    if not target:
+        conn.close(); return jsonify({'error': 'User not found'}), 404
+    if not target.get('active', True):
+        conn.close(); return jsonify({'error': 'That account is deactivated'}), 400
+    # Switching targets mid-impersonation closes out the previous log entry
+    # rather than leaving it open forever.
+    prev_log_id = session.get('impersonation_log_id')
+    if prev_log_id:
+        execute(conn, 'UPDATE impersonation_log SET ended_at=NOW() WHERE id=%s', (prev_log_id,))
+    log_id = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO impersonation_log (id, admin_user_id, admin_name, target_user_id, target_name)
+        VALUES (%s,%s,%s,%s,%s)''', (log_id, real_admin_id, admin_row['name'], target_id, target['name']))
+    conn.commit()
+    session['real_admin_id'] = real_admin_id
+    session['real_admin_name'] = admin_row['name']
+    session['impersonation_log_id'] = log_id
+    session['user_id'] = target['id']
+    session['user_name'] = target['name']
+    session['role'] = target['role']
+    session['permissions'] = '{}' if target['role'] == 'admin' else (target.get('role_permissions') or '{}')
+    result = {'id': target['id'], 'name': target['name'], 'email': target['email'],
+              'role': target['role'], 'permissions': json.loads(session['permissions'] or '{}'),
+              'impersonating': True, 'real_admin_name': admin_row['name']}
+    conn.close()
+    return jsonify(result)
+
+@app.route('/api/admin/stop-impersonating', methods=['POST'])
+def stop_impersonation():
+    real_admin_id = session.get('real_admin_id')
+    if not real_admin_id:
+        return jsonify({'error': 'Not currently impersonating anyone'}), 400
+    conn = get_db()
+    log_id = session.get('impersonation_log_id')
+    if log_id:
+        execute(conn, 'UPDATE impersonation_log SET ended_at=NOW() WHERE id=%s', (log_id,))
+        conn.commit()
+    admin = fetchone(conn, 'SELECT * FROM users WHERE id=%s', (real_admin_id,))
+    conn.close()
+    if not admin:
+        session.clear()
+        return jsonify({'error': 'Your admin account could not be found — please log in again'}), 401
+    session.pop('real_admin_id', None)
+    session.pop('real_admin_name', None)
+    session.pop('impersonation_log_id', None)
+    session['user_id'] = admin['id']
+    session['user_name'] = admin['name']
+    session['role'] = admin['role']
+    session['permissions'] = '{}'
+    return jsonify({'id': admin['id'], 'name': admin['name'], 'email': admin['email'],
+                     'role': admin['role'], 'permissions': {}})
+
 @app.route('/api/auth/me')
 def me():
     if 'user_id' not in session: return jsonify({'user': None})
@@ -3058,8 +4304,12 @@ def me():
     if u['role'] != 'admin':
         try: perms = json.loads(u.get('role_permissions') or '{}')
         except Exception: perms = {}
-    return jsonify({'user': {'id': u['id'], 'name': u['name'], 'email': u['email'],
-                             'role': u['role'], 'permissions': perms}})
+    result = {'id': u['id'], 'name': u['name'], 'email': u['email'],
+              'role': u['role'], 'permissions': perms}
+    if session.get('real_admin_id'):
+        result['impersonating'] = True
+        result['real_admin_name'] = session.get('real_admin_name', '')
+    return jsonify({'user': result})
 
 @app.route('/api/auth/change-password', methods=['POST'])
 def change_password():
@@ -3165,11 +4415,12 @@ def get_events():
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name
+        pg.name as program_name, ps.name as linked_session_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
+        LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         ORDER BY e.event_date DESC NULLS LAST, e.start_time ASC NULLS LAST''')
     for e in events:
         e['required_waivers'] = fetchall(conn,
@@ -3252,10 +4503,14 @@ def get_events():
     except Exception as e:
         app.logger.warning(f'Rental tour calendar merge error: {e}')
     # Add program/class sessions as synthetic calendar events — but only
-    # ones that actually have a registrant. Otherwise a bulk-imported
-    # schedule (which can easily be a few hundred open hourly slots) would
-    # bury the calendar in mostly-empty class times nobody's confirmed
-    # for yet.
+    # ones that actually have a registrant, and only ones that don't already
+    # have a real linked event (see linked_session_id): once someone's
+    # created a real event for hour-logging/ELICs/staffing purposes and
+    # linked it to a session, that real event IS the calendar entry — the
+    # synthetic one would just be a confusing duplicate. Otherwise a bulk-
+    # imported schedule (which can easily be a few hundred open hourly
+    # slots) would bury the calendar in mostly-empty class times nobody's
+    # confirmed for yet.
     try:
         conn4 = get_db()
         prog_sessions = fetchall(conn4, '''SELECT ps.id, ps.name, ps.start_date, ps.start_time, ps.end_time,
@@ -3267,6 +4522,7 @@ def get_events():
                 WHERE pr.program_id=ps.program_id
                 AND pr.session_ids LIKE \'%%"\' || ps.id || \'"%%\'
                 AND pr.status NOT IN (\'cancelled\',\'waitlisted\'))
+            AND NOT EXISTS (SELECT 1 FROM events e3 WHERE e3.linked_session_id=ps.id)
             ''') or []
         conn4.close()
         for s in prog_sessions:
@@ -3291,9 +4547,14 @@ def get_events():
 
 @app.route('/api/events', methods=['POST'])
 def create_event():
-    err = require_permission('events')
-    if err: return err
     d = request.json or {}
+    if session.get('role') == 'director':
+        if not d.get('production_id'):
+            return jsonify({'error': 'Directors can only create events tied to their own production'}), 403
+        err = require_own_production(d.get('production_id'))
+    else:
+        err = require_permission('events')
+    if err: return err
     if not (d.get('name') or '').strip():
         return jsonify({'error': 'Event name is required'}), 400
     if not (d.get('event_date') or '').strip():
@@ -3301,12 +4562,12 @@ def create_event():
     eid = str(uuid.uuid4())
     conn = get_db()
     execute(conn, '''INSERT INTO events
-        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode,show_on_lobby)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)''',
+        (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,linked_session_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode,show_on_lobby)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
-         d.get('production_id') or None, d.get('program_id') or None,
+         d.get('production_id') or None, d.get('program_id') or None, d.get('linked_session_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False),
@@ -3337,14 +4598,23 @@ def create_event():
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name
+        pg.name as program_name, ps.name as linked_session_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
+        LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         WHERE e.id=%s''', (eid,))
-    row['required_waivers'] = []; row['elics'] = []
     conn.close()
+    if not row:
+        # The insert itself succeeded (we'd have raised already if not) —
+        # this means the id genuinely can't be read back, which points at
+        # a bad linked_session_id (references a session belonging to a
+        # different program, or one that no longer exists) tripping up the
+        # LEFT JOIN in a way that's worth surfacing clearly instead of a
+        # raw crash.
+        return jsonify({'error': 'Event was created but could not be reloaded — the selected session may be invalid.'}), 500
+    row['required_waivers'] = []; row['elics'] = []
     return jsonify(row)
 
 @app.route('/api/events/<eid>/status', methods=['POST'])
@@ -3382,15 +4652,23 @@ def set_event_status(eid):
 
 @app.route('/api/events/<eid>', methods=['PUT'])
 def update_event(eid):
-    err = require_permission('events')
-    if err: return err
-    d = request.json or {}
     conn = get_db()
+    existing_event = fetchone(conn, 'SELECT production_id FROM events WHERE id=%s', (eid,))
+    if session.get('role') == 'director':
+        pid_to_check = (existing_event or {}).get('production_id')
+        if not pid_to_check:
+            conn.close()
+            return jsonify({'error': 'Directors can only manage events tied to their own production'}), 403
+        err = require_own_production(pid_to_check)
+    else:
+        err = require_permission('events')
+    if err: conn.close(); return err
+    d = request.json or {}
     prev = fetchone(conn, 'SELECT status FROM events WHERE id=%s', (eid,))
     prev_status = prev.get('status') if prev else None
     new_status = d.get('status','draft')
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
-        event_type_id=%s,location=%s,address=%s,room=%s,production_id=%s,program_id=%s,expected_volunteers=%s,
+        event_type_id=%s,location=%s,address=%s,room=%s,production_id=%s,program_id=%s,linked_session_id=%s,expected_volunteers=%s,
         description=%s,notes=%s,requires_background_check=%s,auto_log_hours=%s,
         rsvp_enabled=%s,rsvp_message=%s,rsvp_kind=%s,invite_headline=%s,hide_block_names=%s,status=%s,carpools_enabled=%s,
         hours_store_bonus_type=%s,hours_store_bonus_multiplier=%s,hours_store_bonus_flat_cents=%s,
@@ -3398,7 +4676,7 @@ def update_event(eid):
         (d.get('name',''), d.get('event_date') or None, d.get('end_date') or None,
          d.get('start_time') or None, d.get('end_time') or None,
          d.get('event_type_id') or None, d.get('location',''), d.get('address',''), d.get('room',''),
-         d.get('production_id') or None, d.get('program_id') or None,
+         d.get('production_id') or None, d.get('program_id') or None, d.get('linked_session_id') or None,
          d.get('expected_volunteers') or None,
          d.get('description',''), d.get('notes',''), d.get('requires_background_check',False),
          d.get('auto_log_hours', False), d.get('rsvp_enabled', False),
@@ -3429,12 +4707,16 @@ def update_event(eid):
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
         et.name as event_type_name, et.color as event_type_color,
         p.name as production_name, COALESCE(p.stage,'mainstage') as production_stage,
-        pg.name as program_name
+        pg.name as program_name, ps.name as linked_session_name
         FROM events e
         LEFT JOIN event_types et ON e.event_type_id=et.id
         LEFT JOIN productions p ON e.production_id=p.id
         LEFT JOIN youth_programs pg ON e.program_id=pg.id
+        LEFT JOIN program_sessions ps ON e.linked_session_id=ps.id
         WHERE e.id=%s''', (eid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': f'Event {eid} not found after update — the selected session may be invalid.'}), 500
     row['required_waivers'] = fetchall(conn,
         'SELECT ew.*, wt.name as waiver_name FROM event_waivers ew JOIN waiver_types wt ON ew.waiver_type_id=wt.id WHERE ew.event_id=%s', (eid,))
     row['elics'] = fetchall(conn, """SELECT ee.id as assignment_id, el.id as elic_id,
@@ -3486,11 +4768,38 @@ def _delete_event_cascade(conn, eid):
     conn.commit()
     cur.close()
 
-@app.route('/api/events/<eid>', methods=['DELETE'])
-def delete_event(eid):
+@app.route('/api/events/bulk-update-type', methods=['POST'])
+def bulk_update_event_type():
+    """Change the event type on many events at once — e.g. every rehearsal
+    on a production that was miscategorized, without opening each one."""
     err = require_permission('events')
     if err: return err
+    d = request.json or {}
+    event_ids = d.get('event_ids') or []
+    event_type_id = d.get('event_type_id') or None
+    if not event_ids:
+        return jsonify({'error': 'No events selected'}), 400
     conn = get_db()
+    ph = ','.join(['%s']*len(event_ids))
+    execute(conn, f'UPDATE events SET event_type_id=%s WHERE id IN ({ph})', tuple([event_type_id]+event_ids))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'updated': len(event_ids)})
+
+
+@app.route('/api/events/<eid>', methods=['DELETE'])
+def delete_event(eid):
+    conn = get_db()
+    if session.get('role') == 'director':
+        existing_event = fetchone(conn, 'SELECT production_id FROM events WHERE id=%s', (eid,))
+        pid_to_check = (existing_event or {}).get('production_id')
+        if not pid_to_check:
+            conn.close()
+            return jsonify({'error': 'Directors can only manage events tied to their own production'}), 403
+        err = require_own_production(pid_to_check)
+    else:
+        err = require_permission('events')
+    if err: conn.close(); return err
     try:
         _delete_event_cascade(conn, eid)
         conn.close()
@@ -3511,12 +4820,83 @@ def get_volunteers():
     err = require_auth()
     if err: return err
     conn = get_db()
+    sync_wall_of_fame_eligibility(conn)
     vols = fetchall(conn, '''SELECT *, COALESCE(background_check_status,'none') as background_check_status FROM volunteers ORDER BY name''')
+    this_year = str(date.today().year)
     for v in vols:
         v['total_hours'] = fetchone(conn, 'SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s', (v['id'],))['t']
+        v['hours_ytd'] = fetchone(conn, "SELECT COALESCE(SUM(hours),0) as t FROM hours WHERE volunteer_id=%s AND LEFT(date,4)=%s", (v['id'], this_year))['t']
         v['waiver_status'], v['waivers'] = get_waiver_summary(conn, v['id'])
     conn.close()
     return jsonify(vols)
+
+@app.route('/api/volunteers/wall-of-fame/pending')
+def get_wall_of_fame_pending():
+    """Volunteers who've earned the Wall of Fame handprint (52+ hours or a
+    completed production) but haven't had it physically added yet — the
+    staff to-do queue so nobody gets missed."""
+    err = require_permission('volunteers', level='view')
+    if err: return err
+    conn = get_db()
+    sync_wall_of_fame_eligibility(conn)
+    rows = fetchall(conn, '''SELECT v.id, v.name, v.email, v.wall_eligible_at,
+        COALESCE((SELECT SUM(h.hours) FROM hours h WHERE h.volunteer_id=v.id),0) as total_hours
+        FROM volunteers v
+        WHERE v.wall_eligible_at IS NOT NULL AND v.wall_added_at IS NULL
+        ORDER BY v.wall_eligible_at ASC''')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/volunteers/<vol_id>/verify', methods=['POST'])
+def verify_volunteer(vol_id):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    execute(conn, 'UPDATE volunteers SET verified_at=NOW(), verified_by=%s WHERE id=%s',
+            ((me or {}).get('name', ''), vol_id))
+    conn.commit()
+    vol = fetchone(conn, 'SELECT id, verified_at, verified_by FROM volunteers WHERE id=%s', (vol_id,))
+    conn.close()
+    return jsonify(vol)
+
+@app.route('/api/volunteers/<vol_id>/verify', methods=['DELETE'])
+def unverify_volunteer(vol_id):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE volunteers SET verified_at=NULL, verified_by=NULL WHERE id=%s', (vol_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/volunteers/<vol_id>/wall-of-fame', methods=['POST'])
+def add_to_wall_of_fame(vol_id):
+    """Manual confirmation that the physical handprint has been added.
+    Does not require wall_eligible_at to already be set — staff can
+    recognize someone off-cycle if needed, and this call itself is
+    sufficient evidence they've been added."""
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    execute(conn, '''UPDATE volunteers SET wall_added_at=NOW(), wall_added_by=%s,
+        wall_eligible_at=COALESCE(wall_eligible_at, NOW()) WHERE id=%s''',
+            ((me or {}).get('name', ''), vol_id))
+    conn.commit()
+    vol = fetchone(conn, 'SELECT id, wall_eligible_at, wall_added_at, wall_added_by FROM volunteers WHERE id=%s', (vol_id,))
+    conn.close()
+    return jsonify(vol)
+
+@app.route('/api/volunteers/<vol_id>/wall-of-fame', methods=['DELETE'])
+def remove_from_wall_of_fame(vol_id):
+    err = require_permission('volunteers')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'UPDATE volunteers SET wall_added_at=NULL, wall_added_by=NULL WHERE id=%s', (vol_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 @app.route('/api/volunteers/<vol_id>/communications')
 def get_volunteer_communications(vol_id):
@@ -3533,9 +4913,11 @@ def get_volunteer(vol_id):
     err = require_auth()
     if err: return err
     conn = get_db()
+    sync_wall_of_fame_eligibility(conn)
     vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     if not vol: conn.close(); return jsonify({'error': 'Not found'}), 404
     vol['hours']   = fetchall(conn, 'SELECT * FROM hours WHERE volunteer_id=%s ORDER BY date DESC', (vol_id,))
+    vol['hours_summary'] = get_volunteer_hours_summary(conn, vol_id)
     vol['notes']   = fetchall(conn, 'SELECT * FROM notes WHERE volunteer_id=%s ORDER BY created_at DESC', (vol_id,))
     vol['history'] = fetchall(conn, 'SELECT * FROM volunteer_history WHERE volunteer_id=%s ORDER BY date DESC', (vol_id,))
     vol['files']   = fetchall(conn, 'SELECT * FROM volunteer_files WHERE volunteer_id=%s ORDER BY created_at DESC', (vol_id,))
@@ -3686,6 +5068,63 @@ def save_contractor_pay_cap_setting():
         ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (str(cap),))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'cap': cap})
+
+@app.route('/api/paid-instructors')
+def get_paid_instructors():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT pi.*, v.name as volunteer_name
+        FROM paid_instructors pi LEFT JOIN volunteers v ON pi.volunteer_id=v.id ORDER BY v.name''')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/paid-instructors', methods=['POST'])
+def create_paid_instructor():
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    volunteer_id = d.get('volunteer_id')
+    pin = (d.get('pin') or '').strip()
+    if not volunteer_id or not pin:
+        return jsonify({'error': 'Volunteer and PIN are required'}), 400
+    if not pin.isdigit() or len(pin) != 4:
+        return jsonify({'error': 'PIN must be exactly 4 digits'}), 400
+    pid = str(uuid.uuid4())
+    conn = get_db()
+    execute(conn, '''INSERT INTO paid_instructors (id, volunteer_id, pin, active)
+        VALUES (%s,%s,%s,%s)''', (pid, volunteer_id, pin, d.get('active', True)))
+    conn.commit()
+    row = fetchone(conn, '''SELECT pi.*, v.name as volunteer_name
+        FROM paid_instructors pi LEFT JOIN volunteers v ON pi.volunteer_id=v.id WHERE pi.id=%s''', (pid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/paid-instructors/<pid>', methods=['PUT'])
+def update_paid_instructor(pid):
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    pin = (d.get('pin') or '').strip()
+    if pin and (not pin.isdigit() or len(pin) != 4):
+        return jsonify({'error': 'PIN must be exactly 4 digits'}), 400
+    conn = get_db()
+    execute(conn, 'UPDATE paid_instructors SET volunteer_id=%s, pin=%s, active=%s WHERE id=%s',
+        (d.get('volunteer_id'), pin or '0000', d.get('active', True), pid))
+    conn.commit()
+    row = fetchone(conn, '''SELECT pi.*, v.name as volunteer_name
+        FROM paid_instructors pi LEFT JOIN volunteers v ON pi.volunteer_id=v.id WHERE pi.id=%s''', (pid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+@app.route('/api/paid-instructors/<pid>', methods=['DELETE'])
+def delete_paid_instructor(pid):
+    err = require_permission('youth')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM paid_instructors WHERE id=%s', (pid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
 
 # ─────────────────────────────────────────────
 #  HOURS STORE
@@ -3997,7 +5436,7 @@ def approve_hour_redemption(rid):
         try:
             if vol and vol.get('email'):
                 send_email([vol['email']], 'Your Hours Store request was approved — balance due',
-                    f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                    build_hwtc_email_html('Your Hours Store request was approved — balance due',
                     f'<h2 style="color:#145466">Approved — almost there!</h2>'
                     f'<p>Hi {vol.get("name","there")},</p>'
                     f'<p>Your redemption of <strong>{pseudo_program["name"]}</strong> has been approved. '
@@ -4006,8 +5445,7 @@ def approve_hour_redemption(rid):
                     f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
                     f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
                     f'Pay Remaining Balance</a></p>'
-                    f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-                    f'<p>Horizon West Theater Company</p></div>')
+                    f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'))
         except Exception as e:
             app.logger.warning(f'Hours store partial-approval email failed: {e}')
         conn.close()
@@ -4022,13 +5460,12 @@ def approve_hour_redemption(rid):
         vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
         if vol and vol.get('email'):
             send_email([vol['email']], 'Your Hours Store request has been approved!',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html('Your Hours Store request has been approved!',
                 f'<h2 style="color:#145466">Approved!</h2>'
                 f'<p>Hi {vol.get("name","there")},</p>'
                 f'<p>Your redemption of <strong>{red.get("item_name_snapshot") or (item["name"] if item else "your item")}</strong> '
                 f'for {red["hours_spent"]} volunteer hours has been approved'
-                f'{" and you have been enrolled." if new_reg_id else ". We will follow up with next steps."}</p>'
-                f'<p>Horizon West Theater Company</p></div>')
+                f'{" and you have been enrolled." if new_reg_id else ". We will follow up with next steps."}</p>'))
     except Exception as e:
         app.logger.warning(f'Hours store approval email failed: {e}')
     conn.close()
@@ -4055,13 +5492,12 @@ def deny_hour_redemption(rid):
         vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (red['volunteer_id'],))
         if vol and vol.get('email'):
             send_email([vol['email']], 'Update on your Hours Store request',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html('Update on your Hours Store request',
                 f'<h2 style="color:#145466">Hours Store Update</h2>'
                 f'<p>Hi {vol.get("name","there")},</p>'
                 f'<p>We were not able to approve your redemption of <strong>{red.get("item_name_snapshot") or "your item"}</strong> '
                 f'({red["hours_spent"]} hours).{" Note: " + d.get("reason","") if d.get("reason") else ""}</p>'
-                f'<p>Your hours have been returned to your available balance. Please reach out if you have questions.</p>'
-                f'<p>Horizon West Theater Company</p></div>')
+                f'<p>Your hours have been returned to your available balance. Please reach out if you have questions.</p>'))
     except Exception as e:
         app.logger.warning(f'Hours store denial email failed: {e}')
     conn.close()
@@ -4115,7 +5551,7 @@ def resend_hour_redemption_payment_link(rid):
     try:
         if vol and vol.get('email'):
             send_email([vol['email']], 'Reminder — balance due for your Hours Store request',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html('Reminder — balance due for your Hours Store request',
                 f'<h2 style="color:#145466">Balance Due</h2>'
                 f'<p>Hi {vol.get("name","there")},</p>'
                 f'<p>Just a reminder — there\'s a balance of <strong>${red["balance_due_cents"]/100:.2f}</strong> remaining on your '
@@ -4123,8 +5559,7 @@ def resend_hour_redemption_payment_link(rid):
                 f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
                 f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
                 f'Pay Remaining Balance</a></p>'
-                f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-                f'<p>Horizon West Theater Company</p></div>')
+                f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'))
     except Exception as e:
         app.logger.warning(f'Hours store resend-link email failed: {e}')
     conn.close()
@@ -4198,11 +5633,11 @@ def public_hours_store_redeem(token):
         if recipients:
             balance_note = f' plus a ${balance_due_cents/100:.2f} balance to be invoiced' if balance_due_cents else ''
             send_email(recipients, f'New Hours Store request — {vol["name"]}',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html(f'New Hours Store request — {vol["name"]}',
                 f'<h2 style="color:#145466">New Hours Store Request</h2>'
                 f'<p><strong>{vol["name"]}</strong> ({vol.get("email","")}) has requested to redeem '
                 f'<strong>{hours_to_apply} hours</strong> for <strong>{item["name"]}</strong>{balance_note}.</p>'
-                f'<p>Review and approve/deny it in RoleCall under Volunteers → Hours Store.</p></div>')
+                f'<p>Review and approve/deny it in RoleCall under Volunteers → Hours Store.</p>'))
     except Exception as e:
         app.logger.warning(f'Hours store admin notify failed: {e}')
     return jsonify({'ok': True, 'status': 'pending', 'hours_applied': hours_to_apply, 'balance_due_cents': balance_due_cents})
@@ -4633,7 +6068,19 @@ def get_youth_programs():
         (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='confirmed') AS reg_confirmed,
         (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='pending_payment') AS reg_pending,
         (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status='waitlisted') AS reg_waitlisted,
-        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status NOT IN (\'cancelled\',\'waitlisted\')) AS reg_enrolled
+        (SELECT COUNT(*) FROM program_registrations WHERE program_id=yp.id AND status NOT IN (\'cancelled\',\'waitlisted\')) AS reg_enrolled,
+        (SELECT COALESCE(SUM(
+            CASE WHEN pr.is_comped THEN 0
+                WHEN su.hold_status = 'charged' THEN su.amount
+                WHEN su.hold_status = 'pending' THEN 0
+                ELSE COALESCE(pr.amount_paid_cents,
+                    COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
+                    - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
+                    - COALESCE(pr.refund_amount_cents,0)
+            END), 0)
+         FROM program_registrations pr
+         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
+         WHERE pr.program_id=yp.id AND pr.status='confirmed') AS confirmed_revenue_cents
         FROM youth_programs yp
         LEFT JOIN elics el ON yp.default_elic_id=el.id
         LEFT JOIN volunteers v ON el.volunteer_id=v.id
@@ -4650,7 +6097,7 @@ def create_youth_program():
     pid = str(uuid.uuid4())
     conn = get_db()
     try:
-        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label,instructor_expected_pay,is_paid_instruction) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        execute(conn, 'INSERT INTO youth_programs (id,name,description,program_type,start_date,end_date,instructor_id,default_elic_id,requires_guardian,bundle_enabled,bundle_price,bundle_label,instructor_expected_pay,is_paid_instruction,pay_rate_type,pay_rate_amount) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
                 (pid, (d.get('name') or '').strip(), d.get('description',''),
                  d.get('program_type','class'), d.get('start_date') or None,
                  d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4660,7 +6107,9 @@ def create_youth_program():
                  int(float(d['bundle_price'])*100) if d.get('bundle_price') else None,
                  d.get('bundle_label') or 'Book All Sessions',
                  float(d.get('instructor_expected_pay') or 0),
-                 bool(d.get('is_paid_instruction', False))))
+                 bool(d.get('is_paid_instruction', False)),
+                 d.get('pay_rate_type') or 'hourly',
+                 float(d.get('pay_rate_amount') or 0)))
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -4676,7 +6125,7 @@ def update_youth_program(pid):
     d = request.json or {}
     if not (d.get('name') or '').strip(): return jsonify({'error': 'Name is required'}), 400
     conn = get_db()
-    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s,instructor_expected_pay=%s,is_paid_instruction=%s WHERE id=%s',
+    execute(conn, 'UPDATE youth_programs SET name=%s,description=%s,program_type=%s,start_date=%s,end_date=%s,instructor_id=%s,default_elic_id=%s,requires_guardian=%s,status=%s,bundle_enabled=%s,bundle_price=%s,bundle_label=%s,instructor_expected_pay=%s,is_paid_instruction=%s,pay_rate_type=%s,pay_rate_amount=%s WHERE id=%s',
             ((d.get('name') or '').strip(), d.get('description',''),
              d.get('program_type','class'), d.get('start_date') or None,
              d.get('end_date') or None, d.get('instructor_id') or None,
@@ -4688,6 +6137,8 @@ def update_youth_program(pid):
              d.get('bundle_label') or 'Book All Sessions',
              float(d.get('instructor_expected_pay') or 0),
              bool(d.get('is_paid_instruction', False)),
+             d.get('pay_rate_type') or 'hourly',
+             float(d.get('pay_rate_amount') or 0),
              pid))
     conn.commit()
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))
@@ -4782,8 +6233,8 @@ def push_program_announcement(pid, aid):
       </div>
     </div>'''
     try:
-        fi = (request.json or {}).get('from_identity') or {}
-        send_email(list(recipients), f'{prog_name}: {ann["title"]}', html_body, fi.get('email') or None, fi.get('name') or None)
+        fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
+        send_email(list(recipients), f'{prog_name}: {ann["title"]}', build_hwtc_email_html(f'{prog_name}: {ann["title"]}', html_body), fi.get('email') or None, fi.get('name') or None)
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
         app.logger.error(f'push_program_announcement email error: {e}')
@@ -4854,7 +6305,7 @@ def send_program_email(pid):
     prog_name = prog.get('name', 'Program')
     html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
       <div style="background:#0d9488;padding:20px;border-radius:8px 8px 0 0">
-        <h2 style="color:white;margin:0">📚 {prog_name}</h2>
+        <h2 style="color:white;margin:0"> {prog_name}</h2>
       </div>
       <div style="background:#f8fafc;padding:24px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0">
         <div style="white-space:pre-wrap;font-size:15px;line-height:1.7;color:#1e293b">{body}</div>
@@ -4864,7 +6315,7 @@ def send_program_email(pid):
     </div>'''
 
     try:
-        send_email(list(recipients), subject, html_body)
+        send_email(list(recipients), subject, build_hwtc_email_html(subject, html_body))
         return jsonify({'ok': True, 'sent_to': len(recipients), 'recipients': list(recipients)})
     except Exception as e:
         app.logger.error(f'send_program_email error: {e}')
@@ -4921,7 +6372,7 @@ def send_program_welcome(pid):
         y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (youth_id,))
         if y:
             guardians = fetchall(conn, "SELECT email, name FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email != ''", (youth_id,))
-            pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+            pp = ensure_youth_passphrase(conn, y)
             greeting = f"{y['first_name']} {y['last_name']}"
             age = calc_age_from_dob(y.get('dob'))
             for g in guardians:
@@ -4970,7 +6421,7 @@ def send_program_welcome(pid):
             enrolled_sql += " AND y.portal_last_login IS NULL"
         enrolled = fetchall(conn, enrolled_sql, (pid,))
         for y in enrolled:
-            pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+            pp = ensure_youth_passphrase(conn, y)
             greeting = f"{y['first_name']} {y['last_name']}"
             age = calc_age_from_dob(y.get('dob'))
             # Prefer family passphrase if set
@@ -5059,7 +6510,7 @@ def send_program_welcome(pid):
             .replace('{{passphrase_reminder_line}}', adult_blocks['passphrase_reminder_line'])
             .replace('{{closing_line}}', adult_blocks['closing_line']))
         subject = subject_base.replace('{{program_name}}', prog_name)
-        ok, err_msg = send_email([r['email']], subject, html_body, fi.get('email') or None, fi.get('name') or None)
+        ok, err_msg = send_email([r['email']], subject, build_hwtc_email_html(subject, html_body), fi.get('email') or None, fi.get('name') or None)
         if ok:
             sent += 1
         else:
@@ -5104,7 +6555,7 @@ def get_welcome_recipients(pid):
 
     result = []
     for y in enrolled:
-        pp = y.get('passphrase') or f"{y['first_name'].lower()}_{y['last_name'].lower()}_hwtc"
+        pp = ensure_youth_passphrase(conn, y)
         family_name = None
         family_id   = y.get('family_id')
         if family_id:
@@ -5132,6 +6583,50 @@ def get_welcome_recipients(pid):
 #  PORTAL MESSAGING THREADS
 # ─────────────────────────────────────────────────────────────
 
+def _resolve_family_id_from_passphrase(conn, passphrase):
+    """A parent can log into the portal with either the one shared family
+    passphrase OR any one individual child's own passphrase (see
+    portal_auth — both are valid, independent login paths). The messaging
+    feature only ever checked the family-level passphrase, so a parent who
+    logs in as one specific kid could send a message that never resolved
+    to an actual family record — meaning no notification email went out,
+    and the thread couldn't be found again under a different login (e.g.
+    the other kid's passphrase, or the family passphrase itself). This
+    always resolves to the real family_id regardless of which credential
+    was used, so a message thread behaves the same no matter how the
+    parent is logged in."""
+    if not passphrase:
+        return None
+    fam = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s', (passphrase.lower(),))
+    if fam:
+        return fam['id']
+    youth = fetchone(conn, 'SELECT family_id FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase.lower(),))
+    if youth and youth.get('family_id'):
+        return youth['family_id']
+    return None
+
+
+def _family_notification_emails(conn, family_id):
+    """Best-effort recipient list for notifying a family: the family
+    record's own email if set, plus every linked child's guardian emails —
+    since families.email isn't always filled in depending on how the
+    family was set up, but guardian emails on file are more consistently
+    present."""
+    emails = []
+    if not family_id:
+        return emails
+    fam = fetchone(conn, 'SELECT email FROM families WHERE id=%s', (family_id,))
+    if fam and fam.get('email'):
+        emails.append(fam['email'])
+    guardians = fetchall(conn, '''SELECT DISTINCT g.email FROM youth_guardians g
+        JOIN youth_participants y ON y.id=g.youth_id
+        WHERE y.family_id=%s AND g.email IS NOT NULL AND g.email != \'\'''', (family_id,)) or []
+    for g in guardians:
+        if g['email'] and g['email'] not in emails:
+            emails.append(g['email'])
+    return emails
+
+
 @app.route('/api/portal/messages/start', methods=['POST'])
 def portal_start_message_thread():
     d = request.json or {}
@@ -5143,9 +6638,9 @@ def portal_start_message_thread():
     if not subject or not body:
         return jsonify({'error': 'Subject and message are required'}), 400
     conn = get_db()
-    family = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
+    family_id = _resolve_family_id_from_passphrase(conn, passphrase)
+    family = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (family_id,)) if family_id else None
     sender_name = d.get('sender_name','').strip() or (family.get('name') if family else 'Family')
-    family_id   = family['id'] if family else None
     tid = str(uuid.uuid4())
     execute(conn, """INSERT INTO portal_message_threads
         (id, family_id, program_id, production_id, subject, status, unread_admin, unread_family, family_passphrase)
@@ -5193,7 +6688,7 @@ def portal_start_message_thread():
             p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
             if p: ctx = f' - {p["name"]}'
         html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New Portal Message{ctx}</h2><p><strong>From:</strong> {sender_name}<br/><strong>Subject:</strong> {subject}</p><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p style="color:#9ca3af;font-size:12px">Reply via Programs or Productions - Portal Content - Messages tab in RoleCall admin.</p></div>'
-        send_email(recipients, f'Portal Message: {subject}', html)
+        send_email(recipients, f'Portal Message: {subject}', build_hwtc_email_html(f'Portal Message: {subject}', html))
     conn.close()
     return jsonify({'ok': True, 'thread_id': tid})
 
@@ -5206,7 +6701,9 @@ def portal_get_thread(tid):
     if not thread:
         conn.close(); return jsonify({'error': 'Not found'}), 404
     is_admin  = session.get('user_id') is not None
-    is_family = passphrase and thread.get('family_passphrase') == passphrase
+    resolved_family_id = _resolve_family_id_from_passphrase(conn, passphrase) if passphrase else None
+    is_family = (resolved_family_id is not None and resolved_family_id == thread.get('family_id')) \
+        or (passphrase and thread.get('family_passphrase') == passphrase)
     if not is_admin and not is_family:
         conn.close(); return jsonify({'error': 'Unauthorized'}), 403
     messages = fetchall(conn, 'SELECT * FROM portal_messages WHERE thread_id=%s ORDER BY sent_at', (tid,))
@@ -5235,7 +6732,9 @@ def portal_reply_thread(tid):
         conn.close(); return jsonify({'error': 'Not found'}), 404
     is_admin  = session.get('user_id') is not None
     passphrase = d.get('passphrase','')
-    is_family  = passphrase and thread.get('family_passphrase') == passphrase
+    resolved_family_id = _resolve_family_id_from_passphrase(conn, passphrase) if passphrase else None
+    is_family = (resolved_family_id is not None and resolved_family_id == thread.get('family_id')) \
+        or (passphrase and thread.get('family_passphrase') == passphrase)
     if not is_admin and not is_family:
         conn.close(); return jsonify({'error': 'Unauthorized'}), 403
     side = 'admin' if is_admin else 'family'
@@ -5248,13 +6747,22 @@ def portal_reply_thread(tid):
         execute(conn, 'UPDATE portal_message_threads SET unread_admin=unread_admin+1, updated_at=NOW() WHERE id=%s', (tid,))
     conn.commit()
     s = get_email_settings()
-    if is_admin and thread.get('family_passphrase'):
+    if is_admin:
         try:
-            family = fetchone(conn, 'SELECT email FROM families WHERE passphrase=%s', (thread['family_passphrase'],))
-            if family and family.get('email'):
+            recipients = _family_notification_emails(conn, thread.get('family_id'))
+            if not recipients and thread.get('family_passphrase'):
+                # Legacy fallback for threads created before this fix, where
+                # family_id never resolved — the raw passphrase string is
+                # still the best link back to who this is from.
+                fam = fetchone(conn, 'SELECT email FROM families WHERE passphrase=%s', (thread['family_passphrase'],))
+                if fam and fam.get('email'): recipients = [fam['email']]
+            if recipients:
                 html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New reply: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p><a href="https://rolecall.hwtco.org/portal.html" style="background:#145466;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">View in Portal</a></p></div>'
-                send_email([family['email']], f'Re: {thread["subject"]}', html)
-        except Exception: pass
+                send_email(recipients, f'Re: {thread["subject"]}', build_hwtc_email_html(f'Re: {thread["subject"]}', html))
+            else:
+                app.logger.warning(f'portal_reply_thread {tid}: no family email found to notify (family_id={thread.get("family_id")})')
+        except Exception as e:
+            app.logger.warning(f'portal reply family-notify failed: {e}')
     elif is_family:
         recipients = list(get_recipient_emails(s))
         try:
@@ -5280,7 +6788,7 @@ def portal_reply_thread(tid):
         except Exception: pass
         if recipients:
             html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">Family replied: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div></div>'
-            send_email(recipients, f'Portal Reply: {thread["subject"]}', html)
+            send_email(recipients, f'Portal Reply: {thread["subject"]}', build_hwtc_email_html(f'Portal Reply: {thread["subject"]}', html))
     conn.close()
     return jsonify({'ok': True})
 
@@ -5290,14 +6798,41 @@ def portal_unread_summary():
     err = require_auth()
     if err: return err
     conn = get_db()
-    total = (fetchone(conn, "SELECT COALESCE(SUM(unread_admin),0) AS t FROM portal_message_threads WHERE unread_admin>0") or {}).get('t', 0)
+    program_total = (fetchone(conn, "SELECT COALESCE(SUM(unread_admin),0) AS t FROM portal_message_threads WHERE unread_admin>0 AND program_id IS NOT NULL") or {}).get('t', 0)
+    # Youth productions (Rising Stars + Teen Show) live in the same
+    # `productions` table as mainstage ones (distinguished by stage), but
+    # they're managed on a separate "Youth Productions" nav item — so
+    # their unread counts need to be split out here too, the same way
+    # program vs production already are.
+    mainstage_total = (fetchone(conn, """SELECT COALESCE(SUM(t.unread_admin),0) AS c
+        FROM portal_message_threads t JOIN productions p ON p.id=t.production_id
+        WHERE t.unread_admin>0 AND p.stage NOT IN ('rising_stars','teen_show')""") or {}).get('c', 0)
+    rising_stars_total = (fetchone(conn, """SELECT COALESCE(SUM(t.unread_admin),0) AS c
+        FROM portal_message_threads t JOIN productions p ON p.id=t.production_id
+        WHERE t.unread_admin>0 AND p.stage IN ('rising_stars','teen_show')""") or {}).get('c', 0)
     by_program = fetchall(conn, """
         SELECT program_id, COALESCE(SUM(unread_admin),0) AS unread
         FROM portal_message_threads
         WHERE unread_admin>0 AND program_id IS NOT NULL
         GROUP BY program_id""")
+    by_production = fetchall(conn, """
+        SELECT production_id, COALESCE(SUM(unread_admin),0) AS unread
+        FROM portal_message_threads
+        WHERE unread_admin>0 AND production_id IS NOT NULL
+        GROUP BY production_id""")
     conn.close()
-    return jsonify({'total': int(total), 'by_program': {r['program_id']: int(r['unread']) for r in (by_program or [])}})
+    # 'total'/'production_total' kept for backward compatibility (any old
+    # caller expecting the old combined shape) — mainstage_total/
+    # rising_stars_total are the correct split for badging each nav item.
+    return jsonify({
+        'total': int(program_total) + int(mainstage_total) + int(rising_stars_total),
+        'program_total': int(program_total),
+        'production_total': int(mainstage_total) + int(rising_stars_total),
+        'mainstage_total': int(mainstage_total),
+        'rising_stars_total': int(rising_stars_total),
+        'by_program': {r['program_id']: int(r['unread']) for r in (by_program or [])},
+        'by_production': {r['production_id']: int(r['unread']) for r in (by_production or [])},
+    })
 
 
 @app.route('/api/portal/messages/threads')
@@ -5342,6 +6877,7 @@ def portal_family_threads():
     passphrase = request.args.get('passphrase','').strip()
     if not passphrase: return jsonify([])
     conn = get_db()
+    family_id = _resolve_family_id_from_passphrase(conn, passphrase)
     threads = fetchall(conn, """
         SELECT t.*,
             (SELECT COUNT(*) FROM portal_messages WHERE thread_id=t.id) as message_count,
@@ -5351,8 +6887,8 @@ def portal_family_threads():
         FROM portal_message_threads t
         LEFT JOIN youth_programs yp ON yp.id=t.program_id
         LEFT JOIN productions p ON p.id=t.production_id
-        WHERE t.family_passphrase=%s
-        ORDER BY t.updated_at DESC""", (passphrase,))
+        WHERE (%s IS NOT NULL AND t.family_id=%s) OR t.family_passphrase=%s
+        ORDER BY t.updated_at DESC""", (family_id, family_id, passphrase))
     conn.close()
     return jsonify(threads)
 
@@ -5365,34 +6901,118 @@ def portal_family_threads():
 @app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['GET'])
 def get_audition_settings(context_type, context_id):
     conn = get_db()
-    row = fetchone(conn, '''SELECT *, COALESCE(allow_slots, FALSE) AS allow_slots
+    # The URL can carry a slug (nicer, shareable) or a raw id — resolve to
+    # the real id either way, same slug-or-id pattern already used for
+    # ticket links.
+    context_id, ctx_name, ctx_logo, ctx_slug = _resolve_audition_context(conn, context_type, context_id)
+    if not context_id:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    row = fetchone(conn, '''SELECT *, COALESCE(allow_slots, FALSE) AS allow_slots,
+        COALESCE(tab_visible, TRUE) AS tab_visible
         FROM audition_settings WHERE context_id=%s AND context_type=%s''',
         (context_id, context_type))
+    row = maybe_auto_reveal_cast_list(conn, context_type, context_id, row)
     # Load slots
     slots = fetchall(conn, '''SELECT as2.*,
         (SELECT COUNT(*) FROM audition_submissions WHERE slot_id=as2.id) AS booked_count
         FROM audition_slots as2
         WHERE as2.context_id=%s AND as2.context_type=%s
         ORDER BY as2.slot_date, as2.start_time''', (context_id, context_type)) or []
+    materials = fetchall(conn, '''SELECT * FROM audition_materials
+        WHERE context_id=%s AND context_type=%s ORDER BY sort_order, created_at''',
+        (context_id, context_type)) or []
     conn.close()
     if not row:
+        # No settings ever configured for this program/production — default
+        # to visible so nothing that already relied on this tab breaks;
+        # staff can explicitly hide it once they've set anything up.
         resp = jsonify({'context_type': context_type, 'context_id': context_id,
+             'context_name': ctx_name, 'context_logo_url': ctx_logo, 'context_slug': ctx_slug,
             'is_open': False, 'roles': [], 'allow_video_link': True,
             'allow_resume_link': True, 'allow_headshot_link': True,
-            'allow_slots': False, 'slots': slots})
+            'allow_slots': False, 'tab_visible': True, 'slots': slots,
+            'materials': materials, 'allow_crew_interest': True, 'crew_roles': [],
+            'crew_instructions': None, 'collect_age_check': False, 'collect_pronouns': False,
+            'collect_phone': False, 'collect_how_heard': False, 'custom_questions': [],
+            'audition_dates': [],
+            'cast_list_reveal_at': None})
         resp.headers['Cache-Control'] = 'no-store'
         return resp
-    try: row['roles'] = json.loads(row.get('roles') or '[]')
-    except Exception: row['roles'] = []
+    row['roles'] = _normalize_audition_roles(row.get('roles'))
+    row['crew_roles'] = _normalize_audition_roles(row.get('crew_roles'), simple=True)
+    try: row['custom_questions'] = json.loads(row.get('custom_questions') or '[]')
+    except Exception: row['custom_questions'] = []
+    try: row['audition_dates'] = json.loads(row.get('audition_dates') or '[]')
+    except Exception: row['audition_dates'] = []
+    # Older settings saved before multi-date support only have the single
+    # audition_date/audition_time/audition_time_end fields — synthesize a
+    # one-entry list so the admin UI has one consistent shape to render.
+    if not row['audition_dates'] and row.get('audition_date'):
+        row['audition_dates'] = [{'date': row.get('audition_date'), 'start_time': row.get('audition_time'),
+            'end_time': row.get('audition_time_end')}]
     row['slots'] = slots
+    row['materials'] = materials
+    row['context_name'] = ctx_name
+    row['context_logo_url'] = ctx_logo
+    row['context_slug'] = ctx_slug
     resp = jsonify(row)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
 
+def _resolve_audition_context(conn, context_type, context_id):
+    """Slug-or-id lookup, matching the pattern already used for ticket
+    links — the URL can carry either. Returns (real_id, name, logo_url, slug) or
+    (None, None, None, None) if nothing matches."""
+    if context_type == 'production':
+        row = fetchone(conn, 'SELECT id, name, portal_logo_url, slug FROM productions WHERE slug=%s OR id=%s', (context_id, context_id))
+    elif context_type == 'program':
+        row = fetchone(conn, 'SELECT id, name, portal_logo_url, slug FROM youth_programs WHERE slug=%s OR id=%s', (context_id, context_id))
+    else:
+        return None, None, None, None
+    if not row:
+        return None, None, None, None
+    return row['id'], row.get('name'), row.get('portal_logo_url'), row.get('slug')
+
+
+def _resolve_audition_context_by_slug(conn, slug):
+    """Like _resolve_audition_context, but for the simple /audition/<slug>
+    URL (matching the existing /register/<slug> pattern) that doesn't
+    carry a context type — checks productions first, then programs."""
+    row = fetchone(conn, 'SELECT id, name, portal_logo_url, slug FROM productions WHERE slug=%s OR id=%s', (slug, slug))
+    if row:
+        return 'production', row['id'], row.get('name'), row.get('portal_logo_url'), row.get('slug')
+    row = fetchone(conn, 'SELECT id, name, portal_logo_url, slug FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+    if row:
+        return 'program', row['id'], row.get('name'), row.get('portal_logo_url'), row.get('slug')
+    return None, None, None, None, None
+
+
+def _normalize_audition_roles(raw, simple=False):
+    """Roles used to be a flat list of strings; now they're
+    {name, description} objects so families can see what a role involves.
+    Reads both formats so nothing already saved breaks. simple=True is for
+    crew roles, which don't carry a description."""
+    try:
+        parsed = json.loads(raw or '[]')
+    except Exception:
+        return []
+    out = []
+    for item in parsed:
+        if isinstance(item, dict):
+            out.append(item if not simple else {'name': item.get('name', '')})
+        else:
+            out.append({'name': str(item)} if simple else {'name': str(item), 'description': ''})
+    return out
+
+
 @app.route('/api/auditions/settings/<context_type>/<context_id>', methods=['PUT'])
 def save_audition_settings(context_type, context_id):
-    err = require_auth()
+    if session.get('role') == 'director' and context_type == 'production':
+        err = require_own_production(context_id)
+    else:
+        err = require_auth()
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -5402,8 +7022,28 @@ def save_audition_settings(context_type, context_id):
     is_open  = bool(d.get('is_open', False))
     title    = (d.get('title') or '').strip() or None
     desc     = (d.get('description') or '').strip() or None
-    aud_date = d.get('audition_date') or None
-    aud_time = d.get('audition_time') or None
+    # Multiple audition dates: audition_dates is the list of {date,
+    # start_time, end_time} entries; the old singular audition_date/
+    # audition_time/audition_time_end are kept in sync with the earliest
+    # entry so anything still reading those directly (e.g. the public
+    # audition page) keeps showing a correct date rather than breaking.
+    aud_dates_list = d.get('audition_dates')
+    if aud_dates_list is not None:
+        aud_dates_list = [a for a in aud_dates_list if a.get('date')]
+        aud_dates_list.sort(key=lambda a: (a.get('date') or '', a.get('start_time') or ''))
+        aud_dates_json = json.dumps(aud_dates_list)
+        first = aud_dates_list[0] if aud_dates_list else {}
+        aud_date = first.get('date') or None
+        aud_time = first.get('start_time') or None
+        aud_time_end_from_list = first.get('end_time') or None
+    else:
+        # Caller didn't send the new field at all — fall back entirely to
+        # the old single-date behavior so nothing breaks.
+        aud_date = d.get('audition_date') or None
+        aud_time = d.get('audition_time') or None
+        aud_time_end_from_list = None
+        aud_dates_json = json.dumps([{'date': aud_date, 'start_time': aud_time,
+            'end_time': d.get('audition_time_end') or None}]) if aud_date else '[]'
     location = (d.get('location') or '').strip() or None
     instructions = (d.get('instructions') or '').strip() or None
     email_sub    = (d.get('email_submissions') or '').strip() or None
@@ -5411,28 +7051,72 @@ def save_audition_settings(context_type, context_id):
     allow_resume = bool(d.get('allow_resume_link', True))
     allow_head   = bool(d.get('allow_headshot_link', True))
     allow_slots  = bool(d.get('allow_slots', False))
+    tab_visible  = bool(d.get('tab_visible', True))
+    allow_crew   = bool(d.get('allow_crew_interest', True))
+    crew_roles_json = json.dumps(d.get('crew_roles') or [])
+    crew_instructions = (d.get('crew_instructions') or '').strip() or None
+    collect_age    = bool(d.get('collect_age_check', False))
+    collect_pron   = bool(d.get('collect_pronouns', False))
+    collect_phone_ = bool(d.get('collect_phone', False))
+    collect_heard  = bool(d.get('collect_how_heard', False))
+    custom_q_json  = json.dumps(d.get('custom_questions') or [])
+    location_name = (d.get('location_name') or '').strip() or None
+    location_address = (d.get('location_address') or '').strip() or None
+    director = (d.get('director') or '').strip() or None
+    performance_dates = (d.get('performance_dates') or '').strip() or None
+    performance_location = (d.get('performance_location') or '').strip() or None
+    rehearsal_schedule_url = (d.get('rehearsal_schedule_url') or '').strip() or None
+    aud_time_end = d.get('audition_time_end') or aud_time_end_from_list
+    show_rehearsal = bool(d.get('show_rehearsal_schedule', False))
+    ask_roles = bool(d.get('ask_roles', True))
+    # Cast list reveal countdown — a datetime-local string like
+    # "2026-05-16T19:00", or None/'' to clear it.
+    reveal_raw = d.get('cast_list_reveal_at')
+    reveal_at = (reveal_raw or '').strip() or None
     if existing:
         execute(conn, """UPDATE audition_settings SET is_open=%s,title=%s,description=%s,
             audition_date=%s,audition_time=%s,location=%s,roles=%s,instructions=%s,
             email_submissions=%s,allow_video_link=%s,allow_resume_link=%s,allow_headshot_link=%s,
-            allow_slots=%s, updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
+            allow_slots=%s, tab_visible=%s, cast_list_reveal_at=%s,
+            allow_crew_interest=%s, crew_roles=%s, crew_instructions=%s,
+            collect_age_check=%s, collect_pronouns=%s, collect_phone=%s, collect_how_heard=%s,
+            custom_questions=%s, location_name=%s, location_address=%s, director=%s,
+            performance_dates=%s, performance_location=%s, rehearsal_schedule_url=%s,
+            audition_time_end=%s, show_rehearsal_schedule=%s, ask_roles=%s, audition_dates=%s,
+            updated_at=NOW() WHERE context_id=%s AND context_type=%s""",
             (is_open,title,desc,aud_date,aud_time,location,roles_json,instructions,
-             email_sub,allow_video,allow_resume,allow_head,allow_slots,context_id,context_type))
+             email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
+             allow_crew,crew_roles_json,crew_instructions,
+             collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
+             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
+             aud_time_end,show_rehearsal,ask_roles,aud_dates_json,
+             context_id,context_type))
     else:
         sid = str(uuid.uuid4())
         execute(conn, """INSERT INTO audition_settings
             (id,context_type,context_id,is_open,title,description,audition_date,audition_time,
-             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+             location,roles,instructions,email_submissions,allow_video_link,allow_resume_link,allow_headshot_link,allow_slots,tab_visible,cast_list_reveal_at,
+             allow_crew_interest,crew_roles,crew_instructions,
+             collect_age_check,collect_pronouns,collect_phone,collect_how_heard,custom_questions,
+             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
+             audition_time_end,show_rehearsal_schedule,ask_roles,audition_dates)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (sid,context_type,context_id,is_open,title,desc,aud_date,aud_time,
-             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots))
+             location,roles_json,instructions,email_sub,allow_video,allow_resume,allow_head,allow_slots,tab_visible,reveal_at,
+             allow_crew,crew_roles_json,crew_instructions,
+             collect_age,collect_pron,collect_phone_,collect_heard,custom_q_json,
+             location_name,location_address,director,performance_dates,performance_location,rehearsal_schedule_url,
+             aud_time_end,show_rehearsal,ask_roles,aud_dates_json))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
 
 @app.route('/api/auditions/list/<context_type>/<context_id>', methods=['GET'])
 def get_audition_submissions(context_type, context_id):
-    err = require_auth()
+    if session.get('role') == 'director' and context_type == 'production':
+        err = require_own_production(context_id)
+    else:
+        err = require_auth()
     if err: return err
     conn = get_db()
     try:
@@ -5443,7 +7127,10 @@ def get_audition_submissions(context_type, context_id):
             COALESCE(s.roles_requested, '[]') as roles_requested,
             COALESCE(s.cast_role, '') as cast_role,
             COALESCE(s.audition_type, 'virtual') as audition_type,
-            s.slot_id,
+            s.slot_id, s.birthday, s.is_minor, s.pronouns, s.phone, s.how_heard,
+            s.resume_file_url, s.headshot_file_url, s.video_clip_url,
+            s.crew_interest, COALESCE(s.crew_roles_requested, '[]') as crew_roles_requested, s.crew_experience,
+            s.submitter_passphrase, COALESCE(s.custom_answers, '{}') as custom_answers,
             sl.slot_date, sl.start_time, sl.end_time, sl.location as slot_location
             FROM audition_submissions s
             LEFT JOIN audition_slots sl ON sl.id=s.slot_id
@@ -5463,7 +7150,1030 @@ def get_audition_submissions(context_type, context_id):
             app.logger.error(f'get_audition_submissions fallback error: {e2}')
             return jsonify([])
     conn.close()
+    # Age is computed here rather than stored, so it's always current as of
+    # today rather than frozen at submission time.
+    for r in rows:
+        r['age'] = compute_age(r.get('birthday'))
     return jsonify(rows)
+
+
+# ── Day-of check-in queue ────────────────────────────────────────────────
+
+def _require_audition_staff_auth(context_type, context_id):
+    """Same director-scoped-to-their-own-production pattern used by the
+    other audition admin endpoints above."""
+    if session.get('role') == 'director' and context_type == 'production':
+        return require_own_production(context_id)
+    return require_auth()
+
+
+@app.route('/api/auditions/checkin', methods=['POST'])
+def checkin_for_audition():
+    d = request.json or {}
+    context_type = d.get('context_type', '')
+    context_id   = d.get('context_id', '')
+    err = _require_audition_staff_auth(context_type, context_id)
+    if err: return err
+    submission_id = d.get('submission_id') or None
+    walk_in_name  = (d.get('walk_in_name') or '').strip() or None
+    if not submission_id and not walk_in_name:
+        return jsonify({'error': 'Pick a submission or enter a walk-in name'}), 400
+    conn = get_db()
+    if submission_id:
+        already = fetchone(conn, """SELECT id FROM audition_checkins
+            WHERE submission_id=%s AND checkin_date=CURRENT_DATE AND status NOT IN ('no_show')""", (submission_id,))
+        if already:
+            conn.close()
+            return jsonify({'error': 'Already checked in today'}), 400
+    next_num = fetchone(conn, """SELECT COALESCE(MAX(queue_number),0)+1 AS n FROM audition_checkins
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE""", (context_type, context_id))
+    qnum = next_num['n']
+    cid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO audition_checkins
+        (id, context_type, context_id, submission_id, walk_in_name, queue_number, checked_in_by)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+        (cid, context_type, context_id, submission_id, walk_in_name, qnum, session.get('name') or session.get('email') or ''))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'id': cid, 'queue_number': qnum})
+
+
+@app.route('/api/auditions/checkins/<context_type>/<context_id>', methods=['GET'])
+def get_audition_checkins(context_type, context_id):
+    err = _require_audition_staff_auth(context_type, context_id)
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT c.*,
+        COALESCE(s.submitter_name, c.walk_in_name) AS display_name,
+        s.submitter_email, s.notes, s.roles_requested, s.role_requested,
+        s.video_url, s.video_clip_url, s.resume_url, s.resume_file_url,
+        s.headshot_url, s.headshot_file_url, s.pronouns, s.phone,
+        s.crew_interest, s.crew_roles_requested, s.crew_experience, s.birthday
+        FROM audition_checkins c
+        LEFT JOIN audition_submissions s ON s.id=c.submission_id
+        WHERE c.context_type=%s AND c.context_id=%s AND c.checkin_date=CURRENT_DATE
+        ORDER BY c.queue_number ASC""", (context_type, context_id))
+    conn.close()
+    rows = rows or []
+    for r in rows:
+        r['age'] = compute_age(r.get('birthday'))
+    return jsonify(rows)
+
+
+@app.route('/api/auditions/checkins/<cid>/call', methods=['POST'])
+def call_audition_checkin(cid):
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    # Only one person "called" (now auditioning) at a time — whoever was
+    # previously called is assumed done and moves to completed.
+    execute(conn, """UPDATE audition_checkins SET status='completed', completed_at=NOW()
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='called'""",
+        (row['context_type'], row['context_id']))
+    execute(conn, "UPDATE audition_checkins SET status='called', called_at=NOW() WHERE id=%s", (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/checkins/call-next', methods=['POST'])
+def call_next_audition_checkin():
+    d = request.json or {}
+    context_type = d.get('context_type', '')
+    context_id   = d.get('context_id', '')
+    err = _require_audition_staff_auth(context_type, context_id)
+    if err: return err
+    conn = get_db()
+    execute(conn, """UPDATE audition_checkins SET status='completed', completed_at=NOW()
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='called'""",
+        (context_type, context_id))
+    nxt = fetchone(conn, """SELECT id FROM audition_checkins
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='waiting'
+        ORDER BY queue_number ASC LIMIT 1""", (context_type, context_id))
+    if nxt:
+        execute(conn, "UPDATE audition_checkins SET status='called', called_at=NOW() WHERE id=%s", (nxt['id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'called_id': nxt['id'] if nxt else None})
+
+
+@app.route('/api/auditions/checkins/<cid>/complete', methods=['POST'])
+def complete_audition_checkin(cid):
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    execute(conn, "UPDATE audition_checkins SET status='completed', completed_at=NOW() WHERE id=%s", (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/checkins/<cid>/no-show', methods=['POST'])
+def no_show_audition_checkin(cid):
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    execute(conn, "UPDATE audition_checkins SET status='no_show' WHERE id=%s", (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/checkins/<cid>/undo', methods=['POST'])
+def undo_audition_checkin(cid):
+    """Puts someone back to 'waiting' — for a misclick, or someone who
+    stepped away and needs to be re-queued rather than marked done/no-show."""
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    execute(conn, "UPDATE audition_checkins SET status='waiting', called_at=NULL, completed_at=NULL WHERE id=%s", (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/checkins/<cid>/photo', methods=['POST'])
+def upload_checkin_photo(cid):
+    """A quick snapshot taken right at check-in — separate from whatever
+    headshot they may have submitted online, which could be old, stylized,
+    or missing entirely for a walk-in. Small JPEG/PNG only, same size limit
+    as the other audition uploads."""
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    if 'file' not in request.files:
+        conn.close()
+        return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename or 'photo.jpg'))[1].lower().lstrip('.') or 'jpg'
+    if ext not in ('jpg', 'jpeg', 'png', 'webp'):
+        conn.close()
+        return jsonify({'error': 'Please use a JPEG, PNG, or WEBP image'}), 400
+    file_bytes = f.read()
+    if len(file_bytes) > AUDITION_SUBMIT_FILE_MAX_BYTES:
+        conn.close()
+        return jsonify({'error': 'Photo is too large'}), 400
+    unique_name = f'checkin-photo-{str(uuid.uuid4())[:8]}.{ext}'
+    url, gh_err = upload_image_to_github(unique_name, file_bytes)
+    if not url:
+        try:
+            with open(os.path.join(app.static_folder, 'images', unique_name), 'wb') as fp:
+                fp.write(file_bytes)
+            url = f'/static/images/{unique_name}'
+        except Exception as e:
+            conn.close()
+            return jsonify({'error': f'Upload failed: {e}'}), 500
+    execute(conn, 'UPDATE audition_checkins SET checkin_photo_url=%s WHERE id=%s', (url, cid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'url': url})
+
+
+@app.route('/api/auditions/checkins/<cid>', methods=['DELETE'])
+def delete_audition_checkin(cid):
+    """Removes a check-in entirely — for a walk-in added by mistake, or
+    someone checked in under the wrong name."""
+    conn = get_db()
+    row = fetchone(conn, 'SELECT context_type, context_id FROM audition_checkins WHERE id=%s', (cid,))
+    if not row:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    err = _require_audition_staff_auth(row['context_type'], row['context_id'])
+    if err: conn.close(); return err
+    execute(conn, 'DELETE FROM audition_checkins WHERE id=%s', (cid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Studio After Dark — monthly volunteer lottery (attend and/or perform)
+# ══════════════════════════════════════════════════════════════════════
+# Lifecycle, driven by staff clicking through the admin panel rather than a
+# scheduler (this is a brand-new program — better to keep a human in the
+# loop on timing until the process is proven out):
+#   not_open -> open -> closed -> drawn -> confirmations_sent -> checkin_open -> completed
+# Entries move: entered -> selected_performer/selected_audience/not_selected
+#            -> confirmed (via the public link) -> checked_in (door scan)
+
+def _sad_entry_with_volunteer(conn, where_clause, params):
+    return fetchall(conn, f"""SELECT e.*, v.name AS volunteer_name, v.email AS volunteer_email
+        FROM sad_entries e JOIN volunteers v ON v.id=e.volunteer_id
+        WHERE {where_clause}""", params)
+
+@app.route('/api/sad/events/current-active', methods=['GET'])
+def get_sad_current_active_event():
+    """Backs the scanner and performer-picker pages, which are meant to be
+    simple bookmarkable links with no event ID to look up — resolves to
+    whichever occurrence staff are most likely mid-running right now."""
+    err = require_permission('studio_after_dark', 'view')
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, """SELECT * FROM studio_after_dark_events
+        WHERE lottery_status IN ('confirmations_sent','checkin_open')
+        ORDER BY event_date ASC LIMIT 1""")
+    if not row:
+        row = fetchone(conn, "SELECT * FROM studio_after_dark_events ORDER BY event_date DESC LIMIT 1")
+    conn.close()
+    if not row:
+        return jsonify({'error': 'No Studio After Dark event has been created yet'}), 404
+    return jsonify(row)
+
+@app.route('/api/sad/events', methods=['GET'])
+def list_sad_events():
+    err = require_permission('studio_after_dark', 'view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT ev.*,
+        (SELECT COUNT(*) FROM sad_entries WHERE sad_event_id=ev.id) AS entry_count,
+        (SELECT COUNT(*) FROM sad_entries WHERE sad_event_id=ev.id AND status IN ('selected_performer','selected_audience')) AS selected_count,
+        (SELECT COUNT(*) FROM sad_entries WHERE sad_event_id=ev.id AND status='confirmed') AS confirmed_count,
+        (SELECT COUNT(*) FROM sad_entries WHERE sad_event_id=ev.id AND status='checked_in') AS checked_in_count
+        FROM studio_after_dark_events ev ORDER BY ev.event_date DESC""")
+    conn.close()
+    return jsonify(rows or [])
+
+@app.route('/api/sad/events', methods=['POST'])
+def create_sad_event():
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    if not (d.get('event_date') or '').strip():
+        return jsonify({'error': 'Event date is required'}), 400
+    conn = get_db()
+    eid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO studio_after_dark_events
+        (id, event_date, start_time, end_time, performer_slots, audience_slots,
+         performer_waitlist_size, audience_waitlist_size, scheduled_open_at, scheduled_draw_at)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+        (eid, d['event_date'], (d.get('start_time') or '7:30 PM').strip(), (d.get('end_time') or '10:00 PM').strip(),
+         int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40),
+         int(d.get('performer_waitlist_size') if d.get('performer_waitlist_size') is not None else 5),
+         int(d.get('audience_waitlist_size') if d.get('audience_waitlist_size') is not None else 5),
+         (d.get('scheduled_open_at') or '').strip() or None, (d.get('scheduled_draw_at') or '').strip() or None))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/sad/events/<eid>', methods=['GET'])
+def get_sad_event(eid):
+    err = require_permission('studio_after_dark', 'view')
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(row)
+
+@app.route('/api/sad/events/<eid>', methods=['PUT'])
+def update_sad_event(eid):
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    execute(conn, """UPDATE studio_after_dark_events SET event_date=%s, start_time=%s, end_time=%s,
+        performer_slots=%s, audience_slots=%s, performer_waitlist_size=%s, audience_waitlist_size=%s,
+        scheduled_open_at=%s, scheduled_draw_at=%s WHERE id=%s""",
+        (d.get('event_date'), (d.get('start_time') or '7:30 PM').strip(), (d.get('end_time') or '10:00 PM').strip(),
+         int(d.get('performer_slots') or 15), int(d.get('audience_slots') or 40),
+         int(d.get('performer_waitlist_size') if d.get('performer_waitlist_size') is not None else 5),
+         int(d.get('audience_waitlist_size') if d.get('audience_waitlist_size') is not None else 5),
+         (d.get('scheduled_open_at') or '').strip() or None, (d.get('scheduled_draw_at') or '').strip() or None, eid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>', methods=['DELETE'])
+def delete_sad_event(eid):
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM studio_after_dark_events WHERE id=%s', (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/open-lottery', methods=['POST'])
+def open_sad_lottery(eid):
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    closes_at = (d.get('lottery_closes_at') or '').strip() or None
+    # Guard + RETURNING here too (not just the auto-opener) so a double
+    # click or a repeated API call can't re-send the notification email —
+    # only an event that was genuinely not_open a moment ago triggers it.
+    won = fetchone(conn, """UPDATE studio_after_dark_events SET lottery_status='open', lottery_opens_at=NOW(),
+        lottery_closes_at=COALESCE(%s, lottery_closes_at) WHERE id=%s AND lottery_status='not_open' RETURNING id""",
+        (closes_at, eid))
+    conn.commit()
+    if won:
+        try:
+            _notify_sad_lottery_opened(conn, eid)
+        except Exception as e:
+            app.logger.warning(f'SAD lottery-open notification failed: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/close-lottery', methods=['POST'])
+def close_sad_lottery(eid):
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE studio_after_dark_events SET lottery_status='closed', lottery_closes_at=NOW() WHERE id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/open-checkin', methods=['POST'])
+def open_sad_checkin(eid):
+    """Staff click this day-of, once they're ready to start scanning people
+    in at the door."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE studio_after_dark_events SET lottery_status='checkin_open' WHERE id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/complete', methods=['POST'])
+def complete_sad_event(eid):
+    """Marks the night as wrapped up — mostly just moves it out of the
+    'currently active' resolution so a new occurrence takes its place."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE studio_after_dark_events SET lottery_status='completed' WHERE id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/run-draw', methods=['POST'])
+def run_sad_draw(eid):
+    """The actual lottery draw. Performers are drawn first from anyone who
+    wanted a performer slot; audience is drawn second from anyone who wanted
+    an audience slot and didn't already win a performer slot (a performer
+    slot already gets them in the door — no need to also occupy an audience
+    slot). Right behind each category's winners, a waitlist is drawn from
+    the same remaining pool and ranked in order — someone waitlisted for
+    performer is NOT removed from the audience draw (only an actual
+    performer win does that), so it's entirely possible to end up, say,
+    "Audience — confirmed" and "Performer waitlist #2" at the same time.
+    Anyone left over after both categories' winners and waitlists becomes
+    not_selected. Safe to re-run only in the sense that it always
+    re-derives from currently 'entered' rows — already-selected/waitlisted/
+    confirmed entries are left alone, so running it twice without new
+    entries just does nothing more."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    if not ev:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+
+    performer_candidates = fetchall(conn, """SELECT id FROM sad_entries
+        WHERE sad_event_id=%s AND wants_performer=TRUE AND status='entered'""", (eid,)) or []
+    random.shuffle(performer_candidates)
+    performer_winners = performer_candidates[:ev['performer_slots']]
+    performer_waitlist = performer_candidates[ev['performer_slots']:ev['performer_slots']+ev['performer_waitlist_size']]
+    for w in performer_winners:
+        token = secrets.token_urlsafe(16)
+        execute(conn, "UPDATE sad_entries SET status='selected_performer', selected_category='performer', selected_at=NOW(), confirm_token=%s WHERE id=%s",
+            (token, w['id']))
+    for i, w in enumerate(performer_waitlist):
+        execute(conn, "UPDATE sad_entries SET performer_waitlist_position=%s WHERE id=%s", (i+1, w['id']))
+
+    audience_candidates = fetchall(conn, """SELECT id FROM sad_entries
+        WHERE sad_event_id=%s AND wants_audience=TRUE AND status='entered'""", (eid,)) or []
+    random.shuffle(audience_candidates)
+    audience_winners = audience_candidates[:ev['audience_slots']]
+    audience_waitlist = audience_candidates[ev['audience_slots']:ev['audience_slots']+ev['audience_waitlist_size']]
+    for w in audience_winners:
+        token = secrets.token_urlsafe(16)
+        execute(conn, "UPDATE sad_entries SET status='selected_audience', selected_category='audience', selected_at=NOW(), confirm_token=%s WHERE id=%s",
+            (token, w['id']))
+    for i, w in enumerate(audience_waitlist):
+        execute(conn, "UPDATE sad_entries SET audience_waitlist_position=%s WHERE id=%s", (i+1, w['id']))
+
+    execute(conn, "UPDATE sad_entries SET status='not_selected' WHERE sad_event_id=%s AND status='entered'", (eid,))
+    execute(conn, "UPDATE studio_after_dark_events SET lottery_status='drawn', drawn_at=NOW() WHERE id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'performer_winners': len(performer_winners), 'audience_winners': len(audience_winners),
+        'performer_waitlist': len(performer_waitlist), 'audience_waitlist': len(audience_waitlist)})
+
+@app.route('/api/sad/events/<eid>/send-confirmations', methods=['POST'])
+def send_sad_confirmations(eid):
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    deadline = (d.get('confirm_deadline') or '').strip()
+    if not deadline:
+        return jsonify({'error': 'A confirmation deadline is required'}), 400
+    conn = get_db()
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    if not ev:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    execute(conn, "UPDATE studio_after_dark_events SET confirm_deadline=%s, confirmations_sent_at=NOW(), lottery_status='confirmations_sent' WHERE id=%s",
+        (deadline, eid))
+    conn.commit()
+    ev['confirm_deadline'] = deadline  # ev was fetched before the UPDATE above — keep it in sync rather than re-querying
+    entries = _sad_entry_with_volunteer(conn, "e.sad_event_id=%s AND e.status IN ('selected_performer','selected_audience')", (eid,))
+    conn.close()
+    sent = 0
+    for entry in entries:
+        try:
+            _send_sad_confirmation_email(entry, ev)
+            sent += 1
+        except Exception as e:
+            app.logger.warning(f'SAD confirmation email failed for {entry.get("id")}: {e}')
+    return jsonify({'ok': True, 'sent': sent})
+
+@app.route('/api/sad/events/<eid>/resend/<entry_id>', methods=['POST'])
+def resend_sad_confirmation(eid, entry_id):
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+    entries = _sad_entry_with_volunteer(conn, "e.id=%s", (entry_id,))
+    conn.close()
+    if not ev or not entries:
+        return jsonify({'error': 'Not found'}), 404
+    try:
+        _send_sad_confirmation_email(entries[0], ev)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True})
+
+def _send_sad_confirmation_email(entry, ev, promoted_from_waitlist=False):
+    category = 'Performer' if entry.get('selected_category') == 'performer' else 'Audience'
+    first_name = (entry.get('volunteer_name') or '').split(' ')[0] or 'there'
+    confirm_url = f'https://rolecall.hwtco.org/studio-after-dark/confirm/{entry["confirm_token"]}'
+    event_dt = parse_db_datetime(ev['event_date'])
+    event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
+    # A promoted waitlister carries their own (usually much shorter) deadline
+    # on the entry itself; everyone else uses the event's shared one.
+    deadline_dt = parse_db_datetime(entry.get('entry_confirm_deadline') or ev.get('confirm_deadline'))
+    deadline_fmt = deadline_dt.strftime('%A, %B %-d at %-I:%M %p') if deadline_dt else ''
+    performer_note = ('<p>Performer order is picked live, at random, during the event itself — so stick around all night, you never know when you\'ll be called up!</p>'
+                      if category == 'Performer' else '')
+    if promoted_from_waitlist:
+        subject = f"A spot opened up — you're in for Studio After Dark! Confirm by {deadline_fmt}"
+        intro = (f'<p>Hi {first_name}, a spot just opened up — you\'ve been moved off the waitlist and into '
+                 f'<strong>{category}</strong> for <strong>{event_date_fmt}</strong>!</p>'
+                 f'<p>Since this came up last-minute, please confirm soon — by <strong>{deadline_fmt}</strong> — '
+                 f'or the spot will go to the next person on the waitlist.</p>')
+    else:
+        subject = f"You're in the running for Studio After Dark — confirm by {deadline_fmt}"
+        intro = (f'<p>Hi {first_name}, good news — the Studio After Dark lottery drawing picked you '
+                 f'as a <strong>{category}</strong> for <strong>{event_date_fmt}</strong>!</p>'
+                 f'<p>Being selected doesn\'t automatically hold your spot — you need to confirm you\'re still able to make it, '
+                 f'by <strong>{deadline_fmt}</strong>. After that, your spot may be given to someone else.</p>')
+    body = (
+        f'{intro}'
+        f'{performer_note}'
+        f'<p style="text-align:center;margin:28px 0">'
+        f'<a href="{confirm_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Confirm My Spot</a></p>'
+        f'<p style="color:rgba(255,255,255,0.45);font-size:13px">Once you confirm, you\'ll get a QR code to show at the door — hang onto that link, you can pull it back up any time before the event.</p>'
+    )
+    send_email([entry['volunteer_email']], subject, build_sad_email_html(subject, body))
+
+@app.route('/api/sad/events/<eid>/entries', methods=['GET'])
+def get_sad_entries(eid):
+    err = require_permission('studio_after_dark', 'view')
+    if err: return err
+    status_filter = request.args.get('status', '').strip()
+    conn = get_db()
+    where = "e.sad_event_id=%s"
+    params = [eid]
+    if status_filter:
+        where += " AND e.status=%s"
+        params.append(status_filter)
+    rows = _sad_entry_with_volunteer(conn, where, tuple(params))
+    conn.close()
+    rows.sort(key=lambda r: (r['volunteer_name'] or '').lower())
+    return jsonify(rows)
+
+@app.route('/api/sad/checkin/scan', methods=['POST'])
+def sad_checkin_scan():
+    """Called by the door-scanner page after it decodes a QR code. Staff-
+    authed (the scanner page itself requires login), not public — the QR
+    code is the visitor's proof of a confirmed spot, but actually admitting
+    them is still a staff action."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    code = (d.get('checkin_code') or '').strip().upper()
+    if not code:
+        return jsonify({'error': 'No code provided'}), 400
+    conn = get_db()
+    entries = _sad_entry_with_volunteer(conn, "e.checkin_code=%s", (code,))
+    if not entries:
+        conn.close()
+        return jsonify({'error': 'Code not recognized'}), 404
+    entry = entries[0]
+    if entry['status'] == 'checked_in':
+        conn.close()
+        return jsonify({'error': f'{entry["volunteer_name"]} is already checked in', 'already_checked_in': True, 'volunteer_name': entry['volunteer_name']}), 400
+    if entry['status'] == 'declined':
+        # They gave up this spot (and it's likely already been promoted to
+        # someone else) — their old code shouldn't still get them in.
+        conn.close()
+        return jsonify({'error': f'{entry["volunteer_name"]} declined this spot — not valid for entry', 'declined': True, 'volunteer_name': entry['volunteer_name']}), 400
+    execute(conn, "UPDATE sad_entries SET status='checked_in', checked_in_at=NOW() WHERE id=%s", (entry['id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'volunteer_name': entry['volunteer_name'],
+        'wants_performer': entry['wants_performer'], 'category': 'Performer' if entry['selected_category']=='performer' else 'Audience'})
+
+@app.route('/api/sad/events/<eid>/pick-performer', methods=['POST'])
+def sad_pick_performer(eid):
+    """The live, night-of random draw for who performs next — separate from
+    the earlier lottery draw, which only decided who's in the performer
+    pool at all. Only picks from people already checked in tonight, and
+    never repeats someone within the same night unless the pool is reset."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    candidates = fetchall(conn, """SELECT e.id, v.name AS volunteer_name FROM sad_entries e
+        JOIN volunteers v ON v.id=e.volunteer_id
+        WHERE e.sad_event_id=%s AND e.wants_performer=TRUE AND e.status='checked_in'
+        AND e.performer_called_at IS NULL""", (eid,)) or []
+    if not candidates:
+        conn.close()
+        return jsonify({'ok': False, 'message': 'Everyone checked in has already performed!'})
+    pick = random.choice(candidates)
+    execute(conn, "UPDATE sad_entries SET performer_called_at=NOW() WHERE id=%s", (pick['id'],))
+    conn.commit()
+    remaining = fetchone(conn, """SELECT COUNT(*) AS n FROM sad_entries
+        WHERE sad_event_id=%s AND wants_performer=TRUE AND status='checked_in' AND performer_called_at IS NULL""", (eid,))
+    conn.close()
+    return jsonify({'ok': True, 'volunteer_name': pick['volunteer_name'], 'remaining': remaining['n']})
+
+@app.route('/api/sad/events/<eid>/reset-performer-calls', methods=['POST'])
+def sad_reset_performer_calls(eid):
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    execute(conn, "UPDATE sad_entries SET performer_called_at=NULL WHERE sad_event_id=%s", (eid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/sad/events/<eid>/performer-status', methods=['GET'])
+def sad_performer_status(eid):
+    """Backs the live performer-picker screen — who's been called already,
+    who's still in the pool."""
+    err = require_permission('studio_after_dark', 'view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT v.name AS volunteer_name, e.performer_called_at FROM sad_entries e
+        JOIN volunteers v ON v.id=e.volunteer_id
+        WHERE e.sad_event_id=%s AND e.wants_performer=TRUE AND e.status='checked_in'
+        ORDER BY e.performer_called_at IS NULL DESC, e.performer_called_at ASC""", (eid,)) or []
+    conn.close()
+    called = [r for r in rows if r['performer_called_at']]
+    waiting = [r for r in rows if not r['performer_called_at']]
+    return jsonify({'called': called, 'waiting_count': len(waiting), 'total': len(rows)})
+
+def sad_auto_open_due_lotteries(conn=None):
+    """Flip any Studio After Dark occurrence from not_open to open once its
+    scheduled_open_at has passed. scheduled_open_at is entered by staff as
+    Eastern wall-clock time and stored without tz info, so it's compared
+    against now_eastern(), never the server's UTC clock. Called from the
+    every-minute scheduler job AND lazily from the public endpoints, so it
+    still opens on time even if the scheduler worker has died (see
+    _acquire_single_worker_lock) and the page flips the instant the
+    countdown hits zero instead of waiting for the next scheduler tick.
+    Only touches not_open rows, so a lottery staff already opened, closed,
+    or drew is never reopened. Returns how many were opened."""
+    own_conn = conn is None
+    if own_conn:
+        conn = get_db()
+    opened = 0
+    try:
+        due = fetchall(conn, """SELECT id, event_date FROM studio_after_dark_events
+            WHERE lottery_status='not_open' AND scheduled_open_at IS NOT NULL
+            AND scheduled_open_at <= %s""", (now_eastern(),)) or []
+        for ev in due:
+            # This gets called lazily from public page loads as well as the
+            # scheduler, so two people loading the page at the exact moment
+            # a lottery is due to open can race here. RETURNING (rather than
+            # a bare UPDATE) tells THIS call whether it actually won that
+            # race, so the notification email below only ever fires once per
+            # event no matter how many concurrent calls see it as due.
+            won = fetchone(conn, """UPDATE studio_after_dark_events SET lottery_status='open',
+                lottery_opens_at=NOW() WHERE id=%s AND lottery_status='not_open' RETURNING id""", (ev['id'],))
+            if not won:
+                continue
+            opened += 1
+            conn.commit()
+            app.logger.info(f"Studio After Dark lottery auto-opened for {ev['event_date']}")
+            try:
+                _notify_sad_lottery_opened(conn, ev['id'])
+            except Exception as e:
+                app.logger.warning(f'SAD lottery-open notification failed: {e}')
+    except Exception as e:
+        app.logger.warning(f'Studio After Dark auto-open error: {e}')
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        if own_conn:
+            conn.close()
+    return opened
+
+def _sad_eastern_to_utc_iso(val):
+    """Naive Eastern ISO string -> explicit UTC ISO string ('...Z'), so the
+    browser counts down to the same instant no matter what timezone the
+    viewer's device is set to."""
+    if not val:
+        return None
+    from zoneinfo import ZoneInfo
+    dt = datetime.fromisoformat(str(val)).replace(tzinfo=ZoneInfo('America/New_York'))
+    return dt.astimezone(ZoneInfo('UTC')).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+def _sad_add_utc_times(ev):
+    ev['scheduled_open_at_utc'] = _sad_eastern_to_utc_iso(ev.get('scheduled_open_at'))
+    ev['scheduled_draw_at_utc'] = _sad_eastern_to_utc_iso(ev.get('scheduled_draw_at'))
+    return ev
+
+# ── Public (volunteer-facing) endpoints ──────────────────────────────────
+
+@app.route('/api/public/sad/current', methods=['GET'])
+def sad_current_lottery():
+    """Backs the entry page. Not just 'is the lottery open' — even when it
+    isn't, the page still needs the next occurrence's date/time and its
+    scheduled open date (for the countdown) so it's never just a blank
+    'check back later' with no information."""
+    conn = get_db()
+    sad_auto_open_due_lotteries(conn)
+    ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status='open'
+        ORDER BY event_date ASC LIMIT 1""")
+    if ev:
+        conn.close()
+        ev['open'] = True
+        return jsonify(_sad_add_utc_times(ev))
+    ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status != 'completed'
+        ORDER BY event_date ASC LIMIT 1""")
+    conn.close()
+    if not ev:
+        return jsonify({'open': False, 'has_event': False})
+    ev['open'] = False
+    ev['has_event'] = True
+    return jsonify(_sad_add_utc_times(ev))
+
+@app.route('/api/sad/announce', methods=['POST'])
+def send_sad_announcement():
+    """A one-off broadcast introducing the whole Studio After Dark program
+    to the volunteer list — separate from every other SAD email, which is
+    tied to a specific lottery entry/selection. This one isn't about any
+    particular occurrence; it just points people at the general landing
+    page (/studio-after-dark), which always reflects whatever's actually
+    happening right now (open, closed, or nothing scheduled). Sent as
+    individual emails, not one shared blast, so it can carry each person's
+    first name and doesn't expose the whole recipient list to itself."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    volunteers = fetchall(conn, "SELECT name, email FROM volunteers WHERE status='active' AND email IS NOT NULL AND email != ''") or []
+    conn.close()
+    sent = 0
+    for v in volunteers:
+        try:
+            _send_sad_announcement_email(v)
+            sent += 1
+        except Exception as e:
+            app.logger.warning(f'SAD announcement email failed for {v.get("email")}: {e}')
+    return jsonify({'ok': True, 'sent': sent})
+
+@app.route('/api/sad/announce/test', methods=['POST'])
+def send_sad_announcement_test():
+    """Sends the exact same announcement email to just one address, so
+    staff can see it in an actual inbox before blasting the whole
+    volunteer list. Doesn't require the address to belong to a real
+    volunteer record — it's just a test send."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    email = (d.get('email') or '').strip()
+    if not email:
+        return jsonify({'error': 'Please enter an email address'}), 400
+    conn = get_db()
+    vol = fetchone(conn, "SELECT name FROM volunteers WHERE LOWER(email)=LOWER(%s) LIMIT 1", (email,))
+    conn.close()
+    try:
+        _send_sad_announcement_email({'name': (vol or {}).get('name') or '', 'email': email})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    return jsonify({'ok': True})
+
+def _send_sad_announcement_email(volunteer):
+    from html import escape
+    first_name = (volunteer.get('name') or '').strip().split(' ')[0]
+    landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
+    ghost_light_url = 'https://rolecall.hwtco.org/static/images/ghost-light.png'
+    # Personalized tagline as the subject and the email's headline, e.g.
+    # "Ryan, the studio is yours after dark." Falls back to the plain
+    # tagline when there's no name on file. The name IS the greeting now,
+    # so there's no separate "Hi Ryan," line above the image.
+    if first_name:
+        subject = f"{first_name}, the studio is yours after dark."
+    else:
+        subject = "The studio is yours after dark."
+    # The tagline already appears once as the subject/header (via
+    # build_sad_email_html) — repeating it again in the body was piling up
+    # logo + heading + ghost light + tagline + button into one crowded
+    # email. Just the image and the button here; the header carries the rest.
+    body = (
+        f'<div style="text-align:center;margin:8px 0 28px">'
+        f'<img src="{ghost_light_url}" alt="A ghost light" width="120" style="width:120px;height:auto;display:inline-block"/></div>'
+        f'<p style="text-align:center;margin:0 0 22px">Every <strong>first Saturday of the month</strong> at the HWTC Studio. '
+        f'Can\'t make the next one? There\'s always next month.</p>'
+        f'<p style="text-align:center;margin:0 0 8px">'
+        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Learn More</a></p>'
+    )
+    send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
+
+
+def _notify_sad_lottery_opened(conn, event_id):
+    """The actual 'go enter now' email — sent once, the moment a lottery
+    genuinely opens (auto-scheduled or a staff click), to every active
+    volunteer. Separate from the one-time program announcement, which
+    doesn't tie to any particular occurrence."""
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (event_id,))
+    if not ev:
+        return
+    volunteers = fetchall(conn, "SELECT name, email FROM volunteers WHERE status='active' AND email IS NOT NULL AND email != ''") or []
+    for v in volunteers:
+        try:
+            _send_sad_lottery_open_email(v, ev)
+        except Exception as e:
+            app.logger.warning(f'SAD lottery-open email failed for {v.get("email")}: {e}')
+
+def _send_sad_lottery_open_email(volunteer, ev):
+    from html import escape
+    first_name = (volunteer.get('name') or '').strip().split(' ')[0]
+    landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
+    ghost_light_url = 'https://rolecall.hwtco.org/static/images/ghost-light.png'
+    event_dt = parse_db_datetime(ev['event_date'])
+    event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
+    subject = f"{first_name}, the lottery is open!" if first_name else "The lottery is open!"
+    deadline_dt = parse_db_datetime(ev.get('lottery_closes_at'))
+    deadline_line = ''
+    if deadline_dt:
+        deadline_line = (f'<p style="text-align:center;font-size:13px;color:rgba(255,255,255,0.6);margin:0 0 22px">'
+            f'Entries close {deadline_dt.strftime("%A, %B %-d at %-I:%M %p")} ET</p>')
+    body = (
+        f'<div style="text-align:center;margin:8px 0 20px">'
+        f'<img src="{ghost_light_url}" alt="A ghost light" width="100" style="width:100px;height:auto;display:inline-block"/></div>'
+        f'<p style="text-align:center;font-size:19px;font-weight:700;color:#fff;margin:0 0 8px">Studio After Dark — {event_date_fmt}</p>'
+        f'<p style="text-align:center;margin:0 0 18px">The lottery is open. Get your name in before it closes.</p>'
+        f'{deadline_line}'
+        f'<p style="text-align:center;margin:0 0 8px">'
+        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Enter Now</a></p>'
+    )
+    send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
+
+
+@app.route('/api/public/sad/enter', methods=['POST'])
+def sad_enter_lottery():
+    d = request.json or {}
+    email = (d.get('email') or '').strip()
+    wants_performer = bool(d.get('wants_performer', False))
+    wants_audience = bool(d.get('wants_audience', True))
+    if not email:
+        return jsonify({'error': 'Please enter your email'}), 400
+    if not wants_performer and not wants_audience:
+        return jsonify({'error': 'Please select at least one option'}), 400
+    conn = get_db()
+    volunteer = fetchone(conn, "SELECT id, name FROM volunteers WHERE LOWER(email)=LOWER(%s) AND status='active'", (email,))
+    if not volunteer:
+        conn.close()
+        return jsonify({'error': "We weren't able to find you as a member of our HWTC family based on that email. Reach out to us if you need assistance — info@hwtco.org."}), 404
+    sad_auto_open_due_lotteries(conn)
+    ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status='open'
+        ORDER BY event_date ASC LIMIT 1""")
+    if not ev:
+        conn.close()
+        return jsonify({'error': 'The lottery is not currently open'}), 400
+    existing = fetchone(conn, 'SELECT id FROM sad_entries WHERE sad_event_id=%s AND volunteer_id=%s', (ev['id'], volunteer['id']))
+    if existing:
+        conn.close()
+        return jsonify({'error': "You've already entered this lottery"}), 400
+    eid = str(uuid.uuid4())
+    execute(conn, """INSERT INTO sad_entries (id, sad_event_id, volunteer_id, wants_performer, wants_audience)
+        VALUES (%s,%s,%s,%s,%s)""", (eid, ev['id'], volunteer['id'], wants_performer, wants_audience))
+    conn.commit()
+    conn.close()
+    try:
+        first_name = (volunteer['name'] or '').split(' ')[0] or 'there'
+        event_dt = parse_db_datetime(ev['event_date'])
+        event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
+        subject = "You're entered for Studio After Dark!"
+        body = (f"<p>Hi {first_name}, you're entered in the lottery for Studio After Dark on <strong>{event_date_fmt}</strong>.</p>"
+                "<p>Entering doesn't guarantee a spot — the drawing happens the Friday before. "
+                "If you're selected, we'll email you to confirm your spot.</p>")
+        send_email([volunteer['name'] and email or email], subject, build_sad_email_html(subject, body))
+    except Exception as e:
+        app.logger.warning(f'SAD entry confirmation email failed: {e}')
+    return jsonify({'ok': True})
+
+@app.route('/api/public/sad/confirm/<token>', methods=['GET'])
+def sad_confirm_lookup(token):
+    conn = get_db()
+    entries = _sad_entry_with_volunteer(conn, "e.confirm_token=%s", (token,))
+    if not entries:
+        conn.close()
+        return jsonify({'error': 'Link not found or expired'}), 404
+    entry = entries[0]
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (entry['sad_event_id'],))
+    conn.close()
+    # A promoted waitlister gets their own (usually shorter) deadline;
+    # everyone else uses the event's shared one.
+    deadline = entry.get('entry_confirm_deadline') or ev.get('confirm_deadline')
+    expired = False
+    if deadline and entry['status'] in ('selected_performer', 'selected_audience'):
+        expired = datetime.now() > parse_db_datetime(deadline)
+    return jsonify({
+        'volunteer_name': entry['volunteer_name'],
+        'category': 'Performer' if entry['selected_category']=='performer' else 'Audience',
+        'already_confirmed': entry['status'] == 'checked_in' or entry['confirmed_at'] is not None,
+        'declined': entry['status'] == 'declined',
+        'checkin_code': entry['checkin_code'],
+        'event_date': ev['event_date'],
+        'confirm_deadline': deadline,
+        'expired': expired,
+    })
+
+@app.route('/api/public/sad/confirm/<token>', methods=['POST'])
+def sad_confirm_submit(token):
+    d = request.json or {}
+    action = d.get('action') or 'confirm'
+    conn = get_db()
+    entries = _sad_entry_with_volunteer(conn, "e.confirm_token=%s", (token,))
+    if not entries:
+        conn.close()
+        return jsonify({'error': 'Link not found or expired'}), 404
+    entry = entries[0]
+
+    if action == 'decline':
+        if entry['status'] not in ('selected_performer', 'selected_audience', 'confirmed'):
+            conn.close()
+            return jsonify({'error': 'This link is no longer active'}), 400
+        execute(conn, "UPDATE sad_entries SET status='declined' WHERE id=%s", (entry['id'],))
+        conn.commit()
+        try:
+            _promote_next_sad_waitlister(conn, entry['sad_event_id'], entry['selected_category'])
+        except Exception as e:
+            app.logger.warning(f'SAD waitlist promotion failed for {entry["id"]}: {e}')
+        conn.close()
+        return jsonify({'ok': True, 'declined': True})
+
+    if entry['confirmed_at']:
+        conn.close()
+        return jsonify({'ok': True, 'checkin_code': entry['checkin_code']})
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (entry['sad_event_id'],))
+    deadline = entry.get('entry_confirm_deadline') or ev.get('confirm_deadline')
+    if deadline and datetime.now() > parse_db_datetime(deadline):
+        conn.close()
+        return jsonify({'error': 'The confirmation deadline has passed'}), 400
+    code = secrets.token_hex(4).upper()
+    execute(conn, "UPDATE sad_entries SET status='confirmed', confirmed_at=NOW(), checkin_code=%s WHERE id=%s", (code, entry['id']))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'checkin_code': code})
+
+def _sad_event_end_datetime(ev):
+    """Combines event_date with end_time (a free-text display string like
+    '10:00 PM') into a real datetime, so a promotion deadline can be capped
+    at it. Falls back to end-of-day on the event date if end_time can't be
+    parsed — better to allow a slightly-too-late deadline than to crash or
+    silently skip a promotion over a formatting quirk."""
+    event_date = parse_db_datetime(ev.get('event_date'))
+    if not event_date:
+        return None
+    try:
+        t = datetime.strptime((ev.get('end_time') or '').strip(), '%I:%M %p').time()
+        return datetime.combine(event_date.date(), t)
+    except Exception:
+        return event_date.replace(hour=23, minute=59)
+
+def _promote_next_sad_waitlister(conn, sad_event_id, category):
+    """Bumps the next-in-line waitlister for whichever category just opened
+    up a spot, and emails them a fresh, short-fuse confirm link. Whoever's
+    lowest on {category}_waitlist_position is next — their overall `status`
+    isn't a reliable signal here (someone waitlisted for performer might
+    already be sitting at status='selected_audience' or 'not_selected'
+    depending on how the audience side of the same draw went), so instead
+    of checking status, promoting someone clears their waitlist_position
+    for this category — that's what actually prevents them being picked
+    again in a future promotion round."""
+    col = 'performer_waitlist_position' if category == 'performer' else 'audience_waitlist_position'
+    candidates = _sad_entry_with_volunteer(conn, f"e.sad_event_id=%s AND e.{col} IS NOT NULL", (sad_event_id,))
+    if not candidates:
+        return
+    ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (sad_event_id,))
+    event_end = _sad_event_end_datetime(ev) if ev else None
+    if event_end and datetime.now() >= event_end:
+        # The event's already over — there's no one left to promote into,
+        # so don't send someone a "confirm by tomorrow" email for a show
+        # that already happened.
+        return
+    candidates.sort(key=lambda e: e[col])
+    promoted = candidates[0]
+    token = secrets.token_urlsafe(16)
+    # A short, fixed window rather than reusing the event's original
+    # deadline — that one was set for the initial round and has often
+    # already passed by the time a decline opens a waitlist spot. Capped at
+    # the event's own end time so a last-minute decline never hands out a
+    # deadline that lands after the show is over.
+    new_deadline = datetime.now() + timedelta(hours=24)
+    if event_end and new_deadline > event_end:
+        new_deadline = event_end
+    execute(conn, f"""UPDATE sad_entries SET status=%s, selected_category=%s, selected_at=NOW(),
+        confirm_token=%s, entry_confirm_deadline=%s, {col}=NULL WHERE id=%s""",
+        (f'selected_{category}', category, token, new_deadline, promoted['id']))
+    conn.commit()
+    promoted['confirm_token'] = token
+    promoted['entry_confirm_deadline'] = new_deadline
+    promoted['selected_category'] = category
+    _send_sad_confirmation_email(promoted, ev, promoted_from_waitlist=True)
+
+
+def _public_queue_snapshot(conn, context_type, context_id):
+    """Numbers only, by design (see the audition_checkins table comment) —
+    this is what the lobby-screen display polls, and it should never leak a
+    name, especially with minors auditioning."""
+    called = fetchone(conn, """SELECT queue_number FROM audition_checkins
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='called'
+        ORDER BY called_at DESC LIMIT 1""", (context_type, context_id))
+    waiting = fetchall(conn, """SELECT queue_number FROM audition_checkins
+        WHERE context_type=%s AND context_id=%s AND checkin_date=CURRENT_DATE AND status='waiting'
+        ORDER BY queue_number ASC LIMIT 6""", (context_type, context_id))
+    waiting_nums = [w['queue_number'] for w in waiting]
+    return {
+        'now_serving': called['queue_number'] if called else None,
+        'on_deck': waiting_nums[0] if waiting_nums else None,
+        'next_up': waiting_nums[1:6],
+        'waiting_count': len(waiting_nums),
+    }
+
+
+@app.route('/api/public/audition-queue/<context_type>/<context_id>')
+def public_audition_queue(context_type, context_id):
+    conn = get_db()
+    resolved_id, ctx_name, _, _ = _resolve_audition_context(conn, context_type, context_id)
+    if not resolved_id:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    data = _public_queue_snapshot(conn, context_type, resolved_id)
+    data['context_name'] = ctx_name
+    conn.close()
+    resp = jsonify(data)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/public/audition-queue-by-slug/<slug>')
+def public_audition_queue_by_slug(slug):
+    conn = get_db()
+    context_type, resolved_id, ctx_name, _, _ = _resolve_audition_context_by_slug(conn, slug)
+    if not resolved_id:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    data = _public_queue_snapshot(conn, context_type, resolved_id)
+    data['context_name'] = ctx_name
+    conn.close()
+    resp = jsonify(data)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 @app.route('/api/auditions/slots/<context_type>/<context_id>', methods=['GET'])
@@ -5518,7 +8228,10 @@ def generate_audition_slots():
     open_time = d.get('open_time', '10:00')
     close_time = d.get('close_time', '17:00')
     slot_duration = int(d.get('slot_duration_minutes') or 15)
-    gap_minutes = int(d.get('gap_minutes') or 5)
+     # `or 5` would silently override an intentional 0 (0 is falsy in Python),
+    # so this checks for "not provided" explicitly instead — a 0-minute gap
+    # (back-to-back slots) is a valid, meaningful choice, not a missing value.
+    gap_minutes = int(d.get('gap_minutes')) if d.get('gap_minutes') is not None else 5
     capacity = int(d.get('capacity') or 1)
     slot_type = d.get('slot_type', 'in_person')
     location = (d.get('location') or '').strip()
@@ -5572,6 +8285,159 @@ def delete_audition_slot(sid):
     return jsonify({'ok': True})
 
 
+@app.route('/api/auditions/slots/bulk-delete', methods=['POST'])
+def bulk_delete_audition_slots():
+    """Delete many slots at once instead of one at a time — mainly for
+    clearing out a batch generated with the wrong settings."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    slot_ids = d.get('slot_ids') or []
+    if not slot_ids:
+        return jsonify({'error': 'No slots selected'}), 400
+    conn = get_db()
+    ph = ','.join(['%s']*len(slot_ids))
+    execute(conn, f'DELETE FROM audition_slots WHERE id IN ({ph})', tuple(slot_ids))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'deleted': len(slot_ids)})
+
+
+# ── Audition materials (sides, sheet music, tracks) — staff upload, ──
+# ── auditionees download from the public form before their slot.    ──
+AUDITION_MATERIAL_TYPES = {'pdf','doc','docx','mp3','wav','m4a','png','jpg','jpeg'}
+
+@app.route('/api/auditions/banner/upload', methods=['POST'])
+def upload_audition_banner():
+    err = require_auth()
+    if err: return err
+    context_type = request.form.get('context_type')
+    context_id = request.form.get('context_id')
+    if not context_type or not context_id:
+        return jsonify({'error': 'Missing context_type/context_id'}), 400
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    if not f or not f.filename: return jsonify({'error': 'Empty file'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.jpg', '.jpeg', '.png', '.gif', '.webp'):
+        return jsonify({'error': 'Only JPG, PNG, GIF, or WEBP allowed'}), 400
+    filename = f'audition-banner-{context_type}-{str(uuid.uuid4())[:8]}{ext}'
+    file_bytes = f.read()
+    url, gh_err = upload_image_to_github(filename, file_bytes)
+    if not url:
+        try:
+            with open(os.path.join(app.static_folder, 'images', filename), 'wb') as fp:
+                fp.write(file_bytes)
+            url = f'/static/images/{filename}'
+        except Exception as e:
+            return jsonify({'error': f'Upload failed: {e}'}), 500
+    conn = get_db()
+    existing = fetchone(conn, 'SELECT id FROM audition_settings WHERE context_id=%s AND context_type=%s', (context_id, context_type))
+    if existing:
+        execute(conn, 'UPDATE audition_settings SET banner_image_url=%s WHERE context_id=%s AND context_type=%s', (url, context_id, context_type))
+    else:
+        execute(conn, 'INSERT INTO audition_settings (id, context_type, context_id, banner_image_url) VALUES (%s,%s,%s,%s)',
+            (str(uuid.uuid4()), context_type, context_id, url))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'url': url})
+
+
+@app.route('/api/auditions/materials/upload', methods=['POST'])
+def upload_audition_material():
+    err = require_auth()
+    if err: return err
+    context_type = request.form.get('context_type')
+    context_id = request.form.get('context_id')
+    if not context_type or not context_id:
+        return jsonify({'error': 'Missing context_type/context_id'}), 400
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    filename = secure_filename(f.filename or 'material')
+    ext = os.path.splitext(filename)[1].lower().lstrip('.')
+    if ext not in AUDITION_MATERIAL_TYPES:
+        return jsonify({'error': f'File type not supported — use PDF, Word doc, image, or audio (MP3/WAV/M4A)'}), 400
+    file_bytes = f.read()
+    if len(file_bytes) > 15 * 1024 * 1024:
+        return jsonify({'error': 'File is too large — please keep audition materials under 15MB (a short clip or PDF, not a full-length recording)'}), 400
+    unique_name = f'audition-material-{str(uuid.uuid4())[:8]}.{ext}'
+    url, gh_err = upload_image_to_github(unique_name, file_bytes)
+    if not url:
+        try:
+            with open(os.path.join(app.static_folder, 'images', unique_name), 'wb') as fp:
+                fp.write(file_bytes)
+            url = f'/static/images/{unique_name}'
+        except Exception as e:
+            return jsonify({'error': f'Upload failed: {e}'}), 500
+    mid = str(uuid.uuid4())
+    conn = get_db()
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),-1)+1 AS n FROM audition_materials WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type)) or {'n': 0}
+    execute(conn, '''INSERT INTO audition_materials (id, context_type, context_id, filename, file_url, description, sort_order)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (mid, context_type, context_id, filename, url, (request.form.get('description') or '').strip(), max_sort['n']))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': mid, 'filename': filename, 'url': url})
+
+
+@app.route('/api/auditions/materials/<context_type>/<context_id>', methods=['GET'])
+def list_audition_materials(context_type, context_id):
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM audition_materials WHERE context_id=%s AND context_type=%s
+        ORDER BY sort_order, created_at''', (context_id, context_type)) or []
+    conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/auditions/materials/<mid>', methods=['DELETE'])
+def delete_audition_material(mid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM audition_materials WHERE id=%s', (mid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+# ── Small file uploads from the public audition form (resume, headshot, ──
+# ── short video clip) — kept deliberately small; a full-length video   ──
+# ── still goes through the existing link field instead.                ──
+AUDITION_SUBMIT_FILE_TYPES = {
+    'resume': {'pdf','doc','docx'},
+    'headshot': {'png','jpg','jpeg'},
+    'video_clip': {'mp4','mov','webm'},
+}
+AUDITION_SUBMIT_FILE_MAX_BYTES = 15 * 1024 * 1024
+
+@app.route('/api/auditions/submit-file', methods=['POST'])
+def upload_audition_submit_file():
+    """Public, unauthenticated — this is called from the audition form
+    itself before the person has submitted anything, same as any other
+    public upload in the app. Restricted to small files and a fixed set
+    of extensions per field so it can't become a general file host."""
+    kind = (request.form.get('kind') or '').strip()
+    allowed = AUDITION_SUBMIT_FILE_TYPES.get(kind)
+    if not allowed:
+        return jsonify({'error': 'Invalid upload kind'}), 400
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    filename = secure_filename(f.filename or kind)
+    ext = os.path.splitext(filename)[1].lower().lstrip('.')
+    if ext not in allowed:
+        return jsonify({'error': f'File type not supported for {kind.replace("_"," ")} — use {", ".join(sorted(allowed))}'}), 400
+    file_bytes = f.read()
+    if len(file_bytes) > AUDITION_SUBMIT_FILE_MAX_BYTES:
+        return jsonify({'error': 'File is too large — please keep it under 15MB. For a full-length video, use the video link field instead.'}), 400
+    unique_name = f'audition-{kind}-{str(uuid.uuid4())[:8]}.{ext}'
+    url, gh_err = upload_image_to_github(unique_name, file_bytes)
+    if not url:
+        try:
+            with open(os.path.join(app.static_folder, 'images', unique_name), 'wb') as fp:
+                fp.write(file_bytes)
+            url = f'/static/images/{unique_name}'
+        except Exception as e:
+            return jsonify({'error': f'Upload failed: {e}'}), 500
+    return jsonify({'ok': True, 'url': url, 'filename': filename})
+
+
 @app.route('/api/auditions/submit', methods=['POST'])
 def submit_audition():
     d = request.json or {}
@@ -5581,6 +8447,11 @@ def submit_audition():
     if not context_type or not context_id or not name:
         return jsonify({'error': 'Missing required fields'}), 400
     conn = get_db()
+    # The standalone form's URL — and therefore this context_id — may be a
+    # slug rather than a raw id.
+    resolved_id, _, _, _ = _resolve_audition_context(conn, context_type, context_id)
+    if resolved_id:
+        context_id = resolved_id
     settings = fetchone(conn, 'SELECT * FROM audition_settings WHERE context_id=%s AND context_type=%s',
         (context_id, context_type))
     if not settings or not settings.get('is_open'):
@@ -5608,22 +8479,45 @@ def submit_audition():
     passphrase  = (d.get('passphrase') or '').strip()
     family      = fetchone(conn, 'SELECT * FROM families WHERE passphrase=%s', (passphrase,)) if passphrase else None
     family_id   = family['id'] if family else None
+    # Anyone submitting through the public form (not already logged into the
+    # family portal) has no existing passphrase to manage their submission
+    # with later — generate a short access code for them so "can I see/edit/
+    # cancel my audition afterward?" has an answer. Shown on the confirmation
+    # screen and emailed to them; reused as-is if they already have a family
+    # passphrase, so there's only ever one code per person to remember.
+    if not passphrase:
+        passphrase = secrets.token_hex(4).upper()
     sid = str(uuid.uuid4())
+    roles_json = json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else []))
     execute(conn, """INSERT INTO audition_submissions
         (id,context_type,context_id,family_id,participant_id,submitter_name,
-         submitter_email,role_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase,
-         slot_id,audition_type)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
+         submitter_email,role_requested,roles_requested,video_url,resume_url,headshot_url,notes,submitter_passphrase,
+         slot_id,audition_type,resume_file_url,headshot_file_url,video_clip_url,
+         crew_interest,crew_roles_requested,crew_experience,
+         is_minor,birthday,pronouns,phone,how_heard,custom_answers)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""", (
         sid, context_type, context_id, family_id,
         d.get('participant_id') or None, name,
         (d.get('submitter_email') or '').strip() or None,
-        json.dumps(d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])),
+        roles_json, roles_json,
         (d.get('video_url') or '').strip() or None,
         (d.get('resume_url') or '').strip() or None,
         (d.get('headshot_url') or '').strip() or None,
         (d.get('notes') or '').strip() or None,
         passphrase or None,
         slot_id, audition_type,
+        (d.get('resume_file_url') or '').strip() or None,
+        (d.get('headshot_file_url') or '').strip() or None,
+        (d.get('video_clip_url') or '').strip() or None,
+        bool(d.get('crew_interest', False)),
+        json.dumps(d.get('crew_roles_requested') or []),
+        (d.get('crew_experience') or '').strip() or None,
+        d.get('is_minor') if d.get('is_minor') is not None else None,
+        (d.get('birthday') or '').strip() or None,
+        (d.get('pronouns') or '').strip() or None,
+        (d.get('phone') or '').strip() or None,
+        (d.get('how_heard') or '').strip() or None,
+        json.dumps(d.get('custom_answers') or {}),
     ))
     conn.commit()
     # Get context name
@@ -5676,33 +8570,76 @@ def submit_audition():
                 + '<p style="color:#9ca3af;font-size:12px">Manage submissions in RoleCall under the Auditions tab.</p>'
                 + '</div>'
             )
-            send_email(recipients, 'New Audition: ' + name + ' for ' + ctx_name, html)
+            send_email(recipients, 'New Audition: ' + name + ' for ' + ctx_name, build_hwtc_email_html('New Audition: ' + name + ' for ' + ctx_name, html))
     except Exception as e:
         app.logger.warning(f'Audition notification failed: {e}')
-    # Confirmation to submitter
+    # Confirmation to submitter — in-person and virtual get meaningfully
+    # different content (arrival/location logistics vs. a simple "we'll be
+    # in touch"), since an in-person auditioner actually needs to know
+    # where to go and when.
     try:
         sub_email = (d.get('submitter_email') or '').strip()
         if sub_email:
-            conf = (
-                '<div style="font-family:-apple-system,sans-serif;max-width:600px">'
-                '<h2 style="color:#145466">Audition Received: ' + ctx_name + '</h2>'
-                '<p>Hi ' + name + ', we received your audition for <strong>' + ctx_name + '</strong>.</p>'
-                '<p><strong>Role requested:</strong> ' + (d.get('role_requested') or 'Not specified') + '</p>'
-                '<p>We will be in touch soon.</p>'
-                '<p style="color:#9ca3af;font-size:13px">Horizon West Theater Company</p></div>'
+            first_name = name.split(' ')[0] if name else name
+            roles_list = d.get('roles_requested') or ([d.get('role_requested')] if d.get('role_requested') else [])
+            if isinstance(roles_list, str):
+                try: roles_list = json.loads(roles_list)
+                except Exception: roles_list = [roles_list] if roles_list else []
+            roles_list = [r for r in roles_list if r and r != 'Other / Not sure yet']
+            manage_url = f'https://rolecall.hwtco.org/audition/{context_type}/{context_id}'
+            manage_block = (
+                f'<div style="background:#fdf6e3;border:1px solid #f0e0a8;border-radius:8px;padding:14px 18px;margin:16px 0">'
+                f'<div style="font-size:12px;font-weight:700;color:#92400e;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Want to update or cancel your audition later?</div>'
+                f'<div style="font-size:14px">Visit <a href="{manage_url}">{manage_url}</a> and click "Manage My Audition" with your access code: '
+                f'<strong style="letter-spacing:1px">{passphrase}</strong></div></div>'
             )
-            send_email([sub_email], 'Audition Received: ' + ctx_name, conf)
-    except Exception: pass
+
+            if audition_type == 'in_person' and slot_id and slot:
+                subject = f'Audition Confirmed: {ctx_name}'
+                slot_date_fmt = slot.get('slot_date') or ''
+                slot_time_fmt = slot.get('start_time') or ''
+                if slot.get('end_time'): slot_time_fmt += f' – {slot["end_time"]}'
+                conf = (
+                    f'<p>Hi {first_name}, thanks for submitting your audition for <strong>{ctx_name}</strong>!</p>'
+                    f'<div style="background:#f0f8fa;border-radius:8px;padding:14px 18px;margin:16px 0">'
+                    f'<div style="font-size:12px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Your Time Slot</div>'
+                    f'<div style="font-size:16px;font-weight:700">{slot_date_fmt}{" at " + slot_time_fmt if slot_time_fmt else ""}</div>'
+                    f'</div>'
+                    f'<p><strong>Location:</strong><br>HWTC Studio<br>1220 Winter Garden Vineland Rd, Suite 108<br>Winter Garden, FL 34787</p>'
+                    + (f'<p><strong>Role(s) interested in:</strong> {", ".join(roles_list)}</p>' if roles_list else '')
+                    + '<p>Please arrive a few minutes before your audition time and check in with a member of our team. '
+                    'To help us manage capacity in the building, please don\'t arrive more than 20 minutes early.</p>'
+                    '<p>Having trouble finding our studio, or have any other questions? Reach out to '
+                    '<a href="mailto:info@hwtco.org">info@hwtco.org</a> or 407.554.9152 (text or call).</p>'
+                    + manage_block
+                )
+            else:
+                subject = f'Audition Received: {ctx_name}'
+                conf = (
+                    f'<p>Hi {first_name}, thank you for submitting your audition for <strong>{ctx_name}</strong>! We will be in touch soon.</p>'
+                    '<p>Questions in the meantime? Reach out to <a href="mailto:info@hwtco.org">info@hwtco.org</a> or 407.554.9152 (text or call).</p>'
+                    + manage_block
+                )
+            send_email([sub_email], subject, build_hwtc_email_html(subject, conf,
+                footer_note='You are receiving this email because you submitted an audition through our website. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'))
+    except Exception as e:
+        app.logger.warning(f'Audition confirmation email failed: {e}')
     conn.close()
-    return jsonify({'ok': True, 'submission_id': sid})
+    return jsonify({'ok': True, 'submission_id': sid, 'passphrase': passphrase})
 
 
 @app.route('/api/auditions/submissions/<sid>/status', methods=['PUT'])
 def update_audition_status(sid):
-    err = require_auth()
-    if err: return err
-    d = request.json or {}
     conn = get_db()
+    if session.get('role') == 'director':
+        sub = fetchone(conn, 'SELECT context_type, context_id FROM audition_submissions WHERE id=%s', (sid,))
+        if not sub or sub.get('context_type') != 'production':
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(sub['context_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
+    d = request.json or {}
     execute(conn, 'UPDATE audition_submissions SET status=%s,admin_notes=%s,updated_at=NOW() WHERE id=%s',
         (d.get('status','pending'), d.get('admin_notes',''), sid))
     conn.commit(); conn.close()
@@ -5723,9 +8660,15 @@ def delete_audition_submission(sid):
 @app.route('/api/auditions/submissions/<sid>/decline', methods=['POST'])
 def decline_audition_submission(sid):
     """Soft-delete — marks as declined so portal shows the form again."""
-    err = require_auth()
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        sub = fetchone(conn, 'SELECT context_type, context_id FROM audition_submissions WHERE id=%s', (sid,))
+        if not sub or sub.get('context_type') != 'production':
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(sub['context_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
     execute(conn, "UPDATE audition_submissions SET status='declined', updated_at=NOW() WHERE id=%s", (sid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -5747,13 +8690,13 @@ def get_my_audition_submission():
     if family:
         sub = fetchone(conn, """SELECT * FROM audition_submissions
             WHERE family_id=%s AND context_type=%s AND context_id=%s
-            AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
+            AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
             (family['id'], context_type, context_id))
     # Fallback: check by submitter passphrase stored on the submission
     if not sub:
         sub = fetchone(conn, """SELECT * FROM audition_submissions
             WHERE submitter_passphrase=%s AND context_type=%s AND context_id=%s
-            AND status NOT IN ('declined') ORDER BY submitted_at DESC LIMIT 1""",
+            AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
             (passphrase, context_type, context_id))
     conn.close()
     if not sub: 
@@ -5762,22 +8705,353 @@ def get_my_audition_submission():
         return resp
     try: sub['roles_requested'] = json.loads(sub.get('roles_requested') or '[]')
     except Exception: sub['roles_requested'] = []
+    try: sub['crew_roles_requested'] = json.loads(sub.get('crew_roles_requested') or '[]')
+    except Exception: sub['crew_roles_requested'] = []
+    try: sub['custom_answers'] = json.loads(sub.get('custom_answers') or '{}')
+    except Exception: sub['custom_answers'] = {}
     if not sub.get('cast_role'): sub['cast_role'] = ''
     resp = jsonify(sub)
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
 
+def _find_own_audition_submission(conn, passphrase, context_type, context_id):
+    """Shared lookup for the self-service edit/withdraw endpoints below —
+    same matching rule as get_my_audition_submission (family passphrase
+    first, then the per-submission access code), so someone can only ever
+    reach their own submission, never anyone else's."""
+    if not passphrase or not context_type or not context_id:
+        return None
+    family = fetchone(conn, 'SELECT id FROM families WHERE passphrase=%s', (passphrase,))
+    if family:
+        sub = fetchone(conn, """SELECT * FROM audition_submissions
+            WHERE family_id=%s AND context_type=%s AND context_id=%s
+            AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
+            (family['id'], context_type, context_id))
+        if sub: return sub
+    return fetchone(conn, """SELECT * FROM audition_submissions
+        WHERE submitter_passphrase=%s AND context_type=%s AND context_id=%s
+        AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
+        (passphrase, context_type, context_id))
+
+
+@app.route('/api/auditions/my-submission', methods=['PUT'])
+def update_my_audition_submission():
+    """Self-service edit — anyone who has the access code (or family
+    passphrase) they were given at submission time can update everything
+    they originally filled out. No staff auth: the passphrase match against
+    their own submission is what authorizes this, the same way the GET
+    lookup above works."""
+    d = request.json or {}
+    passphrase   = (d.get('passphrase') or '').strip()
+    context_type = d.get('context_type','')
+    context_id   = d.get('context_id','')
+    conn = get_db()
+    sub = _find_own_audition_submission(conn, passphrase, context_type, context_id)
+    if not sub:
+        conn.close()
+        return jsonify({'error': "We couldn't find a submission with that access code."}), 404
+    name = (d.get('submitter_name') or '').strip()
+    if not name:
+        conn.close()
+        return jsonify({'error': 'Name is required'}), 400
+    old_slot_id = sub.get('slot_id')
+    new_slot_id = (d.get('slot_id') or '').strip() or None
+    execute(conn, """UPDATE audition_submissions SET
+        submitter_name=%s, submitter_email=%s, role_requested=%s, roles_requested=%s, video_url=%s,
+        resume_url=%s, headshot_url=%s, notes=%s, resume_file_url=%s,
+        headshot_file_url=%s, video_clip_url=%s, crew_interest=%s,
+        crew_roles_requested=%s, crew_experience=%s, is_minor=%s, birthday=%s,
+        pronouns=%s, phone=%s, how_heard=%s, custom_answers=%s,
+        slot_id=%s, audition_type=%s, updated_at=NOW()
+        WHERE id=%s""", (
+        name,
+        (d.get('submitter_email') or '').strip() or None,
+        json.dumps(d.get('roles_requested') or []),
+        json.dumps(d.get('roles_requested') or []),
+        (d.get('video_url') or '').strip() or None,
+        (d.get('resume_url') or '').strip() or None,
+        (d.get('headshot_url') or '').strip() or None,
+        (d.get('notes') or '').strip() or None,
+        (d.get('resume_file_url') or '').strip() or None,
+        (d.get('headshot_file_url') or '').strip() or None,
+        (d.get('video_clip_url') or '').strip() or None,
+        bool(d.get('crew_interest', False)),
+        json.dumps(d.get('crew_roles_requested') or []),
+        (d.get('crew_experience') or '').strip() or None,
+        d.get('is_minor') if d.get('is_minor') is not None else None,
+        (d.get('birthday') or '').strip() or None,
+        (d.get('pronouns') or '').strip() or None,
+        (d.get('phone') or '').strip() or None,
+        (d.get('how_heard') or '').strip() or None,
+        json.dumps(d.get('custom_answers') or {}),
+        new_slot_id,
+        (d.get('audition_type') or sub.get('audition_type') or 'virtual'),
+        sub['id']))
+    conn.commit()
+
+    # A changed time slot is exactly the kind of edit someone needs written
+    # confirmation of — send a short email with the new time whenever the
+    # slot actually changed (including picking one for the first time, or
+    # dropping one entirely), the same way the original submission does.
+    if new_slot_id != old_slot_id:
+        try:
+            sub_email = (d.get('submitter_email') or '').strip()
+            if sub_email:
+                first_name = name.split(' ')[0] if name else name
+                _, ctx_name, _, _ = _resolve_audition_context(conn, context_type, context_id)
+                if new_slot_id:
+                    slot = fetchone(conn, 'SELECT * FROM audition_slots WHERE id=%s', (new_slot_id,))
+                    slot_time_fmt = (slot.get('start_time') or '') if slot else ''
+                    if slot and slot.get('end_time'): slot_time_fmt += f' – {slot["end_time"]}'
+                    subject = f'Audition Time Updated: {ctx_name}'
+                    body = (
+                        f'<p>Hi {first_name}, your audition time for <strong>{ctx_name}</strong> has been updated.</p>'
+                        f'<div style="background:#f0f8fa;border-radius:8px;padding:14px 18px;margin:16px 0">'
+                        f'<div style="font-size:12px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px">Your New Time Slot</div>'
+                        f'<div style="font-size:16px;font-weight:700">{slot.get("slot_date","") if slot else ""}{" at "+slot_time_fmt if slot_time_fmt else ""}</div>'
+                        f'</div>'
+                        f'<p><strong>Location:</strong><br>HWTC Studio<br>1220 Winter Garden Vineland Rd, Suite 108<br>Winter Garden, FL 34787</p>'
+                        f'<p>Please arrive a few minutes before your audition time and check in with a member of our team.</p>'
+                    )
+                else:
+                    subject = f'Audition Update: {ctx_name}'
+                    body = f'<p>Hi {first_name}, your in-person time slot for <strong>{ctx_name}</strong> has been removed from your audition. If this wasn\'t intentional, please update it again or reach out to us.</p>'
+                send_email([sub_email], subject, build_hwtc_email_html(subject, body,
+                    footer_note='You are receiving this email because you updated your audition through our website. Questions? Reply to this email or contact us at <a href="mailto:info@hwtco.org" style="color:#0F6E56">info@hwtco.org</a>.'))
+        except Exception as e:
+            app.logger.warning(f'Audition time-update email failed: {e}')
+
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/my-submission/withdraw', methods=['POST'])
+def withdraw_my_audition_submission():
+    """Self-service cancel. A distinct 'withdrawn' status (rather than
+    reusing 'declined', which means a director passed on them) so admin
+    views can tell the two apart — and it's excluded from the "already
+    submitted" duplicate check the same way 'declined' is, so someone who
+    withdraws is free to submit fresh later if they change their mind."""
+    d = request.json or {}
+    passphrase   = (d.get('passphrase') or '').strip()
+    context_type = d.get('context_type','')
+    context_id   = d.get('context_id','')
+    conn = get_db()
+    sub = _find_own_audition_submission(conn, passphrase, context_type, context_id)
+    if not sub:
+        conn.close()
+        return jsonify({'error': "We couldn't find a submission with that access code."}), 404
+    execute(conn, "UPDATE audition_submissions SET status='withdrawn', updated_at=NOW() WHERE id=%s", (sub['id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/my-submission/send-code', methods=['POST'])
+def send_audition_access_code():
+    """Recovery path for people with no code to enter in the first place —
+    mainly anyone who submitted before self-service management existed, so
+    nothing ever generated a submitter_passphrase for them. Finds their
+    submission by the email they used, mints a code for it right now if it
+    doesn't already have one (making this permanently fixed for them going
+    forward too), and emails it. Always returns the same generic response
+    whether or not a match was found, so this can't be used to probe which
+    email addresses have submitted."""
+    d = request.json or {}
+    email        = (d.get('email') or '').strip()
+    context_type = d.get('context_type','')
+    context_id   = d.get('context_id','')
+    generic_response = jsonify({'ok': True})
+    if not email or not context_type or not context_id:
+        return generic_response
+    conn = get_db()
+    sub = fetchone(conn, """SELECT * FROM audition_submissions
+        WHERE LOWER(submitter_email)=LOWER(%s) AND context_type=%s AND context_id=%s
+        AND status NOT IN ('declined','withdrawn') ORDER BY submitted_at DESC LIMIT 1""",
+        (email, context_type, context_id))
+    if not sub:
+        conn.close()
+        return generic_response
+    code = sub.get('submitter_passphrase')
+    if not code:
+        code = secrets.token_hex(4).upper()
+        execute(conn, 'UPDATE audition_submissions SET submitter_passphrase=%s WHERE id=%s', (code, sub['id']))
+        conn.commit()
+    ctx_name = ''
+    if context_type == 'production':
+        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    elif context_type == 'program':
+        p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    conn.close()
+    try:
+        first_name = (sub.get('submitter_name') or '').split(' ')[0] or 'there'
+        manage_url = f'https://rolecall.hwtco.org/audition/{context_type}/{context_id}'
+        subject = f'Your Audition Access Code: {ctx_name}' if ctx_name else 'Your Audition Access Code'
+        body = (
+            f'<p>Hi {first_name}, here\'s the access code to manage your audition submission'
+            f'{" for <strong>" + ctx_name + "</strong>" if ctx_name else ""}:</p>'
+            f'<div style="background:#fdf6e3;border:1px solid #f0e0a8;border-radius:8px;padding:16px 18px;margin:16px 0;text-align:center">'
+            f'<div style="font-size:22px;font-weight:800;letter-spacing:2px;font-family:monospace">{code}</div></div>'
+            f'<p>Visit <a href="{manage_url}">{manage_url}</a> and click "Manage My Audition" to view, update, or withdraw your submission.</p>'
+            "<p>Didn't request this? You can safely ignore this email.</p>"
+        )
+        send_email([sub['submitter_email']], subject, build_hwtc_email_html(subject, body))
+    except Exception as e:
+        app.logger.warning(f'Audition access code email failed: {e}')
+    return generic_response
+
+
+@app.route('/api/auditions/submissions/<sid>/access-code', methods=['GET'])
+def get_submission_access_code(sid):
+    """Staff-facing lookup — someone calls or emails asking for their code, or
+    a director wants to hand it to them directly instead of routing through
+    the public 'email me my code' flow. Generates one on the spot for any
+    submission that predates this feature and never got one, same as the
+    self-service recovery path does."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    sub = fetchone(conn, 'SELECT id, submitter_passphrase FROM audition_submissions WHERE id=%s', (sid,))
+    if not sub:
+        conn.close()
+        return jsonify({'error': 'Submission not found'}), 404
+    code = sub.get('submitter_passphrase')
+    if not code:
+        code = secrets.token_hex(4).upper()
+        execute(conn, 'UPDATE audition_submissions SET submitter_passphrase=%s WHERE id=%s', (code, sid))
+        conn.commit()
+    conn.close()
+    return jsonify({'passphrase': code})
+
+
 @app.route('/api/auditions/submissions/<sid>/cast-role', methods=['PUT'])
 def update_submission_cast_role(sid):
+    conn = get_db()
+    if session.get('role') == 'director':
+        sub = fetchone(conn, 'SELECT context_type, context_id FROM audition_submissions WHERE id=%s', (sid,))
+        if not sub or sub.get('context_type') != 'production':
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(sub['context_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
+    d = request.json or {}
+    execute(conn, '''UPDATE audition_submissions SET cast_role=%s, cast_section=%s, cast_title=%s,
+        status=%s, updated_at=NOW() WHERE id=%s''',
+        (d.get('cast_role','').strip() or None, (d.get('cast_section') or '').strip(),
+         (d.get('cast_title') or '').strip(), 'cast', sid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/auditions/settings/<context_type>/<context_id>/reveal', methods=['PUT'])
+def set_cast_list_reveal(context_type, context_id):
+    """Partial update — sets only the cast list reveal countdown, without
+    touching any other audition settings. Used by the production's Cast tab,
+    which manages cast via youth_production_members and may never have
+    configured (or even opened) the separate Auditions settings panel."""
     err = require_auth()
     if err: return err
     d = request.json or {}
+    reveal_raw = (d.get('cast_list_reveal_at') or '').strip()
+    reveal_at = reveal_raw or None
     conn = get_db()
-    execute(conn, 'UPDATE audition_submissions SET cast_role=%s, status=%s, updated_at=NOW() WHERE id=%s',
-        (d.get('cast_role','').strip() or None, 'cast', sid))
+    existing = fetchone(conn, 'SELECT id, cast_list_queued, cast_list_published FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    if existing:
+        execute(conn, 'UPDATE audition_settings SET cast_list_reveal_at=%s, updated_at=NOW() WHERE id=%s',
+            (reveal_at, existing['id']))
+        # If a list was queued waiting on the old countdown and the new
+        # target is gone or already in the past, reveal it right away
+        # instead of leaving it stuck until the next poll.
+        conn.commit()
+        maybe_auto_reveal_cast_list(conn, context_type, context_id,
+            {'cast_list_queued': existing.get('cast_list_queued'), 'cast_list_published': existing.get('cast_list_published'),
+             'cast_list_reveal_at': reveal_at})
+    else:
+        execute(conn, '''INSERT INTO audition_settings (id,context_type,context_id,cast_list_reveal_at)
+            VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), context_type, context_id, reveal_at))
     conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'cast_list_reveal_at': reveal_at})
+
+
+@app.route('/api/portal-tab-order/<context_type>/<context_id>', methods=['PUT'])
+def set_portal_tab_order(context_type, context_id):
+    """Save the family-portal tab display order for a production or program.
+    order is a list of tab ids in the order staff want them shown; tabs not
+    present in the list keep falling back to their default position."""
+    err = require_auth()
+    if err: return err
+    if context_type not in ('production', 'program'):
+        return jsonify({'error': 'Invalid context_type'}), 400
+    d = request.json or {}
+    order = d.get('order')
+    if not isinstance(order, list):
+        return jsonify({'error': 'order must be a list of tab ids'}), 400
+    order_json = json.dumps([str(t) for t in order])
+    table = 'productions' if context_type == 'production' else 'youth_programs'
+    conn = get_db()
+    execute(conn, f'UPDATE {table} SET portal_tab_order=%s WHERE id=%s', (order_json, context_id))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'order': order})
+
+
+def build_cast_list_data(conn, context_type, context_id):
+    """Build the cast list array from every source that assigns roles —
+    audition submissions marked "cast" (the audition-based workflow), and
+    for productions, youth_production_members (the Cast tab, which doesn't
+    require an audition process at all). Dedupes by name so a family that
+    shows up in both isn't listed twice. Shared by publish_cast_list and the
+    read-only preview endpoint so they never drift out of sync."""
+    cast = fetchall(conn, """SELECT submitter_name, cast_role, submitter_email,
+            COALESCE(cast_section,'') AS cast_section, COALESCE(cast_title,'') AS cast_title
+        FROM audition_submissions
+        WHERE context_type=%s AND context_id=%s AND status='cast'
+        ORDER BY cast_role, submitter_name""", (context_type, context_id))
+    cast_list = [dict(c) for c in cast]
+    if context_type == 'production':
+        youth_cast = fetchall(conn, """SELECT COALESCE(y.first_name,'')||' '||COALESCE(y.last_name,'') AS submitter_name,
+                ypm.role AS cast_role, NULL AS submitter_email,
+                COALESCE(ypm.cast_section,'') AS cast_section, COALESCE(ypm.cast_title,'') AS cast_title
+            FROM youth_production_members ypm
+            JOIN youth_participants y ON ypm.youth_id=y.id
+            WHERE ypm.production_id=%s
+            ORDER BY ypm.role, y.last_name, y.first_name""", (context_id,))
+        seen = {(c['submitter_name'] or '').strip().lower() for c in cast_list}
+        for yc in youth_cast:
+            key = (yc.get('submitter_name') or '').strip().lower()
+            if key and key not in seen:
+                cast_list.append(dict(yc))
+                seen.add(key)
+    return cast_list
+
+
+@app.route('/api/auditions/settings/<context_type>/<context_id>/preview-cast', methods=['GET'])
+def preview_cast_list(context_type, context_id):
+    """Staff-only, read-only look at exactly what Publish would show right
+    now — same data, same grouping — without touching cast_list_published
+    or cast_list_queued. Lets staff sanity-check sections/titles before
+    anything goes live."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    cast_list = build_cast_list_data(conn, context_type, context_id)
+    settings_row = fetchone(conn, 'SELECT title FROM audition_settings WHERE context_id=%s AND context_type=%s',
+        (context_id, context_type))
+    ctx_name = ''
+    if context_type == 'production':
+        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    elif context_type == 'program':
+        p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (context_id,))
+        if p: ctx_name = p['name']
+    conn.close()
+    resp = jsonify({'cast': cast_list, 'title': (settings_row or {}).get('title'), 'context_name': ctx_name})
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 
 @app.route('/api/auditions/settings/<context_type>/<context_id>/publish-cast', methods=['POST'])
@@ -5786,18 +9060,33 @@ def publish_cast_list(context_type, context_id):
     if err: return err
     d = request.json or {}
     publish = bool(d.get('publish', True))
+    force = bool(d.get('force', False))  # skip the countdown gate and publish immediately
     conn = get_db()
     if publish:
-        # Build cast list from all 'cast' submissions that have a cast_role
-        cast = fetchall(conn, """SELECT submitter_name, cast_role, submitter_email
-            FROM audition_submissions
-            WHERE context_type=%s AND context_id=%s AND status='cast'
-            ORDER BY cast_role, submitter_name""", (context_type, context_id))
-        cast_json = json.dumps([dict(c) for c in cast])
-        execute(conn, """UPDATE audition_settings
-            SET cast_list_published=TRUE, cast_list=%s, updated_at=NOW()
-            WHERE context_type=%s AND context_id=%s""",
-            (cast_json, context_type, context_id))
+        cast_list = build_cast_list_data(conn, context_type, context_id)
+        cast_json = json.dumps(cast_list)
+        existing = fetchone(conn, 'SELECT id, cast_list_reveal_at FROM audition_settings WHERE context_id=%s AND context_type=%s',
+            (context_id, context_type))
+        reveal_at = parse_db_datetime(existing.get('cast_list_reveal_at')) if existing else None
+        # If a reveal countdown is set and still in the future, hold the list
+        # back — queued and ready, but not actually shown to families — so
+        # clicking Publish early doesn't spoil the countdown. get_cast_list
+        # flips it live the moment the reveal time passes.
+        hold_for_countdown = bool(reveal_at) and reveal_at > now_eastern() and not force
+        if existing:
+            execute(conn, """UPDATE audition_settings
+                SET cast_list_published=%s, cast_list_queued=%s, cast_list=%s, updated_at=NOW()
+                WHERE id=%s""", (not hold_for_countdown, hold_for_countdown, cast_json, existing['id']))
+        else:
+            execute(conn, """INSERT INTO audition_settings
+                (id,context_type,context_id,cast_list_published,cast_list_queued,cast_list)
+                VALUES (%s,%s,%s,%s,%s,%s)""",
+                (str(uuid.uuid4()), context_type, context_id, not hold_for_countdown, hold_for_countdown, cast_json))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'queued': hold_for_countdown})
+    else:
+        execute(conn, """UPDATE audition_settings SET cast_list_published=FALSE, cast_list_queued=FALSE, updated_at=NOW()
+            WHERE context_type=%s AND context_id=%s""", (context_type, context_id))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -6009,20 +9298,19 @@ def submit_board_application(position_id):
             recipients = [u['email'] for u in admins if u.get('email')]
         if recipients:
             send_email(recipients, f'New Board Application: {full_name} — {pos["title"]}',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+                build_hwtc_email_html(f'New Board Application: {full_name} — {pos["title"]}',
                 f'<h2 style="color:#145466">New Board Position Application</h2>'
                 f'<table style="width:100%;border-collapse:collapse;font-size:14px;margin:16px 0">'
                 f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466;width:160px">Position</td><td style="padding:8px 12px">{pos["title"]}</td></tr>'
                 f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Name</td><td style="padding:8px 12px">{full_name}</td></tr>'
                 f'<tr style="background:#f0f8fa"><td style="padding:8px 12px;font-weight:700;color:#145466">Email</td><td style="padding:8px 12px">{email}</td></tr>'
                 f'<tr><td style="padding:8px 12px;font-weight:700;color:#145466">Attachments</td><td style="padding:8px 12px">{len(labeled_files) or "None"}</td></tr>'
-                f'</table><p style="color:#9ca3af;font-size:12px">Review the full application in RoleCall under Board → Applications.</p></div>')
+                f'</table><p style="color:#9ca3af;font-size:12px">Review the full application in RoleCall under Board → Applications.</p>'))
         send_email(email, f'Application Received — {pos["title"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:600px">'
+            build_hwtc_email_html(f'Application Received — {pos["title"]}',
             f'<p>Hi {full_name.split(" ")[0]},</p>'
             f'<p>Thank you for applying for the <strong>{pos["title"]}</strong> position on our Board. '
-            f'We\'ve received your application and will be in touch soon.</p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'We\'ve received your application and will be in touch soon.</p>'))
     except Exception as e:
         app.logger.error(f'Board application notify failed: {e}')
     conn.close()
@@ -6183,31 +9471,61 @@ def download_board_application_file(aid, fid):
 
 @app.route('/api/auditions/cast-list/<context_type>/<context_id>', methods=['GET'])
 def get_cast_list(context_type, context_id):
-    """Public endpoint - returns cast list if published."""
+    """Public endpoint - returns cast list if published. Also returns the
+    reveal_at countdown target (if staff set one) so a public page can show
+    a "cast list drops in..." countdown even before anything is published.
+
+    If a list was queued (Publish clicked while a countdown was still
+    running), this is also where the reveal actually happens: the first
+    request that lands after cast_list_reveal_at has passed flips it live,
+    so nobody needs a background job — the family portal's own polling
+    (or an admin refreshing the page) is what triggers the reveal."""
     conn = get_db()
-    row = fetchone(conn, """SELECT cast_list, cast_list_published, title
+    row = fetchone(conn, """SELECT cast_list, cast_list_published, cast_list_queued, title, cast_list_reveal_at
         FROM audition_settings WHERE context_type=%s AND context_id=%s""",
         (context_type, context_id))
+    row = maybe_auto_reveal_cast_list(conn, context_type, context_id, row)
     if not row or not row.get('cast_list_published'):
+        reveal_at = row.get('cast_list_reveal_at') if row else None
+        portal_color = None
+        portal_logo_url = None
+        if context_type == 'production':
+            p = fetchone(conn, 'SELECT portal_color, portal_logo_url FROM productions WHERE id=%s', (context_id,))
+            if p:
+                portal_color = p.get('portal_color') or None
+                portal_logo_url = p.get('portal_logo_url') or None
         conn.close()
-        resp = jsonify({'published': False, 'cast': []})
+        resp = jsonify({
+            'published': False, 'cast': [],
+            'reveal_at': reveal_at.isoformat() if reveal_at else None,
+            'queued': bool(row.get('cast_list_queued')) if row else False,
+            'portal_color': portal_color, 'portal_logo_url': portal_logo_url,
+        })
         resp.headers['Cache-Control'] = 'no-store'
         return resp
-    # Get the actual production/program name
+    # Get the actual production/program name (and branding, for productions)
     ctx_name = ''
+    portal_color = None
+    portal_logo_url = None
     if context_type == 'production':
-        p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (context_id,))
-        if p: ctx_name = p['name']
+        p = fetchone(conn, 'SELECT name, portal_color, portal_logo_url FROM productions WHERE id=%s', (context_id,))
+        if p:
+            ctx_name = p['name']
+            portal_color = p.get('portal_color') or None
+            portal_logo_url = p.get('portal_logo_url') or None
     elif context_type == 'program':
         p = fetchone(conn, 'SELECT name FROM youth_programs WHERE id=%s', (context_id,))
         if p: ctx_name = p['name']
+    # Build live from current data rather than the stored snapshot — once
+    # published, the list should always reflect the Cast tab, including
+    # anyone added, re-sectioned, or given a title *after* Publish was
+    # clicked. (Preview already worked this way; this brings the real
+    # published view in line with it instead of freezing at publish time.)
+    cast = build_cast_list_data(conn, context_type, context_id)
     conn.close()
-    try:
-        cast = json.loads(row.get('cast_list') or '[]')
-    except Exception:
-        cast = []
     title = row.get('title') or ctx_name
-    resp = jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name})
+    resp = jsonify({'published': True, 'cast': cast, 'title': title, 'context_name': ctx_name,
+        'portal_color': portal_color, 'portal_logo_url': portal_logo_url})
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
@@ -6286,7 +9604,7 @@ def submit_director_interest():
                 '<p style="color:#9ca3af;font-size:12px">View full response in RoleCall under Directors.</p>'
                 '</div>'
             )
-            send_email(recipients, 'Director Interest: ' + name, html)
+            send_email(recipients, 'Director Interest: ' + name, build_hwtc_email_html('Director Interest: ' + name, html))
     except Exception as e:
         app.logger.error(f'Director interest notify failed: {e}')
     conn.close()
@@ -6442,7 +9760,7 @@ def send_director_form_email():
         '<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theater Company</p>'
         '</div>'
     )
-    ok, msg = send_email([email], 'HWTC Director Interest Form', html)
+    ok, msg = send_email([email], 'HWTC Director Interest Form', build_hwtc_email_html('HWTC Director Interest Form', html))
     if not ok:
         return jsonify({'error': msg or 'Failed to send email'}), 500
     return jsonify({'ok': True})
@@ -6610,37 +9928,68 @@ def get_group_members(gid):
 
 @app.route('/api/square/catalog-items', methods=['GET'])
 def get_square_catalog_items():
-    """List Square catalog items for linking to programs."""
+    """List Square catalog items for linking to programs. By default this
+    only shows items in the 'RoleCall Programs' category, not the entire
+    Square catalog (which may include concessions, merch, etc. unrelated to
+    programs). Pass ?all=1 to see everything, and ?linked_id=<id> to make
+    sure an already-linked item stays visible even if it's outside that
+    category (e.g. it predates this feature)."""
     err = require_auth()
     if err: return err
     if not SQUARE_ACCESS_TOKEN:
         return jsonify({'error': 'Square not configured'}), 400
+    show_all = request.args.get('all') == '1'
+    linked_id = request.args.get('linked_id') or ''
     try:
-        r = requests.get(
-            f'{SQUARE_API_BASE}/v2/catalog/list?types=ITEM',
-            headers=square_headers(), timeout=10)
-        data = r.json()
-        if r.status_code != 200:
-            return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
-        items = []
-        for obj in (data.get('objects') or []):
-            item_data = obj.get('item_data', {})
-            # Get the first variation's price
-            variations = item_data.get('variations', [])
-            price = None
-            variation_id = None
-            if variations:
-                v = variations[0]
-                variation_id = v.get('id')
-                price_money = v.get('item_variation_data', {}).get('price_money', {})
-                price = price_money.get('amount')
-            items.append({
-                'id': obj.get('id'),
-                'variation_id': variation_id,
-                'name': item_data.get('name',''),
-                'description': item_data.get('description',''),
-                'price': price,
-            })
+        def parse_items(objects):
+            out = []
+            for obj in (objects or []):
+                item_data = obj.get('item_data', {})
+                variations = item_data.get('variations', [])
+                price = None
+                variation_id = None
+                if variations:
+                    v = variations[0]
+                    variation_id = v.get('id')
+                    price_money = v.get('item_variation_data', {}).get('price_money', {})
+                    price = price_money.get('amount')
+                out.append({'id': obj.get('id'), 'variation_id': variation_id,
+                    'name': item_data.get('name',''), 'description': item_data.get('description',''),
+                    'price': price})
+            return out
+
+        if show_all:
+            r = requests.get(f'{SQUARE_API_BASE}/v2/catalog/list?types=ITEM', headers=square_headers(), timeout=10)
+            data = r.json()
+            if r.status_code != 200:
+                return jsonify({'error': data.get('errors', [{}])[0].get('detail','Square error')}), 400
+            items = parse_items(data.get('objects'))
+        else:
+            cat_id = get_or_create_rolecall_category_id()
+            items = []
+            if cat_id:
+                # search-catalog-items is Square's dedicated endpoint for
+                # filtering items by category — the generic /catalog/search
+                # endpoint doesn't actually support an item/category_ids
+                # query shape, which is what caused this to error out.
+                r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search-catalog-items',
+                    json={'category_ids': [cat_id]},
+                    headers=square_headers(), timeout=10)
+                data = r.json()
+                if r.status_code != 200:
+                    app.logger.warning(f'Square search-catalog-items failed: {data}')
+                else:
+                    items = parse_items(data.get('items'))
+            # Keep an already-linked item visible even if it's not tagged
+            # with our category (e.g. linked before this feature existed).
+            if linked_id and not any(i['id']==linked_id or i['variation_id']==linked_id for i in items):
+                try:
+                    r3 = requests.get(f'{SQUARE_API_BASE}/v2/catalog/object/{linked_id}', headers=square_headers(), timeout=10)
+                    if r3.status_code == 200:
+                        obj3 = r3.json().get('object')
+                        if obj3: items = parse_items([obj3]) + items
+                except Exception:
+                    pass
         items.sort(key=lambda x: x['name'])
         return jsonify(items)
     except Exception as e:
@@ -6662,25 +10011,26 @@ def create_square_catalog_item():
     import uuid as _uuid
     item_id = '#item_' + str(_uuid.uuid4()).replace('-','')[:16]
     var_id  = '#var_'  + str(_uuid.uuid4()).replace('-','')[:16]
+    cat_id = get_or_create_rolecall_category_id()
+    item_data_payload = {
+        'name': name,
+        'description': description or None,
+        'variations': [{
+            'type': 'ITEM_VARIATION',
+            'id': var_id,
+            'item_variation_data': {
+                'name': 'Regular',
+                'pricing_type': 'FIXED_PRICING' if price_cents else 'VARIABLE_PRICING',
+                'price_money': {'amount': price_cents, 'currency': 'USD'} if price_cents else None,
+            }
+        }]
+    }
+    if cat_id:
+        item_data_payload['categories'] = [{'id': cat_id}]
+        item_data_payload['category_id'] = cat_id  # deprecated field, set too for older API compatibility
     payload = {
         'idempotency_key': str(_uuid.uuid4()),
-        'object': {
-            'type': 'ITEM',
-            'id': item_id,
-            'item_data': {
-                'name': name,
-                'description': description or None,
-                'variations': [{
-                    'type': 'ITEM_VARIATION',
-                    'id': var_id,
-                    'item_variation_data': {
-                        'name': 'Regular',
-                        'pricing_type': 'FIXED_PRICING' if price_cents else 'VARIABLE_PRICING',
-                        'price_money': {'amount': price_cents, 'currency': 'USD'} if price_cents else None,
-                    }
-                }]
-            }
-        }
+        'object': {'type': 'ITEM', 'id': item_id, 'item_data': item_data_payload}
     }
     try:
         r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object',
@@ -6789,6 +10139,11 @@ def save_registration_settings(pid):
          int(d['max_age']) if d.get('max_age') not in (None, '') else None,
          int(d.get('age_grace_days') or 30),
          pid))
+    if 'is_private' in d:
+        make_private = bool(d.get('is_private'))
+        cur = fetchone(conn, 'SELECT private_key FROM youth_programs WHERE id=%s', (pid,)) or {}
+        key = cur.get('private_key') or (secrets.token_urlsafe(9) if make_private else None)
+        execute(conn, 'UPDATE youth_programs SET is_private=%s, private_key=%s WHERE id=%s', (make_private, key, pid))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
     conn.close()
@@ -6911,7 +10266,7 @@ def validate_discount(slug):
         return jsonify({'valid': False, 'error': 'Code required'})
     conn = get_db()
     prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
-    if not prog:
+    if not prog or program_hidden_from_request(prog):
         conn.close()
         return jsonify({'valid': False, 'error': 'Program not found'})
     dc, dc_table = find_discount_code(conn, code, 'program_id', prog['id'])
@@ -6971,8 +10326,57 @@ def square_create_discount(name, discount_type, value):
 #  EMAIL TEMPLATES
 # ─────────────────────────────────────────────
 
+@app.route('/api/email/program-guardian-recipients', methods=['POST'])
+def get_program_guardian_recipients():
+    """Contact emails for everyone tied to one or more programs — active or
+    archived, since a program's status doesn't change who was actually part
+    of it. Three sources, unioned and deduped by email:
+      1) youth_participants.email directly — a participant's own email
+         (used for adult self-registrants, or anyone with it entered
+         directly on their profile rather than via a guardian record).
+      2) youth_guardians, for kids on the roster (youth_program_enrollments
+         has no status column — removing someone deletes the row rather
+         than marking it cancelled, so every matching row counts).
+      3) program_registrations.guardian_email directly, which also covers
+         adult participants whose registration hasn't been synced into a
+         youth_participants/youth_guardians record for some reason.
+    """
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    program_ids = d.get('program_ids') or []
+    if not program_ids:
+        return jsonify({'error': 'No programs selected'}), 400
+    conn = get_db()
+    rows = fetchall(conn, '''
+        SELECT DISTINCT ON (LOWER(email)) email, name FROM (
+            SELECT y.email AS email, (y.first_name||' '||y.last_name) AS name
+            FROM youth_program_enrollments e
+            JOIN youth_participants y ON e.youth_id = y.id
+            WHERE e.program_id = ANY(%s)
+              AND y.email IS NOT NULL AND y.email != ''
+            UNION ALL
+            SELECT g.email AS email, g.name AS name
+            FROM youth_program_enrollments e
+            JOIN youth_participants y ON e.youth_id = y.id
+            JOIN youth_guardians g ON g.youth_id = y.id
+            WHERE e.program_id = ANY(%s)
+              AND g.email IS NOT NULL AND g.email != ''
+            UNION ALL
+            SELECT r.guardian_email AS email, r.guardian_name AS name
+            FROM program_registrations r
+            WHERE r.program_id = ANY(%s) AND r.status != 'cancelled'
+              AND r.guardian_email IS NOT NULL AND r.guardian_email != ''
+        ) combined
+        ORDER BY LOWER(email)
+    ''', (program_ids, program_ids, program_ids))
+    conn.close()
+    return jsonify(rows)
+
+
 @app.route('/api/email/bulk', methods=['POST'])
 def send_bulk_email():
+
     err = require_auth()
     if err: return err
     d = request.get_json(silent=True) or {}
@@ -7221,6 +10625,45 @@ def determine_kiosk_pay_type(conn, volunteer_id, event_id):
         return 'paid_instruction'
     return 'volunteer'
 
+def _elic_for_event(conn, volunteer_id, event_id):
+    """Returns this volunteer's active ELIC record if they're an ELIC assigned
+    to this specific event (directly, via event_elics, or as a master ELIC
+    assigned to everything) — otherwise None."""
+    elic = fetchone(conn, "SELECT * FROM elics WHERE volunteer_id=%s AND active=TRUE", (volunteer_id,))
+    if not elic:
+        return None
+    if elic.get('is_master'):
+        return elic
+    try:
+        assigned = json.loads(elic.get('assigned_events') or '[]')
+    except Exception:
+        assigned = []
+    if event_id in assigned:
+        return elic
+    row = fetchone(conn, 'SELECT 1 FROM event_elics WHERE elic_id=%s AND event_id=%s', (elic['id'], event_id))
+    return elic if row else None
+
+def _self_open_event_for_instructor(conn, volunteer_id, event_id):
+    """A paid instructor who is ALSO the ELIC assigned to their own class can
+    open it themselves at the kiosk, instead of needing a separate ELIC or
+    admin to do it first — this is the one case that skips that requirement.
+    Returns True if the event is (now) open, False if this volunteer isn't
+    eligible to self-open it."""
+    evt = fetchone(conn, 'SELECT status FROM events WHERE id=%s', (event_id,))
+    if not evt:
+        return False
+    if evt.get('status') == 'open':
+        return True
+    elic = _elic_for_event(conn, volunteer_id, event_id)
+    if not elic:
+        return False
+    log_id = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+        VALUES (%s,%s,%s,'open','Self-opened by instructor (also the assigned ELIC)','')''',
+        (log_id, event_id, elic['id']))
+    execute(conn, "UPDATE events SET status='open' WHERE id=%s", (event_id,))
+    return True
+
 def get_contractor_pay_cap(conn):
     """The yearly cap on how much a contractor can be paid — editable in
     Settings, defaults to $1,999 (the historical 1099 threshold this org
@@ -7312,11 +10755,111 @@ def calc_age_from_dob(dob_str):
     except Exception:
         return None
 
-def default_passphrase(first_name, last_name):
-    """Generate default portal passphrase: firstname_lastname_hwtc (lowercase)"""
+PASSPHRASE_WORDS = (
+    'apple','arrow','aspen','banjo','beacon','birch','bloom','breeze','brook','cactus','canyon','cedar',
+    'cello','cherry','cloud','clover','comet','coral','cricket','daisy','dolphin','dune','ember','falcon',
+    'fern','fiddle','finch','forest','fox','galaxy','garnet','ginger','glacier','harbor','hazel','heron',
+    'honey','island','ivy','jasmine','juniper','kayak','kite','lantern','lark','lemon','lilac','lotus',
+    'maple','marble','meadow','melody','mango','mint','moss','nectar','nova','oak','ocean','olive',
+    'orchid','otter','panda','pebble','pepper','piano','pine','planet','plum','poppy','prairie','quartz',
+    'rain','raven','reef','ribbon','river','robin','rocket','rose','saffron','sage','sail','sequoia',
+    'shell','sierra','silver','sky','sparrow','spruce','star','stone','summit','sunset','swan','thistle',
+    'thunder','tiger','topaz','trumpet','tulip','valley','velvet','violet','walnut','willow','wren','zephyr',
+)
+
+
+def _legacy_default_passphrase(first_name, last_name):
+    """The old guessable default (firstname_lastname_hwtc). Only used to
+    DETECT accounts still on it so they're made to choose a new one."""
     first = (first_name or '').strip().lower().replace(' ', '')
     last  = (last_name  or '').strip().lower().replace(' ', '')
     return f"{first}_{last}_hwtc"
+
+
+def default_passphrase(first_name=None, last_name=None):
+    """Random, easy-to-read portal passphrase, e.g. 'maple-otter-comet-42'.
+    Name arguments are ignored now (kept so existing callers don't change) —
+    a passphrase built from a child's name can be guessed by anyone who
+    knows the child."""
+    words = [secrets.choice(PASSPHRASE_WORDS) for _ in range(3)]
+    return '-'.join(words) + '-' + str(secrets.randbelow(90) + 10)
+
+
+def ensure_youth_passphrase(conn, y):
+    """Return y's stored passphrase, generating and saving one if missing
+    (previously some emails fell back to an unsaved name-based guess)."""
+    if y.get('passphrase'):
+        return y['passphrase']
+    pp = default_passphrase()
+    execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (pp, y['id']))
+    conn.commit()
+    y['passphrase'] = pp
+    return pp
+
+
+def _is_legacy_passphrase(pp, first_name, last_name):
+    return bool(pp) and pp.strip().lower() == _legacy_default_passphrase(first_name, last_name)
+
+
+def _portal_passphrase_from_request():
+    pp = request.headers.get('X-Portal-Passphrase') or request.args.get('passphrase') or ''
+    if not pp:
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict):
+            pp = body.get('passphrase') or ''
+    return (pp or '').strip().lower()
+
+
+def portal_identity(conn):
+    """Who is calling a /api/portal endpoint.
+    Returns (kind, youth_ids): kind is 'staff' (logged-in RoleCall user; youth_ids
+    None = unrestricted), 'family', 'participant', 'volunteer', or None.
+    Accounts still on the old name-based passphrase get no access until they
+    choose a new one."""
+    if 'user_id' in session:
+        return 'staff', None
+    pp = _portal_passphrase_from_request()
+    if not pp:
+        return None, set()
+    family = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s', (pp,))
+    if family:
+        rows = fetchall(conn, 'SELECT id FROM youth_participants WHERE family_id=%s', (family['id'],)) or []
+        return 'family', set(r['id'] for r in rows)
+    youth = fetchone(conn, 'SELECT id, first_name, last_name, family_id FROM youth_participants WHERE LOWER(passphrase)=%s', (pp,))
+    if youth:
+        if _is_legacy_passphrase(pp, youth.get('first_name'), youth.get('last_name')):
+            return None, set()
+        return 'participant', {youth['id']}
+    vol = fetchone(conn, 'SELECT id, name FROM volunteers WHERE LOWER(portal_passphrase)=%s', (pp,))
+    if vol:
+        parts = (vol.get('name') or '').strip().split(' ', 1)
+        if _is_legacy_passphrase(pp, parts[0] if parts else '', parts[1] if len(parts) > 1 else ''):
+            return None, set()
+        return 'volunteer', set()
+    return None, set()
+
+
+def portal_require_youth(conn, yid):
+    """None if the caller may act on participant yid, else an error response."""
+    kind, ids = portal_identity(conn)
+    if kind == 'staff':
+        return None
+    if kind is None:
+        return jsonify({'error': 'Please log in to the portal again.', 'portal_auth': True}), 401
+    if yid and ids and yid in ids:
+        return None
+    return jsonify({'error': 'Not allowed'}), 403
+
+
+def portal_require_youth_list(conn, yids):
+    kind, ids = portal_identity(conn)
+    if kind == 'staff':
+        return None
+    if kind is None:
+        return jsonify({'error': 'Please log in to the portal again.', 'portal_auth': True}), 401
+    if not isinstance(yids, list) or any(y not in ids for y in yids):
+        return jsonify({'error': 'Not allowed'}), 403
+    return None
 
 @app.route('/api/youth/backfill-passphrases', methods=['POST'])
 def backfill_passphrases():
@@ -7341,9 +10884,10 @@ def create_youth():
     pp = default_passphrase(d.get('first_name',''), d.get('last_name',''))
     conn = get_db()
     execute(conn,
-        'INSERT INTO youth_participants (id,first_name,last_name,dob,program,status,medical_notes,allergies,photo_consent,medical_consent,passphrase) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
+        'INSERT INTO youth_participants (id,first_name,last_name,dob,program,status,medical_notes,allergies,photo_consent,medical_consent,passphrase,email) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)',
         (yid, d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
-         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0, pp))
+         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0, pp,
+         d.get('email','')))
     for g in d.get('guardians', []):
         execute(conn, 'INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,%s)',
                 (str(uuid.uuid4()), yid, g['name'], g.get('relationship',''), g.get('phone',''), g.get('email',''), 1 if g.get('is_primary') else 0))
@@ -7365,10 +10909,10 @@ def update_youth(yid):
     d = request.json or {}
     conn = get_db()
     execute(conn,
-        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s,pronouns=%s WHERE id=%s',
+        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s,pronouns=%s,email=%s WHERE id=%s',
         (d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
          d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0,
-         d.get('shirt_size',''), d.get('pronouns',''), yid))
+         d.get('shirt_size',''), d.get('pronouns',''), d.get('email',''), yid))
     conn.commit()
     y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
     conn.close()
@@ -7382,6 +10926,182 @@ def delete_youth(yid):
     execute(conn, 'DELETE FROM youth_participants WHERE id=%s', (yid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+def _youth_merge_counts(conn, yid):
+    """Row counts across every table that hangs off a youth_participants
+    record, used to show what a merge will move before it happens and to
+    log what actually moved afterward."""
+    def n(sql):
+        r = fetchone(conn, sql, (yid,))
+        return (r or {}).get('c', 0)
+    return {
+        'guardians': n('SELECT COUNT(*) c FROM youth_guardians WHERE youth_id=%s'),
+        'emergency_contacts': n('SELECT COUNT(*) c FROM youth_emergency_contacts WHERE youth_id=%s'),
+        'authorized_pickups': n('SELECT COUNT(*) c FROM youth_authorized_pickups WHERE youth_id=%s'),
+        'waivers': n('SELECT COUNT(*) c FROM youth_waivers WHERE youth_id=%s'),
+        'enrollments': n('SELECT COUNT(*) c FROM youth_program_enrollments WHERE youth_id=%s'),
+        'production_roles': n('SELECT COUNT(*) c FROM youth_production_members WHERE youth_id=%s'),
+        'notes': n('SELECT COUNT(*) c FROM youth_notes WHERE youth_id=%s'),
+        'incidents': n('SELECT COUNT(*) c FROM youth_incidents WHERE youth_id=%s'),
+        'sign_ins': n('SELECT COUNT(*) c FROM youth_sign_ins WHERE youth_id=%s'),
+        'conflicts_absences': n('SELECT COUNT(*) c FROM production_conflicts WHERE youth_id=%s'),
+        'carpools': n('SELECT COUNT(*) c FROM carpool_members WHERE youth_id=%s'),
+        'family_links': n('SELECT COUNT(*) c FROM youth_family_links WHERE youth_id=%s'),
+        'registrations': n('SELECT COUNT(*) c FROM program_registrations WHERE youth_id=%s'),
+    }
+
+
+@app.route('/api/youth/merge-preview', methods=['POST'])
+def youth_merge_preview():
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    id_a, id_b = d.get('id_a'), d.get('id_b')
+    if not id_a or not id_b or id_a == id_b:
+        return jsonify({'error': 'Two different participants are required'}), 400
+    conn = get_db()
+    a = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (id_a,))
+    b = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (id_b,))
+    if not a or not b:
+        conn.close(); return jsonify({'error': 'Participant not found'}), 404
+    a['counts'] = _youth_merge_counts(conn, id_a)
+    b['counts'] = _youth_merge_counts(conn, id_b)
+    a['has_login'] = bool(a.get('passphrase') or a.get('family_id'))
+    b['has_login'] = bool(b.get('passphrase') or b.get('family_id'))
+    a['has_volunteer_link'] = bool(a.get('linked_volunteer_id'))
+    b['has_volunteer_link'] = bool(b.get('linked_volunteer_id'))
+    conn.close()
+    return jsonify({'a': a, 'b': b})
+
+
+@app.route('/api/youth/merge', methods=['POST'])
+def youth_merge():
+    # Merging is destructive and irreversible (the losing profile is
+    # deleted once everything is moved), so this requires admin rather
+    # than just edit access to the youth section.
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    parent_id = d.get('parent_id')
+    dup_id = d.get('duplicate_id')
+    if not parent_id or not dup_id or parent_id == dup_id:
+        return jsonify({'error': 'A parent and a duplicate participant are required'}), 400
+
+    conn = get_db()
+    try:
+        parent = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (parent_id,))
+        dup = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (dup_id,))
+        if not parent or not dup:
+            conn.close(); return jsonify({'error': 'Participant not found'}), 404
+
+        moved = _youth_merge_counts(conn, dup_id)
+
+        # 1) Fill in any blanks on the parent from the duplicate. Consent
+        # flags (photo/medical) are deliberately left alone rather than
+        # auto-merged — those shouldn't silently flip from a duplicate record.
+        fill_fields = ['dob', 'program', 'medical_notes', 'allergies', 'shirt_size',
+                        'pronouns', 'grade', 'passphrase', 'family_id', 'linked_volunteer_id']
+        updates, params = [], []
+        for f in fill_fields:
+            if not parent.get(f) and dup.get(f):
+                updates.append(f"{f}=%s")
+                params.append(dup.get(f))
+        if updates:
+            params.append(parent_id)
+            execute(conn, f"UPDATE youth_participants SET {','.join(updates)} WHERE id=%s", tuple(params))
+
+        # 2) Guardians / emergency contacts: skip true duplicates (same
+        # name+phone already on the parent), move everything else.
+        existing_guardians = {(g['name'] or '').strip().lower() + '|' + (g['phone'] or '').strip()
+                               for g in fetchall(conn, 'SELECT name,phone FROM youth_guardians WHERE youth_id=%s', (parent_id,))}
+        for g in fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s', (dup_id,)):
+            key = (g['name'] or '').strip().lower() + '|' + (g['phone'] or '').strip()
+            if key in existing_guardians:
+                execute(conn, 'DELETE FROM youth_guardians WHERE id=%s', (g['id'],))
+            else:
+                execute(conn, 'UPDATE youth_guardians SET youth_id=%s WHERE id=%s', (parent_id, g['id']))
+
+        existing_ec = {(e['name'] or '').strip().lower() + '|' + (e['phone'] or '').strip()
+                       for e in fetchall(conn, 'SELECT name,phone FROM youth_emergency_contacts WHERE youth_id=%s', (parent_id,))}
+        for e in fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (dup_id,)):
+            key = (e['name'] or '').strip().lower() + '|' + (e['phone'] or '').strip()
+            if key in existing_ec:
+                execute(conn, 'DELETE FROM youth_emergency_contacts WHERE id=%s', (e['id'],))
+            else:
+                execute(conn, 'UPDATE youth_emergency_contacts SET youth_id=%s WHERE id=%s', (parent_id, e['id']))
+
+        # 3) Straight one-to-many history/records — no unique constraints
+        # to worry about, just repoint them all at the parent.
+        for tbl in ('youth_authorized_pickups', 'youth_waivers', 'youth_notes',
+                    'youth_incidents', 'youth_sign_ins', 'production_conflicts',
+                    'program_registrations'):
+            execute(conn, f'UPDATE {tbl} SET youth_id=%s WHERE youth_id=%s', (parent_id, dup_id))
+        execute(conn, 'UPDATE volunteer_waivers SET youth_id=%s WHERE youth_id=%s', (parent_id, dup_id))
+        execute(conn, 'UPDATE pending_profile_updates SET youth_id=%s WHERE youth_id=%s', (parent_id, dup_id))
+
+        # 4) Tables with a UNIQUE(youth_id, X) constraint: move rows that
+        # don't already exist for the parent, drop the ones that do (the
+        # parent already has that link, so the duplicate's copy is redundant).
+        execute(conn, '''UPDATE youth_program_enrollments SET youth_id=%s
+                         WHERE youth_id=%s AND program_id IS NOT NULL
+                         AND program_id NOT IN (SELECT program_id FROM youth_program_enrollments
+                                                 WHERE youth_id=%s AND program_id IS NOT NULL)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, '''UPDATE youth_program_enrollments SET youth_id=%s
+                         WHERE youth_id=%s AND production_id IS NOT NULL
+                         AND production_id NOT IN (SELECT production_id FROM youth_program_enrollments
+                                                    WHERE youth_id=%s AND production_id IS NOT NULL)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, 'DELETE FROM youth_program_enrollments WHERE youth_id=%s', (dup_id,))
+
+        execute(conn, '''UPDATE youth_production_members SET youth_id=%s
+                         WHERE youth_id=%s AND production_id NOT IN
+                             (SELECT production_id FROM youth_production_members WHERE youth_id=%s)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, 'DELETE FROM youth_production_members WHERE youth_id=%s', (dup_id,))
+
+        execute(conn, '''UPDATE youth_family_links SET youth_id=%s
+                         WHERE youth_id=%s AND family_id NOT IN
+                             (SELECT family_id FROM youth_family_links WHERE youth_id=%s)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, 'DELETE FROM youth_family_links WHERE youth_id=%s', (dup_id,))
+
+        execute(conn, '''UPDATE carpool_members SET youth_id=%s
+                         WHERE youth_id=%s AND carpool_id NOT IN
+                             (SELECT carpool_id FROM carpool_members WHERE youth_id=%s)''',
+                (parent_id, dup_id, parent_id))
+        execute(conn, 'DELETE FROM carpool_members WHERE youth_id=%s', (dup_id,))
+
+        # 5) If a volunteer account points at the duplicate as its linked
+        # participant, repoint it at the parent.
+        execute(conn, 'UPDATE volunteers SET linked_participant_id=%s WHERE linked_participant_id=%s',
+                (parent_id, dup_id))
+
+        # 6) Leave a paper trail on the surviving profile.
+        dup_name = f"{dup.get('first_name','')} {dup.get('last_name','')}".strip()
+        summary_bits = [f"{v} {k.replace('_',' ')}" for k, v in moved.items() if v]
+        summary = ', '.join(summary_bits) if summary_bits else 'no linked records'
+        execute(conn, '''INSERT INTO youth_notes (id,youth_id,author,author_id,content,note_type)
+                         VALUES (%s,%s,%s,%s,%s,%s)''',
+                (str(uuid.uuid4()), parent_id, session.get('user_name', 'Staff'), session.get('user_id'),
+                 f"Merged duplicate profile \"{dup_name}\" into this record ({summary}).", 'general'))
+
+        # 7) The duplicate is now empty of everything meaningful — anything
+        # still cascading off it (ON DELETE CASCADE) is a redundant row we
+        # already accounted for above.
+        execute(conn, 'DELETE FROM youth_participants WHERE id=%s', (dup_id,))
+
+        conn.commit()
+    except Exception as ex:
+        conn.rollback(); conn.close()
+        return jsonify({'error': f'Merge failed: {ex}'}), 500
+
+    result = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (parent_id,))
+    result['guardians'] = fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC', (parent_id,))
+    result['emergency_contacts'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (parent_id,))
+    conn.close()
+    return jsonify({'ok': True, 'moved': moved, 'youth': result})
+
 
 @app.route('/api/youth/<yid>/guardians', methods=['POST'])
 def add_guardian(yid):
@@ -7606,7 +11326,7 @@ def get_youth_history(yid):
     try:
         yp = fetchone(conn, 'SELECT created_at, first_name, last_name FROM youth_participants WHERE id=%s', (yid,))
         if yp and yp.get('created_at'):
-            timeline.append({'type':'joined','icon':'🌟','label':'Added to RoleCall',
+            timeline.append({'type':'joined','icon':'','label':'Added to RoleCall',
                 'detail':f'{yp["first_name"]} {yp["last_name"]} profile created',
                 'ts':str(yp['created_at'])})
     except Exception as e: app.logger.warning(f'history joined: {e}')
@@ -7618,7 +11338,7 @@ def get_youth_history(yid):
             WHERE pr.youth_id=%s ORDER BY pr.created_at DESC''', (yid,)) or []
         for r in regs:
             sl = {'confirmed':'Enrolled','pending_payment':'Pending Payment','waitlisted':'Waitlisted','cancelled':'Cancelled'}.get(r.get('status',''),'Registered')
-            timeline.append({'type':'program','icon':'📚','label':f'Program: {r.get("program_name","")}',
+            timeline.append({'type':'program','icon':'','label':f'Program: {r.get("program_name","")}',
                 'detail':sl,'ts':str(r.get('created_at') or '')})
     except Exception as e: app.logger.warning(f'history programs: {e}')
     # 3. Events attended
@@ -7636,7 +11356,7 @@ def get_youth_history(yid):
                     hrs = diff // 60; mins = diff % 60
                     detail += f' · {hrs}h {mins}m' if hrs else f' · {mins}m'
                 except Exception: pass
-            timeline.append({'type':'event','icon':'📅','label':f'Attended: {s.get("event_name","Event")}',
+            timeline.append({'type':'event','icon':'','label':f'Attended: {s.get("event_name","Event")}',
                 'detail':detail,'ts':str(s.get('signed_in_at') or '')})
     except Exception as e: app.logger.warning(f'history events: {e}')
     # 4. Waivers
@@ -7646,7 +11366,7 @@ def get_youth_history(yid):
             WHERE yw.youth_id=%s ORDER BY yw.created_at DESC''', (yid,)) or []
         for w in waivers:
             detail = f'Signed {w.get("signed_date","")}' + (f' by {w["signed_by"]}' if w.get('signed_by') else '')
-            timeline.append({'type':'waiver','icon':'📋','label':f'Waiver: {w.get("waiver_name","")}',
+            timeline.append({'type':'waiver','icon':'','label':f'Waiver: {w.get("waiver_name","")}',
                 'detail':detail,'ts':str(w.get('created_at') or w.get('signed_date') or '')})
     except Exception as e: app.logger.warning(f'history waivers: {e}')
     # 5. Notes
@@ -7654,7 +11374,7 @@ def get_youth_history(yid):
         notes = fetchall(conn, 'SELECT * FROM youth_notes WHERE youth_id=%s ORDER BY created_at DESC', (yid,)) or []
         for n in notes:
             c = (n.get('content') or '')
-            timeline.append({'type':'note','icon':'📝','label':'Note Added',
+            timeline.append({'type':'note','icon':'','label':'Note Added',
                 'detail':c[:80]+('…' if len(c)>80 else '') + (f' — {n["author"]}' if n.get('author') else ''),
                 'ts':str(n.get('created_at') or '')})
     except Exception as e: app.logger.warning(f'history notes: {e}')
@@ -7662,7 +11382,7 @@ def get_youth_history(yid):
     try:
         incidents = fetchall(conn, 'SELECT * FROM youth_incidents WHERE youth_id=%s ORDER BY created_at DESC', (yid,)) or []
         for i in incidents:
-            timeline.append({'type':'incident','icon':'⚠️','label':f'Incident: {i.get("title","")}',
+            timeline.append({'type':'incident','icon':'','label':f'Incident: {i.get("title","")}',
                 'detail':(i.get('description') or '')[:80],
                 'ts':str(i.get('incident_date') or i.get('created_at') or '')})
     except Exception as e: app.logger.warning(f'history incidents: {e}')
@@ -7821,6 +11541,11 @@ def create_production():
              d.get('start_date') or None, d.get('end_date') or None,
              d.get('description',''), d.get('status','upcoming'),
              d.get('default_elic_id') or None))
+    if d.get('image_url') or d.get('ticket_logo_url'):
+        # The INSERT above never took the photo — a poster chosen while
+        # creating a production used to be silently dropped.
+        execute(conn, 'UPDATE productions SET image_url=%s, ticket_logo_url=%s WHERE id=%s',
+                (d.get('image_url') or None, d.get('ticket_logo_url') or None, pid))
     lic_id = d.get('from_licensing_request_id')
     if lic_id:
         lr = fetchone(conn, "SELECT id FROM licensing_requests WHERE id=%s AND approved_to_produce=TRUE AND (production_id IS NULL OR production_id='')", (lic_id,))
@@ -7849,7 +11574,10 @@ def list_approved_unlinked_licensing_requests():
 
 @app.route('/api/productions/<pid>', methods=['PUT'])
 def update_production(pid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -7859,6 +11587,8 @@ def update_production(pid):
              d.get('description',''), d.get('status','upcoming'),
              d.get('default_elic_id') or None,
              d.get('image_url') or None, pid))
+    if 'ticket_logo_url' in d:
+        execute(conn, 'UPDATE productions SET ticket_logo_url=%s WHERE id=%s', (d.get('ticket_logo_url') or None, pid))
     conn.commit()
     prod = fetchone(conn, '''SELECT p.*, COALESCE(p.stage,'mainstage') as stage, v.name as default_elic_name FROM productions p LEFT JOIN elics el ON p.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE p.id=%s''', (pid,))
     prod['members'] = fetchall(conn, '''
@@ -7879,7 +11609,10 @@ def delete_production(pid):
 
 @app.route('/api/productions/<pid>/members', methods=['POST'])
 def add_production_member(pid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     d = request.json or {}
     mid = str(uuid.uuid4())
@@ -7917,9 +11650,13 @@ def update_production_member(mid, pid=None):
 
 @app.route('/api/productions/members/<mid>', methods=['DELETE'])
 def remove_production_member(mid):
-    err = require_permission('productions')
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        member = fetchone(conn, 'SELECT production_id FROM production_members WHERE id=%s', (mid,))
+        err = require_own_production(member['production_id']) if member else require_permission('productions')
+    else:
+        err = require_permission('productions')
+    if err: conn.close(); return err
     execute(conn, 'DELETE FROM production_members WHERE id=%s', (mid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -8678,7 +12415,7 @@ def send_thank_you(donation_id):
             <p style="font-size:15px;color:#5f5e5a">With gratitude,<br/><strong>Horizon West Theater Company</strong></p></div>
         <p style="text-align:center;font-size:11px;color:#9b9b94;margin-top:16px">Horizon West Theater Company is a 501(c)(3) non-profit organization.</p>
         </div>'''.format(name=name, amount=amount, campaign_str=campaign_str, date=date_str)
-    ok, err_msg = send_email([row['email']], subject, html_body, from_addr)
+    ok, err_msg = send_email([row['email']], subject, build_hwtc_email_html(subject, html_body), from_addr)
     if ok:
         execute(conn, '''UPDATE donor_donations SET thank_you_sent=TRUE,
             thank_you_sent_at=NOW(), thank_you_sent_by=%s WHERE id=%s''',
@@ -8813,7 +12550,7 @@ button:disabled{{opacity:0.6}}
 <div class="num">{from_number or to_number}</div>
 <label>Your cell number (we'll call you first)</label>
 <input type="tel" id="agent" placeholder="+14075550100" value=""/>
-<button onclick="startCall()">📞 Connect Call</button>
+<button onclick="startCall()"> Connect Call</button>
 <div id="status"></div>
 </div>
 <script>
@@ -8838,9 +12575,9 @@ async function startCall(){{
     }} else {{
       status.textContent = 'Error: ' + (d.error||'Unknown');
       status.style.color = '#991b1b';
-      btn.disabled=false; btn.textContent='📞 Try Again';
+      btn.disabled=false; btn.textContent=' Try Again';
     }}
-  }} catch(e){{ status.textContent='Error: '+e.message; btn.disabled=false; btn.textContent='📞 Try Again'; }}
+  }} catch(e){{ status.textContent='Error: '+e.message; btn.disabled=false; btn.textContent=' Try Again'; }}
 }}
 </script></body></html>''', 200, {'Content-Type': 'text/html'}
 
@@ -9028,10 +12765,11 @@ def create_elic():
     d = request.json or {}
     eid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO elics (id, volunteer_id, pin, is_master, assigned_events)
-        VALUES (%s,%s,%s,%s,%s)''',
+    execute(conn, '''INSERT INTO elics (id, volunteer_id, pin, is_master, assigned_events, can_toggle_trust_mode)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
         (eid, d.get('volunteer_id'), d.get('pin','0000'),
-         d.get('is_master', False), json.dumps(d.get('assigned_events',[]))))
+         d.get('is_master', False), json.dumps(d.get('assigned_events',[])),
+         d.get('can_toggle_trust_mode', False)))
     conn.commit()
     row = fetchone(conn, '''SELECT e.*, v.name as volunteer_name
         FROM elics e LEFT JOIN volunteers v ON e.volunteer_id=v.id WHERE e.id=%s''', (eid,))
@@ -9044,9 +12782,10 @@ def update_elic(eid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE elics SET volunteer_id=%s, pin=%s, is_master=%s, assigned_events=%s WHERE id=%s',
+    execute(conn, 'UPDATE elics SET volunteer_id=%s, pin=%s, is_master=%s, assigned_events=%s, can_toggle_trust_mode=%s WHERE id=%s',
         (d.get('volunteer_id'), d.get('pin','0000'),
-         d.get('is_master',False), json.dumps(d.get('assigned_events',[])), eid))
+         d.get('is_master',False), json.dumps(d.get('assigned_events',[])),
+         d.get('can_toggle_trust_mode', False), eid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -9058,6 +12797,36 @@ def delete_elic(eid):
     execute(conn, 'DELETE FROM elics WHERE id=%s', (eid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+@app.route('/api/kiosk/toggle-trust-mode', methods=['POST'])
+def kiosk_toggle_trust_mode():
+    """Re-verifies the PIN live (not just trusting whatever ELIC is already
+    logged into the kiosk session) so flipping Trust Mode always requires
+    someone to actually punch in a PIN at that moment — and only if that
+    PIN belongs to a master ELIC or one specifically flagged
+    can_toggle_trust_mode. Scoped to one event; does not affect any other
+    event running trust mode independently."""
+    d = request.json or {}
+    pin = (d.get('pin') or '').strip()
+    event_id = d.get('event_id')
+    if not event_id:
+        return jsonify({'error': 'Missing event_id'}), 400
+    conn = get_db()
+    elic = fetchone(conn, '''SELECT e.*, v.name as volunteer_name
+        FROM elics e LEFT JOIN volunteers v ON e.volunteer_id=v.id
+        WHERE e.pin=%s AND e.active=TRUE''', (pin,))
+    if not elic:
+        conn.close(); return jsonify({'error': 'Invalid PIN'}), 401
+    if not elic.get('is_master') and not elic.get('can_toggle_trust_mode'):
+        conn.close(); return jsonify({'error': 'This PIN is not authorized to toggle Trust Mode'}), 403
+    evt = fetchone(conn, 'SELECT trust_mode FROM events WHERE id=%s', (event_id,))
+    if not evt:
+        conn.close(); return jsonify({'error': 'Event not found'}), 404
+    new_state = not evt.get('trust_mode')
+    execute(conn, 'UPDATE events SET trust_mode=%s WHERE id=%s', (new_state, event_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'trust_mode': new_state, 'elic_name': elic.get('volunteer_name', 'ELIC')})
 
 @app.route('/api/kiosk/elic-auth', methods=['POST'])
 @app.route('/api/kiosk/elic-login', methods=['POST'])
@@ -9132,6 +12901,23 @@ def kiosk_elic_auth():
             events = []
     conn.close()
     return jsonify({'ok': True, 'elic': elic, 'events': events})
+
+@app.route('/api/kiosk/paid-instruction-login', methods=['POST'])
+def kiosk_paid_instruction_auth():
+    """Per-instructor PIN, same pattern as ELIC login: identifies the person
+    (so the kiosk can skip volunteer search entirely) and marks whatever they
+    log next as paid instruction, regardless of whether the automatic
+    instructor/program match in determine_kiosk_pay_type applies."""
+    d = request.json or {}
+    pin = (d.get('pin') or '').strip()
+    conn = get_db()
+    row = fetchone(conn, '''SELECT pi.*, v.name as volunteer_name
+        FROM paid_instructors pi JOIN volunteers v ON pi.volunteer_id=v.id
+        WHERE pi.pin=%s AND pi.active=TRUE''', (pin,))
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Invalid code'}), 401
+    return jsonify({'ok': True, 'volunteer': {'id': row['volunteer_id'], 'name': row['volunteer_name']}})
 
 # ─────────────────────────────────────────────
 #  CHECKLIST ITEMS
@@ -9596,9 +13382,9 @@ def test_template_email(tid):
         subject = subject.replace(var, val)
     # Wrap with test banner
     body = f'''<div style="background:#fef9c3;border:2px dashed #f59e0b;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-family:sans-serif;font-size:13px;color:#854d0e">
-        <strong>⚠️ This is a test email</strong>  -  sent to {to}. Sample values have been substituted for real data.
+        <strong> This is a test email</strong>  -  sent to {to}. Sample values have been substituted for real data.
     </div>''' + body
-    ok, msg = send_email([to], subject, body)
+    ok, msg = send_email([to], subject, build_hwtc_email_html(subject, body))
     if ok: return jsonify({'ok': True, 'sent_to': to})
     return jsonify({'error': msg or 'Failed to send'}), 500
 
@@ -9637,7 +13423,7 @@ def update_user(uid):
     else:
         execute(conn, 'UPDATE users SET name=%s, email=%s WHERE id=%s',
             (d.get('name',''), d.get('email',''), uid))
-    if 'role' in d and d.get('role') in ('admin', 'staff', 'instructor'):
+    if 'role' in d and d.get('role') in ('admin', 'staff', 'instructor', 'director'):
         if uid == session.get('user_id') and d.get('role') != 'admin':
             conn.close()
             return jsonify({'error': "You can't remove your own admin access"}), 400
@@ -9697,8 +13483,8 @@ def send_reset_link(uid):
             <p style="font-size:13px;color:#9b9b94;">If you did not request this, please contact your administrator.</p>
         </div>
     </div>'''
-    fi = (request.json or {}).get('from_identity') or {}
-    ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', html_body, fi.get('email') or None, fi.get('name') or None)
+    fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
+    ok, msg = send_email([user['email']], 'Your RoleCall Temporary Password', build_hwtc_email_html('Your RoleCall Temporary Password', html_body), fi.get('email') or None, fi.get('name') or None)
     conn.close()
     if ok: return jsonify({'ok': True})
     return jsonify({'error': msg or 'Failed to send email. Check that your Resend API key is configured in Settings → Email.'}), 500
@@ -9775,12 +13561,34 @@ def portal_auth():
 
     # Try individual youth passphrase
     youth = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase,))
+    if youth and _is_legacy_passphrase(passphrase, youth.get('first_name'), youth.get('last_name')):
+        conn.close()
+        return jsonify({'must_change': True, 'first_name': youth.get('first_name') or ''})
     if youth:
         execute(conn, 'UPDATE youth_participants SET portal_last_login=NOW() WHERE id=%s', (youth['id'],))
         conn.commit()
         family_row = fetchone(conn, 'SELECT * FROM families WHERE id=%s', (youth.get('family_id'),)) if youth.get('family_id') else None
         conn.close()
         return jsonify({'type':'participant','participant':youth,'family':family_row,'members':[youth],'passphrase':passphrase})
+
+    # Try individual volunteer passphrase — this is how an adult cast/crew
+    # member (not tied to a family/youth login) gets into the portal, e.g.
+    # to submit their own bio for staff to add to the actual program.
+    volunteer = fetchone(conn, "SELECT * FROM volunteers WHERE LOWER(portal_passphrase)=%s", (passphrase,))
+    if volunteer:
+        _vparts = (volunteer.get('name') or '').strip().split(' ', 1)
+        if _is_legacy_passphrase(passphrase, _vparts[0] if _vparts else '', _vparts[1] if len(_vparts) > 1 else ''):
+            conn.close()
+            return jsonify({'must_change': True, 'first_name': _vparts[0] if _vparts else ''})
+    if volunteer:
+        productions = fetchall(conn, '''SELECT pm.role,
+            p.id AS production_id, p.name AS production_name, p.status AS production_status,
+            bs.bio, bs.headshot_url
+            FROM production_members pm JOIN productions p ON p.id=pm.production_id
+            LEFT JOIN bio_submissions bs ON bs.production_id=p.id AND bs.volunteer_id=pm.volunteer_id
+            WHERE pm.volunteer_id=%s ORDER BY p.start_date DESC''', (volunteer['id'],)) or []
+        conn.close()
+        return jsonify({'type':'volunteer','volunteer':volunteer,'productions':productions,'passphrase':passphrase})
 
     conn.close()
     return jsonify({'error': 'Passphrase not found. Please check with HWTC staff.'}), 401
@@ -9794,13 +13602,19 @@ def portal_change_passphrase():
     youth_id     = d.get('youth_id')
     if not current or not new_pp:
         return jsonify({'error': 'Current and new passphrase required'}), 400
-    if len(new_pp) < 4:
-        return jsonify({'error': 'New passphrase must be at least 4 characters'}), 400
+    if len(new_pp) < 8:
+        return jsonify({'error': 'New passphrase must be at least 8 characters'}), 400
+    if new_pp.lower().endswith('_hwtc') or new_pp.lower() == current:
+        return jsonify({'error': 'Please choose a new passphrase that isn\'t based on a name.'}), 400
     conn = get_db()
     # Try family passphrase
     family = fetchone(conn, 'SELECT * FROM families WHERE LOWER(passphrase)=%s', (current,))
     if family:
         if change_type == 'individual' and youth_id:
+            in_family = fetchone(conn, 'SELECT id FROM youth_participants WHERE id=%s AND family_id=%s', (youth_id, family['id']))
+            if not in_family:
+                conn.close()
+                return jsonify({'error': 'Not allowed'}), 403
             # Change just this child's passphrase
             taken = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s AND id!=%s', (new_pp.lower(), youth_id))
             if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
@@ -9824,8 +13638,153 @@ def portal_change_passphrase():
             execute(conn, 'UPDATE youth_participants SET passphrase=%s WHERE id=%s', (new_pp, youth['id']))
         conn.commit(); conn.close()
         return jsonify({'ok': True})
+    # Try individual volunteer passphrase
+    volunteer = fetchone(conn, 'SELECT * FROM volunteers WHERE LOWER(portal_passphrase)=%s', (current,))
+    if volunteer:
+        taken = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(portal_passphrase)=%s AND id!=%s', (new_pp.lower(), volunteer['id']))
+        if taken: conn.close(); return jsonify({'error': 'That passphrase is already in use'}), 400
+        execute(conn, 'UPDATE volunteers SET portal_passphrase=%s WHERE id=%s', (new_pp, volunteer['id']))
+        conn.commit(); conn.close()
+        return jsonify({'ok': True})
     conn.close()
     return jsonify({'error': 'Current passphrase incorrect'}), 401
+
+@app.route('/api/portal/submit-bio', methods=['POST'])
+def portal_submit_bio():
+    """A bio/headshot submission for staff to review and manually add to
+    the actual program — this never touches anything a public page reads
+    from. Works for both an adult volunteer (their own passphrase) and a
+    family/participant submitting on behalf of a specific kid (family
+    passphrase covers any of their kids; an individual youth passphrase
+    covers just that one). Upserts: resubmitting for the same
+    production+person just updates their existing submission rather than
+    creating a duplicate."""
+    d = request.json or {}
+    passphrase = (d.get('passphrase') or '').strip().lower()
+    production_id = (d.get('production_id') or '').strip()
+    youth_id = (d.get('youth_id') or '').strip() or None
+    bio = (d.get('bio') or '').strip()
+    headshot_url = (d.get('headshot_url') or '').strip()
+    if not passphrase or not production_id:
+        return jsonify({'error': 'Passphrase and production are required'}), 400
+    conn = get_db()
+    production = fetchone(conn, 'SELECT id FROM productions WHERE id=%s', (production_id,))
+    if not production:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+
+    volunteer_id = None
+    resolved_youth_id = None
+    submitter_name = ''
+
+    if youth_id:
+        # Submitting on behalf of a kid — verify the passphrase actually
+        # covers that specific youth_id (either their family, or their own).
+        allowed_youth_ids = set()
+        family = fetchone(conn, 'SELECT id FROM families WHERE LOWER(passphrase)=%s', (passphrase,))
+        if family:
+            kids = fetchall(conn, 'SELECT id FROM youth_participants WHERE family_id=%s', (family['id'],)) or []
+            allowed_youth_ids = {k['id'] for k in kids}
+        else:
+            youth = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase,))
+            if youth:
+                allowed_youth_ids = {youth['id']}
+        if youth_id not in allowed_youth_ids:
+            conn.close()
+            return jsonify({'error': 'Passphrase not found'}), 401
+        resolved_youth_id = youth_id
+        yp = fetchone(conn, 'SELECT first_name, last_name FROM youth_participants WHERE id=%s', (youth_id,))
+        submitter_name = f"{yp['first_name']} {yp['last_name']}" if yp else ''
+    else:
+        volunteer = fetchone(conn, 'SELECT id, name FROM volunteers WHERE LOWER(portal_passphrase)=%s', (passphrase,))
+        if not volunteer:
+            conn.close()
+            return jsonify({'error': 'Passphrase not found'}), 401
+        volunteer_id = volunteer['id']
+        submitter_name = volunteer.get('name') or ''
+
+    if resolved_youth_id:
+        existing = fetchone(conn, 'SELECT id FROM bio_submissions WHERE production_id=%s AND youth_id=%s', (production_id, resolved_youth_id))
+    else:
+        existing = fetchone(conn, 'SELECT id FROM bio_submissions WHERE production_id=%s AND volunteer_id=%s', (production_id, volunteer_id))
+
+    if existing:
+        execute(conn, "UPDATE bio_submissions SET bio=%s, headshot_url=%s, submitter_name=%s, updated_at=NOW(), status='submitted' WHERE id=%s",
+            (bio, headshot_url, submitter_name, existing['id']))
+        sid = existing['id']
+    else:
+        sid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO bio_submissions
+            (id, production_id, volunteer_id, youth_id, submitter_name, bio, headshot_url)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+            (sid, production_id, volunteer_id, resolved_youth_id, submitter_name, bio, headshot_url))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM bio_submissions WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/portal/my-bio-submission')
+def portal_get_my_bio_submission():
+    """So the portal can pre-fill the form with whatever was submitted last
+    time, instead of always starting blank."""
+    passphrase = (request.args.get('passphrase') or '').strip().lower()
+    production_id = (request.args.get('production_id') or '').strip()
+    youth_id = (request.args.get('youth_id') or '').strip() or None
+    if not passphrase or not production_id:
+        return jsonify({'error': 'Passphrase and production are required'}), 400
+    conn = get_db()
+    if youth_id:
+        row = fetchone(conn, 'SELECT * FROM bio_submissions WHERE production_id=%s AND youth_id=%s', (production_id, youth_id))
+    else:
+        volunteer = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(portal_passphrase)=%s', (passphrase,))
+        row = fetchone(conn, 'SELECT * FROM bio_submissions WHERE production_id=%s AND volunteer_id=%s', (production_id, volunteer['id'])) if volunteer else None
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/productions/<pid>/bio-submissions')
+def get_bio_submissions(pid):
+    """Staff-facing review inbox — this is the only place these
+    submissions are ever read back out, on purpose."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT * FROM bio_submissions
+        WHERE production_id=%s ORDER BY submitted_at DESC''', (pid,)) or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/productions/<pid>/bio-submissions/<sid>', methods=['DELETE'])
+def delete_bio_submission(pid, sid):
+    """Staff clear a submission out of the inbox once they've copied it
+    into the actual program."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM bio_submissions WHERE id=%s AND production_id=%s', (sid, pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/volunteers/backfill-passphrases', methods=['POST'])
+def backfill_volunteer_passphrases():
+    """Same idea as the existing youth passphrase backfill — one-time admin
+    action to give every volunteer missing one a default portal passphrase
+    (random words), so staff can actually hand these out to cast
+    members once they're cast."""
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    volunteers = fetchall(conn, "SELECT id, name FROM volunteers WHERE portal_passphrase IS NULL OR portal_passphrase=''") or []
+    count = 0
+    for v in volunteers:
+        parts = (v.get('name') or '').strip().split(' ', 1)
+        first = parts[0] if parts else ''
+        last = parts[1] if len(parts) > 1 else ''
+        pp = default_passphrase(first, last)
+        execute(conn, 'UPDATE volunteers SET portal_passphrase=%s WHERE id=%s', (pp, v['id']))
+        count += 1
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'updated': count})
 
 @app.route('/api/portal/announcements')
 def get_portal_announcements():
@@ -9857,8 +13816,9 @@ def portal_contact_production():
     recipients = get_recipient_emails(s)
     if recipients:
         send_email(recipients, f'Portal Message: {d.get("subject","")}',
-            f'<p style="font-family:sans-serif">From: {d.get("from_name","")} ({d.get("from_email","")})<br/>'
-            f'Production: {prod["name"]}<br/><br/>{d.get("message","")}</p>')
+            build_hwtc_email_html(f'Portal Message: {d.get("subject","")}',
+            f'<p>From: {d.get("from_name","")} ({d.get("from_email","")})<br/>'
+            f'Production: {prod["name"]}<br/><br/>{d.get("message","")}</p>'))
     return jsonify({'ok': True})
 
 
@@ -9880,12 +13840,15 @@ def portal_program_instructor(pid):
 @app.route('/api/portal/participant/<yid>')
 def portal_get_participant(yid):
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     errors = []
 
     # Program enrollments
     try:
         enrollments = fetchall(conn, '''SELECT ype.*, yp.name as program_name, yp.description,
-            yp.status as program_status, yp.instructor_id,
+            yp.status as program_status, yp.instructor_id, yp.portal_tab_order as program_portal_tab_order,
             v.name as instructor_name, v.bio as instructor_bio,
             v.photo_url as instructor_photo
             FROM youth_program_enrollments ype
@@ -9897,11 +13860,22 @@ def portal_get_participant(yid):
 
     # Productions
     try:
+        # cast_role is only surfaced once staff have actually published the
+        # cast list for that production — otherwise a family would see their
+        # kid's role (or even just that they're cast at all) before the
+        # reveal, which defeats the whole point of the countdown/hype flow.
+        # Also pulls branding (color/background/logo) and venue/date fields
+        # the portal's hero and overview sections read but this query was
+        # never actually selecting.
         productions = fetchall(conn, '''SELECT p.id, p.name, p.stage, p.status,
-            p.description, p.image_url, p.director, p.venue,
-            ypm.role as cast_role, ypm.id as member_id
+            p.description, p.image_url, p.director, p.venue, p.portal_tab_order,
+            p.portal_color, p.portal_image_url, p.portal_logo_url,
+            p.performance_location, p.start_date, p.end_date,
+            CASE WHEN aset.cast_list_published THEN ypm.role ELSE NULL END as cast_role,
+            ypm.id as member_id
             FROM youth_production_members ypm
             JOIN productions p ON ypm.production_id=p.id
+            LEFT JOIN audition_settings aset ON aset.context_type='production' AND aset.context_id=p.id
             WHERE ypm.youth_id=%s ORDER BY p.name''', (yid,))
     except Exception as e:
         productions = []; errors.append(f'productions: {e}')
@@ -9956,6 +13930,9 @@ def portal_get_participant(yid):
 @app.route('/api/portal/youth/<yid>/profile')
 def portal_youth_profile(yid):
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     youth = fetchone(conn, '''SELECT y.*, f.name as family_name
         FROM youth_participants y LEFT JOIN families f ON y.family_id=f.id
         WHERE y.id=%s''', (yid,))
@@ -9966,14 +13943,19 @@ def portal_youth_profile(yid):
     youth['waivers'] = fetchall(conn, '''SELECT yw.*, wt.name as type_name, wt.template_body, wt.can_sign_online
         FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id
         WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC''', (yid,))
-    # Get signable waivers not yet signed  -  includes program-required ones
+    # Get signable waivers not yet signed  -  includes program- and
+    # production-required ones.
     signed_ids = [w['waiver_type_id'] for w in youth['waivers']]
     age = compute_age(youth.get('dob'))
     all_signable = fetchall(conn, "SELECT * FROM waiver_types WHERE can_sign_online=TRUE ORDER BY name")
     all_signable = [w for w in all_signable if waiver_applies_to_age(w, age)]
-    # Also include program-required waivers even if not marked can_sign_online (show as required)
+    # Also include program- and production-required waivers even if not
+    # marked can_sign_online (show as required), scoped to what this
+    # participant is actually enrolled/cast in.
     prog_ids = [e['program_id'] for e in fetchall(conn,
         'SELECT program_id FROM youth_program_enrollments WHERE youth_id=%s', (yid,))]
+    prod_ids_for_waivers = [m['production_id'] for m in fetchall(conn,
+        'SELECT production_id FROM youth_production_members WHERE youth_id=%s', (yid,))]
     prog_required = []
     if prog_ids:
         placeholders = ','.join(['%s']*len(prog_ids))
@@ -9981,9 +13963,28 @@ def portal_youth_profile(yid):
             JOIN waiver_types wt ON prw.waiver_type_id=wt.id
             WHERE prw.program_id IN ({placeholders})''', tuple(prog_ids))
         prog_required = [w for w in prog_required if waiver_applies_to_age(w, age)]
-    # Merge: signable + program-required not yet signed, deduplicated
+    prod_required = []
+    if prod_ids_for_waivers:
+        placeholders = ','.join(['%s']*len(prod_ids_for_waivers))
+        prod_required = fetchall(conn, f'''SELECT wt.* FROM production_required_waivers prw
+            JOIN waiver_types wt ON prw.waiver_type_id=wt.id
+            WHERE prw.production_id IN ({placeholders})''', tuple(prod_ids_for_waivers))
+        prod_required = [w for w in prod_required if waiver_applies_to_age(w, age)]
+    # A waiver type tied to SOME specific program or production requirement
+    # anywhere in the system is "scoped" — it should only ever show as
+    # needed for a participant actually in one of those programs/
+    # productions, not for every family member just because it's marked
+    # can_sign_online. A waiver type with no such link at all is general
+    # (liability, media release, code of conduct, etc.) and keeps applying
+    # to everyone as before. Without this split, a production-specific
+    # waiver that happens to be online-signable was showing up for kids
+    # who were never in that production at all.
+    scoped_waiver_ids = {r['waiver_type_id'] for r in fetchall(conn, 'SELECT DISTINCT waiver_type_id FROM program_required_waivers')} \
+        | {r['waiver_type_id'] for r in fetchall(conn, 'SELECT DISTINCT waiver_type_id FROM production_required_waivers')}
+    all_signable = [w for w in all_signable if w['id'] not in scoped_waiver_ids]
+    # Merge: general signable + this participant's own program/production-required, deduplicated
     all_needed = {w['id']: w for w in all_signable}
-    for w in prog_required:
+    for w in prog_required + prod_required:
         if w['id'] not in all_needed:
             w = dict(w); w['required_by_program'] = True
             all_needed[w['id']] = w
@@ -9999,6 +14000,9 @@ def portal_set_shirt_size(yid):
     if size not in valid:
         return jsonify({'error': 'Invalid size'}), 400
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     execute(conn, 'UPDATE youth_participants SET shirt_size=%s WHERE id=%s', (size or None, yid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'shirt_size': size})
@@ -10011,6 +14015,9 @@ def portal_sign_youth_waiver(yid):
     if not waiver_type_id or not signed_name:
         return jsonify({'error': 'Waiver type and signature required'}), 400
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     # Verify waiver type exists and can be signed online
     wt = fetchone(conn, 'SELECT * FROM waiver_types WHERE id=%s AND can_sign_online=TRUE', (waiver_type_id,))
     if not wt:
@@ -10038,6 +14045,9 @@ def portal_sign_youth_waiver(yid):
 def portal_youth_request_update(yid):
     d = request.json or {}
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     # Log a note for staff to review
     nid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,date,hours,notes,status)
@@ -10241,8 +14251,8 @@ def update_youth_prod_member(pid, mid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, 'UPDATE youth_production_members SET role=%s WHERE id=%s AND production_id=%s',
-        (d.get('role',''), mid, pid))
+    execute(conn, 'UPDATE youth_production_members SET role=%s, cast_section=%s, cast_title=%s WHERE id=%s AND production_id=%s',
+        (d.get('role',''), d.get('cast_section',''), d.get('cast_title',''), mid, pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -10312,6 +14322,164 @@ def delete_production_conflict(pid, cid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+def _roster_status(signin_rows, conflict_rows, any_event_started):
+    """Daily-overview roster status for one person, shared by the public
+    lobby display and the staff production overview so they can't drift."""
+    if conflict_rows:
+        return conflict_rows[-1]['status']  # called-out ahead of time: absent/sick/late/leaving_early
+    if signin_rows:
+        return 'signed_out' if all(r.get('signed_out_at') for r in signin_rows) else 'signed_in'
+    # No call-out on record and never signed in — only a genuine "no show"
+    # once today's event has actually started; before that, still expected.
+    return 'no_show' if any_event_started else 'not_yet'
+
+
+@app.route('/api/public/daily-overview/<pid>')
+def public_daily_overview_display(pid):
+    """Same data as the admin Daily Overview, minus phone/email (a lobby/
+    backstage screen doesn't need contact info) — meant to be left open on
+    a tablet or TV during rehearsal, not logged into. Same public-but-not-
+    linked-anywhere model as kiosk.html: no login wall, but nothing here
+    is discoverable unless you already have the URL."""
+    target_date = request.args.get('date') or today_eastern().isoformat()
+    conn = get_db()
+
+    prod = fetchone(conn, 'SELECT id, name, status, portal_color, portal_logo_url, start_date FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        conn.close()
+        return jsonify({'error': 'Production not found'}), 404
+
+    events = fetchall(conn, '''SELECT e.*, et.name as event_type_name, et.color as event_type_color
+        FROM events e LEFT JOIN event_types et ON e.event_type_id=et.id
+        WHERE e.production_id=%s AND e.event_date=%s
+        ORDER BY e.start_time ASC NULLS LAST''', (pid, target_date))
+    event_ids = [e['id'] for e in events]
+
+    # This week's schedule — a compact look-ahead, not just today.
+    week_end = (date.fromisoformat(target_date) + timedelta(days=7)).isoformat()
+    week_events = fetchall(conn, '''SELECT e.id, e.name, e.event_date, e.start_time, e.location, et.name AS event_type_name
+        FROM events e LEFT JOIN event_types et ON e.event_type_id=et.id
+        WHERE e.production_id=%s AND e.event_date > %s AND e.event_date <= %s
+        ORDER BY e.event_date ASC, e.start_time ASC NULLS LAST
+        LIMIT 8''', (pid, target_date, week_end))
+
+    # Countdown to the next performance — prefer an actual scheduled
+    # performance date; fall back to the production's start_date if it
+    # doesn't use the ticketing/performances feature.
+    next_perf = fetchone(conn, '''SELECT performance_date, name FROM performances
+        WHERE production_id=%s AND performance_date >= %s
+        ORDER BY performance_date ASC LIMIT 1''', (pid, target_date))
+    countdown = None
+    if next_perf and next_perf.get('performance_date'):
+        countdown = {'date': next_perf['performance_date'], 'label': next_perf.get('name') or 'Opening'}
+    elif prod.get('start_date') and prod['start_date'] >= target_date:
+        countdown = {'date': prod['start_date'], 'label': 'Opening'}
+
+    crew = fetchall(conn, '''SELECT pm.id as member_id, pm.role, pm.department, pm.status as member_status,
+        v.id as volunteer_id, v.name, v.birthday
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s ORDER BY v.name''', (pid,))
+
+    youth = fetchall(conn, '''SELECT ypm.id as member_id, ypm.role,
+        y.id as youth_id, y.first_name, y.last_name, y.dob
+        FROM youth_production_members ypm JOIN youth_participants y ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,))
+
+    crew_signins = {}
+    youth_signins = {}
+    if event_ids:
+        ph = ','.join(['%s']*len(event_ids))
+        for row in fetchall(conn, f'''SELECT volunteer_id, event_id, signed_in_at, signed_out_at
+                FROM prod_attendance WHERE event_id IN ({ph})''', tuple(event_ids)):
+            crew_signins.setdefault(row['volunteer_id'], []).append(row)
+        for row in fetchall(conn, f'''SELECT youth_id, event_id, signed_in_at, signed_out_at
+                FROM youth_sign_ins WHERE event_id IN ({ph})''', tuple(event_ids)):
+            youth_signins.setdefault(row['youth_id'], []).append(row)
+
+    conflicts = fetchall(conn, '''SELECT pc.*, e.name as event_name
+        FROM production_conflicts pc LEFT JOIN events e ON pc.event_id=e.id
+        WHERE pc.production_id=%s AND (e.event_date=%s OR pc.event_id IS NULL)
+        ORDER BY pc.created_at DESC''', (pid, target_date))
+    conflicts_by_youth = {}
+    conflicts_by_volunteer = {}
+    for c in conflicts:
+        if c.get('youth_id'): conflicts_by_youth.setdefault(c['youth_id'], []).append(c)
+        if c.get('volunteer_id'): conflicts_by_volunteer.setdefault(c['volunteer_id'], []).append(c)
+
+    now_dt = now_eastern()
+    any_event_started = False
+    for e in events:
+        ev_date = e.get('event_date')
+        if not ev_date:
+            continue
+        if not hasattr(ev_date, 'year'):
+            try:
+                ev_date = datetime.strptime(str(ev_date)[:10], '%Y-%m-%d').date()
+            except Exception:
+                continue
+        ev_time = e.get('start_time')
+        if isinstance(ev_time, str):
+            try:
+                ev_time = datetime.strptime(ev_time, '%H:%M:%S').time() if len(ev_time) > 5 else datetime.strptime(ev_time, '%H:%M').time()
+            except Exception:
+                ev_time = None
+        ev_start = datetime.combine(ev_date, ev_time or datetime.min.time())
+        if ev_start <= now_dt:
+            any_event_started = True
+            break
+
+    today_md = target_date[5:]  # 'MM-DD' slice of an 'YYYY-MM-DD' string
+
+    crew_out = []
+    birthdays = []
+    for m in crew:
+        rows = crew_signins.get(m['volunteer_id'], [])
+        conf = conflicts_by_volunteer.get(m['volunteer_id'], [])
+        signed_in_at = rows[-1]['signed_in_at'] if rows else None
+        crew_out.append({**m, 'status': _roster_status(rows, conf, any_event_started), 'signed_in_at': signed_in_at})
+        if m.get('birthday') and str(m['birthday'])[5:] == today_md:
+            birthdays.append(m['name'])
+
+    youth_out = []
+    for y in youth:
+        rows = youth_signins.get(y['youth_id'], [])
+        conf = conflicts_by_youth.get(y['youth_id'], [])
+        signed_in_at = rows[-1]['signed_in_at'] if rows else None
+        youth_out.append({**y, 'status': _roster_status(rows, conf, any_event_started), 'signed_in_at': signed_in_at})
+        if y.get('dob') and str(y['dob'])[5:] == today_md:
+            birthdays.append(f"{y.get('first_name','')} {y.get('last_name','')}".strip())
+
+    all_statuses = [r['status'] for r in crew_out+youth_out]
+    summary = {
+        'total': len(all_statuses),
+        'signed_in': all_statuses.count('signed_in'),
+        'signed_out': all_statuses.count('signed_out'),
+        'not_yet': all_statuses.count('not_yet'),
+        'called_out': sum(1 for s in all_statuses if s in ('absent','sick','late','leaving_early')),
+        'no_show': all_statuses.count('no_show'),
+    }
+
+    # Recent arrivals feed - last 8 sign-ins, most recent first.
+    recent = sorted(
+        [{'name': f"{r.get('first_name','')} {r.get('last_name','')}".strip(), 'at': r['signed_in_at']} for r in youth_out if r.get('signed_in_at')]
+        + [{'name': r.get('name',''), 'at': r['signed_in_at']} for r in crew_out if r.get('signed_in_at')],
+        key=lambda r: r['at'], reverse=True
+    )[:8]
+
+    conn.close()
+    return jsonify({
+        'production': prod, 'date': target_date, 'events': events,
+        'week_events': week_events, 'countdown': countdown,
+        'crew': crew_out, 'youth': youth_out, 'summary': summary,
+        'birthdays': birthdays, 'recent_signins': recent,
+    })
+
+
+@app.route('/daily-overview-display/<pid>')
+def daily_overview_display_page(pid):
+    return send_from_directory('static', 'daily-overview-display.html')
+
+
 @app.route('/api/productions/<pid>/daily-overview')
 def get_production_daily_overview(pid):
     """Single-day command-center view for a production: today's (or a chosen
@@ -10369,15 +14537,6 @@ def get_production_daily_overview(pid):
         if c.get('youth_id'): conflicts_by_youth.setdefault(c['youth_id'], []).append(c)
         if c.get('volunteer_id'): conflicts_by_volunteer.setdefault(c['volunteer_id'], []).append(c)
 
-    def roster_status(signin_rows, conflict_rows):
-        if conflict_rows:
-            return conflict_rows[-1]['status']  # called-out ahead of time: absent/sick/late/leaving_early
-        if signin_rows:
-            return 'signed_out' if all(r.get('signed_out_at') for r in signin_rows) else 'signed_in'
-        # No call-out on record and never signed in — only a genuine "no show"
-        # once today's event has actually started; before that, still expected.
-        return 'no_show' if any_event_started else 'not_yet'
-
     # Has at least one of today's events already started? Drives the not_yet vs no_show split above.
     now_dt = now_eastern()
     any_event_started = False
@@ -10405,7 +14564,7 @@ def get_production_daily_overview(pid):
     for m in crew:
         rows = crew_signins.get(m['volunteer_id'], [])
         conf = conflicts_by_volunteer.get(m['volunteer_id'], [])
-        crew_out.append({**m, 'status': roster_status(rows, conf),
+        crew_out.append({**m, 'status': _roster_status(rows, conf, any_event_started),
             'conflict': conf[-1] if conf else None,
             'signed_in_at': rows[-1]['signed_in_at'] if rows else None,
             'signed_out_at': rows[-1]['signed_out_at'] if rows and rows[-1].get('signed_out_at') else None})
@@ -10414,7 +14573,7 @@ def get_production_daily_overview(pid):
     for y in youth:
         rows = youth_signins.get(y['youth_id'], [])
         conf = conflicts_by_youth.get(y['youth_id'], [])
-        youth_out.append({**y, 'status': roster_status(rows, conf),
+        youth_out.append({**y, 'status': _roster_status(rows, conf, any_event_started),
             'conflict': conf[-1] if conf else None,
             'signed_in_at': rows[-1]['signed_in_at'] if rows else None,
             'signed_out_at': rows[-1]['signed_out_at'] if rows and rows[-1].get('signed_out_at') else None})
@@ -10525,10 +14684,11 @@ def update_production_about(pid):
     execute(conn, '''UPDATE productions SET
         director=%s, venue=%s, performance_location=%s,
         start_date=%s, end_date=%s, description=%s,
-        portal_color=%s, portal_image_url=%s WHERE id=%s''',
+        portal_color=%s, portal_image_url=%s, portal_logo_url=%s WHERE id=%s''',
         (d.get('director',''), d.get('venue',''), d.get('performance_location',''),
          d.get('start_date') or None, d.get('end_date') or None,
-         d.get('description',''), d.get('portal_color',''), d.get('portal_image_url',''), pid))
+         d.get('description',''), d.get('portal_color',''), d.get('portal_image_url',''),
+         d.get('portal_logo_url',''), pid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -10574,7 +14734,110 @@ def push_announcement(pid, aid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    execute(conn, "UPDATE portal_announcements SET status='published' WHERE id=%s AND production_id=%s", (aid, pid))
+    execute(conn, '''UPDATE portal_announcements
+        SET status='published', pushed_at=NOW(), push_count=COALESCE(push_count,0)+1
+        WHERE id=%s AND production_id=%s''', (aid, pid))
+    conn.commit()
+    ann = fetchone(conn, 'SELECT * FROM portal_announcements WHERE id=%s', (aid,))
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not ann or not prod:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+
+    # Gather recipient emails: guardians of youth cast (Rising Stars) + adult crew/volunteers
+    recipients = set()
+    youth_cast = fetchall(conn, '''SELECT y.id FROM youth_participants y
+        JOIN youth_production_members ypm ON ypm.youth_id=y.id
+        WHERE ypm.production_id=%s AND y.status='active' ''', (pid,))
+    youth_without_email = 0
+    for y in youth_cast:
+        guardians = fetchall(conn, "SELECT email FROM youth_guardians WHERE youth_id=%s AND email IS NOT NULL AND email!=''", (y['id'],))
+        if not guardians:
+            youth_without_email += 1
+        for g in guardians:
+            if g['email']: recipients.add(g['email'].strip().lower())
+    crew = fetchall(conn, '''SELECT v.email FROM production_members pm
+        JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s''', (pid,))
+    crew_without_email = 0
+    for v in crew:
+        if v['email']: recipients.add(v['email'].strip().lower())
+        else: crew_without_email += 1
+    conn.close()
+
+    if not recipients:
+        return jsonify({'ok': True, 'sent_to': 0, 'warning':
+            f'No email addresses found. Cast on roster: {len(youth_cast)} '
+            f'({youth_without_email} with no guardian email on file). '
+            f'Crew on roster: {len(crew)} ({crew_without_email} with no email on file). '
+            f'Check the Cast & Crew tab to confirm people are actually added and have emails.'})
+
+    prod_name = prod.get('name', 'Production')
+    html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+      <div style="background:#0d9488;padding:24px;border-radius:8px 8px 0 0">
+        <div style="color:rgba(255,255,255,0.8);font-size:13px;margin-bottom:4px">New Announcement</div>
+        <h2 style="color:white;margin:0;font-size:22px">{prod_name}</h2>
+      </div>
+      <div style="background:#f8fafc;padding:28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
+        <h3 style="color:#1e293b;margin:0 0 12px 0;font-size:18px">{ann['title']}</h3>
+        <div style="white-space:pre-wrap;font-size:15px;line-height:1.8;color:#334155">{ann['body']}</div>
+        <hr style="border:none;border-top:1px solid #e2e8f0;margin:24px 0"/>
+        <p style="font-size:12px;color:#94a3b8;margin:0">
+          Posted by Horizon West Theater Company for <strong>{prod_name}</strong>.
+          Log in to the family portal to view and respond to announcements.
+        </p>
+      </div>
+    </div>'''
+    try:
+        fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
+        send_email(list(recipients), f'{prod_name}: {ann["title"]}', build_hwtc_email_html(f'{prod_name}: {ann["title"]}', html_body), fi.get('email') or None, fi.get('name') or None)
+        return jsonify({'ok': True, 'sent_to': len(recipients)})
+    except Exception as e:
+        app.logger.error(f'push_announcement (production) email error: {e}')
+        return jsonify({'ok': True, 'sent_to': 0, 'warning': str(e)})
+
+@app.route('/api/youth-programs/<pid>/co-instructors', methods=['GET'])
+def get_program_co_instructors(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT pci.volunteer_id, v.name AS volunteer_name, v.email AS volunteer_email
+        FROM program_co_instructors pci JOIN volunteers v ON v.id=pci.volunteer_id
+        WHERE pci.program_id=%s ORDER BY v.name''', (pid,))
+    conn.close()
+    return jsonify(rows or [])
+
+@app.route('/api/youth-programs/<pid>/co-instructors', methods=['POST'])
+def add_program_co_instructor(pid):
+    err = require_permission('youth')
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    vid = d.get('volunteer_id')
+    if not vid:
+        return jsonify({'error': 'volunteer_id required'}), 400
+    conn = get_db()
+    prog = fetchone(conn, 'SELECT instructor_id FROM youth_programs WHERE id=%s', (pid,))
+    if not prog:
+        conn.close()
+        return jsonify({'error': 'Program not found'}), 404
+    if prog.get('instructor_id') == vid:
+        conn.close()
+        return jsonify({'error': 'That volunteer is already the primary instructor'}), 400
+    try:
+        execute(conn, 'INSERT INTO program_co_instructors (id, program_id, volunteer_id) VALUES (%s,%s,%s)',
+            (str(uuid.uuid4()), pid, vid))
+        conn.commit()
+    except Exception:
+        conn.rollback()  # already added — fine, treat as success
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/youth-programs/<pid>/co-instructors/<vid>', methods=['DELETE'])
+def remove_program_co_instructor(pid, vid):
+    err = require_permission('youth')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM program_co_instructors WHERE program_id=%s AND volunteer_id=%s', (pid, vid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -10624,7 +14887,10 @@ def remove_program_required_waiver(pid, wid):
 
 @app.route('/api/productions/<pid>/waivers', methods=['POST'])
 def add_prod_waiver(pid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     d = request.json or {}
     rid = str(uuid.uuid4())
@@ -10640,7 +14906,10 @@ def add_prod_waiver(pid):
 
 @app.route('/api/productions/<pid>/waivers/<wid>', methods=['DELETE'])
 def remove_prod_waiver(pid, wid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM production_required_waivers WHERE production_id=%s AND waiver_type_id=%s', (pid, wid))
@@ -10651,7 +14920,10 @@ def remove_prod_waiver(pid, wid):
 def set_production_callout_recipients(pid):
     """Set which added crew members get a text when someone calls out for this
     production. Texts go to whatever phone number is on their volunteer profile."""
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     d = request.json or {}
     volunteer_ids = d.get('volunteer_ids') or []
@@ -10709,8 +14981,22 @@ def kiosk_volunteers():
 
 @app.route('/api/kiosk/events')
 def kiosk_events():
+    # When checking in as a paid instructor, only events under programs
+    # flagged is_paid_instruction AND assigned to that specific instructor
+    # should be selectable — never the general volunteer event list.
+    paid_instruction = request.args.get('paid_instruction') == '1'
+    volunteer_id = request.args.get('volunteer_id')
     conn = get_db()
-    events = fetchall(conn, """
+    extra_join = ''
+    extra_where = ''
+    params = []
+    if paid_instruction:
+        extra_join = "LEFT JOIN youth_programs pg ON e.program_id=pg.id"
+        extra_where = "AND pg.is_paid_instruction=TRUE"
+        if volunteer_id:
+            extra_where += " AND pg.instructor_id=%s"
+            params.append(volunteer_id)
+    events = fetchall(conn, f"""
         SELECT e.*,
                p.name as production_name,
                COALESCE(p.stage,'mainstage') as stage,
@@ -10718,22 +15004,29 @@ def kiosk_events():
                el.action as current_status
         FROM events e
         LEFT JOIN productions p ON e.production_id=p.id
+        {extra_join}
         LEFT JOIN (SELECT event_id, action FROM event_logs
             WHERE (event_id, timestamp) IN (
                 SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id
             )) el ON el.event_id=e.id
-        WHERE e.status='open'
+        WHERE (e.status='open'
            OR el.action='open'
            OR (e.status IN ('draft','published','in_progress')
                AND e.event_date::date >= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date - INTERVAL '1 day'
-               AND e.event_date::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date + INTERVAL '1 day')
+               AND e.event_date::date <= (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date + INTERVAL '1 day'))
+        {extra_where}
         ORDER BY CASE WHEN e.status='open' OR el.action='open' THEN 0 ELSE 1 END, e.event_date ASC NULLS LAST
-    """)
+    """, tuple(params))
     conn.close()
     # Mark events as open if event_logs says so
     for e in events:
         if e.get('current_status') == 'open':
             e['status'] = 'open'
+    if paid_instruction and volunteer_id:
+        conn2 = get_db()
+        for e in events:
+            e['can_self_open'] = (e.get('status') != 'open') and bool(_elic_for_event(conn2, volunteer_id, e['id']))
+        conn2.close()
     return jsonify(events)
 
 @app.route('/api/kiosk/submit', methods=['POST'])
@@ -10749,10 +15042,13 @@ def kiosk_submit():
         return jsonify({'error': 'Invalid hours value'}), 400
     pid = str(uuid.uuid4())
     conn = get_db()
+    pay_type = determine_kiosk_pay_type(conn, d.get('volunteer_id'), d.get('event_id'))
+    if d.get('paid_instruction'):
+        pay_type = 'paid_instruction'
     today_row = fetchone(conn, "SELECT CURRENT_DATE::text as today")
     today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
-    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
-        (pid, d.get('volunteer_id'), d.get('event',''), d.get('event_id'), today, hours, d.get('role',''), d.get('notes','')))
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)",
+        (pid, d.get('volunteer_id'), d.get('event',''), d.get('event_id'), today, hours, d.get('role',''), d.get('notes',''), pay_type))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -10860,16 +15156,22 @@ def kiosk_begin_session():
     if not vol_id: return jsonify({'error': 'Missing volunteer_id'}), 400
     conn = get_db()
     pay_type = determine_kiosk_pay_type(conn, vol_id, event_id)
+    if d.get('paid_instruction'):
+        pay_type = 'paid_instruction'
     # Require event or override reason
     if not event_id and not override_reason:
         conn.close()
         return jsonify({'error': 'Please select an event or provide an override reason.'}), 400
-    # Check event is open if one is specified
+    # Check event is open if one is specified — a paid instructor who's also
+    # their class's ELIC can open it themselves right here instead of being
+    # blocked on a separate ELIC/admin.
     if event_id:
         evt = fetchone(conn, 'SELECT status, name FROM events WHERE id=%s', (event_id,))
         if evt and evt.get('status') != 'open':
-            conn.close()
-            return jsonify({'error': 'This event is not open yet. Please wait for staff to open it.'}), 400
+            opened = d.get('paid_instruction') and _self_open_event_for_instructor(conn, vol_id, event_id)
+            if not opened:
+                conn.close()
+                return jsonify({'error': 'This event is not open yet. Please wait for staff to open it.'}), 400
     existing = fetchone(conn, "SELECT id FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
     if existing: conn.close(); return jsonify({'error': 'Already volunteering  -  please stop your current session first.'}), 400
     event_name = d.get('event_name','')
@@ -10921,9 +15223,10 @@ def kiosk_stop_session():
                 vol_name = vol['name'] if vol else 'A volunteer'
                 if recipients:
                     send_email(recipients, 'RoleCall  -  Hours Submitted: ' + vol_name,
-                        '<p style="font-family:sans-serif"><strong>' + vol_name + '</strong> logged <strong>'
+                        build_hwtc_email_html('RoleCall  -  Hours Submitted: ' + vol_name,
+                        '<p><strong>' + vol_name + '</strong> logged <strong>'
                         + str(elapsed_hours) + ' hours</strong> via kiosk timer for <strong>'
-                        + (sess['event_name'] or 'a session') + '</strong>.</p>')
+                        + (sess['event_name'] or 'a session') + '</strong>.</p>'))
         except Exception:
             pass
         conn.close()
@@ -10948,9 +15251,9 @@ def kiosk_stop_session_by_id():
     today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
     execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed' WHERE id=%s", (elapsed_hours, sid))
     pid = str(uuid.uuid4())
-    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')",
+    execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)",
         (pid, sess['volunteer_id'], sess['event_name'] or 'Volunteer Session',
-         sess['event_id'], today, elapsed_hours, sess['role'], 'Stopped by ELIC'))
+         sess['event_id'], today, elapsed_hours, sess['role'], 'Stopped by ELIC', sess.get('pay_type') or 'volunteer'))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': elapsed_hours})
 
@@ -10977,6 +15280,8 @@ def kiosk_log_full_event():
     if not vol_id or not event_id: return jsonify({'error': 'Missing volunteer_id or event_id'}), 400
     conn = get_db()
     pay_type = determine_kiosk_pay_type(conn, vol_id, event_id)
+    if d.get('paid_instruction'):
+        pay_type = 'paid_instruction'
     evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
     if not evt: conn.close(); return jsonify({'error': 'Event not found'}), 404
     hours = None
@@ -11015,12 +15320,13 @@ def kiosk_submit_independent():
         conn.close(); return jsonify({'error': 'Volunteer not found'}), 404
     from datetime import date
     today = date.today().isoformat()
+    pay_type = 'paid_instruction' if d.get('paid_instruction') else 'volunteer'
     pid = str(uuid.uuid4())
     execute(conn, """INSERT INTO pending_hours
-        (id, volunteer_id, event, event_id, date, hours, role, notes, status)
-        VALUES (%s,%s,%s,NULL,%s,%s,%s,%s,'pending')""",
+        (id, volunteer_id, event, event_id, date, hours, role, notes, status, pay_type)
+        VALUES (%s,%s,%s,NULL,%s,%s,%s,%s,'pending',%s)""",
         (pid, vol_id, activity, today, hours,
-         'Independent / Off-site', d.get('description','').strip()))
+         'Independent / Off-site', d.get('description','').strip(), pay_type))
     conn.commit()
     # Notify admins
     try:
@@ -11029,7 +15335,8 @@ def kiosk_submit_independent():
         if recipients and s.get('alert_pending_hours'):
             send_email(recipients,
                 f'RoleCall  -  Independent Hours Submitted: {vol["name"]}',
-                f'<p style="font-family:sans-serif"><strong>{vol["name"]}</strong> submitted <strong>{hours}h</strong> of independent work: <strong>{activity}</strong>.</p><p style="font-family:sans-serif;color:#666">Please review and approve in RoleCall → Hours.</p>')
+                build_hwtc_email_html(f'RoleCall  -  Independent Hours Submitted: {vol["name"]}',
+                f'<p><strong>{vol["name"]}</strong> submitted <strong>{hours}h</strong> of independent work: <strong>{activity}</strong>.</p><p style="color:#666">Please review and approve in RoleCall → Hours.</p>'))
     except Exception:
         pass
     conn.close()
@@ -11125,7 +15432,7 @@ def join_submit():
                   <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{d.get('notes',' - ') or ' - '}</td></tr>
                 </table>
             </div>'''
-            send_email(recipients, f'New Volunteer Interest  -  {d["name"]}', html_body)
+            send_email(recipients, f'New Volunteer Interest  -  {d["name"]}', build_hwtc_email_html(f'New Volunteer Interest  -  {d["name"]}', html_body))
     except Exception:
         pass
     # If Director is selected, send director interest form email
@@ -11148,7 +15455,7 @@ def join_submit():
                     f'<p style="color:#9ca3af;font-size:12px;margin-top:24px">Horizon West Theater Company &mdash; rolecall.hwtco.org</p>'
                     f'</div>'
                 )
-                send_email([applicant_email], 'HWTC Director Interest Form', dir_html)
+                send_email([applicant_email], 'HWTC Director Interest Form', build_hwtc_email_html('HWTC Director Interest Form', dir_html))
     except Exception as e:
         app.logger.warning(f'Director interest email failed: {e}')
     conn.close()
@@ -11541,12 +15848,174 @@ def build_enrollment_report(start_date, end_date):
     }
 
 
+def _esc(s):
+    """Lightweight HTML-escape for names/labels going into report emails —
+    avoids `import html` since that name is already used as a local variable
+    throughout this file."""
+    if s is None:
+        return ''
+    return (str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            .replace('"', '&quot;').replace("'", '&#39;'))
+
+def _hours_between(start_time, end_time):
+    """Duration in hours between two 'HH:MM' strings. Mirrors the same
+    calculation BloomBooks uses for its Pricing Calculator / studio charges,
+    so a session's paid hours are computed identically everywhere."""
+    if not start_time or not end_time:
+        return 0.0
+    try:
+        import datetime as _dt
+        sh, sm = [int(x) for x in start_time.split(':')[:2]]
+        eh, em = [int(x) for x in end_time.split(':')[:2]]
+        start = sh * 60 + sm
+        end = eh * 60 + em
+        diff = end - start
+        if diff < 0:
+            diff += 24 * 60
+        return round(diff / 60.0, 2)
+    except Exception:
+        return 0.0
+
+def build_payroll_unpaid_hours_report():
+    """Every paid-instruction hour logged in RoleCall that hasn't yet been
+    linked to a payment in BloomBooks — exactly the same 'payable' definition
+    BloomBooks itself uses when someone records a contractor payment. Reads
+    BloomBooks' bb_contractor_payments/bb_contractor_payment_events tables
+    directly since both apps share the same Postgres database."""
+    conn = get_db()
+    programs = fetchall(conn, """SELECT id, name, instructor_id, pay_rate_type, pay_rate_amount,
+        meeting_start_time, meeting_end_time FROM youth_programs
+        WHERE is_paid_instruction=TRUE AND instructor_id IS NOT NULL""") or []
+    people = {}
+    for p in programs:
+        p = dict(p)
+        vol = fetchone(conn, 'SELECT id, name, email, bb_contractor_id FROM volunteers WHERE id=%s', (p['instructor_id'],))
+        if not vol:
+            continue
+        vol = dict(vol)
+        rate_type = p.get('pay_rate_type') or 'hourly'
+        rate_amount = float(p.get('pay_rate_amount') or 0)
+        session_hours = _hours_between(p.get('meeting_start_time') or '', p.get('meeting_end_time') or '')
+        events = fetchall(conn, 'SELECT id, name, event_date FROM events WHERE program_id=%s', (p['id'],)) or []
+        for e in events:
+            e = dict(e)
+            logged = fetchone(conn, """SELECT COALESCE(SUM(hours),0) as t FROM hours
+                WHERE event_id=%s AND volunteer_id=%s AND pay_type='paid_instruction'""", (e['id'], vol['id']))
+            logged_hours = float(logged['t']) if logged else 0.0
+            if logged_hours <= 0:
+                continue
+            already_paid = fetchone(conn, """SELECT 1 FROM bb_contractor_payment_events cpe
+                JOIN bb_contractor_payments cp ON cp.id = cpe.payment_id
+                WHERE cpe.rolecall_event_id=%s AND cp.status != 'void' LIMIT 1""", (e['id'],))
+            if already_paid:
+                continue
+            amount = rate_amount if rate_type == 'per_class' else round(rate_amount * session_hours, 2)
+            key = vol['id']
+            if key not in people:
+                people[key] = {
+                    'volunteer_id': vol['id'], 'name': vol.get('name') or 'Unknown',
+                    'email': vol.get('email'), 'linked_to_bloombooks': bool(vol.get('bb_contractor_id')),
+                    'total_owed': 0.0, 'lines': []
+                }
+            people[key]['lines'].append({
+                'program_name': p['name'], 'event_name': e['name'], 'event_date': e.get('event_date'),
+                'rate_type': rate_type, 'rate_amount': rate_amount,
+                'hours': session_hours if rate_type == 'hourly' else None, 'amount': amount
+            })
+            people[key]['total_owed'] += amount
+    conn.close()
+    people_list = sorted(people.values(), key=lambda x: -x['total_owed'])
+    for pp in people_list:
+        pp['total_owed'] = round(pp['total_owed'], 2)
+        pp['lines'].sort(key=lambda l: l.get('event_date') or '')
+    grand_total = round(sum(pp['total_owed'] for pp in people_list), 2)
+    return {'people': people_list, 'grand_total': grand_total, 'generated_at': datetime.now().isoformat()}
+
+def build_payroll_report_html(data, standalone_page=False, link=None):
+    """Renders the unpaid-payroll report. Used both inside the scheduled
+    email and on the token-linked standalone page (same content either way —
+    the standalone page just re-runs the query live so it's never stale).
+    Pass link to include a "View Live Report" button (used in the email —
+    the standalone page itself doesn't need to link to itself)."""
+    people = data['people']
+    if not people:
+        body = '<p style="color:#6b7280">Nothing outstanding right now — every logged paid-instruction hour has already been paid.</p>'
+    else:
+        rows = ''
+        for pp in people:
+            lines_html = ''.join(
+                f'''<tr style="font-size:12px;color:#6b7280">
+                    <td style="padding:4px 12px 4px 28px">{_esc(l['program_name'])} — {_esc(l['event_name'])}{f" ({l['event_date']})" if l.get('event_date') else ''}</td>
+                    <td style="padding:4px 12px;text-align:right">{f"{l['hours']}h × ${l['rate_amount']:,.2f}" if l['rate_type']=='hourly' else f"flat ${l['rate_amount']:,.2f}"}</td>
+                    <td style="padding:4px 12px;text-align:right">${l['amount']:,.2f}</td>
+                </tr>''' for l in pp['lines'])
+            flag = '' if pp['linked_to_bloombooks'] else '<div style="font-size:11px;color:#b45309;margin-top:2px"> Not yet linked to a contractor record in BloomBooks</div>'
+            rows += f'''
+            <tr style="background:#f9fafb"><td colspan="3" style="padding:10px 12px;font-weight:700;font-size:14px">{_esc(pp['name'])}
+                <span style="float:right">${pp['total_owed']:,.2f}</span>{flag}</td></tr>
+            {lines_html}'''
+        body = f'''<table style="width:100%;border-collapse:collapse;margin:16px 0">{rows}</table>
+        <div style="text-align:right;font-size:16px;font-weight:800;padding:12px;border-top:2px solid #145466">Total owed: ${data['grand_total']:,.2f}</div>'''
+    link_button = f'<div style="text-align:center;margin-top:20px"><a href="{link}" style="background:#145466;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:14px">View Live Report</a></div>' if link else ''
+    generated = parse_db_datetime(data['generated_at']) or datetime.now()
+    header = f'''<div style="font-family:-apple-system,sans-serif;max-width:680px;margin:0 auto">
+      <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px 28px;border-radius:12px 12px 0 0">
+        <h2 style="color:#fff;margin:0;font-size:20px">Unpaid Payroll — Paid Instruction Hours</h2>
+        <p style="color:rgba(255,255,255,0.8);margin:6px 0 0;font-size:13px">Generated {generated.strftime('%B %d, %Y at %-I:%M %p')}</p>
+      </div>
+      <div style="background:#fff;padding:24px 28px;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 12px 12px">
+        {body}
+        {link_button}
+      </div>
+    </div>'''
+    if standalone_page:
+        return f'<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Unpaid Payroll Report</title></head><body style="background:#f3f4f6;padding:20px 0">{header}</body></html>'
+    return header
+
+def _current_treasurer_contacts():
+    """Looks up the currently-serving Treasurer from the board roster, not a
+    fixed user — so this stays correct automatically if the role changes
+    hands, without anyone having to remember to update a recipient list."""
+    conn = get_db()
+    rows = fetchall(conn, "SELECT bm.email, bm.volunteer_id FROM board_members bm WHERE bm.role ILIKE '%%treasurer%%' AND bm.status='active'") or []
+    conn.close()
+    emails, phones = [], []
+    for r in rows:
+        if r.get('email'):
+            emails.append(r['email'])
+        if r.get('volunteer_id'):
+            conn2 = get_db()
+            vol = fetchone(conn2, 'SELECT phone FROM volunteers WHERE id=%s', (r['volunteer_id'],))
+            conn2.close()
+            if vol and vol.get('phone'):
+                phones.append(vol['phone'])
+    return emails, phones
+
+def _send_sms(to_phone, body):
+    """Returns (success, error_message) — error_message is None on success,
+    so failures can actually be shown to whoever's diagnosing them instead of
+    only ever landing in a server log nobody can see."""
+    ts = get_twilio_settings()
+    if not ts.get('account_sid') or not ts.get('auth_token') or not ts.get('from_phone'):
+        msg = 'Twilio is not configured — add an Account SID, Auth Token, and From Phone number in Settings.'
+        app.logger.warning('Twilio not configured — could not send SMS')
+        return False, msg
+    try:
+        from twilio.rest import Client as _TwClient
+        client = _TwClient(ts['account_sid'], ts['auth_token'])
+        client.messages.create(body=body, from_=ts['from_phone'], to=to_phone)
+        return True, None
+    except Exception as e:
+        app.logger.warning(f'SMS send failed to {to_phone}: {e}')
+        return False, str(e)
+
 def build_report_email_html(report_type, data, params=None):
     """Generate HTML email for a report."""
     from datetime import date
     today = date.today().strftime('%B %d, %Y')
     header = f'''<div style="font-family:-apple-system,sans-serif;max-width:700px;margin:0 auto">
     <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:12px 12px 0 0;color:#fff">
+        <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" alt="HWTC" style="height:36px;margin-bottom:10px"/>
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:1px;opacity:0.7;margin-bottom:6px">Horizon West Theater Company</div>
         <div style="font-size:22px;font-weight:800">{{}}</div>
         <div style="font-size:13px;opacity:0.7;margin-top:4px">Generated {today}</div>
@@ -11584,7 +16053,7 @@ def build_report_email_html(report_type, data, params=None):
             body += f'<div style="font-size:15px;font-weight:700;margin:20px 0 8px">New Volunteers ({len(data["new_volunteers"])})</div>'
             body += table(['Name','Email'], data['new_volunteers'], ['name','email'])
         if data['lapsed_volunteers']:
-            body += f'<div style="font-size:15px;font-weight:700;margin:20px 0 8px">⚠️ Lapsed Volunteers (60+ days)</div>'
+            body += f'<div style="font-size:15px;font-weight:700;margin:20px 0 8px"> Lapsed Volunteers (60+ days)</div>'
             body += table(['Name','Last Active','Email'], data['lapsed_volunteers'], ['name','last_date','email'])
 
     elif report_type == 'top_volunteers':
@@ -11654,6 +16123,9 @@ def run_report():
         start = params.get('start_date', today.replace(month=1, day=1).isoformat())
         end   = params.get('end_date', today.isoformat())
         data  = build_enrollment_report(start, end)
+
+    elif rtype == 'payroll_unpaid_hours':
+        data = build_payroll_unpaid_hours_report()
 
     else:
         return jsonify({'error': 'Unknown report type'}), 400
@@ -11745,6 +16217,24 @@ def send_report_now():
         data = build_hours_by_event_report(
             params.get('start_date', today.replace(day=1).isoformat()),
             params.get('end_date', today.isoformat()))
+    elif rtype == 'payroll_unpaid_hours':
+        data = build_payroll_unpaid_hours_report()
+        if not emails:
+            settings = get_email_settings()
+            emails = get_recipient_emails(settings)
+        if not emails:
+            return jsonify({'error': 'No recipients configured'}), 400
+        token = secrets.token_urlsafe(24)
+        conn = get_db()
+        execute(conn, '''INSERT INTO scheduled_report_runs (id, scheduled_report_id, report_type, token)
+            VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), None, 'payroll_unpaid_hours', token))
+        conn.commit(); conn.close()
+        html = build_payroll_report_html(data, link=f'{APP_URL}/payroll-report/{token}')
+        subject = f" Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
+        fi = d.get('from_identity') or {}
+        ok, msg = send_email(emails, subject, build_hwtc_email_html(subject, html), fi.get('email') or None, fi.get('name') or None)
+        if ok: return jsonify({'ok': True, 'sent_to': emails})
+        return jsonify({'error': msg or 'Failed to send'}), 500
     else:
         return jsonify({'error': 'Unknown report type'}), 400
 
@@ -11756,7 +16246,7 @@ def send_report_now():
         return jsonify({'error': 'No recipients configured'}), 400
 
     fi = d.get('from_identity') or {}
-    ok, msg = send_email(emails, subject, html, fi.get('email') or None, fi.get('name') or None)
+    ok, msg = send_email(emails, subject, build_hwtc_email_html(subject, html), fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True, 'sent_to': emails})
     return jsonify({'error': msg or 'Failed to send'}), 500
 
@@ -11779,14 +16269,16 @@ def create_scheduled_report():
     conn = get_db()
     # Calculate next send date
     import datetime as _dt
-    next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
+    next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1), send_time=(d.get('send_time') or '09:00').strip())
     execute(conn, '''INSERT INTO scheduled_reports
-        (id,name,report_type,cadence,send_day,recipient_user_ids,recipient_emails,params,is_active,next_send_at)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (id,name,report_type,cadence,send_day,recipient_user_ids,recipient_emails,params,is_active,next_send_at,sms_enabled,sms_phones,send_time)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (rid, d.get('name',''), d['report_type'], d.get('cadence','monthly'),
          d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
          d.get('recipient_emails',''), json.dumps(d.get('params',{})),
-         d.get('is_active',True), next_send))
+         d.get('is_active',True), next_send,
+         bool(d.get('sms_enabled', False)), d.get('sms_phones',''),
+         (d.get('send_time') or '09:00').strip()))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM scheduled_reports WHERE id=%s', (rid,))
     conn.close()
@@ -11798,13 +16290,28 @@ def update_scheduled_report(rid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    next_send = _compute_next_send(d.get('cadence','monthly'), d.get('send_day',1))
+    existing = fetchone(conn, 'SELECT next_send_at, cadence, send_day FROM scheduled_reports WHERE id=%s', (rid,))
+    new_cadence = d.get('cadence','monthly')
+    new_send_day = d.get('send_day', 1)
+    # The "add 14 days to the existing date" self-perpetuating logic belongs
+    # only to an actual firing (_fire_scheduled_report) — never to a manual
+    # edit, or every click of Save would push the schedule out by another 14
+    # days regardless of what was actually changed. Only recompute a fresh
+    # next_send_at here if the cadence or day actually changed; otherwise
+    # leave whatever's already scheduled untouched.
+    if existing and existing.get('cadence') == new_cadence and int(existing.get('send_day') or 1) == int(new_send_day or 1):
+        next_send = existing.get('next_send_at')
+    else:
+        next_send = _compute_next_send(new_cadence, new_send_day, send_time=(d.get('send_time') or '09:00').strip())
     execute(conn, '''UPDATE scheduled_reports SET name=%s,report_type=%s,cadence=%s,
-        send_day=%s,recipient_user_ids=%s,recipient_emails=%s,params=%s,is_active=%s,next_send_at=%s WHERE id=%s''',
-        (d.get('name',''), d['report_type'], d.get('cadence','monthly'),
-         d.get('send_day',1), json.dumps(d.get('recipient_user_ids',[])),
+        send_day=%s,recipient_user_ids=%s,recipient_emails=%s,params=%s,is_active=%s,next_send_at=%s,
+        sms_enabled=%s,sms_phones=%s,send_time=%s WHERE id=%s''',
+        (d.get('name',''), d['report_type'], new_cadence,
+         new_send_day, json.dumps(d.get('recipient_user_ids',[])),
          d.get('recipient_emails',''), json.dumps(d.get('params',{})),
-         d.get('is_active',True), next_send, rid))
+         d.get('is_active',True), next_send,
+         bool(d.get('sms_enabled', False)), d.get('sms_phones',''),
+         (d.get('send_time') or '09:00').strip(), rid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -11817,10 +16324,104 @@ def delete_scheduled_report(rid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
-def _compute_next_send(cadence, send_day):
+@app.route('/api/scheduled-reports/<rid>/send-log', methods=['GET'])
+def get_scheduled_report_send_log(rid):
+    """Real history of every time this report has actually fired — success
+    or failure, per channel, with the exact error if something went wrong.
+    Answers 'did it send, and did anything go wrong' without needing server
+    log access."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    runs = fetchall(conn, '''SELECT * FROM scheduled_report_runs
+        WHERE scheduled_report_id=%s ORDER BY fired_at DESC LIMIT 20''', (rid,)) or []
+    conn.close()
+    for run in runs:
+        if run.get('sms_errors'):
+            try: run['sms_errors'] = json.loads(run['sms_errors'])
+            except Exception: pass
+    return jsonify(runs)
+
+@app.route('/api/scheduled-reports/scheduler-status', methods=['GET'])
+def get_scheduler_status():
+    """Proof the background scheduler that actually fires reports on time is
+    alive — not just that the app is running (it always would be), but that
+    the specific per-minute job checking due reports is genuinely ticking.
+    A stale or missing heartbeat means reports won't fire at their scheduled
+    time even though nothing else about the site looks broken."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='scheduler_heartbeat'")
+    conn.close()
+    if not row or not row.get('value'):
+        return jsonify({'healthy': False, 'last_heartbeat': None,
+                        'note': 'No heartbeat recorded yet — the scheduler may not have started, or hasn\'t run its first check yet.'})
+    try:
+        import datetime as _dtst
+        last = _dtst.datetime.fromisoformat(row['value'])
+        if last.tzinfo is None:
+            last = last.replace(tzinfo=_dtst.timezone.utc)
+        seconds_ago = (_dtst.datetime.now(_dtst.timezone.utc) - last).total_seconds()
+        healthy = seconds_ago < 150  # should update every ~60s if alive
+        return jsonify({'healthy': healthy, 'last_heartbeat': row['value'], 'seconds_ago': int(seconds_ago),
+                        'note': None if healthy else 'Heartbeat is stale — the scheduler appears to have stopped. Reports will not fire on time until this is fixed (a redeploy/restart usually resolves it).'})
+    except Exception:
+        return jsonify({'healthy': False, 'last_heartbeat': row.get('value'),
+                        'note': 'Could not parse the stored heartbeat.'})
+
+@app.route('/api/scheduled-reports/<rid>/test-sms', methods=['POST'])
+def test_scheduled_report_sms(rid):
+    """Sends a real test text to every phone number this report would text,
+    and reports back exactly what happened for each one — configured wrong,
+    no phone numbers at all, Twilio rejected it, whatever — instead of that
+    failing silently in a server log nobody can see."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    r = fetchone(conn, 'SELECT * FROM scheduled_reports WHERE id=%s', (rid,))
+    conn.close()
+    if not r:
+        return jsonify({'error': 'Not found'}), 404
+    ts = get_twilio_settings()
+    twilio_configured = bool(ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'))
+
+    treasurer_emails, treasurer_phones = _current_treasurer_contacts()
+    phones = [p.strip() for p in (r.get('sms_phones') or '').split(',') if p.strip()] + treasurer_phones
+    phones = list(set(phones))
+
+    if not r.get('sms_enabled'):
+        return jsonify({'twilio_configured': twilio_configured, 'phones_checked': [],
+                        'note': '"Also send a text alert" isn\'t checked on this report — nothing would be texted even when it fires.'})
+    if not phones:
+        return jsonify({'twilio_configured': twilio_configured, 'phones_checked': [],
+                        'note': 'No phone numbers to send to — the Treasurer has no phone on their volunteer record, and no numbers are entered in "Text Alert Phone Numbers" on this report.'})
+
+    results = []
+    for phone in phones:
+        ok, error = _send_sms(phone, f'RoleCall test text for "{r.get("name","")}" — if you got this, texts for this report are working.')
+        results.append({'phone': phone, 'ok': ok, 'error': error})
+    return jsonify({'twilio_configured': twilio_configured, 'phones_checked': results})
+
+def _compute_next_send(cadence, send_day, current_next_send=None, send_time=None):
     import datetime as _dt
-    today = _dt.date.today()
+    from zoneinfo import ZoneInfo as _ZIcns
+    # Compute "today" in the org's own timezone, not the server's — the
+    # server may well run in UTC, which would silently shift the date around
+    # anything near midnight Eastern.
+    now_ny = _dt.datetime.now(_ZIcns('America/New_York'))
+    today = now_ny.date()
     day = max(1, min(28, int(send_day or 1)))
+
+    def _target_time_already_passed_today():
+        if not send_time:
+            return False
+        try:
+            th, tm = [int(x) for x in str(send_time).split(':')[:2]]
+        except Exception:
+            return False
+        return (now_ny.hour, now_ny.minute) >= (th, tm)
+
     if cadence == 'monthly':
         # Next month on send_day
         if today.day < day:
@@ -11832,9 +16433,29 @@ def _compute_next_send(cadence, send_day):
         try: return _dt.date(ny, nm, day).isoformat()
         except Exception: return None
     elif cadence == 'weekly':
-        # Next occurrence of send_day (0=Mon)
+        # Next occurrence of send_day (0=Mon) — today counts if its send_time
+        # hasn't happened yet, so a report created the morning of its own
+        # send day can still fire that same day instead of skipping a week.
         days_ahead = (int(send_day) - today.weekday()) % 7
-        if days_ahead == 0: days_ahead = 7
+        if days_ahead == 0 and _target_time_already_passed_today():
+            days_ahead = 7
+        return (today + _dt.timedelta(days=days_ahead)).isoformat()
+    elif cadence == 'biweekly':
+        # Self-perpetuating: always exactly 14 days after the last scheduled
+        # date, not "14 days from today" — keeps the every-other-week
+        # cadence exact even if the cron check happens to run a bit late.
+        # First time (no prior next_send to anchor from), fall back to the
+        # next occurrence of send_day (today counts if not yet past its
+        # send_time), same as weekly.
+        if current_next_send:
+            try:
+                base = current_next_send if isinstance(current_next_send, _dt.date) else _dt.datetime.strptime(str(current_next_send)[:10], '%Y-%m-%d').date()
+                return (base + _dt.timedelta(days=14)).isoformat()
+            except Exception:
+                pass
+        days_ahead = (int(send_day) - today.weekday()) % 7
+        if days_ahead == 0 and _target_time_already_passed_today():
+            days_ahead = 7
         return (today + _dt.timedelta(days=days_ahead)).isoformat()
     return None
 
@@ -11861,6 +16482,50 @@ def maybe_run_scheduled_reports():
     except Exception as e:
         app.logger.error(f'Cron check error: {e}')
 
+def _check_scheduled_reports_precise():
+    """The reliable path — runs every minute via APScheduler (same mechanism
+    as the on-call alert), independent of site traffic. Fires a report once
+    the current time has reached (or passed) its configured send_time for
+    the day — not only on an exact-minute match, so a brief scheduler outage
+    (a deploy restarting the app right at the scheduled moment, for example)
+    doesn't cause that day's send to be skipped entirely until the next
+    cycle. last_sent_at's date is what prevents firing more than once per
+    day, instead of relying on hitting one precise minute."""
+    try:
+        conn0 = get_db()
+        execute(conn0, """INSERT INTO settings (key, value) VALUES ('scheduler_heartbeat', NOW()::text)
+            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""")
+        conn0.commit(); conn0.close()
+    except Exception as e:
+        app.logger.warning(f'Scheduler heartbeat write failed: {e}')
+    try:
+        import datetime as _dtsr
+        from zoneinfo import ZoneInfo as _ZIsr
+        now = _dtsr.datetime.now(_ZIsr('America/New_York'))
+        conn = get_db()
+        due = fetchall(conn, """SELECT * FROM scheduled_reports
+            WHERE is_active=TRUE AND next_send_at IS NOT NULL
+            AND next_send_at::date <= CURRENT_DATE""") or []
+        conn.close()
+        for r in due:
+            send_time = (r.get('send_time') or '09:00').strip()
+            try:
+                t_parts = send_time.split(':')
+                target_hour, target_minute = int(t_parts[0]), int(t_parts[1])
+            except Exception:
+                target_hour, target_minute = 9, 0
+            if (now.hour, now.minute) < (target_hour, target_minute):
+                continue
+            last_sent = parse_db_datetime(r.get('last_sent_at'))
+            if last_sent and last_sent.date() == now.date():
+                continue  # already fired today — don't re-fire on every later check
+            try:
+                _fire_scheduled_report(r)
+            except Exception as e:
+                app.logger.error(f'Scheduled report error {r["id"]}: {e}')
+    except Exception as e:
+        app.logger.error(f'Precise scheduled-report check error: {e}')
+
 def _fire_scheduled_report(r):
     import datetime as _dt
     rtype  = r['report_type']
@@ -11868,7 +16533,10 @@ def _fire_scheduled_report(r):
     today  = _dt.date.today()
     lm     = (today.replace(day=1) - _dt.timedelta(days=1))
 
-    if rtype == 'monthly_recap':
+    if rtype == 'payroll_unpaid_hours':
+        _fire_payroll_report(r)
+        return
+    elif rtype == 'monthly_recap':
         data = build_volunteer_monthly_report(lm.year, lm.month)
     elif rtype == 'top_volunteers':
         start = params.get('start_date', lm.replace(day=1).isoformat())
@@ -11899,17 +16567,125 @@ def _fire_scheduled_report(r):
     raw = r.get('recipient_emails','')
     if raw:
         emails += [e.strip() for e in raw.split(',') if e.strip()]
-    emails = list(set(emails))
-    if not emails: return
+    if not emails:
+        c = get_db()
+        execute(c, '''INSERT INTO scheduled_report_runs (id, scheduled_report_id, report_type, success, note)
+            VALUES (%s,%s,%s,FALSE,%s)''', (str(uuid.uuid4()), r['id'], rtype, 'No email recipients configured.'))
+        c.commit(); c.close()
+        return
 
-    ok, _ = send_email(emails, subject, html)
+    ok, msg = send_email(emails, subject, build_hwtc_email_html(subject, html))
+    c = get_db()
+    execute(c, '''INSERT INTO scheduled_report_runs (id, scheduled_report_id, report_type, success, email_sent_to, email_error)
+        VALUES (%s,%s,%s,%s,%s,%s)''',
+        (str(uuid.uuid4()), r['id'], rtype, ok, ', '.join(emails) if ok else '', None if ok else (msg or 'Failed to send')))
+    c.commit(); c.close()
     if ok:
         # Update last sent and compute next send
-        next_send = _compute_next_send(r['cadence'], r['send_day'])
+        next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'), r.get('send_time'))
         conn = get_db()
         execute(conn, 'UPDATE scheduled_reports SET last_sent_at=NOW(), next_send_at=%s WHERE id=%s',
                 (next_send, r['id']))
         conn.commit(); conn.close()
+
+def _fire_payroll_report(r):
+    """Fires the Unpaid Payroll report — always includes the current
+    Treasurer (looked up live from the board roster, not a fixed recipient)
+    plus whatever's manually configured, emails a copy, and — if enabled —
+    texts a link to a live-refreshing view of the same report. Email and SMS
+    are independent: having no email recipients configured must never block
+    the text from going out, and vice versa. Every attempt gets logged to
+    scheduled_report_runs — success or failure — so "did it actually send"
+    is always answerable without server log access."""
+    data = build_payroll_unpaid_hours_report()
+    subject = f" Unpaid Payroll Report — {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed"
+
+    conn = get_db()
+    emails = []
+    try:
+        uids = json.loads(r.get('recipient_user_ids') or '[]')
+        if uids:
+            placeholders = ','.join(['%s']*len(uids))
+            users = fetchall(conn, f'SELECT email FROM users WHERE id IN ({placeholders})', tuple(uids))
+            emails = [u['email'] for u in users if u.get('email')]
+    except Exception: pass
+    conn.close()
+    raw = r.get('recipient_emails','')
+    if raw:
+        emails += [e.strip() for e in raw.split(',') if e.strip()]
+    treasurer_emails, treasurer_phones = _current_treasurer_contacts()
+    emails = list(set(emails + treasurer_emails))
+
+    phones = []
+    if r.get('sms_enabled'):
+        phones = [p.strip() for p in (r.get('sms_phones') or '').split(',') if p.strip()] + treasurer_phones
+        phones = list(set(phones))
+
+    def _log_run(success, email_sent_to='', email_error=None, sms_sent_to='', sms_errors=None, note=None, token=None):
+        c = get_db()
+        execute(c, '''INSERT INTO scheduled_report_runs
+            (id, scheduled_report_id, report_type, token, success, email_sent_to, email_error, sms_sent_to, sms_errors, note)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), r['id'], 'payroll_unpaid_hours', token, success,
+             email_sent_to, email_error, sms_sent_to, json.dumps(sms_errors) if sms_errors else None, note))
+        c.commit(); c.close()
+
+    if not emails and not phones:
+        # Genuinely nothing configured to send to at all — log it as a
+        # no-op rather than silently doing nothing with no trace of why.
+        _log_run(False, note='Nothing to send to — no email recipients and no phone numbers configured.')
+        return
+
+    # A fresh token per firing, so each text/email links to its own send —
+    # the page behind it always shows current live data when opened, though.
+    token = secrets.token_urlsafe(24)
+    link = f'{APP_URL}/payroll-report/{token}'
+
+    sent_something = False
+    email_sent_to, email_error = '', None
+    if emails:
+        html_with_link = build_payroll_report_html(data, link=link)
+        ok, msg = send_email(emails, subject, build_hwtc_email_html(subject, html_with_link))
+        if ok:
+            sent_something = True
+            email_sent_to = ', '.join(emails)
+        else:
+            email_error = msg or 'Failed to send'
+
+    sms_sent_to_list, sms_errors = [], []
+    if phones:
+        sms_body = f" Unpaid Payroll Report: {len(data['people'])} instructor(s), ${data['grand_total']:,.2f} owed. View: {link}"
+        for phone in phones:
+            ok_sms, err = _send_sms(phone, sms_body)
+            if ok_sms:
+                sent_something = True
+                sms_sent_to_list.append(phone)
+            else:
+                sms_errors.append({'phone': phone, 'error': err})
+
+    _log_run(sent_something, email_sent_to=email_sent_to, email_error=email_error,
+              sms_sent_to=', '.join(sms_sent_to_list), sms_errors=sms_errors or None, token=token)
+
+    if sent_something:
+        next_send = _compute_next_send(r['cadence'], r['send_day'], r.get('next_send_at'), r.get('send_time'))
+        conn = get_db()
+        execute(conn, 'UPDATE scheduled_reports SET last_sent_at=NOW(), next_send_at=%s WHERE id=%s',
+                (next_send, r['id']))
+        conn.commit(); conn.close()
+
+@app.route('/payroll-report/<token>')
+def view_payroll_report(token):
+    """The link a payroll report's email/text points to — no login required
+    (the token itself is the access control, same idea as other share links
+    in the app), and always shows the current live unpaid-hours state rather
+    than whatever was true when the report first fired."""
+    conn = get_db()
+    run = fetchone(conn, 'SELECT * FROM scheduled_report_runs WHERE token=%s', (token,))
+    conn.close()
+    if not run:
+        return 'Report link not found or expired.', 404
+    data = build_payroll_unpaid_hours_report()
+    return build_payroll_report_html(data, standalone_page=True)
 
 # Hook cron into every request
 @app.after_request
@@ -11991,31 +16767,19 @@ def kiosk_production_signout():
         conn.close()
         return jsonify({'error': 'No active sign-in found'}), 404
 
-    # Use full event duration, not elapsed time
+    # Actual elapsed time from when they really signed in to when they
+    # really signed out — this used to default to the event's full
+    # scheduled duration whenever start/end times were set, which counted
+    # staff as present the whole show even if they arrived late or left
+    # early. Elapsed time is now always what's logged.
     evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
     evt_name = evt['name'] if evt else 'Production'
-    event_hours = None
-    if evt and evt.get('start_time') and evt.get('end_time'):
-        try:
-            from datetime import datetime as _dt
-            fmt = '%H:%M'
-            start = _dt.strptime(str(evt['start_time'])[:5], fmt)
-            end   = _dt.strptime(str(evt['end_time'])[:5], fmt)
-            diff  = (end - start).seconds / 3600
-            if diff > 0:
-                event_hours = round(diff, 2)
-        except Exception:
-            pass
-    # Fall back to elapsed time if event has no start/end times set
-    if not event_hours:
-        time_row = fetchone(conn,
-            'SELECT EXTRACT(EPOCH FROM (NOW() - signed_in_at)) as secs FROM prod_attendance WHERE id=%s',
-            (att['id'],))
-        elapsed_secs  = float(time_row['secs']) if time_row and time_row['secs'] else 0
-        event_hours   = round(max(0.25, elapsed_secs / 3600), 2)
-        hours_source  = 'elapsed time (no event times set)'
-    else:
-        hours_source = f'full event duration ({evt.get("start_time","")}–{evt.get("end_time","")})'
+    time_row = fetchone(conn,
+        'SELECT EXTRACT(EPOCH FROM (NOW() - signed_in_at)) as secs FROM prod_attendance WHERE id=%s',
+        (att['id'],))
+    elapsed_secs = float(time_row['secs']) if time_row and time_row['secs'] else 0
+    event_hours  = round(max(0.25, elapsed_secs / 3600), 2)
+    hours_source = 'elapsed time (actual sign-in to sign-out)'
 
     today_row = fetchone(conn, 'SELECT CURRENT_DATE::text as today')
     today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
@@ -12337,13 +17101,13 @@ def kiosk_close_event():
                 ol_rows = ''
                 for r in open_responses:
                     val = str(r.get('response',''))
-                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or ' - ')
+                    val_str = ' Done' if val=='true' else (' Not Done' if val=='false' else val or ' - ')
                     ol_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build closing checklist rows
                 cl_rows = ''
                 for r in responses:
                     val = str(r.get('response',''))
-                    val_str = '✅ Done' if val=='true' else ('❌ Not Done' if val=='false' else val or ' - ')
+                    val_str = ' Done' if val=='true' else (' Not Done' if val=='false' else val or ' - ')
                     cl_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
                 # Build hours summary
                 hrs_rows = ''
@@ -12358,7 +17122,7 @@ def kiosk_close_event():
                 body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
                     <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:24px 28px;border-radius:8px 8px 0 0">
                       <div style="color:rgba(255,255,255,0.7);font-size:11px;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Event Closed</div>
-                      <h2 style="color:#fff;margin:0;font-size:20px">🔒 {evt_name}</h2>
+                      <h2 style="color:#fff;margin:0;font-size:20px"> {evt_name}</h2>
                       <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:6px">Closed at <strong>{now_str}</strong>{" · Closed by "+open_elic_name if open_elic_name else ""}</div>
                     </div>
                     <div style="background:#f8fafc;padding:24px 28px;border-radius:0 0 8px 8px;border:1px solid #e2e8f0;border-top:none">
@@ -12375,7 +17139,7 @@ def kiosk_close_event():
                     <thead><tr style="background:#eff6ff"><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Volunteer</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Hours</th><th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;color:#5f5e5a;border-bottom:2px solid #e0e0db">Status</th></tr></thead>
                     <tbody>{hrs_rows}</tbody></table>""" if hrs_count else "<p><em>No hours recorded for this event.</em></p>"}
                     </div></div>'''
-                send_email(recipients, f'Event Closed: {evt_name}', body)
+                send_email(recipients, f'Event Closed: {evt_name}', build_hwtc_email_html(f'Event Closed: {evt_name}', body))
         except Exception as e:
             app.logger.error(f'close-event email error: {e}')
         conn.close()
@@ -12699,6 +17463,10 @@ def remove_carpool_member(cid, mid):
 def portal_get_carpools():
     event_id = request.args.get('event_id')
     conn = get_db()
+    _kind, _ids = portal_identity(conn)
+    if _kind is None:
+        conn.close()
+        return jsonify([])
     try:
         if event_id:
             carpools = fetchall(conn, """SELECT c.*, COUNT(cm.id) as member_count
@@ -12715,9 +17483,13 @@ def portal_get_carpools():
                 AND (e.event_date IS NULL OR e.event_date >= CURRENT_DATE::text)
                 GROUP BY c.id, e.name, e.event_date ORDER BY e.name, c.name""")
         for c in carpools:
-            c['members'] = fetchall(conn,
-                'SELECT cm.id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s',
-                (c['id'],))
+            _mem = fetchall(conn,
+                'SELECT cm.id, cm.youth_id, y.first_name, y.last_name FROM carpool_members cm JOIN youth_participants y ON cm.youth_id=y.id WHERE cm.carpool_id=%s',
+                (c['id'],)) or []
+            _mine = _kind == 'staff' or any(m.get('youth_id') in _ids for m in _mem)
+            if not _mine:
+                c.pop('code', None)
+            c['members'] = [{'id': m['id'], 'first_name': m['first_name'], 'last_name': m['last_name']} for m in _mem]
         conn.close()
         return jsonify(carpools)
     except Exception as e:
@@ -12738,6 +17510,9 @@ def portal_create_carpool():
     if not event_id or not driver_name:
         return jsonify({'error': 'Event and driver name are required'}), 400
     conn = get_db()
+    _perr = portal_require_youth_list(conn, youth_ids)
+    if _perr:
+        conn.close(); return _perr
     event = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
     if not event:
         conn.close()
@@ -12773,6 +17548,9 @@ def portal_leave_carpool():
     if not carpool_id or not youth_ids:
         return jsonify({'error': 'Missing required fields'}), 400
     conn = get_db()
+    _perr = portal_require_youth_list(conn, youth_ids)
+    if _perr:
+        conn.close(); return _perr
     for yid in youth_ids:
         execute(conn, 'DELETE FROM carpool_members WHERE carpool_id=%s AND youth_id=%s', (carpool_id, yid))
     conn.commit()
@@ -12806,6 +17584,9 @@ def portal_join_carpool():
     if not youth_ids:
         return jsonify({'error': 'At least one child required'}), 400
     conn = get_db()
+    _perr = portal_require_youth_list(conn, youth_ids)
+    if _perr:
+        conn.close(); return _perr
     # Find carpool by ID or code
     if carpool_id:
         carpool = fetchone(conn, "SELECT * FROM carpools WHERE id=%s AND status='open'", (carpool_id,))
@@ -12822,7 +17603,7 @@ def portal_join_carpool():
         mid = str(uuid.uuid4())
         try:
             execute(conn, "INSERT INTO carpool_members (id,carpool_id,youth_id,added_by,added_via) VALUES (%s,%s,%s,%s,'portal') ON CONFLICT (carpool_id,youth_id) DO NOTHING",
-                (mid, carpool['id'], yid, passphrase or 'parent'))
+                (mid, carpool['id'], yid, 'parent'))
             added += 1
         except Exception: pass
     conn.commit()
@@ -13023,7 +17804,7 @@ def get_notifications():
             needs_action.append({
                 'id':    ph['id'],
                 'type':  'pending_hours',
-                'icon':  '⏱',
+                'icon':  '',
                 'color': 'amber',
                 'title': f'{ph["volunteer_name"] or "A volunteer"}  -  {ph["hours"]}h',
                 'sub':   f'{ph["event"] or "General"} · {ph["date"] or ""}' +
@@ -13046,7 +17827,7 @@ def get_notifications():
             needs_action.append({
                 'id':    p['id'],
                 'type':  'profile_update',
-                'icon':  '👤',
+                'icon':  '',
                 'color': 'blue',
                 'title': f'{p["volunteer_name"] or "A volunteer"}  -  profile update',
                 'sub':   'Requested profile change awaiting review',
@@ -13067,7 +17848,7 @@ def get_notifications():
             needs_action.append({
                 'id':    lr['id'],
                 'type':  'licensing_request',
-                'icon':  '📄',
+                'icon':  '',
                 'color': 'purple',
                 'title': f'Licensing request  -  {lr["production_name"] or "Untitled production"}',
                 'sub':   f'{lr.get("licensor") or "Licensor TBD"} · from {lr.get("requester_name") or "staff"} · Ref {lr["ref_number"]}',
@@ -13092,7 +17873,7 @@ def get_notifications():
             needs_action.append({
                 'id':    lr['id'],
                 'type':  'licensing_contract_expiring',
-                'icon':  '⚠️' if expired else '📅',
+                'icon':  '' if expired else '',
                 'color': 'red' if expired else 'amber',
                 'title': f'Licensing contract {"expired" if expired else "expiring soon"}  -  {lr["production_name"] or "Untitled production"}',
                 'sub':   f'{lr.get("licensor") or "Licensor TBD"} · {"expired" if expired else "expires"} {exp.strftime("%b %d, %Y") if exp else ""} · Ref {lr["ref_number"]}',
@@ -13112,7 +17893,7 @@ def get_notifications():
             activity.append({
                 'id':    h['id'],
                 'type':  'hours_approved',
-                'icon':  '✅',
+                'icon':  '',
                 'color': 'green',
                 'title': f'{h["volunteer_name"] or "Volunteer"}  -  {h["hours"]}h approved',
                 'sub':   f'{h["event"] or ""} · {h["date"] or ""}',
@@ -13176,7 +17957,7 @@ def email_send_report(rid):
         rows = ''.join(f'''<tr>
             <td style="padding:8px 12px;border-bottom:1px solid #eee">{r.get('label','')}</td>
             <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:{'#16a34a' if str(r.get('response','')).lower() in ('true','yes','done') else '#dc2626' if r.get('item_type')=='checkbox' else '#374151'}">
-                {'✅ Done' if str(r.get('response','')).lower() in ('true','yes','done') else ('❌ Not Done' if r.get('item_type')=='checkbox' else str(r.get('response',' - ') or ' - '))}
+                {' Done' if str(r.get('response','')).lower() in ('true','yes','done') else (' Not Done' if r.get('item_type')=='checkbox' else str(r.get('response',' - ') or ' - '))}
             </td></tr>''' for r in items)
         return f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">{icon} {label}</h3>
         <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px">
@@ -13187,7 +17968,7 @@ def email_send_report(rid):
     if hours:
         hrs_rows = ''.join(f'''<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">{h.get('volunteer_name','')}</td>
             <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:700;color:#145466">{h.get('hours',0)}h</td></tr>''' for h in hours)
-        hours_html = f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">⏱ Volunteer Hours</h3>
+        hours_html = f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px"> Volunteer Hours</h3>
         <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px">
         <thead><tr style="background:#f0f8fa">
         <th style="padding:8px 12px;text-align:left;color:#5f5e5a;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Volunteer</th>
@@ -13199,7 +17980,7 @@ def email_send_report(rid):
     <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:10px 10px 0 0;color:#fff">
         <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" style="height:40px;margin-bottom:12px" alt="HWTC"/>
         <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:1px;opacity:0.7">Event Report</div>
-        <div style="font-size:22px;font-weight:800;margin:4px 0">🔒 {close_log.get('event_name','')}</div>
+        <div style="font-size:22px;font-weight:800;margin:4px 0"> {close_log.get('event_name','')}</div>
         <div style="font-size:13px;opacity:0.75">{close_log.get('event_date') or ''} &nbsp;·&nbsp; Opened by {open_log.get('elic_name',' - ') if open_log else ' - '} &nbsp;·&nbsp; Closed by {close_log.get('elic_name',' - ')}</div>
     </div>
     <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:28px 32px;border-radius:0 0 10px 10px">
@@ -13217,14 +17998,14 @@ def email_send_report(rid):
                 <div style="font-size:11px;color:#888;margin-top:2px">Checklist Items</div>
             </div>
         </div>
-        {checklist_rows(opening_checklist, 'Opening Checklist', '🟢')}
-        {checklist_rows(closing_checklist, 'Closing Checklist', '✅')}
+        {checklist_rows(opening_checklist, 'Opening Checklist', '')}
+        {checklist_rows(closing_checklist, 'Closing Checklist', '')}
         {hours_html}
     </div>
     <p style="text-align:center;font-size:11px;color:#9ca3af;margin-top:12px">RoleCall  -  Horizon West Theater Company</p>
     </div>'''
     subject = f'Event Report: {close_log.get("event_name","")}  -  {close_log.get("event_date","")}'
-    fi = (request.json or {}).get('from_identity') or {}
+    fi = (request.get_json(silent=True) or {}).get('from_identity') or {}
     ok, msg = send_email(recipients, subject, body, fi.get('email') or None, fi.get('name') or None)
     if ok: return jsonify({'ok': True})
     return jsonify({'error': msg or 'Send failed'}), 500
@@ -13269,7 +18050,7 @@ def email_event_signups(eid):
       </div>
     </div>'''
     try:
-        send_email(recipients, subject, html_body)
+        send_email(recipients, subject, build_hwtc_email_html(subject, html_body))
         return jsonify({'ok': True, 'sent_to': len(recipients)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -13405,9 +18186,14 @@ def remove_family_member(fid, yid):
 # ── Portal announcements (admin manage) ──
 @app.route('/api/portal/announcements', methods=['POST'])
 def create_portal_announcement_admin():
-    err = require_auth()
-    if err: return err
     d = request.json or {}
+    if session.get('role') == 'director':
+        if not d.get('production_id'):
+            return jsonify({'error': 'Directors can only post to their own production'}), 403
+        err = require_own_production(d.get('production_id'))
+    else:
+        err = require_auth()
+    if err: return err
     aid = str(uuid.uuid4())
     conn = get_db()
     try:
@@ -13428,10 +18214,16 @@ def create_portal_announcement_admin():
 
 @app.route('/api/portal/announcements/<aid>', methods=['PUT'])
 def update_portal_announcement_admin(aid):
-    err = require_auth()
-    if err: return err
-    d = request.json or {}
     conn = get_db()
+    if session.get('role') == 'director':
+        existing = fetchone(conn, 'SELECT production_id FROM portal_announcements WHERE id=%s', (aid,))
+        if not existing or not existing.get('production_id'):
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(existing['production_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
+    d = request.json or {}
     execute(conn, 'UPDATE portal_announcements SET title=%s, body=%s, status=%s WHERE id=%s',
         (d.get('title',''), d.get('body',''), d.get('status','published'), aid))
     conn.commit()
@@ -13441,9 +18233,15 @@ def update_portal_announcement_admin(aid):
 
 @app.route('/api/portal/announcements/<aid>', methods=['DELETE'])
 def delete_portal_announcement_admin(aid):
-    err = require_auth()
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        existing = fetchone(conn, 'SELECT production_id FROM portal_announcements WHERE id=%s', (aid,))
+        if not existing or not existing.get('production_id'):
+            conn.close(); return jsonify({'error': 'You can only manage your own productions'}), 403
+        err = require_own_production(existing['production_id'])
+    else:
+        err = require_auth()
+    if err: conn.close(); return err
     execute(conn, 'DELETE FROM portal_announcements WHERE id=%s', (aid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -13578,6 +18376,9 @@ def submit_portal_production_conflict():
         return jsonify({'error': 'Missing production or participant'}), 400
 
     conn = get_db()
+    _perr = portal_require_youth(conn, youth_id)
+    if _perr:
+        conn.close(); return _perr
     event = None
     if event_id:
         event = fetchone(conn, 'SELECT id, event_date, start_time, name FROM events WHERE id=%s', (event_id,))
@@ -13654,7 +18455,7 @@ def submit_portal_production_conflict():
                         f'<p><strong>{who}</strong> has been marked '
                         f'<strong>{label}</strong> for <strong>{prod["name"]}</strong>{where} on {date_str}.</p>'
                         + (f'<p>Notes: {notes}</p>' if notes else '') + '</div>')
-                send_email(recipients, subject, html)
+                send_email(recipients, subject, build_hwtc_email_html(subject, html))
 
             try:
                 vol_ids = json.loads(prod.get('callout_alert_volunteer_ids') or '[]')
@@ -13667,7 +18468,26 @@ def submit_portal_production_conflict():
                     f'SELECT phone FROM volunteers WHERE id IN ({ph})', tuple(vol_ids)) if r.get('phone')]
             ts = get_twilio_settings()
             if phones and ts.get('account_sid') and ts.get('auth_token') and ts.get('from_phone'):
-                sms_body = f"HWTC RoleCall: {who} marked {label}{where} on {date_str} — {prod['name']}."
+                # Always create a reply-relay thread — even without a guardian
+                # phone on file — so a crew member's reply is recognized as
+                # "about this call-out" and handled gracefully, instead of
+                # falling through to the generic customer-inquiry auto-reply.
+                guardian = fetchone(conn, '''SELECT phone, name FROM youth_guardians
+                    WHERE youth_id=%s AND phone IS NOT NULL AND phone!=''
+                    ORDER BY is_primary DESC LIMIT 1''', (youth_id,))
+                guardian_phone = guardian['phone'] if guardian else None
+                execute(conn, '''INSERT INTO callout_relay_threads
+                    (id, production_conflict_id, guardian_phone, guardian_name, youth_name,
+                     production_name, crew_alert_phones, last_message_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,NOW())''',
+                    (str(uuid.uuid4()), cid, guardian_phone, guardian.get('name') if guardian else None, who,
+                     prod['name'], json.dumps([_phone_last10(p) for p in phones if p])))
+                conn.commit()
+                if guardian_phone:
+                    reply_hint = f" Reply to reach the parent (start with @{youth['first_name']} if you have another call-out going too)."
+                else:
+                    reply_hint = " No phone on file for the parent, so replies here won't reach them automatically."
+                sms_body = f"HWTC RoleCall: {who} marked {label}{where} on {date_str} — {prod['name']}.{reply_hint}"
                 try:
                     from twilio.rest import Client as _TwClient
                     client = _TwClient(ts['account_sid'], ts['auth_token'])
@@ -13689,6 +18509,9 @@ def submit_portal_production_conflict():
 def portal_update_youth(yid):
     d = request.json or {}
     conn = get_db()
+    _perr = portal_require_youth(conn, yid)
+    if _perr:
+        conn.close(); return _perr
     # Queue for staff review
     pid = str(uuid.uuid4())
     execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,date,hours,notes,status) VALUES (%s,%s,'Profile Update Request',CURRENT_DATE,0,%s,'pending_review')",
@@ -13725,6 +18548,10 @@ def portal_program_events(pid):
 def portal_production_conflicts(pid):
     yid = request.args.get('youth_id')
     conn = get_db()
+    _kind, _ids = portal_identity(conn)
+    if _kind is None or (_kind != 'staff' and (not yid or yid not in _ids)):
+        conn.close()
+        return jsonify([])
     try:
         if yid:
             conflicts = fetchall(conn, '''SELECT pc.*, e.name as event_name, e.event_date
@@ -13735,6 +18562,12 @@ def portal_production_conflicts(pid):
             # Mark which ones belong to this youth
             for c in conflicts:
                 c['is_mine'] = str(c.get('youth_id','')) == str(yid)
+            if _kind != 'staff':
+                # Other families' call-outs: only what the "others" summary needs
+                conflicts = [c if c['is_mine'] else {
+                    'event_id': c.get('event_id'), 'event_name': c.get('event_name'),
+                    'event_date': c.get('event_date'), 'status': c.get('status'), 'is_mine': False}
+                    for c in conflicts]
         else:
             conflicts = []
     except Exception:
@@ -14052,10 +18885,11 @@ def kiosk_unauthorized_pickup_notify():
         recipients = get_recipient_emails(s)
         if recipients:
             send_email(recipients, 'ALERT: Unauthorized Pickup Attempt',
-                f'<p style="font-family:sans-serif;color:#dc2626"><strong>Unauthorized pickup attempt</strong> at the kiosk.<br/>'
+                build_hwtc_email_html('ALERT: Unauthorized Pickup Attempt',
+                f'<p style="color:#dc2626"><strong>Unauthorized pickup attempt</strong> at the kiosk.<br/>'
                 f'Youth: {d.get("youth_name","Unknown")}<br/>'
                 f'Attempted by: {d.get("person_name","Unknown")}<br/>'
-                f'Time: {__import__("datetime").datetime.now().strftime("%I:%M %p")}</p>')
+                f'Time: {__import__("datetime").datetime.now().strftime("%I:%M %p")}</p>'))
     except Exception:
         pass
     return jsonify({'ok': True})
@@ -14211,11 +19045,12 @@ def create_event_role(eid):
         return jsonify({'error': 'Role name is required'}), 400
     rid = str(uuid.uuid4())
     conn = get_db()
-    execute(conn, '''INSERT INTO event_roles (id,event_id,name,slots,description,sort_order,block_time,block_time_end)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
+    execute(conn, '''INSERT INTO event_roles (id,event_id,name,slots,description,sort_order,block_time,block_time_end,requires_foh_training)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (rid, eid, d['name'].strip(), int(d.get('slots') or 1),
          (d.get('description') or '').strip(), int(d.get('sort_order') or 0),
-         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip()))
+         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip(),
+         bool(d.get('requires_foh_training', False))))
     conn.commit()
     row = fetchone(conn, '''SELECT r.*, 0 as filled FROM event_roles r WHERE r.id=%s''', (rid,))
     conn.close()
@@ -14227,11 +19062,12 @@ def update_event_role(rid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn, '''UPDATE event_roles SET name=%s, slots=%s, description=%s, block_time=%s, block_time_end=%s
-        WHERE id=%s''',
+    execute(conn, '''UPDATE event_roles SET name=%s, slots=%s, description=%s, block_time=%s, block_time_end=%s,
+        requires_foh_training=%s WHERE id=%s''',
         ((d.get('name') or '').strip(), int(d.get('slots') or 1),
          (d.get('description') or '').strip(),
-         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip(), rid))
+         (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip(),
+         bool(d.get('requires_foh_training', False)), rid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -14459,7 +19295,7 @@ def send_rsvp_invite(eid):
         else:
             assign_role_id = ''
 
-    cta_label = ("✋ Yes, I'll Be There!" if not roles or assign_role_id else "✋ RSVP & Choose a Time") if is_guest else ("✋ Yes, I Can Help!" if not roles else "✋ Sign Up & Choose a Role")
+    cta_label = (" Yes, I'll Be There!" if not roles or assign_role_id else " RSVP & Choose a Time") if is_guest else (" Yes, I Can Help!" if not roles else " Sign Up & Choose a Role")
 
     sent = 0
     skipped = 0
@@ -14586,16 +19422,16 @@ def send_rsvp_invite(eid):
                 body = render_template_vars(tmpl_body, tmpl_vars)
                 email_subject = render_template_vars(tmpl_subject, tmpl_vars)
             else:
-                date_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px">📅 Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>'
+                date_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466;width:100px"> Date</td><td style="padding:10px 14px;font-weight:600">{date_str}</td></tr>'
                 display_time = this_block_time or time_str
-                time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">⏰ Time</td><td style="padding:10px 14px">{display_time}</td></tr>' if display_time else ''
-                location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466">📍 Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
-                address_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466">🏠 Address</td><td style="padding:10px 14px">{evt["address"]}</td></tr>' if evt.get('address') else ''
+                time_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466"> Time</td><td style="padding:10px 14px">{display_time}</td></tr>' if display_time else ''
+                location_row = f'<tr style="background:#f0f8fa"><td style="padding:10px 14px;font-weight:700;color:#145466"> Location</td><td style="padding:10px 14px">{evt["location"]}</td></tr>' if evt.get('location') else ''
+                address_row = f'<tr><td style="padding:10px 14px;font-weight:700;color:#145466"> Address</td><td style="padding:10px 14px">{evt["address"]}</td></tr>' if evt.get('address') else ''
                 custom_message_block = f'<div style="background:#fff8e7;border-left:3px solid #f59e0b;padding:12px 16px;margin:16px 0;border-radius:0 6px 6px 0"><p style="margin:0;color:#374151">{custom_msg}</p></div>' if custom_msg else ''
                 description_block = f'<p style="color:#6b7280">{evt["description"]}</p>' if evt.get('description') else ''
                 tmpl_vars = {
                     'recipient_name': v['name'], 'recipient_email': v['email'],
-                    'kind_emoji': '🎉' if is_guest else '🎭', 'kind_label': kind_label, 'event_name': evt['name'],
+                    'kind_emoji': '' if is_guest else '', 'kind_label': kind_label, 'event_name': evt['name'],
                     'intro_line': intro_line, 'details_table': date_row + time_row + location_row + address_row,
                     'time': display_time, 'block_time': this_block_time, 'block_name': this_role_name,
                     'location': evt.get('location') or '', 'address': evt.get('address') or '',
@@ -14608,7 +19444,7 @@ def send_rsvp_invite(eid):
                 email_subject = render_template_vars(tmpl_subject, tmpl_vars)
 
             fi = d.get('from_identity') or {}
-            send_email([v['email']], email_subject, body, fi.get('email') or None, fi.get('name') or None)
+            send_email([v['email']], email_subject, build_hwtc_email_html(email_subject, body), fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
             conn.commit()
@@ -14660,6 +19496,293 @@ def _role_headcounts_for_event(conn, event_id):
         counts[rid] = counts.get(rid, 0) + 1
     return counts
 
+def _production_producer_contacts(conn, production_id):
+    """Producer(s) on a production's roster, for 'questions? contact...' on sign-up pages.
+    Matches any role containing 'producer' (Producer, Associate Producer, Resident
+    Producer, Executive Producer, etc.) — director-only shows aren't shown here."""
+    if not production_id:
+        return []
+    rows = fetchall(conn, '''SELECT v.name, v.email, v.phone, pm.role
+        FROM production_members pm JOIN volunteers v ON pm.volunteer_id=v.id
+        WHERE pm.production_id=%s AND pm.role ILIKE %s
+        ORDER BY pm.created_at''', (production_id, '%producer%')) or []
+    return rows
+
+def _foh_training_passed(conn, email):
+    """Whether this email has a passing Front of House training result on file."""
+    if not email:
+        return False
+    row = fetchone(conn, """SELECT id FROM foh_training_results
+        WHERE LOWER(email)=LOWER(%s) AND passed=TRUE ORDER BY created_at DESC LIMIT 1""", (email.strip(),))
+    return bool(row)
+
+# ── Front of House Training & Quiz ──────────────────────────────
+
+@app.route('/api/foh-training')
+def get_foh_training():
+    err = require_permission('foh_training', 'view')
+    if err: return err
+    conn = get_db()
+    training = fetchone(conn, 'SELECT * FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    questions = fetchall(conn, 'SELECT * FROM foh_quiz_questions ORDER BY sort_order, created_at')
+    for q in questions:
+        try: q['options'] = json.loads(q.get('options') or '[]')
+        except Exception: q['options'] = []
+    conn.close()
+    return jsonify({'training': training, 'questions': questions})
+
+@app.route('/api/foh-training', methods=['PUT'])
+def update_foh_training():
+    err = require_permission('foh_training', 'edit')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    training = fetchone(conn, 'SELECT id FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    if not training:
+        conn.close()
+        return jsonify({'error': 'Training module not found'}), 404
+    execute(conn, '''UPDATE foh_training SET title=%s, description=%s, pass_percent=%s, updated_at=NOW()
+        WHERE id=%s''',
+        ((d.get('title') or 'Front of House Support Training').strip(),
+         (d.get('description') or '').strip(),
+         int(d.get('pass_percent') or 80), training['id']))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM foh_training WHERE id=%s', (training['id'],))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/foh-training/slides/upload', methods=['POST'])
+def upload_foh_training_slides():
+    err = require_permission('foh_training', 'edit')
+    if err: return err
+    if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
+    f = request.files['file']
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in ('.ppt', '.pptx', '.pdf'):
+        return jsonify({'error': 'Please upload a PowerPoint (.ppt/.pptx) or PDF file'}), 400
+    conn = get_db()
+    training = fetchone(conn, 'SELECT id, slides_filename FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    if not training:
+        conn.close()
+        return jsonify({'error': 'Training module not found'}), 404
+    filename = f'foh-training-{str(uuid.uuid4())[:8]}{ext}'
+    f.save(os.path.join(UPLOAD_FOLDER, filename))
+    old_filename = training.get('slides_filename')
+    execute(conn, '''UPDATE foh_training SET slides_url=%s, slides_filename=%s, slides_original_name=%s, updated_at=NOW()
+        WHERE id=%s''', (f'/api/foh-training/slides', filename, f.filename or filename, training['id']))
+    conn.commit()
+    if old_filename:
+        try: os.remove(os.path.join(UPLOAD_FOLDER, old_filename))
+        except Exception: pass
+    row = fetchone(conn, 'SELECT * FROM foh_training WHERE id=%s', (training['id'],))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/foh-training/slides')
+def download_foh_training_slides():
+    conn = get_db()
+    training = fetchone(conn, 'SELECT slides_filename, slides_original_name FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    conn.close()
+    if not training or not training.get('slides_filename'):
+        return jsonify({'error': 'No slides uploaded yet'}), 404
+    filepath = os.path.join(UPLOAD_FOLDER, training['slides_filename'])
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    return send_file(filepath, as_attachment=True, download_name=training.get('slides_original_name') or training['slides_filename'])
+
+@app.route('/api/foh-training/questions', methods=['POST'])
+def create_foh_question():
+    err = require_permission('foh_training', 'edit')
+    if err: return err
+    d = request.json or {}
+    options = d.get('options') or []
+    if not (d.get('question') or '').strip() or len(options) < 2:
+        return jsonify({'error': 'Question and at least 2 options are required'}), 400
+    qid = str(uuid.uuid4())
+    conn = get_db()
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),-1) as m FROM foh_quiz_questions')
+    execute(conn, '''INSERT INTO foh_quiz_questions (id,question,options,correct_index,sort_order)
+        VALUES (%s,%s,%s,%s,%s)''',
+        (qid, d['question'].strip(), json.dumps(options), int(d.get('correct_index') or 0), (max_sort['m'] if max_sort else -1) + 1))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM foh_quiz_questions WHERE id=%s', (qid,))
+    row['options'] = json.loads(row['options'])
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/foh-training/questions/<qid>', methods=['PUT'])
+def update_foh_question(qid):
+    err = require_permission('foh_training', 'edit')
+    if err: return err
+    d = request.json or {}
+    options = d.get('options') or []
+    if not (d.get('question') or '').strip() or len(options) < 2:
+        return jsonify({'error': 'Question and at least 2 options are required'}), 400
+    conn = get_db()
+    execute(conn, '''UPDATE foh_quiz_questions SET question=%s, options=%s, correct_index=%s WHERE id=%s''',
+        (d['question'].strip(), json.dumps(options), int(d.get('correct_index') or 0), qid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM foh_quiz_questions WHERE id=%s', (qid,))
+    row['options'] = json.loads(row['options'])
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/foh-training/questions/<qid>', methods=['DELETE'])
+def delete_foh_question(qid):
+    err = require_permission('foh_training', 'edit')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM foh_quiz_questions WHERE id=%s', (qid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/foh-training/results')
+def get_foh_training_results():
+    """Latest attempt per email, newest first — for admin review of who's cleared to sign up."""
+    err = require_permission('foh_training', 'view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT DISTINCT ON (LOWER(email)) *
+        FROM foh_training_results ORDER BY LOWER(email), created_at DESC''')
+    rows.sort(key=lambda r: r['created_at'], reverse=True)
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/foh-training')
+def foh_training_page():
+    """Public training page: shows the slides + quiz. ?redirect=<url> sends the volunteer
+    back to the RSVP link they came from once they pass; ?email=&name= prefill the form."""
+    conn = get_db()
+    training = fetchone(conn, 'SELECT * FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    questions = fetchall(conn, 'SELECT id, question, options FROM foh_quiz_questions ORDER BY sort_order, created_at')
+    conn.close()
+    for q in questions:
+        try: q['options'] = json.loads(q.get('options') or '[]')
+        except Exception: q['options'] = []
+    redirect_url = request.args.get('redirect', '').strip()
+    prefill_email = (request.args.get('email','') or '').strip()
+    prefill_name = (request.args.get('name','') or '').strip()
+    slides_url = (training or {}).get('slides_url') or ''
+    if slides_url:
+        slides_html = ('<div class="gi-details" style="text-align:center">'
+          '<div style="font-size:13px;color:#6b6b64;margin-bottom:8px">Step 1: review the training slides</div>'
+          '<a href="' + slides_url + '" target="_blank" class="gi-btn-secondary" style="display:inline-block;text-decoration:none;width:auto;padding:10px 22px">Download / View Slides</a>'
+          '</div>')
+    else:
+        slides_html = '<div class="gi-details" style="color:#8a8477;font-size:13px">No slides have been uploaded yet — please check with your producer, then complete the quiz below.</div>'
+    question_blocks = []
+    for i, q in enumerate(questions):
+        qid = q.get('id') or ''
+        qtext = q.get('question') or ''
+        opts = q.get('options') or []
+        option_labels = []
+        for oi, opt in enumerate(opts):
+            option_labels.append(
+                '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;cursor:pointer;font-size:13.5px">'
+                '<input type="radio" name="q_' + qid + '" value="' + str(oi) + '" style="accent-color:#145466"/> ' + opt + '</label>'
+            )
+        question_blocks.append(
+            '<div class="gi-details" style="text-align:left;margin-top:12px">'
+            '<div style="font-weight:700;font-size:14px;margin-bottom:8px">' + str(i+1) + '. ' + qtext + '</div>'
+            + ''.join(option_labels) + '</div>'
+        )
+    questions_html = ''.join(question_blocks)
+    training_title = (training or {}).get('title') or 'Front of House Support Training'
+    training_desc = (training or {}).get('description') or ''
+    pass_percent_val = (training or {}).get('pass_percent', 80)
+    desc_html = ('<p class="gi-desc">' + training_desc + '</p>') if training_desc else ''
+    no_questions_html = '<div style="color:#8a8477;font-size:13px">No quiz questions have been set up yet.</div>'
+    questions_or_placeholder = questions_html if questions_html else no_questions_html
+    return f'''<html><head><title>{training_title}</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    {_guest_invite_css()}
+    </head>
+    <body class="gi-body">
+      <div class="gi-wrap">
+        <div class="gi-no-image-hero">
+          <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">Front of House</div>
+          <div class="gi-headline-plain">{training_title}</div>
+        </div>
+        {desc_html}
+        {slides_html}
+        <div id="foh-alert"></div>
+        <div class="gi-card">
+          <label class="gi-label">Your Name *</label>
+          <input type="text" id="foh-name" required class="gi-input" value="{prefill_name}" placeholder="Full name"/>
+          <label class="gi-label">Email *</label>
+          <input type="email" id="foh-email" required class="gi-input" value="{prefill_email}" placeholder="you@example.com"/>
+          <div style="font-weight:700;font-size:13px;margin:16px 0 4px">Step 2: pass the quiz ({pass_percent_val}% or higher)</div>
+          {questions_or_placeholder}
+          <button type="button" id="foh-submit-btn" onclick="submitFohQuiz()" class="gi-btn" style="margin-top:14px">Submit</button>
+        </div>
+        <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+      </div>
+      <script>
+      async function submitFohQuiz(){{
+        var name = document.getElementById('foh-name').value.trim()
+        var email = document.getElementById('foh-email').value.trim()
+        if(!name || !email){{
+          document.getElementById('foh-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
+          return
+        }}
+        var answers = {{}}
+        document.querySelectorAll('input[type=radio]:checked').forEach(function(inp){{
+          answers[inp.name.replace('q_','')] = parseInt(inp.value)
+        }})
+        var btn = document.getElementById('foh-submit-btn')
+        btn.disabled = true; btn.textContent = 'Grading…'
+        var r = await fetch('/api/foh-training/submit', {{method:'POST', headers:{{'Content-Type':'application/json'}},
+          body: JSON.stringify({{name:name, email:email, answers:answers}})}})
+        var data = await r.json()
+        btn.disabled = false; btn.textContent = 'Submit'
+        if(data.error){{
+          document.getElementById('foh-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
+          return
+        }}
+        if(data.passed){{
+          var redirectUrl = {json.dumps(redirect_url)}
+          document.body.innerHTML = '<div style="text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;font-family:-apple-system,sans-serif">'
+            + '<div style="font-size:48px;margin-bottom:16px">✓</div><h2 style="color:#145466">You passed! ('+data.score+'/'+data.total+')</h2>'
+            + '<p style="color:#6b7280">You\\'re all set — you can now sign up for Front of House shifts.</p>'
+            + (redirectUrl ? '<p><a href="'+redirectUrl+'" style="color:#145466;font-weight:700">Continue to your shift sign-up →</a></p>' : '')
+            + '</div>'
+        }} else {{
+          document.getElementById('foh-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">Score: '+data.score+'/'+data.total+' — that\\'s below the passing bar. Please review the slides and try again.</div>'
+        }}
+      }}
+      </script>
+    </body></html>'''
+
+@app.route('/api/foh-training/submit', methods=['POST'])
+def submit_foh_training():
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip()
+    answers = d.get('answers') or {}
+    if not name or not email:
+        return jsonify({'error': 'Please provide your name and email.'}), 400
+    conn = get_db()
+    training = fetchone(conn, 'SELECT pass_percent FROM foh_training ORDER BY updated_at DESC LIMIT 1')
+    questions = fetchall(conn, 'SELECT id, correct_index FROM foh_quiz_questions')
+    if not questions:
+        conn.close()
+        return jsonify({'error': 'No quiz questions are set up yet — please contact your producer.'}), 400
+    score = 0
+    for q in questions:
+        given = answers.get(q['id'])
+        if given is not None and int(given) == int(q['correct_index']):
+            score += 1
+    total = len(questions)
+    pass_percent = (training or {}).get('pass_percent', 80)
+    passed = (score / total * 100) >= pass_percent if total else False
+    volunteer = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(email)=LOWER(%s)', (email,))
+    execute(conn, '''INSERT INTO foh_training_results (id,volunteer_id,name,email,score,total,passed)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+        (str(uuid.uuid4()), volunteer['id'] if volunteer else None, name, email, score, total, passed))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'passed': passed, 'score': score, 'total': total})
+
 def _fmt_time(t):
     """Format a 'HH:MM' 24-hour string as '2:30 PM'. Returns '' if unparseable/empty."""
     if not t:
@@ -14709,6 +19832,7 @@ def _guest_invite_css():
       .gi-btn-secondary{width:100%;background:transparent;color:#8a8477;border:1.5px solid #e4ddd0;border-radius:14px;padding:14px;font-size:14px;font-weight:600;cursor:pointer;transition:border-color 0.15s,color 0.15s}
       .gi-btn-secondary:hover{border-color:#c94f4f;color:#c94f4f}
       .gi-footer{text-align:center;font-size:12px;color:#a49f92;margin-top:26px;letter-spacing:0.3px}
+      .gi-footer img{height:28px;display:block;margin:0 auto 8px;opacity:0.85}
       .gi-success{text-align:center;padding:64px 24px;max-width:480px;margin:0 auto}
       .gi-success-icon{width:64px;height:64px;border-radius:50%;background:#e8f5ef;color:#166534;display:flex;align-items:center;justify-content:center;font-size:30px;margin:0 auto 20px}
     </style>'''
@@ -14719,7 +19843,7 @@ def rsvp_page(token):
     conn = get_db()
     rsvp = fetchone(conn, '''SELECT r.*, e.name as event_name, e.event_date, e.start_time,
         e.location, e.address, e.description, e.id as event_id, e.status as event_status, e.rsvp_kind,
-        e.invite_image_url, e.invite_headline, e.hide_block_names
+        e.invite_image_url, e.invite_headline, e.hide_block_names, e.production_id
         FROM event_rsvps r JOIN events e ON r.event_id=e.id WHERE r.token=%s''', (token,))
     if not rsvp:
         conn.close()
@@ -14739,7 +19863,7 @@ def rsvp_page(token):
         return f'''<html><head><title>Event Cancelled</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled and is no longer accepting sign-ups.</p>
           <p style="color:#6b7280">Thank you for your interest  -  please check back for future events from Horizon West Theater Company.</p>
@@ -14771,34 +19895,51 @@ def rsvp_page(token):
             </div>
             <div class="gi-card">{rows_html}</div>
             <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
     # Already signed up (non-party, legacy behavior)
     if rsvp.get('status') == 'interested':
-        role_line = f'<p style="color:#16a34a;font-weight:600">Your {slot_word.lower()}: {rsvp["role_name"]}</p>' if rsvp.get('role_name') else ''
+        role_line = f'<p style="color:#16a34a;font-weight:600;margin-top:10px">Your {slot_word.lower()}: {rsvp["role_name"]}</p>' if rsvp.get('role_name') else ''
+        thanks_word = 'RSVP' if is_guest else 'sign-up'
         conn.close()
-        return f'''<html><head><title>RSVP Confirmed</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">✅</div>
-          <h2 style="color:#145466">You're already signed up!</h2>
-          <p>Thanks {rsvp.get("volunteer_name","")}  -  we have your RSVP for <strong>{rsvp["event_name"]}</strong>.</p>
-          {role_line}
-          <p style="color:#888">We'll be in touch with more details.</p>
+        return f'''<html><head><title>{"RSVP" if is_guest else "Sign-Up"} Confirmed</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            <div style="text-align:center;padding:60px 0 20px">
+              <div class="gi-success-icon">✓</div>
+              <div class="gi-eyebrow">Already Signed Up</div>
+              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 4px">{rsvp["event_name"]}</h2>
+              <p style="color:#6b6b64;font-size:14px">Thanks {rsvp.get("volunteer_name","")} — we have your {thanks_word}.</p>
+              {role_line}
+              <p style="color:#a49f92;font-size:13px;margin-top:16px">We'll be in touch with more details.</p>
+            </div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+          </div>
         </body></html>'''
 
     # Already declined
     if rsvp.get('status') == 'declined':
         conn.close()
-        return f'''<html><head><title>RSVP Recorded</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">💌</div>
-          <h2 style="color:#145466">We've noted you can't make it</h2>
-          <p>Thanks for letting us know, {rsvp.get("volunteer_name","")}. We'll miss you at <strong>{rsvp["event_name"]}</strong>!</p>
-          <p style="color:#888;font-size:13px">Changed your mind? <a href="/rsvp/{token}/undo">Click here</a> to RSVP instead.</p>
+        undo_word = 'RSVP' if is_guest else 'sign up'
+        return f'''<html><head><title>{"RSVP" if is_guest else "Response"} Recorded</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            <div style="text-align:center;padding:60px 0 20px">
+              <div class="gi-eyebrow">{"RSVP" if is_guest else "Response"} Recorded</div>
+              <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 14px">We've noted you can't make it</h2>
+              <p style="color:#4a4a45">Thanks for letting us know, {rsvp.get("volunteer_name","")} — we'll miss you at <strong>{rsvp["event_name"]}</strong>!</p>
+              <p style="color:#a49f92;font-size:13px;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Click here</a> to {undo_word} instead.</p>
+            </div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
+          </div>
         </body></html>'''
 
     # Load available roles/slots
@@ -14808,7 +19949,19 @@ def rsvp_page(token):
     _rc = _role_headcounts_for_event(conn, rsvp['event_id'])
     for _r in roles:
         _r['filled'] = _rc.get(_r['id'], 0)
+    producer_contacts = [] if is_guest else _production_producer_contacts(conn, rsvp.get('production_id'))
     conn.close()
+
+    producer_contact_html = ''
+    if producer_contacts:
+        lines = []
+        for p in producer_contacts:
+            phone_part = f' &middot; {p["phone"]}' if p.get('phone') else ''
+            lines.append(f'<div style="font-size:12.5px;color:#4a4a45;margin-top:2px">{p["name"]} — <a href="mailto:{p["email"]}" style="color:#145466">{p["email"]}</a>{phone_part}</div>')
+        producer_contact_html = f'''<div style="text-align:center;font-size:11px;color:#a49f92;margin-top:10px">
+          Questions? Contact {"your producer" if len(producer_contacts)==1 else "a producer"}:
+          {''.join(lines)}
+        </div>'''
 
     # If this invite was pre-assigned to a specific block by an admin, lock the page to
     # just that block instead of showing the full picker — "RSVP to the block we assigned you."
@@ -14866,9 +20019,9 @@ def rsvp_page(token):
             {hero_html}
             <div class="gi-details">
               <div class="gi-event-name">{rsvp["event_name"]}</div>
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
             </div>
             {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
             <div class="gi-divider"><span></span></div>
@@ -14885,7 +20038,7 @@ def rsvp_page(token):
                 </button>
               </form>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -14910,40 +20063,32 @@ def rsvp_page(token):
                 </div>
                 <input type="hidden" name="role_id" value="{r["id"]}"/>'''
             else:
-                locked_block_html = f'''<div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:10px 0">
-                  <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase">Your Assigned Role</div>
-                  <div style="font-size:16px;font-weight:700;color:#0d3d4d">{r["name"]}</div>
+                full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This role is currently full — let us know anyway and we\'ll follow up.</div>' if available <= 0 else ''
+                training_note = '<div style="font-size:11.5px;color:#9a3412;font-weight:700;margin-top:4px"> This role requires additional training</div>' if r.get('requires_foh_training') else ''
+                locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
+                  <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Role</div>
+                  <div style="font-size:17px;font-weight:700;color:#0d3d4d">{r["name"]}</div>
+                  {full_note}
+                  {training_note}
                 </div>
                 <input type="hidden" name="role_id" value="{r["id"]}"/>'''
         else:
             for r in roles:
                 available = max(0, int(r['slots']) - int(r['filled'] or 0))
                 disabled = 'disabled' if available <= 0 else ''
-                if is_guest:
-                    style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
-                    badge_color = '#166534' if available > 0 else '#dc2626'
-                    badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
-                    r_bt = _fmt_time(r.get('block_time'))
-                    r_bte = _fmt_time(r.get('block_time_end'))
-                    time_line = f'<div style="font-size:12.5px;color:#145466;font-weight:600;margin-top:1px">{r_bt}{" – "+r_bte if r_bte else ""}</div>' if r_bt else ''
-                    desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
-                    roles_html += f'''<label class="gi-slot" style="{style}"
-                        onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
-                        <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
-                        <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}</div>
-                    </label>'''
-                else:
-                    style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else 'cursor:pointer'
-                    badge = f'<span style="font-size:11px;color:{"#16a34a" if available>0 else "#dc2626"};font-weight:600">{""+str(available)+" spot"+ ("s" if available!=1 else "")+" left" if available>0 else "Full"}</span>'
-                    desc = f'<div style="font-size:12px;color:#666;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
-                    roles_html += f'''<label style="display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px solid #e2e8f0;border-radius:10px;margin-bottom:8px;{style}" 
-                        onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('label').forEach(l=>l.style.borderColor='#e2e8f0'); this.style.borderColor='#145466';">
-                        <input type="radio" name="role_id" value="{r["id"]}" {disabled} style="accent-color:#145466;flex-shrink:0" required/>
-                        <div style="flex:1">
-                          <div style="font-weight:600;font-size:15px">{r["name"]} {badge}</div>
-                          {desc}
-                        </div>
-                    </label>'''
+                style = 'opacity:0.5;cursor:not-allowed' if available <= 0 else ''
+                badge_color = '#166534' if available > 0 else '#dc2626'
+                badge = f'<span style="font-size:11px;color:{badge_color};font-weight:700">{(str(available)+" spot"+("s" if available!=1 else "")+" left") if available>0 else "Full"}</span>'
+                r_bt = _fmt_time(r.get('block_time'))
+                r_bte = _fmt_time(r.get('block_time_end'))
+                time_line = f'<div style="font-size:12.5px;color:#145466;font-weight:600;margin-top:1px">{r_bt}{" – "+r_bte if r_bte else ""}</div>' if r_bt else ''
+                desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+                training_note = '<div style="font-size:11.5px;color:#9a3412;font-weight:700;margin-top:3px"> This role requires additional training</div>' if r.get('requires_foh_training') else ''
+                roles_html += f'''<label class="gi-slot" style="{style}"
+                    onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
+                    <input type="radio" name="role_id" value="{r["id"]}" {disabled} data-requires-training="{1 if r.get('requires_foh_training') else 0}" style="accent-color:#145466;flex-shrink:0" required/>
+                    <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}{training_note}</div>
+                </label>'''
 
         heading = 'You\'re invited!' if is_guest else 'Sign up to volunteer!'
         if is_guest:
@@ -14953,50 +20098,44 @@ def rsvp_page(token):
 
         image_url = (rsvp.get('invite_image_url') or '').strip()
         headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        eyebrow_text = "You're Invited" if is_guest else 'Volunteer Sign-Up'
 
-        if not is_guest:
-            top_html = f'''<div style="text-align:center;margin-bottom:28px">
-            <div style="font-size:40px;margin-bottom:12px">✋</div>
-            <h2 style="color:#145466;margin-bottom:6px">{heading}</h2>
-            <p style="color:#555">{subheading}</p>
-          </div>'''
-            return f'''<html><head><title>Sign Up  -  {rsvp["event_name"]}</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
-          {top_html}
-          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
-              <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
-              {f'<div style="color:#374151;margin-top:6px;font-weight:600">📅 {date_str}</div>' if date_str else ''}
-              {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {rsvp["location"]}</div>' if rsvp.get("location") else ''}
-            </div>
-          <form method="POST" action="/rsvp/{token}">
-            {locked_block_html if locked_block else f'<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>{roles_html}'}
-            <button type="submit" name="rsvp_action" value="confirm" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:12px">
-              ✅ Confirm RSVP
-            </button>
-            <button type="submit" name="rsvp_action" value="decline" formnovalidate style="width:100%;background:none;color:#888;border:1.5px solid #e0e0db;border-radius:10px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">
-              Can't Make It
-            </button>
-          </form>
-        </body></html>'''
+        # Confirm-button text: for a single pre-assigned role we know up front whether it
+        # needs training; for a picker with several roles, JS updates it as they choose.
+        default_confirm_label = 'RSVP — Confirm My Spot' if is_guest else 'Sign Up to Volunteer'
+        training_confirm_label = 'Complete Training & Sign Up to Volunteer'
+        if locked_block and locked_block.get('requires_foh_training') and not is_guest:
+            confirm_label = training_confirm_label
+        else:
+            confirm_label = default_confirm_label
+        confirm_btn_script = '' if (is_guest or locked_block) else f'''<script>
+        document.querySelectorAll('input[name="role_id"]').forEach(function(inp){{
+          inp.addEventListener('change', function(){{
+            var btn = document.getElementById('rsvp-confirm-btn')
+            if(!btn) return
+            btn.textContent = (this.dataset.requiresTraining==='1') ? {json.dumps(training_confirm_label)} : {json.dumps(default_confirm_label)}
+          }})
+        }})
+        </script>'''
 
-        # ── Polished guest invite with slot selection ──
+        # ── Polished invite with slot selection (used for both guest and volunteer sign-ups) ──
         if image_url:
             hero_html = f'''<div class="gi-hero" style="height:260px">
               <img src="{image_url}"/>
               <div class="gi-hero-overlay"></div>
               <div class="gi-hero-text">
-                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-eyebrow">{eyebrow_text}</div>
                 <div class="gi-headline" style="font-size:28px">{headline}</div>
               </div>
             </div>'''
         else:
             hero_html = f'''<div class="gi-no-image-hero" style="padding:36px 24px">
-              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">{eyebrow_text}</div>
               <div class="gi-headline-plain" style="font-size:28px">{headline}</div>
             </div>'''
 
-        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
+        page_title = f'RSVP — {rsvp["event_name"]}' if is_guest else f'Sign Up — {rsvp["event_name"]}'
+        return f'''<html><head><title>{page_title}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1">
         {_guest_invite_css()}
         </head>
@@ -15006,25 +20145,27 @@ def rsvp_page(token):
             <p style="text-align:center;color:#6b6b64;margin:18px 0 -6px;font-size:14px">{subheading}</p>
             <div class="gi-details" style="margin-top:22px">
               <div class="gi-event-name">{rsvp["event_name"]}</div>
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
             </div>
             {locked_block_html}
             <div class="gi-divider"><span></span></div>
             <div class="gi-card">
               <form method="POST" action="/rsvp/{token}">
                 {'' if locked_block else f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}'}
-                <button type="submit" name="rsvp_action" value="confirm" class="gi-btn" style="margin-top:8px">
-                  RSVP — Confirm My Spot
+                <button type="submit" name="rsvp_action" value="confirm" id="rsvp-confirm-btn" class="gi-btn" style="margin-top:8px">
+                  {confirm_label}
                 </button>
                 <button type="submit" name="rsvp_action" value="decline" formnovalidate class="gi-btn-secondary" style="margin-top:10px">
                   Can't Make It
                 </button>
               </form>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            {producer_contact_html}
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
+          {confirm_btn_script}
         </body></html>'''
     else:
         # No roles/slots — show a simple confirm/decline landing page.
@@ -15033,46 +20174,28 @@ def rsvp_page(token):
         # is recorded until they actually click a button.)
         image_url = (rsvp.get('invite_image_url') or '').strip()
         headline = (rsvp.get('invite_headline') or '').strip() or rsvp['event_name']
+        eyebrow_text = "You're Invited" if is_guest else 'Volunteer Sign-Up'
+        confirm_label = "RSVP — I'll Be There!" if is_guest else 'Sign Up to Volunteer'
+        prompt_text = f'Hi {vol_name}, will you be joining us?' if is_guest else f'Hi {vol_name}, can you help at this event?'
+        page_title = f'RSVP — {rsvp["event_name"]}' if is_guest else f'Sign Up — {rsvp["event_name"]}'
 
-        if not is_guest:
-            return f'''<html><head><title>RSVP  -  {rsvp["event_name"]}</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:40px;margin-bottom:12px">✋</div>
-          <h2 style="color:#145466;margin-bottom:6px">Sign up to volunteer!</h2>
-          <p style="color:#555">Hi {vol_name} — can you make it to:</p>
-          <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
-            <div style="font-size:18px;font-weight:700;color:#145466">{rsvp["event_name"]}</div>
-            {f'<div style="color:#374151;margin-top:6px;font-weight:600">📅 {date_str}</div>' if date_str else ''}
-            {f'<div style="color:#6b7280;font-size:13px;margin-top:2px">📍 {rsvp["location"]}</div>' if rsvp.get("location") else ''}
-          </div>
-          <form method="POST" action="/rsvp/{token}">
-            <button type="submit" name="rsvp_action" value="confirm" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px">
-              ✅ Yes, I Can Help!
-            </button>
-            <button type="submit" name="rsvp_action" value="decline" style="width:100%;background:none;color:#888;border:1.5px solid #e0e0db;border-radius:10px;padding:13px;font-size:14px;font-weight:600;cursor:pointer;margin-top:8px">
-              Can't Make It
-            </button>
-          </form>
-        </body></html>'''
-
-        # ── Polished confirm/decline landing for guest events ──
+        # ── Polished confirm/decline landing (used for both guest and volunteer sign-ups) ──
         if image_url:
             hero_html = f'''<div class="gi-hero" style="height:280px">
               <img src="{image_url}"/>
               <div class="gi-hero-overlay"></div>
               <div class="gi-hero-text">
-                <div class="gi-eyebrow">You're Invited</div>
+                <div class="gi-eyebrow">{eyebrow_text}</div>
                 <div class="gi-headline" style="font-size:30px">{headline}</div>
               </div>
             </div>'''
         else:
             hero_html = f'''<div class="gi-no-image-hero">
-              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">You're Invited</div>
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">{eyebrow_text}</div>
               <div class="gi-headline-plain">{headline}</div>
             </div>'''
 
-        return f'''<html><head><title>RSVP — {rsvp["event_name"]}</title>
+        return f'''<html><head><title>{page_title}</title>
         <meta name="viewport" content="width=device-width,initial-scale=1">
         {_guest_invite_css()}
         </head>
@@ -15081,24 +20204,25 @@ def rsvp_page(token):
             {hero_html}
             <div class="gi-details">
               <div class="gi-event-name">{rsvp["event_name"]}</div>
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}</div>' if date_str else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
-              {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{date_str}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["location"]}</div>' if rsvp.get("location") else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{rsvp["address"]}</div>' if rsvp.get("address") else ''}
             </div>
             {f'<p class="gi-desc">{rsvp["description"]}</p>' if rsvp.get('description') else ''}
             <div class="gi-divider"><span></span></div>
             <div class="gi-card">
-              <p style="text-align:center;color:#6b6b64;margin:0 0 16px;font-size:14px">Hi {vol_name}, will you be joining us?</p>
+              <p style="text-align:center;color:#6b6b64;margin:0 0 16px;font-size:14px">{prompt_text}</p>
               <form method="POST" action="/rsvp/{token}">
                 <button type="submit" name="rsvp_action" value="confirm" class="gi-btn">
-                  RSVP — I'll Be There!
+                  {confirm_label}
                 </button>
                 <button type="submit" name="rsvp_action" value="decline" class="gi-btn-secondary" style="margin-top:10px">
                   Can't Make It
                 </button>
               </form>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            {producer_contact_html}
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -15121,7 +20245,7 @@ def rsvp_submit(token):
         conn.close()
         return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{rsvp["event_name"]}</strong> has been cancelled. Sign-ups are no longer being accepted.</p>
           <p style="color:#6b7280">Thank you for your interest  -  please check back for future events.</p>
@@ -15146,7 +20270,8 @@ def rsvp_submit(token):
             recipients = get_recipient_emails(s)
             if recipients and s.get('alert_new_rsvp', True):
                 send_email(recipients, f'RSVP Decline: {rsvp["event_name"]}',
-                    f'<div style="font-family:sans-serif"><p>💌 <strong>{vol_name}</strong> declined the invite for <strong>{rsvp["event_name"]}</strong>.</p></div>')
+                    build_hwtc_email_html(f'RSVP Decline: {rsvp["event_name"]}',
+                    f'<p><strong>{vol_name}</strong> declined the invite for <strong>{rsvp["event_name"]}</strong>.</p>'))
         except Exception as e:
             app.logger.warning(f'rsvp decline alert email error: {e}')
         conn.close()
@@ -15154,7 +20279,7 @@ def rsvp_submit(token):
             return f'''<html><head><title>RSVP Recorded</title>
             <meta name="viewport" content="width=device-width,initial-scale=1"></head>
             <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-              <div style="font-size:48px;margin-bottom:16px">💌</div>
+              <div style="font-size:48px;margin-bottom:16px"></div>
               <h2 style="color:#145466">Thanks for letting us know</h2>
               <p>We've noted you can't make it to <strong>{rsvp["event_name"]}</strong>. Thanks for responding!</p>
             </body></html>'''
@@ -15169,7 +20294,7 @@ def rsvp_submit(token):
               <h2 style="font-family:'Playfair Display',Georgia,serif;color:#0d3d4d;font-size:26px;margin:6px 0 14px">Thanks for letting us know</h2>
               <p style="color:#4a4a45">Sorry you can't make it, {vol_name} — we'll miss you at <strong>{rsvp["event_name"]}</strong>.</p>
             </div>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -15213,7 +20338,7 @@ def rsvp_submit(token):
                     word = 'spot' if available == 1 else 'spots'
                     return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
                     <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-                      <div style="font-size:48px;margin-bottom:16px">😔</div>
+                      <div style="font-size:48px;margin-bottom:16px"></div>
                       <h2 style="color:#dc2626">Not quite enough room</h2>
                       <p>Only {available} {word} left, but {new_attending_ct} of your party {"is" if new_attending_ct==1 else "are"} checked as coming. Please adjust and try again, or reach out to us directly.</p>
                       <p><a href="/rsvp/{token}">Go back</a></p>
@@ -15231,8 +20356,9 @@ def rsvp_submit(token):
                 coming_names = ', '.join(r['name'] for r in responses if r['attending']) or 'no one'
                 not_coming_names = ', '.join(r['name'] for r in responses if not r['attending']) or 'no one'
                 send_email(recipients, f'RSVP: {rsvp["event_name"]}',
-                    f'<div style="font-family:sans-serif"><p>✋ <strong>{vol_name}</strong> responded for <strong>{rsvp["event_name"]}</strong>.</p>'
-                    f'<p><strong>Coming:</strong> {coming_names}<br/><strong>Not coming:</strong> {not_coming_names}</p></div>')
+                    build_hwtc_email_html(f'RSVP: {rsvp["event_name"]}',
+                    f'<p><strong>{vol_name}</strong> responded for <strong>{rsvp["event_name"]}</strong>.</p>'
+                    f'<p><strong>Coming:</strong> {coming_names}<br/><strong>Not coming:</strong> {not_coming_names}</p>'))
         except Exception as e:
             app.logger.warning(f'rsvp party alert email error: {e}')
         conn.close()
@@ -15259,7 +20385,7 @@ def rsvp_submit(token):
             </div>
             <div class="gi-card">{rows_html}</div>
             <p style="text-align:center;font-size:12px;color:#a49f92;margin-top:16px">Changed your mind? <a href="/rsvp/{token}/undo" style="color:#145466">Update your RSVP</a></p>
-            <div class="gi-footer">Horizon West Theater Company</div>
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
         </body></html>'''
 
@@ -15274,10 +20400,20 @@ def rsvp_submit(token):
                 conn.close()
                 return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
                 <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-                  <div style="font-size:48px;margin-bottom:16px">😔</div>
+                  <div style="font-size:48px;margin-bottom:16px"></div>
                   <h2 style="color:#dc2626">That {slot_word.lower()} just filled up</h2>
                   <p>Sorry, the <strong>{role["name"]}</strong> {slot_word.lower()} was just taken. <a href="/rsvp/{token}">Go back</a> to choose another.</p>
                 </body></html>''', 409
+            if role.get('requires_foh_training') and not _foh_training_passed(conn, rsvp.get('volunteer_email')):
+                conn.close()
+                training_url = f"/foh-training?redirect=/rsvp/{token}&email={rsvp.get('volunteer_email','')}&name={vol_name}"
+                return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+                <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
+                  <div style="font-size:48px;margin-bottom:16px"></div>
+                  <h2 style="color:#145466">One more step first</h2>
+                  <p>The <strong>{role["name"]}</strong> shift requires Front of House Support Training before you can sign up.</p>
+                  <p><a href="{training_url}" style="color:#145466;font-weight:700">Complete Training & Sign Up to Volunteer →</a></p>
+                </body></html>''', 403
             role_name = role['name']
 
     execute(conn, "UPDATE event_rsvps SET status='interested', role_id=%s, role_name=%s WHERE token=%s",
@@ -15296,15 +20432,17 @@ def rsvp_submit(token):
             # New RSVP alert
             if s.get('alert_new_rsvp', True):
                 send_email(recipients, f'New RSVP: {evt_name}' if is_guest else f'New Sign-up: {evt_name}',
-                    f'<div style="font-family:sans-serif"><p>✋ <strong>{vol_name}</strong> {action_word}{role_line} for <strong>{evt_name}</strong>.</p>'
-                    f'{f"<p>Date: {date_str}</p>" if date_str else ""}</div>')
+                    build_hwtc_email_html(f'New RSVP: {evt_name}' if is_guest else f'New Sign-up: {evt_name}',
+                    f'<p><strong>{vol_name}</strong> {action_word}{role_line} for <strong>{evt_name}</strong>.</p>'
+                    f'{f"<p>Date: {date_str}</p>" if date_str else ""}'))
             # Slot filled alert
             if role_id and role_name and s.get('alert_role_filled', True):
                 filled_now_ct = _role_headcount(conn, role_id)
                 role_row = fetchone(conn, 'SELECT slots FROM event_roles WHERE id=%s', (role_id,))
                 if role_row and filled_now_ct >= int(role_row['slots']):
                     send_email(recipients, f'{slot_word} Filled: {role_name}  -  {evt_name}',
-                        f'<div style="font-family:sans-serif"><p>🎉 The <strong>{role_name}</strong> {slot_word.lower()} for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p></div>')
+                        build_hwtc_email_html(f'{slot_word} Filled: {role_name}  -  {evt_name}',
+                        f'<p>The <strong>{role_name}</strong> {slot_word.lower()} for <strong>{evt_name}</strong> is now fully filled ({role_row["slots"]} of {role_row["slots"]} slots).</p>'))
     except Exception as e:
         app.logger.warning(f'rsvp alert email error: {e}')
 
@@ -15314,7 +20452,7 @@ def rsvp_submit(token):
         return f'''<html><head><title>Signed Up!</title>
         <meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🎉</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#145466">You're signed up!</h2>
           <p>Thanks {vol_name}! We've got you down for:</p>
           <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:12px;padding:20px;margin:24px 0">
@@ -15339,7 +20477,7 @@ def rsvp_submit(token):
           <p style="color:#4a4a45">Thanks {vol_name}! We've got you down{f' for {date_str}' if date_str else ''}{f' — {role_name}' if role_name else ''}.</p>
           <p style="color:#8a8477;font-size:13px;margin-top:16px">We look forward to seeing you!</p>
         </div>
-        <div class="gi-footer">Horizon West Theater Company</div>
+        <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
       </div>
     </body></html>'''
 
@@ -15409,7 +20547,7 @@ def public_rsvp_open_page(event_id):
         conn.close()
         return f'''<html><head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
         <body style="font-family:-apple-system,sans-serif;text-align:center;padding:60px 20px;max-width:500px;margin:0 auto">
-          <div style="font-size:48px;margin-bottom:16px">🚫</div>
+          <div style="font-size:48px;margin-bottom:16px"></div>
           <h2 style="color:#dc2626">This Event Has Been Cancelled</h2>
           <p style="color:#6b7280"><strong>{evt["name"]}</strong> has been cancelled and is no longer accepting RSVPs.</p>
         </body></html>'''
@@ -15420,7 +20558,19 @@ def public_rsvp_open_page(event_id):
     _rc = _role_headcounts_for_event(conn, event_id)
     for _r in roles:
         _r['filled'] = _rc.get(_r['id'], 0)
+    producer_contacts = [] if is_guest else _production_producer_contacts(conn, evt.get('production_id'))
     conn.close()
+
+    producer_contact_html = ''
+    if producer_contacts:
+        lines = []
+        for p in producer_contacts:
+            phone_part = f' &middot; {p["phone"]}' if p.get('phone') else ''
+            lines.append(f'<div style="font-size:12.5px;color:#4a4a45;margin-top:2px">{p["name"]} — <a href="mailto:{p["email"]}" style="color:#145466">{p["email"]}</a>{phone_part}</div>')
+        producer_contact_html = f'''<div style="text-align:center;font-size:11px;color:#a49f92;margin-top:10px">
+          Questions? Contact {"your producer" if len(producer_contacts)==1 else "a producer"}:
+          {''.join(lines)}
+        </div>'''
 
     # A direct block/session link (?block=<role_id>) scopes the whole page to just that
     # one block instead of showing the full picker — for "RSVP to the block we assigned you."
@@ -15452,10 +20602,11 @@ def public_rsvp_open_page(event_id):
             r_bte = _fmt_time(r.get('block_time_end'))
             time_line = f'<div style="font-size:12.5px;color:#145466;font-weight:600;margin-top:1px">{r_bt}{" – "+r_bte if r_bte else ""}</div>' if r_bt else ''
             desc = f'<div style="font-size:12px;color:#8a8477;margin-top:2px">{r["description"]}</div>' if r.get('description') else ''
+            training_note = '<div style="font-size:11.5px;color:#9a3412;font-weight:700;margin-top:3px"> This role requires additional training</div>' if r.get('requires_foh_training') else ''
             roles_html += f'''<label class="gi-slot" style="{style}"
                 onclick="if(!this.querySelector('input').disabled) this.closest('form').querySelectorAll('.gi-slot').forEach(l=>{{l.style.borderColor='#ece5d8';l.style.background='#fff'}}); this.style.borderColor='#145466'; this.style.background='#f0f8fa';">
-                <input type="radio" name="role_id" value="{r["id"]}" {disabled} required style="accent-color:#145466;flex-shrink:0"/>
-                <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}</div>
+                <input type="radio" name="role_id" value="{r["id"]}" {disabled} data-requires-training="{1 if r.get('requires_foh_training') else 0}" required style="accent-color:#145466;flex-shrink:0"/>
+                <div style="flex:1"><div style="font-weight:600;font-size:14.5px;color:#2b2b28">{r["name"]} {badge}</div>{time_line}{desc}{training_note}</div>
             </label>'''
     locked_block_html = ''
     if locked_block:
@@ -15467,10 +20618,12 @@ def public_rsvp_open_page(event_id):
         <input type="hidden" name="role_id" value="{locked_block["id"]}"/>'''
         else:
             full_note = '<div style="color:#dc2626;font-size:12.5px;font-weight:600;margin-top:4px">This block is currently full — you can still let us know you\'d like to come and we\'ll follow up.</div>' if available <= 0 else ''
+            training_note = '<div style="font-size:11.5px;color:#9a3412;font-weight:700;margin-top:4px"> This role requires additional training</div>' if locked_block.get('requires_foh_training') else ''
             locked_block_html = f'''<div class="gi-details" style="margin-top:0;background:#f0f8fa;border-color:#c9e4ea">
           <div style="font-size:11px;font-weight:700;color:#145466;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Your Assigned Block</div>
           <div style="font-size:17px;font-weight:700;color:#0d3d4d">{locked_block["name"]}</div>
           {full_note}
+          {training_note}
         </div>
         <input type="hidden" name="role_id" value="{locked_block["id"]}"/>'''
 
@@ -15487,40 +20640,60 @@ def public_rsvp_open_page(event_id):
         )
 
     if not is_guest:
-        # Plain, functional styling for volunteer-shift sign-ups (unchanged tone)
-        return f'''<html><head><title>RSVP — {evt["name"]}</title>
-        <meta name="viewport" content="width=device-width,initial-scale=1"></head>
-        <body style="font-family:-apple-system,sans-serif;max-width:500px;margin:0 auto;padding:40px 20px">
-          <div style="text-align:center;margin-bottom:24px">
-            <div style="font-size:40px;margin-bottom:12px">✋</div>
-            <h2 style="color:#145466;margin-bottom:6px">Sign Up to Volunteer</h2>
-            <div style="background:#f0fdf4;border:2px solid #86efac;border-radius:10px;padding:14px;margin:16px 0">
-              <div style="font-size:18px;font-weight:700;color:#145466">{evt["name"]}</div>
-              {f'<div style="color:#555;margin-top:4px">{date_str}{" · "+time_str if time_str else ""}</div>' if date_str else ''}
-              {f'<div style="color:#888;font-size:13px">{evt["location"]}</div>' if evt.get("location") else ''}
+        default_confirm_label = 'Sign Up to Volunteer'
+        training_confirm_label = 'Complete Training & Sign Up to Volunteer'
+        initial_label = training_confirm_label if (locked_block and locked_block.get('requires_foh_training')) else default_confirm_label
+        return f'''<html><head><title>Sign Up — {evt["name"]}</title>
+        <meta name="viewport" content="width=device-width,initial-scale=1">
+        {_guest_invite_css()}
+        </head>
+        <body class="gi-body">
+          <div class="gi-wrap">
+            <div class="gi-no-image-hero">
+              <div class="gi-eyebrow" style="color:rgba(255,255,255,0.85)">Volunteer Sign-Up</div>
+              <div class="gi-headline-plain">{headline}</div>
             </div>
-            {f'<p style="color:#6b7280;font-size:14px">{evt["description"]}</p>' if evt.get('description') else ''}
+            <div class="gi-details">
+              <div class="gi-event-name">{evt["name"]}</div>
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{date_str}{" &middot; "+time_str if time_str else ""}</div>' if date_str else ''}
+              {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{evt["location"]}</div>' if evt.get("location") else ''}
+            </div>
+            {f'<p class="gi-desc">{evt["description"]}</p>' if evt.get('description') else ''}
+            <div class="gi-divider"><span></span></div>
+            <div id="rsvp-alert"></div>
+            <div class="gi-card">
+              <form id="public-rsvp-form" onsubmit="return false">
+                <label class="gi-label">Your Name *</label>
+                <input type="text" id="pr-name" required class="gi-input" placeholder="Full name"/>
+                <label class="gi-label">Email *</label>
+                <input type="email" id="pr-email" required class="gi-input" placeholder="you@example.com"/>
+                {f'<span class="gi-slot-label">Choose a {slot_word.lower()}</span>{roles_html}' if roles else ''}
+                <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp()" class="gi-btn" style="margin-top:8px">
+                  {initial_label}
+                </button>
+              </form>
+            </div>
+            {producer_contact_html}
+            <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
           </div>
-          <div id="rsvp-alert"></div>
-          <form id="public-rsvp-form" onsubmit="return false">
-            <label style="font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;display:block;margin-bottom:4px">Your Name <span style="color:#dc2626">*</span></label>
-            <input type="text" id="pr-name" required style="width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box"/>
-            <label style="font-size:12px;font-weight:700;color:#5f5e5a;text-transform:uppercase;display:block;margin-bottom:4px">Email <span style="color:#dc2626">*</span></label>
-            <input type="email" id="pr-email" required style="width:100%;padding:11px 14px;border:1.5px solid #e0e0db;border-radius:10px;font-size:15px;margin-bottom:14px;box-sizing:border-box"/>
-            {f'<div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin-bottom:10px">Choose a {slot_word.lower()}</div>{roles_html}' if roles else ''}
-            <button type="button" id="pr-submit-btn" onclick="submitPublicRsvp()" style="width:100%;background:#145466;color:#fff;border:none;border-radius:10px;padding:16px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px">
-              ✅ I Can Help!
-            </button>
-          </form>
-          <p style="text-align:center;font-size:12px;color:#aaa;margin-top:20px">Horizon West Theater Company</p>
           <script>
+          function currentBtnLabel(){{
+            var sel = document.querySelector('input[name="role_id"]:checked')
+            return (sel && sel.dataset.requiresTraining==='1') ? {json.dumps(training_confirm_label)} : {json.dumps(default_confirm_label)}
+          }}
+          document.querySelectorAll('input[name="role_id"]').forEach(function(inp){{
+            inp.addEventListener('change', function(){{
+              var btn = document.getElementById('pr-submit-btn')
+              if(btn) btn.textContent = currentBtnLabel()
+            }})
+          }})
           async function submitPublicRsvp(){{
             var name = document.getElementById('pr-name').value.trim()
             var email = document.getElementById('pr-email').value.trim()
             var roleInput = document.querySelector('input[name="role_id"]:checked')
             var roleId = roleInput ? roleInput.value : ''
             if(!name || !email){{
-              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
+              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">Please fill in your name and email.</div>'
               return
             }}
             {role_check_js}
@@ -15529,11 +20702,12 @@ def public_rsvp_open_page(event_id):
             var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId}})}})
             var data = await r.json()
             if(data.error){{
-              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:8px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
-              btn.disabled = false; btn.textContent = "✅ I Can Help!"
+              var extraLink = data.training_required ? '<br/><a href="'+data.training_url+'" style="color:#991b1b;font-weight:700;text-decoration:underline">Complete Training & Sign Up to Volunteer</a>' : ''
+              document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+extraLink+'</div>'
+              btn.disabled = false; btn.textContent = currentBtnLabel()
               return
             }}
-            document.body.innerHTML = '<div style="text-align:center;padding:60px 20px;max-width:500px;margin:0 auto;font-family:-apple-system,sans-serif"><div style="font-size:48px;margin-bottom:16px">🎉</div><h2 style="color:#145466">You\\'re in!</h2><p>Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p></div>'
+            document.body.innerHTML = '<div class="gi-success"><div class="gi-success-icon">✓</div><h2 style="font-family:\\'Playfair Display\\',Georgia,serif;color:#0d3d4d;font-size:26px">You\\'re in!</h2><p style="color:#4a4a45">Thanks '+name+'! We\\'ve got you down for <strong>{evt["name"]}</strong>' + (data.role_name ? ' — '+data.role_name : '') + '.</p></div>'
           }}
           </script>
         </body></html>'''
@@ -15556,9 +20730,9 @@ def public_rsvp_open_page(event_id):
 
     details_html = f'''<div class="gi-details">
         <div class="gi-event-name">{evt["name"]}</div>
-        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📅</span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
-        {f'<div class="gi-detail-row"><span class="gi-detail-icon">📍</span>{evt["location"]}</div>' if evt.get("location") else ''}
-        {f'<div class="gi-detail-row"><span class="gi-detail-icon">🏠</span>{evt["address"]}</div>' if evt.get("address") else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{date_str}{" &middot; "+display_time_str if display_time_str else ""}</div>' if date_str else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{evt["location"]}</div>' if evt.get("location") else ''}
+        {f'<div class="gi-detail-row"><span class="gi-detail-icon"></span>{evt["address"]}</div>' if evt.get("address") else ''}
       </div>
       {f'<p class="gi-desc">{evt["description"]}</p>' if evt.get('description') else ''}'''
 
@@ -15588,7 +20762,7 @@ def public_rsvp_open_page(event_id):
             </button>
           </form>
         </div>
-        <div class="gi-footer">Horizon West Theater Company</div>
+        <div class="gi-footer"><img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" alt="HWTC"/>Horizon West Theater Company</div>
       </div>
       <script>
       async function submitPublicRsvp(action){{
@@ -15610,7 +20784,8 @@ def public_rsvp_open_page(event_id):
         var r = await fetch('/api/public/rsvp-event/{event_id}', {{method:'POST', headers:{{'Content-Type':'application/json'}}, body: JSON.stringify({{name:name, email:email, role_id:roleId, action:action}})}})
         var data = await r.json()
         if(data.error){{
-          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+'</div>'
+          var extraLink = data.training_required ? '<br/><a href="'+data.training_url+'" style="color:#991b1b;font-weight:700;text-decoration:underline">Complete Training & Sign Up to Volunteer</a>' : ''
+          document.getElementById('rsvp-alert').innerHTML = '<div style="background:#fee2e2;color:#991b1b;border-radius:12px;padding:12px 16px;margin-bottom:14px;font-size:13px">'+data.error+extraLink+'</div>'
           confirmBtn.disabled = false; declineBtn.disabled = false; activeBtn.textContent = originalText
           return
         }}
@@ -15661,6 +20836,13 @@ def public_rsvp_open_submit(event_id):
             if filled_ct >= int(role['slots']):
                 conn.close()
                 return jsonify({'error': 'Sorry, that time slot just filled up — please go back and pick another.'}), 409
+            if role.get('requires_foh_training') and not _foh_training_passed(conn, email):
+                conn.close()
+                training_url = f"/foh-training?redirect=/rsvp-event/{event_id}&email={email}&name={name}"
+                return jsonify({
+                    'error': f'The {role["name"]} shift requires Front of House Support Training first.',
+                    'training_required': True, 'training_url': training_url
+                }), 403
             role_name = role['name']
 
     # If this email already RSVP'd for this event, just update rather than duplicate
@@ -15680,7 +20862,8 @@ def public_rsvp_open_submit(event_id):
         if recipients and s.get('alert_new_rsvp', True):
             role_line = f' for <strong>{role_name}</strong>' if role_name else ''
             send_email(recipients, f'New RSVP: {evt["name"]}',
-                f'<div style="font-family:sans-serif"><p>✋ <strong>{name}</strong> ({email}) submitted an RSVP{role_line} for <strong>{evt["name"]}</strong> via the public RSVP link.</p></div>')
+                build_hwtc_email_html(f'New RSVP: {evt["name"]}',
+                f'<p><strong>{name}</strong> ({email}) submitted an RSVP{role_line} for <strong>{evt["name"]}</strong> via the public RSVP link.</p>'))
     except Exception as e:
         app.logger.warning(f'public rsvp alert email error: {e}')
 
@@ -16177,7 +21360,7 @@ def create_board_meeting():
                 body = f'''<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;max-width:560px;margin:0 auto">
                   <div style="background:linear-gradient(135deg,#0d3d4d,#145466);padding:28px 32px;border-radius:10px 10px 0 0">
                     <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" style="height:40px;margin-bottom:12px" alt="HWTC"/>
-                    <div style="color:#fff;font-size:20px;font-weight:700">📋 Board Meeting Scheduled</div>
+                    <div style="color:#fff;font-size:20px;font-weight:700"> Board Meeting Scheduled</div>
                   </div>
                   <div style="background:#fff;border:1px solid #e5e7eb;border-top:none;padding:28px 32px;border-radius:0 0 10px 10px">
                     <p style="margin:0 0 16px;font-size:15px">Hi {m['name']},</p>
@@ -16284,12 +21467,12 @@ def send_board_availability_request():
           <p>Hi {m['name']},</p>
           <p>Please click the link below and mark any dates you <strong>cannot</strong> attend.</p>
           <div style="text-align:center;margin:28px 0">
-            <a href="{link}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block">📅 Submit My Availability</a>
+            <a href="{link}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block"> Submit My Availability</a>
           </div>
         </div>'''
         try:
             fi = d.get('from_identity') or {}
-            send_email([m['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
+            send_email([m['email']], subj, build_hwtc_email_html(subj, body), fi.get('email') or None, fi.get('name') or None)
             sent += 1
         except Exception as e:
             app.logger.warning(f'Board availability email failed for {m["email"]}: {e}')
@@ -16395,7 +21578,7 @@ def board_availability_form(token):
 </head>
 <body>
 <div class="header">
-  <h1>📅 Board Meeting Availability</h1>
+  <h1> Board Meeting Availability</h1>
   <p style="font-size:22px;font-weight:800;opacity:1;margin:6px 0 2px">{month_name} {record['year']}</p>
   <p style="font-size:14px;opacity:0.75">{record['member_name']}</p>
 </div>
@@ -16408,11 +21591,11 @@ def board_availability_form(token):
   </div>
   <div style="font-size:20px;font-weight:800;color:#145466;margin-bottom:12px;text-align:center">{month_name} {record['year']}</div>
   <div class="calendar" id="calendar"></div>
-  <button class="btn" id="submit-btn" onclick="submitAvailability()">✅ Submit My Availability</button>
+  <button class="btn" id="submit-btn" onclick="submitAvailability()"> Submit My Availability</button>
   <button class="btn btn-secondary" onclick="clearAll()">Clear all</button>
 </div>
 <div class="card success" id="success-card">
-  <div class="success-icon">🎉</div>
+  <div class="success-icon"></div>
   <h2 style="text-align:center;font-size:18px;margin-bottom:8px">Thanks, {record['member_name']}!</h2>
   <p style="text-align:center;color:#888;font-size:14px">Your availability for {month_name} {record['year']} has been recorded. You can update it anytime by clicking this link again.</p>
 </div>
@@ -16456,7 +21639,7 @@ async function submitAvailability(){{
     body: JSON.stringify({{token: TOKEN, blocked_dates: Array.from(blocked)}})
   }})
   var d = await r.json()
-  if(d.error){{ btn.disabled=false; btn.textContent='✅ Submit My Availability'; alert(d.error); return }}
+  if(d.error){{ btn.disabled=false; btn.textContent=' Submit My Availability'; alert(d.error); return }}
   document.getElementById('main-card').style.display='none'
   document.getElementById('success-card').style.display='block'
 }}
@@ -16488,49 +21671,53 @@ def send_single_giving_reminder(vol_id):
     conn = get_db()
     v = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (vol_id,))
     if not v: conn.close(); return jsonify({'error': 'Volunteer not found'}), 404
-    prog = (v.get('employer_program') or '').strip()
-    if not prog: conn.close(); return jsonify({'error': 'No employer program set for this volunteer'}), 400
-    is_disney = 'disney' in prog.lower()
-    prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
-    submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
-    submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
-    icon = '🐭' if is_disney else '🎬'
-    conn2 = get_db()
-    tmpl = get_system_template(conn2, 'disney_reminder' if is_disney else 'universal_reminder')
-    hours_section, total = build_hours_section(conn2, vol_id, submit_name, submit_link)
-    conn2.close()
+    prog_text = (v.get('employer_program') or '').strip()
+    programs = _giving_programs_for(prog_text)
     conn.close()
-    if not hours_section:
-        return jsonify({'error': 'No hours logged in the last year  -  nothing to remind about'}), 400
+    data = request.json or {}
+    program_filter = data.get('program')
+    if program_filter:
+        programs = [p for p in programs if p['key'] == program_filter]
+    if not programs: return jsonify({'error': 'No employer program set for this volunteer'}), 400
     name = (v.get('name') or 'Volunteer').strip()
-    if tmpl:
-        base_body = tmpl['body'].replace('{{name}}', name)
-        subj = tmpl['subject']
-    else:
-        base_body = f'<p>Hi {name}, please submit your hours to {submit_name}.</p>'
-        subj = f'{icon} Reminder: Submit Your Volunteer Hours  -  {prog_label} Giving Program'
-    # Inject hours table before the last closing div
-    if '</div>' in base_body:
-        idx = base_body.rfind('</div>')
-        body = base_body[:idx] + hours_section + base_body[idx:]
-    else:
-        body = base_body + hours_section
-    conn3 = get_db()
-    d = request.json or {}
-    fi = d.get('from_identity') or {}
-    ok, msg = send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
-    if ok:
-        log_volunteer_comm(conn3, vol_id, subj,
-            'disney_reminder' if is_disney else 'universal_reminder',
-            session.get('user_name', 'admin'), v['email'])
-        execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)
-            VALUES (%s,%s,%s,%s)''',
-            (str(uuid.uuid4()), vol_id, 'disney' if is_disney else 'universal',
-             session.get('user_name', 'admin')))
-        conn3.commit()
-    conn3.close()
-    if not ok: return jsonify({'error': msg or 'Failed to send'}), 500
-    return jsonify({'ok': True, 'sent_to': v['email'], 'total_hours': total})
+    fi = data.get('from_identity') or {}
+    sent_to = []
+    errors = []
+    total_hours = 0
+    for prog in programs:
+        conn2 = get_db()
+        tmpl = get_system_template(conn2, prog['tmpl_key'])
+        hours_section, total = build_hours_section(conn2, vol_id, prog['submit_name'], prog['submit_link'])
+        conn2.close()
+        if not hours_section:
+            errors.append(f"{prog['label']}: no hours logged in the last year — nothing to remind about")
+            continue
+        total_hours = max(total_hours, total)
+        if tmpl:
+            base_body = tmpl['body'].replace('{{name}}', name)
+            subj = tmpl['subject']
+        else:
+            base_body = f"<p>Hi {name}, please submit your hours to {prog['submit_name']}.</p>"
+            subj = f"{prog['icon']} Reminder: Submit Your Volunteer Hours  -  {prog['label']} Giving Program"
+        if '</div>' in base_body:
+            idx = base_body.rfind('</div>')
+            body = base_body[:idx] + hours_section + base_body[idx:]
+        else:
+            body = base_body + hours_section
+        ok, msg = send_email([v['email']], subj, build_hwtc_email_html(subj, body), fi.get('email') or None, fi.get('name') or None)
+        if ok:
+            conn3 = get_db()
+            log_volunteer_comm(conn3, vol_id, subj, prog['tmpl_key'], session.get('user_name', 'admin'), v['email'])
+            execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)
+                VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), vol_id, prog['key'], session.get('user_name', 'admin')))
+            conn3.commit(); conn3.close()
+            sent_to.append(prog['label'])
+        else:
+            errors.append(f"{prog['label']}: {msg or 'failed to send'}")
+    if not sent_to:
+        return jsonify({'error': '; '.join(errors) or 'Failed to send'}), 400
+    return jsonify({'ok': True, 'sent_to': v['email'], 'programs_sent': sent_to, 'total_hours': total_hours,
+                     'errors': errors or None})
 
 def build_hours_section(conn, vol_id, submit_name, submit_link):
     """Build a personalized hours table HTML section for a volunteer."""
@@ -16611,18 +21798,16 @@ def get_employer_reminder_log():
 
 @app.route('/api/volunteers/employer-program-reminder', methods=['POST'])
 def send_employer_program_reminder():
+    """Bulk-sends giving-program reminders. A volunteer who qualifies for both
+    Disney and Universal gets both reminders, tracked and rate-limited
+    independently per program — sending one doesn't suppress the other."""
     err = require_admin()
     if err: return err
     d = request.json or {}
-    program_filter = d.get('program')
+    program_filter = d.get('program')  # 'disney' | 'universal' | None (both)
     min_days = int(d.get('min_days_since_last', 30))  # don't resend within X days
     conn = get_db()
-    if program_filter == 'disney':
-        condition = "LOWER(v.employer_program) LIKE '%%disney%%'"
-    elif program_filter == 'universal':
-        condition = "LOWER(v.employer_program) LIKE '%%universal%%'"
-    else:
-        condition = "(LOWER(v.employer_program) LIKE '%%disney%%' OR LOWER(v.employer_program) LIKE '%%universal%%')"
+    condition = "(LOWER(v.employer_program) LIKE '%%disney%%' OR LOWER(v.employer_program) LIKE '%%universal%%')"
     volunteers = fetchall(conn, f"""
         SELECT DISTINCT v.id, v.name, v.email, v.employer_program
         FROM volunteers v
@@ -16632,49 +21817,47 @@ def send_employer_program_reminder():
           AND h.date::date >= (CURRENT_DATE - INTERVAL '90 days')
           AND v.email IS NOT NULL AND v.email != ''
     """)
-    # Convert to plain dicts so we can add last_sent field
     volunteers = [dict(v) for v in volunteers]
-    # Look up last send time for each volunteer separately (avoids DISTINCT + subquery issues)
+
+    # Build the (volunteer, program) work list — a volunteer with both
+    # programs appears once per applicable program, each tracked separately.
+    jobs = []
     for v in volunteers:
-        last = fetchone(conn, 'SELECT MAX(sent_at) as last_sent FROM employer_reminder_log WHERE volunteer_id=%s', (v['id'],))
-        v['last_sent'] = last['last_sent'] if last else None
+        for prog in _giving_programs_for(v.get('employer_program')):
+            if program_filter and prog['key'] != program_filter:
+                continue
+            last = fetchone(conn, '''SELECT MAX(sent_at) as last_sent FROM employer_reminder_log
+                WHERE volunteer_id=%s AND program_type=%s''', (v['id'], prog['key']))
+            jobs.append({'volunteer': v, 'program': prog, 'last_sent': last['last_sent'] if last else None})
     conn.close()
-    if not volunteers:
+    if not jobs:
         return jsonify({'ok': True, 'sent': 0, 'skipped': 0, 'message': 'No qualifying volunteers found with recent hours'})
+
     sent = 0
     skipped = 0
     skipped_names = []
     errors = []
-    for v in volunteers:
-        # Skip if sent recently
-        if v.get('last_sent'):
-            from datetime import datetime, timezone
-            last = v['last_sent']
-            last_dt = parse_db_datetime(last)
+    for job in jobs:
+        v, prog = job['volunteer'], job['program']
+        name = (v.get('name') or 'Volunteer').strip()
+        if job['last_sent']:
+            last_dt = parse_db_datetime(job['last_sent'])
             if last_dt is not None:
                 diff = (datetime.utcnow() - last_dt).days
                 if diff < min_days:
                     skipped += 1
-                    skipped_names.append((v.get('name') or 'Unknown') + f' (sent {diff}d ago)')
+                    skipped_names.append(f"{name} — {prog['label']} (sent {diff}d ago)")
                     continue
-        prog = (v.get('employer_program') or '').strip()
-        is_disney = 'disney' in prog.lower()
-        submit_link = 'https://disneyvoluntears.com' if is_disney else 'https://universalgiving.org'
-        submit_name = 'Disney VoluntEARS' if is_disney else 'Universal Giving'
-        tmpl_key = 'disney_reminder' if is_disney else 'universal_reminder'
         conn2 = get_db()
-        tmpl = get_system_template(conn2, tmpl_key)
-        hours_section, _ = build_hours_section(conn2, v['id'], submit_name, submit_link)
+        tmpl = get_system_template(conn2, prog['tmpl_key'])
+        hours_section, _ = build_hours_section(conn2, v['id'], prog['submit_name'], prog['submit_link'])
         conn2.close()
-        name = (v.get('name') or 'Volunteer').strip()
         if tmpl:
             base_body = tmpl['body'].replace('{{name}}', name)
             subj = tmpl['subject']
         else:
-            prog_label = 'Disney Cast Member' if is_disney else 'Universal Team Member'
-            subj = f'Reminder: Submit Your Volunteer Hours  -  {prog_label} Giving Program'
-            base_body = f'<p>Hi {name}, please consider submitting your volunteer hours to the {prog_label} giving program.</p>'
-        # Inject hours table before closing div
+            subj = f"Reminder: Submit Your Volunteer Hours  -  {prog['label']} Giving Program"
+            base_body = f"<p>Hi {name}, please consider submitting your volunteer hours to the {prog['label']} giving program.</p>"
         if hours_section:
             if '</div>' in base_body:
                 idx = base_body.rfind('</div>')
@@ -16685,25 +21868,21 @@ def send_employer_program_reminder():
             body = base_body
         try:
             fi = d.get('from_identity') or {}
-            send_email([v['email']], subj, body, fi.get('email') or None, fi.get('name') or None)
+            send_email([v['email']], subj, build_hwtc_email_html(subj, body), fi.get('email') or None, fi.get('name') or None)
             sent += 1
             conn3 = get_db()
             execute(conn3, '''INSERT INTO employer_reminder_log (id, volunteer_id, program_type, sent_by)
-                VALUES (%s,%s,%s,%s)''',
-                (str(uuid.uuid4()), v['id'], 'disney' if is_disney else 'universal',
-                 session.get('user_name','admin')))
-            log_volunteer_comm(conn3, v['id'], subj,
-                'disney_reminder' if is_disney else 'universal_reminder',
-                session.get('user_name','admin'), v.get('email',''))
+                VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), v['id'], prog['key'], session.get('user_name','admin')))
+            log_volunteer_comm(conn3, v['id'], subj, prog['tmpl_key'], session.get('user_name','admin'), v.get('email',''))
             conn3.commit(); conn3.close()
         except Exception as e:
-            errors.append(f'{name}: {str(e)}')
+            errors.append(f"{name} — {prog['label']}: {str(e)}")
     return jsonify({'ok': True, 'sent': sent, 'skipped': skipped,
                     'skipped_names': skipped_names, 'errors': errors,
-                    'total': len(volunteers)})
+                    'total': len(jobs)})
 
 if __name__ == '__main__':
-    print('\n🎭 RoleCall is running!')
+    print('\n RoleCall is running!')
     print('   Open http://localhost:5000 in your browser\n')
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
 
@@ -16722,6 +21901,45 @@ APP_BASE_URL        = os.environ.get('APP_BASE_URL', 'https://rolecall.hwtco.org
 
 def square_headers():
     return {'Authorization': f'Bearer {SQUARE_ACCESS_TOKEN}', 'Content-Type': 'application/json', 'Square-Version': '2024-01-18'}
+
+
+def get_or_create_rolecall_category_id():
+    """Find (or create) a Square catalog category that RoleCall-created items
+    get tagged with, so the 'Linked Catalog Item' dropdown can filter down to
+    just those instead of listing every item in the whole Square account
+    (concessions, merch, everything else). Cached in the settings table."""
+    if not SQUARE_ACCESS_TOKEN:
+        return None
+    conn = get_db()
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='square_rolecall_category_id'")
+    if row and row.get('value'):
+        conn.close()
+        return row['value']
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search',
+            json={'object_types': ['CATEGORY'],
+                  'query': {'exact_query': {'attribute_name': 'name', 'attribute_value': 'RoleCall Programs'}}},
+            headers=square_headers(), timeout=10)
+        objs = (r.json().get('objects') or []) if r.status_code == 200 else []
+        if objs:
+            cat_id = objs[0]['id']
+        else:
+            import uuid as _uuid_cat
+            r2 = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object', headers=square_headers(), timeout=10, json={
+                'idempotency_key': str(_uuid_cat.uuid4()),
+                'object': {'type': 'CATEGORY', 'id': '#category_rolecall', 'category_data': {'name': 'RoleCall Programs'}}
+            })
+            cat_id = r2.json().get('catalog_object', {}).get('id') if r2.status_code == 200 else None
+        if cat_id:
+            execute(conn, """INSERT INTO settings (key,value) VALUES ('square_rolecall_category_id',%s)
+                ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value""", (cat_id,))
+            conn.commit()
+        conn.close()
+        return cat_id
+    except Exception as e:
+        app.logger.warning(f'get_or_create_rolecall_category_id failed: {e}')
+        conn.close()
+        return None
 
 
 def square_find_or_create_customer(email, name='', phone=''):
@@ -16898,6 +22116,62 @@ def square_get_order_total_cents(order_id):
     except Exception as e:
         app.logger.warning(f'Square get order exception: {e}')
     return None
+
+
+def split_order_amount_across_registrations(conn, order_id, total_cents):
+    """Set amount_paid_cents on every registration sharing a Square order,
+    splitting the order's total proportionally by each registration's
+    nominal price instead of writing the full order total onto every row.
+
+    Writing the full total on every row (the old behavior) only gives a
+    correct answer when every registration sharing that order belongs to
+    the SAME program — e.g. two siblings both enrolling in one class,
+    where revenue queries then deduplicate by order to avoid double-
+    counting. It silently breaks the moment one Square checkout covers
+    TWO DIFFERENT programs (a parent buying two different classes in one
+    cart): the per-program revenue dedup can only credit ONE of the two
+    programs with the full amount and drops the other to $0, because it
+    has no way to know how the order should actually be divided between
+    them. Splitting proportionally here means downstream revenue queries
+    can just sum each registration's own share directly — no dedup
+    trickery needed, and it's correct for both the sibling case and the
+    multi-program case."""
+    if not order_id or total_cents is None:
+        return
+    regs = fetchall(conn, '''SELECT pr.id, pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
+        pr.is_comped, COALESCE(yp.price, prod.price, 0) AS price
+        FROM program_registrations pr
+        LEFT JOIN youth_programs yp ON yp.id=pr.program_id
+        LEFT JOIN productions prod ON prod.id=pr.production_id
+        WHERE (pr.square_order_id=%s OR pr.square_checkout_id=%s) AND pr.status != 'cancelled'
+        ORDER BY pr.id''', (order_id, order_id)) or []
+    if not regs:
+        return
+    if len(regs) == 1:
+        execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s', (total_cents, regs[0]['id']))
+        return
+    nominal = {}
+    for r in regs:
+        nominal[r['id']] = 0 if r.get('is_comped') else max(0,
+            (r.get('price') or 0) * (r.get('participant_count') or 1)
+            - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+    nominal_total = sum(nominal.values())
+    if nominal_total <= 0:
+        # No price data to split by (e.g. all comped, or free programs) —
+        # divide evenly rather than guessing, so nothing is silently zeroed.
+        share = total_cents // len(regs)
+        for i, r in enumerate(regs):
+            amt = share + (total_cents - share * len(regs) if i == len(regs) - 1 else 0)
+            execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s', (amt, r['id']))
+        return
+    allocated = 0
+    for i, r in enumerate(regs):
+        if i == len(regs) - 1:
+            amt = total_cents - allocated  # last one absorbs any rounding remainder
+        else:
+            amt = round(total_cents * nominal[r['id']] / nominal_total)
+            allocated += amt
+        execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE id=%s', (amt, r['id']))
 
 
 def square_save_card(customer_id, source_id, cardholder_name=''):
@@ -17266,10 +22540,11 @@ def _backfill_custom_field_values():
 def instructor_dashboard():
     """Everything an instructor needs in one call: which programs they
     teach, their full session schedule across those programs, and recent
-    registrations so new sign-ups are easy to spot. Scoped entirely by
-    matching their login email against the volunteer record linked as
-    each program's instructor_id — an instructor only ever sees their
-    own programs here, never the full program list."""
+    registrations so new sign-ups are easy to spot. Scoped by matching
+    their login email against the volunteer record linked either as a
+    program's primary instructor_id, or as a co-instructor in
+    program_co_instructors — an instructor only ever sees their own
+    programs here, never the full program list."""
     err = require_auth()
     if err: return err
     conn = get_db()
@@ -17279,13 +22554,15 @@ def instructor_dashboard():
         conn.close()
         return jsonify({'programs': [], 'schedule': [], 'recent_registrations': []})
 
-    programs = fetchall(conn, '''SELECT yp.id, yp.name, yp.description, yp.status,
+    programs = fetchall(conn, '''SELECT DISTINCT yp.id, yp.name, yp.description, yp.status,
         yp.start_date, yp.end_date, yp.program_type, yp.sessions_enabled,
         COALESCE(yp.booking_mode, FALSE) AS booking_mode
         FROM youth_programs yp
-        JOIN volunteers v ON v.id=yp.instructor_id
-        WHERE lower(v.email)=%s
-        ORDER BY yp.start_date DESC NULLS LAST''', (my_email,)) or []
+        LEFT JOIN volunteers v ON v.id=yp.instructor_id
+        LEFT JOIN program_co_instructors pci ON pci.program_id=yp.id
+        LEFT JOIN volunteers v2 ON v2.id=pci.volunteer_id
+        WHERE lower(v.email)=%s OR lower(v2.email)=%s
+        ORDER BY yp.start_date DESC NULLS LAST''', (my_email, my_email)) or []
     prog_ids = [p['id'] for p in programs]
     if not prog_ids:
         conn.close()
@@ -17362,12 +22639,88 @@ def instructor_dashboard():
     return jsonify({'programs': programs, 'schedule': schedule, 'recent_registrations': recent_regs})
 
 
+@app.route('/api/director/dashboard', methods=['GET'])
+def director_dashboard():
+    """Same idea as the instructor dashboard, for the 'director' role —
+    scoped to whichever production(s) they're listed on in
+    production_members with a role containing 'director', matched by
+    their login email against the volunteer record."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session['user_id'],))
+    my_email = (me or {}).get('email', '').strip().lower()
+    if not my_email:
+        conn.close()
+        return jsonify({'productions': [], 'schedule': [], 'recent_submissions': []})
+
+    productions = fetchall(conn, '''SELECT DISTINCT p.id, p.name, p.status, p.stage,
+        p.start_date, p.end_date, p.production_type
+        FROM productions p
+        JOIN production_members pm ON pm.production_id=p.id
+        JOIN volunteers v ON v.id=pm.volunteer_id
+        WHERE lower(v.email)=%s AND pm.role ILIKE %s
+        ORDER BY p.start_date DESC NULLS LAST''', (my_email, '%director%')) or []
+    prod_ids = [p['id'] for p in productions]
+    if not prod_ids:
+        conn.close()
+        return jsonify({'productions': [], 'schedule': [], 'recent_submissions': []})
+
+    placeholders = ','.join(['%s'] * len(prod_ids))
+    schedule = fetchall(conn, f'''SELECT e.id, e.name, e.event_date, e.start_time, e.end_time,
+        e.location, p.name AS production_name, p.id AS production_id
+        FROM events e JOIN productions p ON p.id=e.production_id
+        WHERE e.production_id IN ({placeholders}) AND e.event_date >= %s
+        ORDER BY e.event_date ASC, e.start_time ASC NULLS LAST LIMIT 150''',
+        tuple(prod_ids) + (today_eastern().isoformat(),)) or []
+
+    recent_submissions = fetchall(conn, f'''SELECT s.id, s.submitter_name, s.submitter_email, s.status,
+        s.submitted_at, s.context_id AS production_id, p.name AS production_name
+        FROM audition_submissions s JOIN productions p ON p.id=s.context_id
+        WHERE s.context_type='production' AND s.context_id IN ({placeholders})
+        ORDER BY s.submitted_at DESC LIMIT 40''', tuple(prod_ids)) or []
+
+    for p in productions:
+        p['pending_audition_count'] = sum(1 for s in recent_submissions if s['production_id']==p['id'] and s['status']=='pending')
+
+    conn.close()
+    return jsonify({'productions': productions, 'schedule': schedule, 'recent_submissions': recent_submissions})
+
+
 @app.route('/api/admin/backfill-custom-field-values', methods=['POST'])
 def backfill_custom_field_values_route():
     err = require_permission('programs')
     if err: return err
     checked, updated = _backfill_custom_field_values()
     return jsonify({'ok': True, 'checked': checked, 'updated': updated})
+
+
+# Profile fields a returning family saw pre-filled from their record on the
+# registration form. For these, whatever they submit (including a cleared
+# box or an unchecked consent) replaces what's on file; for anything not
+# listed, a blank still means "didn't fill it in" and never erases data.
+REVIEWABLE_PROFILE_FIELDS = ('allergies', 'pronouns', 'photo_consent', 'emergency_contact')
+FAMILY_LEVEL_REVIEWABLE = ('photo_consent', 'emergency_contact')
+
+
+def _clean_reviewed_fields(raw):
+    if not isinstance(raw, list): return []
+    return [f for f in REVIEWABLE_PROFILE_FIELDS if f in raw]
+
+
+def _reviewed_fields_for_children(d, siblings):
+    """One reviewed_fields string per child (primary first, then siblings).
+    Family-level fields apply to every child; allergies/pronouns only to the
+    primary, plus allergies for a sibling whose block was pre-filled."""
+    primary = _clean_reviewed_fields(d.get('reviewed_fields'))
+    family = [f for f in primary if f in FAMILY_LEVEL_REVIEWABLE]
+    out = [','.join(primary)]
+    for sib in (siblings or []):
+        sf = list(family)
+        if isinstance(sib, dict) and sib.get('reviewed') and 'allergies' in primary:
+            sf.append('allergies')
+        out.append(','.join(sf))
+    return out
 
 
 def create_grouped_registrations(conn, shared_fields, children, total_amount_cents, status, payment_type, amounts=None):
@@ -17411,6 +22764,16 @@ def create_grouped_registrations(conn, shared_fields, children, total_amount_cen
             'participant_count': 1,
             'siblings_json': '[]',
         })
+        # Per-child health/identity fields: a sibling must never inherit the
+        # first child's allergies or pronouns (finalize_registration writes
+        # these onto each child's own profile).
+        for _k in ('allergies', 'pronouns'):
+            if _k in child:
+                row[_k] = (child.get(_k) or '').strip() or None
+            elif i > 0:
+                row[_k] = None
+        if 'reviewed_fields' in child:
+            row['reviewed_fields'] = child.get('reviewed_fields') or ''
         insert_registration_row(conn, row)
     return ids, group_id
 
@@ -17605,7 +22968,7 @@ def _build_registration_invoice_html(reg, entity_name, schedule_info, summary, i
     guardian_name = reg.get('guardian_name') or ''
     guardian_email = reg.get('guardian_email') or ''
     today_str = date.today().strftime('%B %-d, %Y')
-    logo_url = 'https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png'
+    logo_url = 'https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png'
 
     rows = ''
     label = 'Comped Registration' if summary['is_comped'] else entity_name
@@ -17776,8 +23139,13 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         square_payment_id=%s, square_order_id=%s, updated_at=NOW() WHERE id=%s''',
         (payment_id or reg.get('square_payment_id'), order_id or reg.get('square_order_id'), reg_id))
 
-    def get_or_create_participant(first, last, dob, shirt):
-        """Find existing participant by guardian email + name, or create new one."""
+    reg_reviewed = set(f for f in (reg.get('reviewed_fields') or '').split(',') if f)
+
+    def get_or_create_participant(first, last, dob, shirt, own_email=None, sibling=None):
+        """Find existing participant by guardian email + name, or create new one.
+        own_email, when given, is the *participant's own* email (used for
+        adult self-registrants) — stored directly on youth_participants,
+        separate from any youth_guardians record."""
         if not first:
             return None
         existing = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
@@ -17791,25 +23159,50 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         allergies = reg.get('allergies') or ''
         pronouns = reg.get('pronouns') or ''
         photo_consent = 1 if reg.get('photo_consent') else 0
+        reviewed = set(reg_reviewed)
+        if sibling is not None:
+            # A child from siblings_json (cart flow): never take the first
+            # child's allergies/pronouns — only what was entered for them.
+            allergies = (sibling.get('allergies') or '').strip()
+            pronouns = ''
+            reviewed.discard('pronouns')
+            if not sibling.get('reviewed'):
+                reviewed.discard('allergies')
 
         if existing:
-            # Update existing participant with any new info from registration
+            # Update existing participant with any new info from registration.
+            # Fields the family reviewed pre-filled are taken exactly as
+            # submitted (so clearing allergies or unchecking photo consent
+            # sticks); everything else only fills in, never erases.
+            allergies_sql = '%s' if 'allergies' in reviewed else "COALESCE(NULLIF(%s,''), allergies)"
+            pronouns_sql = '%s' if 'pronouns' in reviewed else "COALESCE(NULLIF(%s,''), pronouns)"
+            consent_sql = '%s' if 'photo_consent' in reviewed else 'GREATEST(photo_consent, %s)'
             try:
                 execute(conn, '''UPDATE youth_participants SET
                     shirt_size=COALESCE(NULLIF(%s,''), shirt_size),
                     dob=COALESCE(dob, %s),
                     medical_notes=COALESCE(NULLIF(%s,''), medical_notes),
-                    allergies=COALESCE(NULLIF(%s,''), allergies),
-                    pronouns=COALESCE(NULLIF(%s,''), pronouns),
-                    photo_consent=GREATEST(photo_consent, %s)
+                    allergies=''' + allergies_sql + ''',
+                    pronouns=''' + pronouns_sql + ''',
+                    photo_consent=''' + consent_sql + ''',
+                    email=COALESCE(NULLIF(%s,''), email)
                     WHERE id=%s''',
-                    (shirt or '', dob or None, medical_notes, allergies, pronouns, photo_consent, existing['id']))
+                    (shirt or '', dob or None, medical_notes, allergies, pronouns, photo_consent,
+                     own_email or '', existing['id']))
             except Exception as eu:
                 app.logger.warning(f'Participant update from reg: {eu}')
-            # Add emergency contact if not already present
+            # Emergency contact: add if none on file; if the family reviewed
+            # it and changed it, update the most recent one in place.
             if reg.get('emergency_contact_name'):
                 try:
-                    ec_exists = fetchone(conn, 'SELECT id FROM youth_emergency_contacts WHERE youth_id=%s LIMIT 1', (existing['id'],))
+                    ec_exists = fetchone(conn, '''SELECT id, name, phone FROM youth_emergency_contacts
+                        WHERE youth_id=%s ORDER BY created_at DESC LIMIT 1''', (existing['id'],))
+                    if ec_exists and 'emergency_contact' in reviewed:
+                        new_ec_name = reg.get('emergency_contact_name') or ''
+                        new_ec_phone = reg.get('emergency_contact_phone') or ''
+                        if new_ec_name != (ec_exists.get('name') or '') or new_ec_phone != (ec_exists.get('phone') or ''):
+                            execute(conn, 'UPDATE youth_emergency_contacts SET name=%s, phone=%s WHERE id=%s',
+                                    (new_ec_name, new_ec_phone, ec_exists['id']))
                     if not ec_exists:
                         import uuid as _uec
                         execute(conn, '''INSERT INTO youth_emergency_contacts
@@ -17832,10 +23225,10 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         passphrase = default_passphrase(first, last)
         try:
             execute(conn, '''INSERT INTO youth_participants
-                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, photo_consent, passphrase)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, photo_consent, passphrase, email)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                 (yid, first, last or '', dob or None, shirt or '',
-                 medical_notes, allergies, pronouns, photo_consent, passphrase))
+                 medical_notes, allergies, pronouns, photo_consent, passphrase, own_email or ''))
         except Exception:
             # Fallback if columns don't exist yet
             execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size, passphrase)
@@ -17857,16 +23250,23 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         return fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
 
     def ensure_guardian(youth_id):
-        existing = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s AND LOWER(email)=LOWER(%s)',
+        existing = fetchone(conn, 'SELECT id, phone FROM youth_guardians WHERE youth_id=%s AND LOWER(email)=LOWER(%s)',
             (youth_id, reg['guardian_email']))
+        if existing and reg.get('guardian_phone') and reg.get('guardian_phone') != (existing.get('phone') or ''):
+            execute(conn, 'UPDATE youth_guardians SET phone=%s WHERE id=%s', (reg['guardian_phone'], existing['id']))
         if not existing and reg.get('guardian_name'):
             import uuid as _ug
+            # Programs that don't require a guardian are adults registering
+            # themselves — the "guardian_email" field just holds their own
+            # contact info in that case, so label it as such rather than
+            # calling them their own "Parent/Guardian".
+            relationship = 'Self' if (prog and not prog.get('requires_guardian')) else 'Parent/Guardian'
             execute(conn, '''INSERT INTO youth_guardians
                 (id, youth_id, name, relationship, email, phone, is_primary)
                 VALUES (%s,%s,%s,%s,%s,%s,1) ON CONFLICT DO NOTHING''',
                 (str(_ug.uuid4()), youth_id,
                  reg.get('guardian_name') or '',
-                 'Parent/Guardian',
+                 relationship,
                  reg['guardian_email'], reg.get('guardian_phone') or ''))
 
     def enroll(youth_id):
@@ -17885,10 +23285,11 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     VALUES (%s,%s,%s,NOW()::TEXT,%s)
                     ON CONFLICT (youth_id, production_id) WHERE production_id IS NOT NULL DO NOTHING''',
                     (str(_ue.uuid4()), youth_id, prod['id'], f'Online registration #{reg_id[:8]}'))
-                # Rising Stars: the Cast tab is driven by youth_production_members,
-                # not youth_program_enrollments — auto-add confirmed registrants there
-                # too so staff don't have to manually "+ Enroll" everyone who registers.
-                if prod.get('stage') == 'rising_stars':
+                # Youth productions (Rising Stars or Teen Show): the Cast tab is driven
+                # by youth_production_members, not youth_program_enrollments — auto-add
+                # confirmed registrants there too so staff don't have to manually
+                # "+ Enroll" everyone who registers.
+                if prod.get('stage') in ('rising_stars', 'teen_show'):
                     existing_member = fetchone(conn, '''SELECT id FROM youth_production_members
                         WHERE production_id=%s AND youth_id=%s''', (prod['id'], youth_id))
                     if not existing_member:
@@ -17898,11 +23299,17 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             app.logger.warning(f'Enrollment insert: {e}')
 
     # Primary participant
+    is_adult_registrant = bool(prog and not prog.get('requires_guardian'))
     youth = get_or_create_participant(
         reg.get('child_first_name'), reg.get('child_last_name'),
-        reg.get('child_dob'), reg.get('shirt_size'))
+        reg.get('child_dob'), reg.get('shirt_size'),
+        own_email=reg.get('guardian_email') if is_adult_registrant else None)
     if youth:
-        ensure_guardian(youth['id'])
+        # For adult self-registrants, their email now lives directly on their
+        # own profile (above) — a "guardian" record calling them their own
+        # parent/guardian never made sense, so skip creating one.
+        if not is_adult_registrant:
+            ensure_guardian(youth['id'])
         enroll(youth['id'])
         try:
             execute(conn, 'UPDATE program_registrations SET youth_id=%s WHERE id=%s', (youth['id'], reg_id))
@@ -17919,7 +23326,8 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         sib_youth = get_or_create_participant(
             (sib.get('first_name') or '').strip(),
             (sib.get('last_name') or '').strip(),
-            sib.get('dob'), sib.get('shirt_size'))
+            sib.get('dob'), sib.get('shirt_size'),
+            sibling=sib if isinstance(sib, dict) else {})
         if sib_youth:
             ensure_guardian(sib_youth['id'])
             enroll(sib_youth['id'])
@@ -17975,15 +23383,14 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     merge = {
                         'program_name': program_name,
                         'family_greeting': reg.get('guardian_name') or 'Family',
-                        'passphrase': youth.get('passphrase') or default_passphrase(
-                            reg.get('child_first_name'), reg.get('child_last_name')),
+                        'passphrase': ensure_youth_passphrase(conn, youth),
                         'schedule_block': schedule_block,
                         'passphrase_block': passphrase_block,
                     }
                     merge.update(_welcome_email_adult_aware_blocks(is_adult, program_name))
                     subject = render_template_vars(tmpl['subject'], merge)
                     body = render_template_vars(tmpl['body'], merge)
-                    send_email(reg['guardian_email'], subject, body, source='welcome_email')
+                    send_email(reg['guardian_email'], subject, build_hwtc_email_html(subject, body), source='welcome_email')
                     if group_id:
                         execute(conn, 'UPDATE program_registrations SET welcome_email_sent_at=NOW() WHERE registration_group_id=%s', (group_id,))
                     else:
@@ -17993,6 +23400,43 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             app.logger.error(f'Welcome email send error for registration {reg_id}: {e}')
             import traceback; traceback.print_exc()
 
+    # Make sure any session(s) this registration covers have a real, loggable
+    # event — see _auto_create_events_for_registration for why this matters.
+    _auto_create_events_for_registration(conn, reg, prog)
+
+
+def _auto_create_events_for_registration(conn, reg, prog):
+    """Best-effort: as soon as a registration is confirmed, make sure a real
+    event exists for each session it covers, so an instructor can log paid
+    time against it right away — instead of only the lightweight synthetic
+    calendar entry existing until a staff member notices it and clicks
+    'Create Event' by hand. Safe to call repeatedly: skips any session that
+    already has a linked event, and never raises (a failure here should
+    never block the registration itself)."""
+    if not prog or not reg.get('session_ids'):
+        return
+    try:
+        session_ids = json.loads(reg.get('session_ids') or '[]')
+    except Exception:
+        session_ids = []
+    for sid in session_ids:
+        try:
+            already = fetchone(conn, 'SELECT id FROM events WHERE linked_session_id=%s', (sid,))
+            if already:
+                continue
+            s = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s', (sid,))
+            if not s or not s.get('start_date'):
+                continue
+            eid = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO events
+                (id,name,event_date,start_time,end_time,location,program_id,linked_session_id,status,auto_log_hours)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'draft',TRUE)''',
+                (eid, s.get('name') or (prog.get('name') if prog else '') or 'Class Session',
+                 s['start_date'], s.get('start_time') or None, s.get('end_time') or None,
+                 s.get('location') or '', prog['id'], sid))
+            conn.commit()
+        except Exception as e:
+            app.logger.warning(f'Auto-create event for session {sid} (registration {reg.get("id")}) failed: {e}')
 
 def _registration_not_yet_open(prog):
     """Return (True, message) if this program/production has a scheduled open
@@ -18100,7 +23544,7 @@ def survey_page(slug):
 
 @app.route('/api/surveys', methods=['GET'])
 def get_surveys():
-    err = require_auth()
+    err = require_permission('surveys', 'view')
     if err: return err
     conn = get_db()
     rows = fetchall(conn, 'SELECT * FROM surveys ORDER BY created_at DESC') or []
@@ -18112,7 +23556,7 @@ def get_surveys():
 
 @app.route('/api/surveys', methods=['POST'])
 def create_survey():
-    err = require_auth()
+    err = require_permission('surveys')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -18141,7 +23585,7 @@ def create_survey():
 
 @app.route('/api/surveys/<sid>', methods=['PUT'])
 def update_survey(sid):
-    err = require_auth()
+    err = require_permission('surveys')
     if err: return err
     d = request.json or {}
     conn = get_db()
@@ -18170,7 +23614,7 @@ def update_survey(sid):
 
 @app.route('/api/surveys/<sid>', methods=['DELETE'])
 def delete_survey(sid):
-    err = require_auth()
+    err = require_permission('surveys')
     if err: return err
     conn = get_db()
     execute(conn, 'DELETE FROM surveys WHERE id=%s', (sid,))
@@ -18179,7 +23623,7 @@ def delete_survey(sid):
 
 @app.route('/api/surveys/<sid>/questions', methods=['POST'])
 def save_survey_questions(sid):
-    err = require_auth()
+    err = require_permission('surveys')
     if err: return err
     d = request.json or {}
     questions = d.get('questions', [])
@@ -18197,7 +23641,7 @@ def save_survey_questions(sid):
 
 @app.route('/api/surveys/<sid>/results', methods=['GET'])
 def get_survey_results(sid):
-    err = require_auth()
+    err = require_permission('surveys', 'view')
     if err: return err
     conn = get_db()
     survey = fetchone(conn, 'SELECT * FROM surveys WHERE id=%s', (sid,))
@@ -18260,6 +23704,10 @@ def submit_refund_request():
              d.get('replacement_name',''), d.get('replacement_email',''), d.get('replacement_phone',''),
              requires_board))
         conn.commit()
+        # Note: the board isn't notified yet here — staff review the
+        # request first and click "Begin Approval Process" (which flips
+        # status to 'approved'), and *that's* what actually notifies the
+        # President and Treasurer. See update_refund_request.
         # Send confirmation email to requester
         try:
             es = get_email_settings()
@@ -18327,7 +23775,7 @@ def debug_email_test():
     default_sender = identities[0].get('email','') if identities else es.get('from_email','')
     d = request.json or {}
     to_email = d.get('to','raja.jalernpan@gmail.com')
-    ok, err_msg = send_email(to_email, 'RoleCall Email Test', '<p>This is a test email from RoleCall.</p>', source='debug')
+    ok, err_msg = send_email(to_email, 'RoleCall Email Test', build_hwtc_email_html('RoleCall Email Test', '<p>This is a test email from RoleCall.</p>'), source='debug')
     return jsonify({
         'has_resend_key': has_key,
         'default_sender': default_sender,
@@ -18338,7 +23786,7 @@ def debug_email_test():
 
 @app.route('/api/refund-requests')
 def get_refund_requests():
-    err = require_auth()
+    err = require_permission('refund_requests', 'view')
     if err: return err
     conn = get_db()
     status = request.args.get('status','')
@@ -18349,14 +23797,153 @@ def get_refund_requests():
     conn.close()
     return jsonify(rows)
 
+@app.route('/api/orders/search', methods=['GET'])
+def search_orders_for_refund():
+    """Unified search across everywhere a Square payment could have come
+    from — cart checkout, program registrations, ticket orders, and
+    donations — so a refund request can be linked to the real order
+    instead of staff having to hunt down a Square order id by hand."""
+    err = require_permission('refund_requests', 'view')
+    if err: return err
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    like = f'%{q}%'
+    conn = get_db()
+    results = []
+
+    for r in fetchall(conn, """SELECT pr.id, pr.guardian_name, pr.guardian_email,
+            pr.child_first_name, pr.child_last_name, pr.square_order_id, pr.amount_paid_cents,
+            pr.status, pr.created_at, yp.name AS program_name
+        FROM program_registrations pr
+        LEFT JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE (pr.guardian_name ILIKE %s OR pr.guardian_email ILIKE %s
+               OR pr.child_first_name ILIKE %s OR pr.child_last_name ILIKE %s)
+          AND pr.square_order_id IS NOT NULL AND pr.square_order_id != ''
+        ORDER BY pr.created_at DESC LIMIT 15""", (like, like, like, like)):
+        label = f"{(r.get('child_first_name') or '').strip()} {(r.get('child_last_name') or '').strip()}".strip()
+        results.append({'source': 'program_registration', 'id': r['id'], 'square_order_id': r['square_order_id'],
+            'label': (label + (' — ' + r['program_name'] if r.get('program_name') else '')) or 'Program registration',
+            'participant_name': label, 'program_name': r.get('program_name') or '',
+            'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
+            'amount_cents': r.get('amount_paid_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
+
+    # cart_orders is deliberately not searched here — its total spans every
+    # program in the cart, so linking a refund to it directly makes it easy
+    # to accidentally refund someone else's program too. Each program still
+    # has its own square_order_id (same underlying Square order, just scoped
+    # to that program's real share — see the amount_paid backfill above),
+    # so refunding via the program_registration entry refunds correctly
+    # without the multi-program ambiguity. A family wanting refunds on
+    # several programs from one cart just gets one request per program.
+
+    for r in fetchall(conn, """SELECT t.id, t.guardian_name, t.guardian_email, t.total_cents,
+            t.square_order_id, t.status, t.created_at, p.name AS production_name
+        FROM ticket_orders t
+        LEFT JOIN performances pf ON pf.id=t.performance_id
+        LEFT JOIN productions p ON p.id=pf.production_id
+        WHERE (t.guardian_name ILIKE %s OR t.guardian_email ILIKE %s)
+          AND t.square_order_id IS NOT NULL AND t.square_order_id != ''
+        ORDER BY t.created_at DESC LIMIT 15""", (like, like)):
+        results.append({'source': 'ticket_order', 'id': r['id'], 'square_order_id': r['square_order_id'],
+            'label': 'Tickets' + (' — ' + r['production_name'] if r.get('production_name') else ''),
+            'participant_name': '', 'program_name': r.get('production_name') or '',
+            'payer_name': r.get('guardian_name'), 'payer_email': r.get('guardian_email'),
+            'amount_cents': r.get('total_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
+
+    for r in fetchall(conn, """SELECT id, name, email, amount_cents, square_order_id, status, created_at
+        FROM pending_donations
+        WHERE (name ILIKE %s OR email ILIKE %s)
+          AND square_order_id IS NOT NULL AND square_order_id != ''
+        ORDER BY created_at DESC LIMIT 15""", (like, like)):
+        results.append({'source': 'donation', 'id': r['id'], 'square_order_id': r['square_order_id'],
+            'label': 'Donation', 'participant_name': '', 'program_name': '',
+            'payer_name': r.get('name'), 'payer_email': r.get('email'),
+            'amount_cents': r.get('amount_cents') or 0, 'status': r.get('status'), 'date': r.get('created_at')})
+
+    conn.close()
+    results.sort(key=lambda x: x.get('date') or '', reverse=True)
+    return jsonify(results[:25])
+
+
+@app.route('/api/refund-requests', methods=['POST'])
+def create_refund_request_admin():
+    """Staff-initiated refund request — same record shape as the public
+    form, just created directly (e.g. a family called instead of using
+    the form). Skips the 'we received your request' email since staff
+    already know; the approve/deny/processed emails still fire normally."""
+    err = require_permission('refund_requests')
+    if err: return err
+    d = request.json or {}
+    if not (d.get('participant_name') or '').strip() and not (d.get('program_name') or '').strip():
+        return jsonify({'error': 'Participant or program is required'}), 400
+    conn = get_db()
+    import random, string
+    ref_number = 'RFD-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+    rid = str(uuid.uuid4())
+    amount_cents = d.get('refund_amount_cents')
+    requires_board = bool(amount_cents and amount_cents > 100000)  # over $1000
+    execute(conn, '''INSERT INTO refund_requests
+        (id, ref_number, requester_name, requester_email, requester_phone,
+         participant_name, program_name, square_order_id, amount_paid,
+         program_start_date, request_type, refund_amount_cents,
+         reason_category, reason_detail, status, admin_notes,
+         requires_board_approval, registration_id)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (rid, ref_number,
+         d.get('requester_name',''), d.get('requester_email',''), d.get('requester_phone',''),
+         d.get('participant_name',''), d.get('program_name',''), d.get('square_order_id',''),
+         d.get('amount_paid',''), d.get('program_start_date',''),
+         d.get('request_type','refund'), amount_cents,
+         d.get('reason_category','staff_initiated'), d.get('reason_detail',''),
+         d.get('status','pending'), d.get('admin_notes',''),
+         requires_board, d.get('registration_id') or None))
+    conn.commit()
+    # Same as the public-form path — the board gets notified once staff
+    # click "Begin Approval Process", not immediately on creation.
+    row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/refund-requests/<rid>/link-order', methods=['PUT'])
+def link_refund_request_order(rid):
+    """Attaches (or replaces) which real order a request refers to — for
+    requests that came in through the public form without a valid Square
+    order id, or where staff want to double-check/correct it."""
+    err = require_permission('refund_requests')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    rr = fetchone(conn, 'SELECT id FROM refund_requests WHERE id=%s', (rid,))
+    if not rr:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    fields, params = ['square_order_id=%s'], [d.get('square_order_id','')]
+    if d.get('amount_paid') is not None:
+        fields.append('amount_paid=%s'); params.append(d.get('amount_paid'))
+    if d.get('registration_id') is not None:
+        fields.append('registration_id=%s'); params.append(d.get('registration_id') or None)
+    params.append(rid)
+    execute(conn, f"UPDATE refund_requests SET {', '.join(fields)} WHERE id=%s", tuple(params))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+
+
 @app.route('/api/refund-requests/<rid>', methods=['PUT'])
 def update_refund_request(rid):
-    err = require_auth()
+    err = require_permission('refund_requests')
     if err: return err
     d = request.json or {}
     conn = get_db()
     new_status = d.get('status','')
     admin_notes = d.get('admin_notes','')
+    # The frontend never actually sent its own reviewed_by value — resolve
+    # it server-side from whoever's logged in, same as the rest of the app
+    # does for "who did this" fields, so it's never silently blank.
+    reviewer_name = d.get('reviewed_by') or session.get('user_name', 'Staff')
 
     # Get current request before updating
     rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
@@ -18366,45 +23953,28 @@ def update_refund_request(rid):
 
     execute(conn, '''UPDATE refund_requests SET status=%s, admin_notes=%s,
         reviewed_by=%s, reviewed_at=NOW() WHERE id=%s''',
-        (new_status, admin_notes, d.get('reviewed_by',''), rid))
+        (new_status, admin_notes, reviewer_name, rid))
     conn.commit()
 
-    # Send email to requester on approval or denial
+    # This is the actual trigger for notifying the board — not creation,
+    # not every edit, just the transition into 'approved' (i.e. staff
+    # clicking "Begin Approval Process"). Only fires once per transition,
+    # not on every subsequent save while it's still sitting at 'approved'.
+    if new_status == 'approved' and rr.get('status') != 'approved':
+        notify_board_refund_signoff_needed(conn, rid)
+
+    # Notify the requester on denial only — "approved" now just means staff
+    # began the review/board sign-off process, not that anything has
+    # actually happened yet, so telling the family "your refund is being
+    # processed" at this point would be premature and misleading. The real
+    # "good news" email fires from process_square_refund once a cash
+    # refund has actually gone through; see the note there for credit/
+    # transfer/find_replacement requests, which don't go through Square.
     try:
         type_labels = {'refund':'Cash Refund','credit':'Account Credit','transfer':'Spot Transfer','find_replacement':'Help Find Replacement'}
         req_type = type_labels.get(rr.get('request_type',''), rr.get('request_type',''))
 
-        if new_status == 'approved':
-            subject = f'Your Refund Request Has Been Approved — {rr["ref_number"]}'
-            if rr.get('request_type') == 'refund':
-                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">Your refund will be processed to your original payment method within <strong>10 business days</strong>.</p>'
-            elif rr.get('request_type') == 'credit':
-                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">An account credit has been approved and will be applied to your account. Credits are valid for <strong>12 months</strong> from the date of issuance.</p>'
-            elif rr.get('request_type') in ('transfer','find_replacement'):
-                next_steps = '<p style="color:#374151;font-size:14px;line-height:1.6">Your spot transfer request has been approved. We will be in touch regarding next steps for completing the transfer.</p>'
-            else:
-                next_steps = ''
-
-            notes_block = f'<div style="background:#f3f4f6;border-radius:8px;padding:14px 16px;margin:16px 0;font-size:14px;color:#374151"><strong>Note from HWTC:</strong> {admin_notes}</div>' if admin_notes else ''
-
-            html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
-                <div style="background:#145466;padding:20px 24px">
-                  <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
-                </div>
-                <div style="padding:28px 24px">
-                  <div style="background:#dcfce7;border:1.5px solid #86efac;border-radius:8px;padding:14px 16px;margin-bottom:20px">
-                    <div style="font-size:16px;font-weight:700;color:#166534">Your request has been approved</div>
-                  </div>
-                  <p style="color:#374151;font-size:15px;line-height:1.6">Dear {rr.get('requester_name','')},</p>
-                  <p style="color:#374151;font-size:14px;line-height:1.6">We have reviewed your {req_type} request (Ref: <strong>{rr["ref_number"]}</strong>) for <strong>{rr.get('participant_name','')}</strong> in <strong>{rr.get('program_name','')}</strong> and it has been <strong>approved</strong>.</p>
-                  {next_steps}
-                  {notes_block}
-                  <p style="color:#374151;font-size:14px;line-height:1.6">If you have any questions, please contact us at <a href="mailto:info@hwtco.org">info@hwtco.org</a> and reference your request number <strong>{rr["ref_number"]}</strong>.</p>
-                  <p style="color:#374151;font-size:14px">Thank you,<br><strong>Horizon West Theater Company</strong></p>
-                </div>
-              </div>'''
-
-        elif new_status == 'denied':
+        if new_status == 'denied':
             subject = f'Update on Your Refund Request — {rr["ref_number"]}'
             notes_block = f'<div style="background:#f3f4f6;border-radius:8px;padding:14px 16px;margin:16px 0;font-size:14px;color:#374151"><strong>Reason:</strong> {admin_notes}</div>' if admin_notes else ''
 
@@ -18434,13 +24004,134 @@ def update_refund_request(rid):
     conn.close()
     return jsonify({'ok': True})
 
+def _refund_approve_result_page(title, message, ok=True):
+    color = '#145466' if ok else '#991b1b'
+    bg = '#f0fdfa' if ok else '#fef2f2'
+    return f'''<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>{title}</title></head>
+    <body style="font-family:-apple-system,sans-serif;background:#f7f7f5;margin:0;padding:40px 20px;display:flex;justify-content:center">
+    <div style="background:#fff;border-radius:14px;max-width:440px;width:100%;padding:32px;text-align:center;box-shadow:0 4px 20px rgba(0,0,0,0.08)">
+    <div style="width:56px;height:56px;border-radius:50%;background:{bg};display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;color:{color}">{"OK" if ok else "!"}</div>
+    <div style="font-size:18px;font-weight:800;color:{color};margin-bottom:8px">{title}</div>
+    <div style="font-size:14px;color:#374151;line-height:1.6">{message}</div>
+    <a href="{APP_BASE_URL}/#refund-requests" style="display:inline-block;margin-top:20px;color:#145466;font-weight:600;text-decoration:none">Open RoleCall →</a>
+    </div></body></html>'''
+
+
+@app.route('/api/public/refund-approve', methods=['GET'])
+def public_refund_approve_via_token():
+    """One-click sign-off from the notification email — the token is the
+    credential (long, random, delivered only to that officer's inbox,
+    single-use, expires in 14 days), so this deliberately doesn't require
+    a login session the way the in-app button does."""
+    token = (request.args.get('token') or '').strip()
+    if not token:
+        return _refund_approve_result_page('Invalid Link', 'This approval link is missing its token.', ok=False), 400
+    conn = get_db()
+    tok = fetchone(conn, 'SELECT * FROM refund_approval_tokens WHERE token=%s', (token,))
+    if not tok:
+        conn.close()
+        return _refund_approve_result_page('Invalid Link', "This approval link isn't recognized — it may have already been used from a different link, or copied incorrectly.", ok=False), 400
+    if tok.get('used_at'):
+        conn.close()
+        return _refund_approve_result_page('Already Used', 'This approval link has already been used. If you need to check the current status, open RoleCall directly.', ok=False), 400
+    rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (tok['refund_request_id'],))
+    if not rr:
+        conn.close()
+        return _refund_approve_result_page('Not Found', 'This refund request no longer exists.', ok=False), 404
+    expired = fetchone(conn, "SELECT (expires_at < NOW()) AS is_expired FROM refund_approval_tokens WHERE token=%s", (token,))
+    if expired and expired.get('is_expired'):
+        conn.close()
+        return _refund_approve_result_page('Link Expired', 'This approval link has expired. Please open RoleCall directly and sign off from there.', ok=False), 400
+    if rr.get('status') != 'approved':
+        conn.close()
+        return _refund_approve_result_page('Not Ready Yet', 'This request needs to go through "Begin Approval Process" in RoleCall before it can be signed off.', ok=False), 400
+    role = tok['role']
+    if rr.get(f'{role}_approved_by'):
+        execute(conn, 'UPDATE refund_approval_tokens SET used_at=NOW() WHERE token=%s', (token,))
+        conn.commit(); conn.close()
+        return _refund_approve_result_page('Already Signed Off', f'This request already has a {role.capitalize()} sign-off recorded.', ok=True)
+    officer = fetchone(conn, "SELECT name FROM board_members WHERE LOWER(email)=LOWER(%s) AND status='active'", (tok['officer_email'],))
+    officer_name = officer['name'] if officer else tok['officer_email']
+    col_by, col_at = f'{role}_approved_by', f'{role}_approved_at'
+    execute(conn, f'UPDATE refund_requests SET {col_by}=%s, {col_at}=NOW() WHERE id=%s', (officer_name, rr['id']))
+    execute(conn, 'UPDATE refund_approval_tokens SET used_at=NOW() WHERE token=%s', (token,))
+    conn.commit()
+    notify_other_officer_signoff_pending(conn, rr['id'], role)
+    notify_reviewer_ready_to_process(conn, rr['id'])
+    conn.close()
+    return _refund_approve_result_page('Signed Off', f'Thanks, {officer_name} — your sign-off as {role.capitalize()} has been recorded for {rr.get("ref_number","")}.', ok=True)
+
+
+@app.route('/api/refund-requests/<rid>/board-approve', methods=['POST'])
+def board_approve_refund_request(rid):
+    """President and Treasurer sign-off — required (both) before any refund
+    can be processed through Square, separate from and in addition to the
+    general approve/deny status. Verifies the CURRENT logged-in user is
+    actually that officer on the board roster; anyone can click the button,
+    but only the real office-holder's click is accepted."""
+    err = require_permission('refund_requests', 'view')
+    if err: return err
+    d = request.json or {}
+    role = (d.get('role') or '').strip().lower()
+    if role not in ('president', 'treasurer'):
+        return jsonify({'error': 'Invalid role'}), 400
+    conn = get_db()
+    rr = fetchone(conn, 'SELECT id, status FROM refund_requests WHERE id=%s', (rid,))
+    if not rr:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    if rr.get('status') != 'approved':
+        conn.close()
+        return jsonify({'error': 'This request needs to go through "Begin Approval Process" first.'}), 400
+    name = current_user_board_role_match(conn, role)
+    if not name:
+        conn.close()
+        return jsonify({'error': f"You're not listed as {role.capitalize()} on the board roster, so this can't be recorded as your approval."}), 403
+    col_by, col_at = f'{role}_approved_by', f'{role}_approved_at'
+    execute(conn, f'UPDATE refund_requests SET {col_by}=%s, {col_at}=NOW() WHERE id=%s', (name, rid))
+    conn.commit()
+    notify_other_officer_signoff_pending(conn, rid, role)
+    notify_reviewer_ready_to_process(conn, rid)
+    row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/refund-requests/<rid>/board-approve', methods=['DELETE'])
+def board_unapprove_refund_request(rid):
+    """Lets an officer retract their own sign-off (e.g. clicked by mistake,
+    or new information came up) — still requires being that same officer."""
+    err = require_permission('refund_requests', 'view')
+    if err: return err
+    role = (request.args.get('role') or '').strip().lower()
+    if role not in ('president', 'treasurer'):
+        return jsonify({'error': 'Invalid role'}), 400
+    conn = get_db()
+    name = current_user_board_role_match(conn, role)
+    if not name:
+        conn.close()
+        return jsonify({'error': f"You're not listed as {role.capitalize()} on the board roster."}), 403
+    col_by, col_at = f'{role}_approved_by', f'{role}_approved_at'
+    execute(conn, f'UPDATE refund_requests SET {col_by}=NULL, {col_at}=NULL WHERE id=%s', (rid,))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
+    conn.close()
+    return jsonify(row)
+
+
 @app.route('/api/refund-requests/<rid>/process-square', methods=['POST'])
 def process_square_refund(rid):
-    err = require_auth()
+    err = require_permission('refund_requests')
     if err: return err
     conn = get_db()
     rr = fetchone(conn, 'SELECT * FROM refund_requests WHERE id=%s', (rid,))
     if not rr: conn.close(); return jsonify({'error': 'Not found'}), 404
+    if rr.get('status') != 'approved':
+        conn.close()
+        return jsonify({'error': 'This request needs to go through "Begin Approval Process" before it can be signed off and processed.'}), 400
+    if not rr.get('president_approved_by') or not rr.get('treasurer_approved_by'):
+        conn.close()
+        return jsonify({'error': 'This needs sign-off from both the President and Treasurer before it can be processed.'}), 400
     if not rr.get('square_order_id'): conn.close(); return jsonify({'error': 'No Square order ID on file'}), 400
     if not SQUARE_ACCESS_TOKEN: conn.close(); return jsonify({'error': 'Square not configured'}), 400
     d = request.json or {}
@@ -18467,12 +24158,44 @@ def process_square_refund(rid):
             execute(conn, '''UPDATE refund_requests SET status='processed',
                 square_refund_id=%s, reviewed_at=NOW() WHERE id=%s''', (sq_refund_id, rid))
             conn.commit()
-            # Un-enroll from program if registration_id exists
+            # Mark the registration as refunded — this happens regardless
+            # of whether they're also unenrolled, since "got money back"
+            # and "no longer in the program" are two separate facts. This
+            # is what makes revenue totals and the roster reflect the
+            # refund; the unenroll step below is a separate, optional
+            # choice staff make per-refund, not automatic.
             if rr.get('registration_id'):
                 try:
-                    execute(conn, "UPDATE program_registrations SET status='cancelled' WHERE id=%s", (rr['registration_id'],))
+                    execute(conn, '''UPDATE program_registrations
+                        SET refunded_at=NOW(), refund_amount_cents=COALESCE(refund_amount_cents,0)+%s
+                        WHERE id=%s''', (int(amount_cents), rr['registration_id']))
+                    if d.get('unenroll'):
+                        execute(conn, "UPDATE program_registrations SET status='cancelled' WHERE id=%s", (rr['registration_id'],))
                     conn.commit()
                 except Exception: pass
+            # This is the real "good news" moment — the refund has actually
+            # happened, not just been reviewed — so this is where the
+            # requester email belongs now, not at "Begin Approval Process".
+            try:
+                if rr.get('requester_email'):
+                    send_email(rr['requester_email'], f'Your Refund Has Been Processed — {rr["ref_number"]}',
+                        f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
+                        <div style="background:#145466;padding:20px 24px">
+                          <img src="https://rolecall.hwtco.org/static/images/hwtc_logo_white.png" height="40" style="height:40px"/>
+                        </div>
+                        <div style="padding:28px 24px">
+                          <div style="background:#dcfce7;border:1.5px solid #86efac;border-radius:8px;padding:14px 16px;margin-bottom:20px">
+                            <div style="font-size:16px;font-weight:700;color:#166534">Your refund has been processed</div>
+                          </div>
+                          <p style="color:#374151;font-size:15px;line-height:1.6">Dear {rr.get('requester_name','')},</p>
+                          <p style="color:#374151;font-size:14px;line-height:1.6">Your refund (Ref: <strong>{rr["ref_number"]}</strong>) for <strong>{rr.get('participant_name','')}</strong> in <strong>{rr.get('program_name','')}</strong> has been issued to your original payment method.</p>
+                          <p style="color:#374151;font-size:14px;line-height:1.6">Please allow <strong>5–10 business days</strong> for it to appear, depending on your bank or card issuer.</p>
+                          <p style="color:#374151;font-size:14px;line-height:1.6">If you have any questions, please contact us at <a href="mailto:info@hwtco.org">info@hwtco.org</a> and reference your request number <strong>{rr["ref_number"]}</strong>.</p>
+                          <p style="color:#374151;font-size:14px">Thank you,<br><strong>Horizon West Theater Company</strong></p>
+                        </div>
+                      </div>''', source='refund_status')
+            except Exception as e:
+                app.logger.warning(f'Refund processed email failed: {e}')
             conn.close()
             return jsonify({'ok': True, 'refund_id': sq_refund_id, 'amount_cents': amount_cents})
         else:
@@ -18674,13 +24397,13 @@ def submit_licensing_request():
                 send_email(
                     ','.join(notify_emails),
                     subject,
-                    f'''<div style="font-family:sans-serif;padding:20px">
+                    build_hwtc_email_html(subject, f'''
                         <h3>New show licensing request{"s" if len(created) > 1 else ""} received</h3>
                         <p><b>Requested by:</b> {requester_name} ({requester_email})<br>
                         <b>Venue:</b> {d.get("venue_name","")}</p>
                         <ul>{show_rows_html}</ul>
                         <p><a href="https://rolecall.hwtco.org" style="background:#145466;color:#fff;padding:10px 20px;border-radius:6px;text-decoration:none;display:inline-block;margin-top:8px">Review in RoleCall</a></p>
-                      </div>''',
+                      '''),
                     source='licensing_request_admin')
         except Exception as e:
             app.logger.warning(f'Licensing request admin notification failed: {e}')
@@ -18760,12 +24483,11 @@ def update_licensing_request(lid):
 
 @app.route('/api/licensing-requests/<lid>/approve-to-produce', methods=['POST'])
 def approve_licensing_request_to_produce(lid):
-    """Board sign-off to move forward and produce this show. Requires the signed
-    contract to already be on file, and — when approving (not un-approving) —
-    a rehearsal schedule (one or more day/time blocks) plus a rehearsal date
-    range, since that's what BloomBooks uses to charge the show for studio use.
-    This is the flag BloomBooks reads to know a show is ready to be built out
-    (production + budget)."""
+    """Board sign-off to move forward and produce this show. Requires the
+    signed contract to already be on file. Approving automatically creates
+    the real RoleCall production (if one isn't already linked) — its
+    rehearsal schedule gets built out afterward on the production itself
+    (Production detail → Schedule & Conflicts), which is what BloomBooks pulls from."""
     err = require_permission('licensing')
     if err: return err
     d = request.json or {}
@@ -18780,47 +24502,28 @@ def approve_licensing_request_to_produce(lid):
     approved = bool(d.get('approved', True))
     approver = session.get('user_name', '')
 
-    rehearsal_blocks = lr.get('rehearsal_blocks') or '[]'
-    rehearsal_period_start = lr.get('rehearsal_period_start')
-    rehearsal_period_end = lr.get('rehearsal_period_end')
-    if approved:
-        if 'rehearsal_blocks' in d:
-            blocks = d.get('rehearsal_blocks') or []
-            if not isinstance(blocks, list) or not blocks:
-                conn.close()
-                return jsonify({'error': 'Add at least one rehearsal time block'}), 400
-            for b in blocks:
-                if not isinstance(b, dict) or not b.get('days') or not b.get('start_time') or not b.get('end_time'):
-                    conn.close()
-                    return jsonify({'error': 'Each rehearsal block needs at least one day and a start/end time'}), 400
-            rehearsal_blocks = json.dumps(blocks)
-            rehearsal_period_start = (d.get('rehearsal_period_start') or '').strip() or None
-            rehearsal_period_end = (d.get('rehearsal_period_end') or '').strip() or None
-            if not rehearsal_period_start or not rehearsal_period_end:
-                conn.close()
-                return jsonify({'error': 'Rehearsal period start and end dates are required'}), 400
-            if rehearsal_period_end < rehearsal_period_start:
-                conn.close()
-                return jsonify({'error': 'Rehearsal period end date must be on or after the start date'}), 400
-        else:
-            try:
-                existing_blocks = json.loads(rehearsal_blocks)
-            except Exception:
-                existing_blocks = []
-            if not existing_blocks or not lr.get('rehearsal_period_start') or not lr.get('rehearsal_period_end'):
-                conn.close()
-                return jsonify({'error': 'A rehearsal schedule and date range is required to approve this show to produce'}), 400
-
     execute(conn, '''UPDATE licensing_requests SET approved_to_produce=%s,
         approved_to_produce_date=%s, approved_to_produce_by=%s,
-        rehearsal_blocks=%s, rehearsal_period_start=%s, rehearsal_period_end=%s,
         updated_at=NOW() WHERE id=%s''',
-        (approved, date.today().isoformat() if approved else None, approver if approved else '',
-         rehearsal_blocks, rehearsal_period_start, rehearsal_period_end, lid))
+        (approved, date.today().isoformat() if approved else None, approver if approved else '', lid))
+
+    created_production_id = None
+    if approved and not lr.get('production_id'):
+        created_production_id = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO productions
+            (id,name,production_type,stage,start_date,end_date,description,status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,'upcoming')''',
+            (created_production_id, lr.get('production_name') or '', lr.get('production_type') or 'show',
+             'mainstage', lr.get('production_start_date') or None, lr.get('production_end_date') or None,
+             f"Auto-created from licensing request {lr.get('ref_number','')}"))
+        execute(conn, 'UPDATE licensing_requests SET production_id=%s WHERE id=%s', (created_production_id, lid))
+
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM licensing_requests WHERE id=%s', (lid,))
     conn.close()
     row = _attach_contract_status(row)
+    if created_production_id:
+        row['created_production_id'] = created_production_id
     return jsonify(row)
 
 @app.route('/api/licensing-requests/<lid>/contract-file', methods=['POST'])
@@ -18890,12 +24593,248 @@ def delete_licensing_contract_file(lid):
     conn.close()
     return jsonify({'ok': True})
 
+# ── Returning-family registration prefill ─────────────────────────────────────
+# A parent who has registered before types their email on the public
+# registration form; if that email is on a youth_guardians record (or is an
+# adult self-registrant's own email on youth_participants), we email them a
+# signed, time-limited link back to the same form. Opening the link loads what
+# we already have on file (guardian contact, each child's details, emergency
+# contact, last pickup list) into the form for them to review.
+#
+# The email alone never returns data; clicking the emailed link is what proves
+# the person controls that inbox. Tokens are stateless (itsdangerous, signed
+# with app.secret_key), so there's no table/migration. They're reusable until
+# they expire, so a page refresh doesn't strand the parent.
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+
+RETURNING_PREFILL_SALT = 'returning-family-prefill-v1'
+RETURNING_PREFILL_MAX_AGE = 2 * 60 * 60   # link valid for 2 hours
+RETURNING_LINK_COOLDOWN = 120             # seconds between emails to one address
+_returning_link_last_sent = {}            # email -> epoch seconds (per worker; best-effort)
+
+
+def program_hidden_from_request(p):
+    """True if p is a private class and this request didn't bring its link key.
+    Private classes don't appear in any listing and can only be opened with
+    /register/<slug>?k=<key>. Logged-in staff can always preview."""
+    if not p or not p.get('is_private'):
+        return False
+    if 'user_id' in session:
+        return False
+    k = request.args.get('k') or ''
+    if not k:
+        body = request.get_json(silent=True) or {}
+        if isinstance(body, dict):
+            k = body.get('k') or ''
+    return not (p.get('private_key') and hmac.compare_digest(str(k), str(p['private_key'])))
+
+
+def _returning_serializer():
+    return URLSafeTimedSerializer(app.secret_key, salt=RETURNING_PREFILL_SALT)
+
+
+def _returning_prefill_enabled():
+    # Never issue signed links with the fallback dev key — anyone reading the
+    # repo could forge them.
+    return bool(app.secret_key) and app.secret_key != 'rollcall-dev-key'
+
+
+def _returning_family_known(conn, email):
+    g = fetchone(conn, 'SELECT id FROM youth_guardians WHERE LOWER(email)=%s LIMIT 1', (email,))
+    if g: return True
+    y = fetchone(conn, "SELECT id FROM youth_participants WHERE LOWER(email)=%s LIMIT 1", (email,))
+    return bool(y)
+
+
+@app.route('/api/public/returning-family/request-link', methods=['POST'])
+def public_returning_family_request_link():
+    """Email a prefill link to a returning family. Always answers the same way,
+    whether or not the email is on file, so this can't be used to check who
+    has registered with HWTC."""
+    d = request.json or {}
+    email = (d.get('email') or '').strip().lower()
+    slug = (d.get('slug') or '').strip()
+    is_production = bool(d.get('is_production'))
+    generic = {'ok': True, 'message': "If that email is on file with us, we've sent you a link. It's good for 2 hours."}
+
+    if not email or '@' not in email or not slug or not _returning_prefill_enabled():
+        return jsonify(generic)
+
+    import time as _t
+    now = _t.time()
+    last = _returning_link_last_sent.get(email) or 0
+    if now - last < RETURNING_LINK_COOLDOWN:
+        return jsonify(generic)
+
+    conn = get_db()
+    try:
+        # Only build links to real registration pages
+        if slug == 'cart':
+            target = {'name': 'your HWTC programs', 'slug': 'cart'}
+            if not _returning_family_known(conn, email):
+                return jsonify(generic)
+        elif is_production:
+            target = fetchone(conn, 'SELECT id, name, slug FROM productions WHERE slug=%s OR id=%s', (slug, slug))
+        else:
+            target = fetchone(conn, 'SELECT id, name, slug, is_private, private_key FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
+            if target and program_hidden_from_request(target):
+                target = None
+        if slug != 'cart' and (not target or not _returning_family_known(conn, email)):
+            return jsonify(generic)
+    finally:
+        conn.close()
+
+    _returning_link_last_sent[email] = now
+    token = _returning_serializer().dumps({'e': email})
+    path_prefix = 'production/' if (is_production and slug != 'cart') else ''
+    link = 'https://rolecall.hwtco.org/register/' + path_prefix + (target.get('slug') or slug) + '?rt=' + token
+    if target.get('is_private') and target.get('private_key'):
+        link += '&k=' + target['private_key']
+    prog_name = target.get('name') or 'HWTC'
+    body = (
+        '<p>Hi there,</p>'
+        '<p>Here is your link to register for <strong>' + prog_name + '</strong> using the information we already have on file for your family:</p>'
+        '<p style="text-align:center;margin:24px 0"><a href="' + link + '" '
+        'style="display:inline-block;background:#145466;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700">'
+        'Continue my registration</a></p>'
+        '<p>Please look everything over before you submit, especially allergies, emergency contacts, and who is allowed to pick up.</p>'
+        '<p style="color:#6b7280;font-size:13px">This link works for 2 hours. If you didn\'t ask for it, you can ignore this email.</p>'
+    )
+    try:
+        send_email([email], 'Your HWTC registration link: ' + prog_name,
+                   build_hwtc_email_html('Your registration link', body),
+                   source='returning_family_prefill')
+    except Exception as e:
+        app.logger.warning(f'Returning-family link email failed: {e}')
+    return jsonify(generic)
+
+
+@app.route('/api/public/returning-family/prefill')
+def public_returning_family_prefill():
+    """Exchange a valid prefill token for the family's on-file details."""
+    token = (request.args.get('rt') or '').strip()
+    if not token or not _returning_prefill_enabled():
+        return jsonify({'error': 'Invalid link'}), 400
+    try:
+        data = _returning_serializer().loads(token, max_age=RETURNING_PREFILL_MAX_AGE)
+    except SignatureExpired:
+        return jsonify({'error': 'This link has expired. Request a new one from the registration page.', 'expired': True}), 400
+    except BadSignature:
+        return jsonify({'error': 'Invalid link'}), 400
+    email = (data.get('e') or '').strip().lower()
+    if not email:
+        return jsonify({'error': 'Invalid link'}), 400
+
+    conn = get_db()
+    try:
+        guardian = fetchone(conn, '''SELECT name, phone FROM youth_guardians
+            WHERE LOWER(email)=%s ORDER BY is_primary DESC, created_at DESC LIMIT 1''', (email,))
+
+        kids = fetchall(conn, '''SELECT DISTINCT yp.id, yp.first_name, yp.last_name, yp.dob,
+                yp.shirt_size, yp.allergies, yp.pronouns, yp.photo_consent, yp.created_at
+            FROM youth_participants yp
+            JOIN youth_guardians yg ON yg.youth_id=yp.id
+            WHERE LOWER(yg.email)=%s AND COALESCE(yp.status,'active')='active'
+            ORDER BY yp.created_at''', (email,)) or []
+
+        # Adult self-registrant whose own email is on their participant record
+        self_rec = fetchone(conn, '''SELECT id, first_name, last_name, dob, shirt_size,
+                allergies, pronouns, photo_consent
+            FROM youth_participants
+            WHERE LOWER(email)=%s AND COALESCE(status,'active')='active'
+            ORDER BY created_at DESC LIMIT 1''', (email,))
+
+        people = []
+        for k in kids:
+            people.append(dict(k, is_self=False))
+        if self_rec and not any(p['id'] == self_rec['id'] for p in people):
+            people.append(dict(self_rec, is_self=True))
+
+        for p in people:
+            ec = fetchone(conn, '''SELECT name, phone FROM youth_emergency_contacts
+                WHERE youth_id=%s ORDER BY created_at DESC LIMIT 1''', (p['id'],))
+            p['emergency_contact_name'] = (ec or {}).get('name') or ''
+            p['emergency_contact_phone'] = (ec or {}).get('phone') or ''
+            last_reg = fetchone(conn, '''SELECT pickup_contacts FROM program_registrations
+                WHERE LOWER(guardian_email)=%s AND LOWER(child_first_name)=LOWER(%s)
+                  AND LOWER(COALESCE(child_last_name,''))=LOWER(%s)
+                  AND COALESCE(pickup_contacts,'')<>''
+                ORDER BY created_at DESC LIMIT 1''', (email, p['first_name'] or '', p['last_name'] or ''))
+            p['pickup_contacts'] = (last_reg or {}).get('pickup_contacts') or ''
+            p['photo_consent'] = bool(p.get('photo_consent'))
+            p.pop('created_at', None)
+            p.pop('id', None)   # the form doesn't need internal ids
+
+        self_name = ''
+        if self_rec:
+            self_name = ((self_rec.get('first_name') or '') + ' ' + (self_rec.get('last_name') or '')).strip()
+        return jsonify({
+            'ok': True,
+            'email': email,
+            'guardian_name': (guardian or {}).get('name') or self_name,
+            'guardian_phone': (guardian or {}).get('phone') or '',
+            'people': people,
+        })
+    finally:
+        conn.close()
+
+
+@app.route('/api/portal/registration-link', methods=['POST'])
+def portal_registration_link():
+    """Signed prefill token for a family already logged into the portal, so
+    'Register' in the portal opens the public form with their info filled in.
+    The portal passphrase is the proof here (no email round-trip), and the
+    form only receives what the portal already shows this family."""
+    d = request.json or {}
+    passphrase = (d.get('passphrase') or '').strip().lower()
+    if not passphrase:
+        return jsonify({'error': 'Please log in again.'}), 401
+    if not _returning_prefill_enabled():
+        return jsonify({'error': 'Online re-registration is not available right now.'}), 503
+    conn = get_db()
+    try:
+        member_ids = []
+        family = fetchone(conn, 'SELECT id, email FROM families WHERE LOWER(passphrase)=%s', (passphrase,))
+        if family:
+            member_ids = [m['id'] for m in (fetchall(conn,
+                'SELECT id FROM youth_participants WHERE family_id=%s', (family['id'],)) or [])]
+        else:
+            youth = fetchone(conn, 'SELECT id FROM youth_participants WHERE LOWER(passphrase)=%s', (passphrase,))
+            if youth:
+                member_ids = [youth['id']]
+        if not member_ids:
+            return jsonify({'error': 'Please log in again.'}), 401
+
+        email = ''
+        for yid in member_ids:
+            g = fetchone(conn, '''SELECT email FROM youth_guardians
+                WHERE youth_id=%s AND COALESCE(email,'')<>''
+                ORDER BY is_primary DESC, created_at LIMIT 1''', (yid,))
+            if g:
+                email = g['email']
+                break
+        if not email:
+            for yid in member_ids:
+                y = fetchone(conn, "SELECT email FROM youth_participants WHERE id=%s AND COALESCE(email,'')<>''", (yid,))
+                if y:
+                    email = y['email']
+                    break
+        if not email and family and family.get('email'):
+            email = family['email']
+        if not email:
+            return jsonify({'error': "We don't have an email on file for your family yet. Please register from the program page, or contact HWTC staff."}), 400
+        token = _returning_serializer().dumps({'e': email.strip().lower()})
+        return jsonify({'ok': True, 'token': token})
+    finally:
+        conn.close()
+
+
 @app.route('/api/public/program/<slug>')
 def public_program_info(slug):
     """Public program info — no auth needed."""
     conn = get_db()
     p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
-    if not p:
+    if not p or program_hidden_from_request(p):
         conn.close()
         return jsonify({'error': 'Program not found'}), 404
     # Attach counts
@@ -18919,7 +24858,7 @@ def public_program_info(slug):
     if p.get('form_fields'):
         try: p['form_fields'] = json.loads(p['form_fields'])
         except: p['form_fields'] = {}
-    for k in ['default_elic_id','created_by','updated_by','square_catalog_item_id']:
+    for k in ['default_elic_id','created_by','updated_by','square_catalog_item_id','private_key']:
         p.pop(k, None)
     return jsonify(p)
 
@@ -18930,7 +24869,7 @@ def public_submit_registration(slug):
     d = request.json or {}
     conn = get_db()
     p = fetchone(conn, 'SELECT * FROM youth_programs WHERE slug=%s OR id=%s', (slug, slug))
-    if not p:
+    if not p or program_hidden_from_request(p):
         conn.close()
         return jsonify({'error': 'Program not found'}), 404
 
@@ -18963,7 +24902,8 @@ def public_submit_registration(slug):
                 recipients = list(get_recipient_emails(s))
                 if recipients:
                     send_email(recipients, f'Interest List: {p["name"]} — {d.get("name","")}',
-                        f'<p><strong>{d.get("name","")}</strong> ({email}) joined the interest list for <strong>{p["name"]}</strong>.</p>')
+                        build_hwtc_email_html(f'Interest List: {p["name"]} — {d.get("name","")}',
+                        f'<p><strong>{d.get("name","")}</strong> ({email}) joined the interest list for <strong>{p["name"]}</strong>.</p>'))
             except Exception: pass
             # Thank-you email to the family
             try:
@@ -19021,25 +24961,69 @@ def public_submit_registration(slug):
         conn.close()
         return jsonify({'error': _opens_msg, 'not_open_yet': True}), 400
 
-    # Age eligibility — opt-in per program via min_age/max_age in
-    # Registration Settings. Checked against the program's own start date
-    # (not today), and before the capacity check, so an age-ineligible
-    # child sees the age-specific message rather than a generic "full"
-    # waitlist message if both happen to apply.
-    age_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'dob': d.get('child_dob')}]
+    # Age eligibility — opt-in per program via min_age/max_age in Registration
+    # Settings, with an optional per-session override (e.g. a program like
+    # "Private Vocal Workshops" might only want an age gate on certain
+    # session slots — a teen-only time, say — while leaving the program
+    # itself open). A session only overrides a field it has its own value
+    # for; anything left blank on the session falls back to the program's
+    # setting. Checked against the program's start date, or the specific
+    # session's start date when a session overrides, and before the
+    # capacity check, so an age-ineligible child sees the age-specific
+    # message rather than a generic "full"/waitlist message if both apply.
+    _age_session_ids = d.get('session_ids') or []
+    if not isinstance(_age_session_ids, list): _age_session_ids = []
+    age_check_specs = []  # (min_age, max_age, grace_days, ref_date, session_label)
+    if _age_session_ids:
+        for _sid in _age_session_ids:
+            _sr = fetchone(conn, '''SELECT name, start_date, min_age, max_age, age_grace_days
+                FROM program_sessions WHERE id=%s AND program_id=%s''', (_sid, p['id']))
+            if not _sr:
+                continue
+            _s_min = _sr['min_age'] if _sr.get('min_age') is not None else p.get('min_age')
+            _s_max = _sr['max_age'] if _sr.get('max_age') is not None else p.get('max_age')
+            _s_grace = _sr['age_grace_days'] if _sr.get('age_grace_days') is not None else p.get('age_grace_days')
+            _s_ref = _sr.get('start_date') or p.get('start_date')
+            age_check_specs.append((_s_min, _s_max, _s_grace, _s_ref, _sr.get('name') or ''))
+    else:
+        age_check_specs.append((p.get('min_age'), p.get('max_age'), p.get('age_grace_days'), p.get('start_date'), ''))
+
+    # A self-registering adult (registration_form_type='adult') only has to give
+    # an exact birthdate if they say they're under 18 — otherwise DOB is
+    # optional, since most programs don't need it. But that means a plain "no,
+    # I'm 18+" with no DOB would otherwise sail straight through any age gate
+    # below (an empty DOB is treated as "can't check, allow it" — see
+    # _check_age_eligibility). So for that specific case, stand in the
+    # youngest DOB consistent with what they told us (exactly 18 today) —
+    # correctly clears any minimum up to 18, and correctly still catches a
+    # kids-only maximum, without requiring/assuming an exact age beyond that.
+    primary_dob = d.get('child_dob')
+    if (not primary_dob and p.get('registration_form_type') == 'adult'
+            and (d.get('reported_under_18') or '').strip() == 'no' and age_check_specs
+            and any(spec[0] or spec[1] for spec in age_check_specs)):
+        _today = date.today()
+        try:
+            primary_dob = _today.replace(year=_today.year - 18).isoformat()
+        except ValueError:
+            primary_dob = _today.replace(year=_today.year - 18, day=28).isoformat()
+
+    age_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'dob': primary_dob}]
     for s in (d.get('siblings') or []):
         if isinstance(s, dict):
             age_children.append({'first_name': (s.get('first_name') or '').strip(), 'dob': s.get('dob')})
     age_grace_note = None
     needs_age_waitlist = False
     for c in age_children:
-        _action, _msg = _check_age_eligibility(c['dob'], p.get('min_age'), p.get('max_age'), p.get('age_grace_days'), p.get('start_date'))
-        if _action == 'reject':
-            conn.close()
-            return jsonify({'error': (f"{c['first_name']}: " if c['first_name'] else '') + _msg}), 400
-        if _action == 'waitlist':
-            needs_age_waitlist = True
-            age_grace_note = _msg
+        for (_c_min, _c_max, _c_grace, _c_ref, _c_label) in age_check_specs:
+            _action, _msg = _check_age_eligibility(c['dob'], _c_min, _c_max, _c_grace, _c_ref)
+            if _action == 'reject':
+                conn.close()
+                prefix = (f"{c['first_name']}: " if c['first_name'] else '')
+                suffix = f' (session: {_c_label})' if _c_label else ''
+                return jsonify({'error': prefix + _msg + suffix}), 400
+            if _action == 'waitlist':
+                needs_age_waitlist = True
+                age_grace_note = _msg
 
     if needs_age_waitlist:
         # Same per-child waitlist pattern as the capacity-full path below,
@@ -19219,10 +25203,14 @@ def public_submit_registration(slug):
     # Build the list of children (primary + siblings) and the fields shared by every
     # row in the group — each child becomes their own independent registration row.
     reg_children = [{'first_name': d.get('child_first_name','').strip(), 'last_name': d.get('child_last_name','').strip(),
-                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size'),
+                      'allergies': d.get('allergies') or '', 'pronouns': d.get('pronouns') or ''}]
     for s in siblings:
         reg_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
-                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size'),
+                              'allergies': s.get('allergies') or ''})
+    for _c, _rf in zip(reg_children, _reviewed_fields_for_children(d, siblings)):
+        _c['reviewed_fields'] = _rf
     shared_fields = {
         'program_id': p['id'],
         'registration_form_type': d.get('registration_form_type') or p.get('registration_form_type') or 'youth',
@@ -19336,11 +25324,11 @@ def square_webhook():
                     (order_id, order_id)) or []
                 reg = regs[0] if regs else None
                 if regs and amount_cents:
-                    # Stored on every sibling row sharing this order — revenue
-                    # queries dedupe by order_id at read time so it isn't
-                    # double-counted per sibling.
-                    execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE square_order_id=%s OR square_checkout_id=%s',
-                        (amount_cents, order_id, order_id))
+                    # Split proportionally across every registration sharing
+                    # this order — see split_order_amount_across_registrations
+                    # for why writing the full amount to every row is wrong
+                    # once an order can span more than one program.
+                    split_order_amount_across_registrations(conn, order_id, amount_cents)
                     conn.commit()
                 if regs and any(r['status'] == 'pending_payment' for r in regs):
                     for r in regs:
@@ -19367,12 +25355,11 @@ def square_webhook():
                             vol = fetchone(conn, 'SELECT * FROM volunteers WHERE id=%s', (hour_red['volunteer_id'],))
                             if vol and vol.get('email'):
                                 send_email([vol['email']], 'Payment received — Hours Store',
-                                    f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                                    build_hwtc_email_html('Payment received — Hours Store',
                                     f'<h2 style="color:#145466">Payment Received!</h2>'
                                     f'<p>Hi {vol.get("name","there")},</p>'
                                     f'<p>Thanks — we received your balance payment for <strong>{hour_red.get("item_name_snapshot") or (item["name"] if item else "your item")}</strong>.'
-                                    f'{" You have been enrolled." if new_reg_id else " We will follow up with next steps."}</p>'
-                                    f'<p>Horizon West Theater Company</p></div>')
+                                    f'{" You have been enrolled." if new_reg_id else " We will follow up with next steps."}</p>'))
                         except Exception as e:
                             app.logger.warning(f'Hours store balance-paid email failed: {e}')
                     else:
@@ -19392,13 +25379,32 @@ def square_webhook():
                                     reg2 = fetchone(conn, 'SELECT status FROM program_registrations WHERE id=%s', (rid,))
                                     if reg2 and reg2['status'] == 'pending_payment':
                                         finalize_registration(conn, rid, payment_id, order_id)
+                            # finalize_registration doesn't touch amount_paid_cents — split it
+                            # proportionally across every registration sharing this cart's
+                            # order (same helper the direct/single-registration path uses),
+                            # so a multi-program cart doesn't leave each item at $0 even
+                            # though the cart total was genuinely charged.
+                            split_order_amount_across_registrations(conn, order_id, cart.get('total_cents'))
                             conn.commit()
                         else:
-                            # Check pending donations
+                            # Check ticket orders — a multi-performance cart
+                            # has multiple sibling rows sharing this same
+                            # square_order_id/checkout_id (one per
+                            # performance), same as a multi-program
+                            # registration cart, so confirm all of them.
+                            tords = fetchall(conn, "SELECT * FROM ticket_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status IN ('pending','superseded')",
+                                (order_id, order_id)) or []
+                            for tord in tords:
+                                _finalize_ticket_order(conn, tord['id'], payment_id, order_id)
+                            # A ticket checkout can also carry an optional
+                            # add-on donation sharing this SAME order/
+                            # checkout id, so this isn't exclusive with the
+                            # tickets above anymore — a standalone donation
+                            # (no ticket_orders match) still lands here too.
                             don = fetchone(conn, "SELECT * FROM pending_donations WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
                                 (order_id, order_id))
                             if don:
-                                finalize_donation(conn, don['id'], payment_id, amount_cents)
+                                finalize_donation(conn, don['id'])
                 conn.close()
             elif status in ('FAILED', 'CANCELED') and order_id:
                 conn = get_db()
@@ -19831,10 +25837,14 @@ def public_register_production(slug):
     balance_due = max(0, effective_price - deposit) if use_deposit else 0
 
     reg_children = [{'first_name': (d.get('child_first_name') or '').strip(), 'last_name': (d.get('child_last_name') or '').strip(),
-                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size')}]
+                      'dob': d.get('child_dob'), 'shirt_size': d.get('shirt_size'),
+                      'allergies': d.get('allergies') or '', 'pronouns': d.get('pronouns') or ''}]
     for s in siblings:
         reg_children.append({'first_name': (s.get('first_name') or '').strip(), 'last_name': (s.get('last_name') or '').strip(),
-                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size')})
+                              'dob': s.get('dob'), 'shirt_size': s.get('shirt_size'),
+                              'allergies': s.get('allergies') or ''})
+    for _c, _rf in zip(reg_children, _reviewed_fields_for_children(d, siblings)):
+        _c['reviewed_fields'] = _rf
     shared_fields = {
         'production_id': prod['id'],
         'guardian_name': (d.get('guardian_name') or '').strip(),
@@ -20108,12 +26118,12 @@ def upload_production_cover(pid):
         url = f'/static/images/{filename}'
     import json as _juc
     conn2 = get_db()
-    prod_full = fetchone(conn2, 'SELECT program_images FROM productions WHERE id=%s', (pid,))
-    try:
-        images = _juc.loads(prod_full.get('program_images') or '[]')
-    except Exception:
-        images = []
-    images = [url] + [img for img in images if img != url]
+    # Replacing the cover should actually replace it — previously this
+    # prepended the new image while keeping every old one in the array,
+    # so old covers silently piled up and started showing in the public
+    # photo gallery section with no way to see or remove them from the
+    # admin UI (there's no gallery management, only this single upload).
+    images = [url]
     execute(conn2, 'UPDATE productions SET program_images=%s WHERE id=%s', (_juc.dumps(images), pid))
     conn2.commit(); conn2.close()
     return jsonify({'ok': True, 'url': url})
@@ -20290,6 +26300,7 @@ def public_programs_list():
         start_date, end_date, sibling_discount_enabled,
         sibling_discount_type, sibling_discount_value
         FROM youth_programs WHERE registration_status='open'
+          AND COALESCE(is_private, FALSE) = FALSE
         ORDER BY start_date ASC NULLS LAST, name ASC""")
     for p in progs:
         count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (p['id'],)) or {}).get('c', 0)
@@ -20408,6 +26419,15 @@ def cart_checkout():
             'notes': (item.get('notes') or '').strip(),
             'custom_field_values': item.get('custom_field_values') or {},
             'siblings': siblings,
+            # Profile fields the single-program form collects — these used to
+            # be dropped entirely on the cart path.
+            'allergies': (item.get('allergies') or '').strip(),
+            'pronouns': (item.get('pronouns') or '').strip(),
+            'pickup_contacts': (item.get('pickup_contacts') or '').strip(),
+            'photo_consent': bool(item.get('photo_consent')),
+            'emergency_contact_name': (item.get('ec_name') or '').strip(),
+            'emergency_contact_phone': (item.get('ec_phone') or '').strip(),
+            'reviewed_fields': ','.join(_clean_reviewed_fields(item.get('reviewed_fields'))),
             'promo_code': prog_code_used or None,
             'promo_discount': prog_discount,
             'sibling_discount': sib_discount,
@@ -20476,12 +26496,16 @@ def cart_checkout():
              guardian_name, guardian_email, guardian_phone, notes,
              discount_code, discount_amount, sibling_discount_amount,
              participant_count, siblings_json, custom_field_values,
-             payment_type, balance_due, waitlist_position)
+             payment_type, balance_due, waitlist_position,
+             allergies, pronouns, pickup_contacts, photo_consent,
+             emergency_contact_name, emergency_contact_phone, reviewed_fields)
             VALUES (%s,%s,'registration',%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,%s,
                     %s,%s,%s,
                     %s,%s,%s,
+                    %s,%s,%s,
+                    %s,%s,%s,%s,
                     %s,%s,%s)''',
             (rid, it['program_id'], status,
              it['child_first_name'], it['child_last_name'],
@@ -20489,7 +26513,9 @@ def cart_checkout():
              guardian_name, guardian_email, guardian_phone or None, it['notes'] or None,
              it['promo_code'], it['promo_discount'] + it.get('cart_discount_share', 0), it['sibling_discount'],
              it['participant_count'], _jc.dumps(it['siblings']), _jc.dumps(it.get('custom_field_values') or {}),
-             'deposit' if use_deposit else 'full', balance_due, wpos))
+             'deposit' if use_deposit else 'full', balance_due, wpos,
+             it['allergies'] or None, it['pronouns'] or None, it['pickup_contacts'] or None, it['photo_consent'],
+             it['emergency_contact_name'] or None, it['emergency_contact_phone'] or None, it['reviewed_fields']))
         reg_ids.append(rid)
         if status == 'confirmed':
             finalize_registration(conn, rid)
@@ -20588,7 +26614,8 @@ def get_program_sessions(pid):
     sessions = fetchall(conn, '''SELECT ps.*,
         (SELECT COUNT(*) FROM program_registrations
          WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
-         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
+         AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count,
+        (SELECT e.id FROM events e WHERE e.linked_session_id=ps.id LIMIT 1) AS linked_event_id
         FROM program_sessions ps WHERE ps.program_id=%s
         ORDER BY ps.sort_order, ps.day_of_week, ps.start_time''', (pid, pid))
     conn.close()
@@ -20613,13 +26640,20 @@ def create_program_session(pid):
     if capacity is not None:
         try: capacity = int(capacity)
         except Exception: capacity = None
+    min_age = d.get('min_age')
+    min_age = int(min_age) if min_age not in (None, '') else None
+    max_age = d.get('max_age')
+    max_age = int(max_age) if max_age not in (None, '') else None
+    age_grace_days = d.get('age_grace_days')
+    age_grace_days = int(age_grace_days) if age_grace_days not in (None, '') else None
     # Get next sort order
     max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) as m FROM program_sessions WHERE program_id=%s', (pid,))
     sort_order = (max_sort.get('m') or 0) + 1
     execute(conn, '''INSERT INTO program_sessions
         (id, program_id, name, day_of_week, start_time, end_time,
-         start_date, end_date, location, capacity, price_override, status, sort_order)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+         start_date, end_date, location, capacity, price_override, status, sort_order,
+         min_age, max_age, age_grace_days)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
         (sid, pid,
          (d.get('name') or '').strip(),
          d.get('day_of_week') or None,
@@ -20631,7 +26665,8 @@ def create_program_session(pid):
          capacity,
          price_override,
          d.get('status') or 'open',
-         sort_order))
+         sort_order,
+         min_age, max_age, age_grace_days))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
     conn.close()
@@ -20810,11 +26845,18 @@ def update_program_session(pid, sid):
     err = require_own_program(pid)
     if err: return err
     d = request.json or {}
+    min_age = d.get('min_age')
+    min_age = int(min_age) if min_age not in (None, '') else None
+    max_age = d.get('max_age')
+    max_age = int(max_age) if max_age not in (None, '') else None
+    age_grace_days = d.get('age_grace_days')
+    age_grace_days = int(age_grace_days) if age_grace_days not in (None, '') else None
     conn = get_db()
     execute(conn, '''UPDATE program_sessions SET
         name=%s, day_of_week=%s, start_time=%s, end_time=%s,
         start_date=%s, end_date=%s, location=%s,
-        capacity=%s, price_override=%s, status=%s, sort_order=%s
+        capacity=%s, price_override=%s, status=%s, sort_order=%s,
+        min_age=%s, max_age=%s, age_grace_days=%s
         WHERE id=%s AND program_id=%s''',
         ((d.get('name') or '').strip(),
          (d.get('day_of_week') or '').strip(),
@@ -20827,6 +26869,7 @@ def update_program_session(pid, sid):
          d.get('price_override') if d.get('price_override') is not None else None,
          d.get('status') or 'open',
          int(d.get('sort_order') or 0),
+         min_age, max_age, age_grace_days,
          sid, pid))
     conn.commit()
     sync_hours_store_for_program(conn, pid)
@@ -20849,13 +26892,14 @@ def delete_program_session(pid, sid):
 @app.route('/api/public/program/<slug>/sessions', methods=['GET'])
 def public_program_sessions(slug):
     conn = get_db()
-    prog = fetchone(conn, "SELECT id FROM youth_programs WHERE slug=%s OR id=%s", (slug, slug))
-    if not prog:
+    prog = fetchone(conn, "SELECT id, is_private, private_key FROM youth_programs WHERE slug=%s OR id=%s", (slug, slug))
+    if not prog or program_hidden_from_request(prog):
         conn.close()
         return jsonify([])
     sessions = fetchall(conn, '''SELECT ps.id, ps.name, ps.day_of_week, ps.start_time,
         ps.end_time, ps.start_date, ps.end_date, ps.location, ps.capacity,
         ps.price_override, ps.status, ps.sort_order,
+        ps.min_age, ps.max_age, ps.age_grace_days,
         (SELECT COUNT(*) FROM program_registrations
          WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
          AND status NOT IN ('cancelled','waitlisted')) AS enrolled_count
@@ -20988,15 +27032,20 @@ def my_submit_hours():
         conn.close()
         return jsonify({'error': 'Hours must be greater than 0'}), 400
     hid = str(_umh.uuid4())
-    execute(conn, '''INSERT INTO pending_hours (id, volunteer_id, event, event_id, date, hours, role, notes, status)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
+    event_id = d.get('event_id') or None
+    # Same auto-detection the kiosk uses — paid-instruction status shouldn't
+    # depend on which of the two hour-logging paths someone happens to use.
+    pay_type = determine_kiosk_pay_type(conn, vol['id'], event_id)
+    execute(conn, '''INSERT INTO pending_hours (id, volunteer_id, event, event_id, date, hours, role, notes, status, pay_type)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
         (hid, vol['id'],
          (d.get('event') or '').strip(),
-         d.get('event_id') or None,
+         event_id,
          (d.get('date') or '').strip(),
          float(d.get('hours') or 0),
          (d.get('role') or '').strip() or None,
-         (d.get('notes') or '').strip() or None))
+         (d.get('notes') or '').strip() or None,
+         pay_type))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': hid})
 
@@ -21046,22 +27095,45 @@ def lobby2_page():
         sandbox = 'lobby_jungle.html'
     return send_from_directory('static', sandbox)
 
+_DATE_LIKE_EVENT_NAME = re.compile(
+    r'^\s*((mon|tue|wed|thu|fri|sat|sun)[a-z]*\.?(,|\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|\d))|'
+    r'(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d|'
+    r'\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2})', re.IGNORECASE)
+
+
+def lobby_event_title(name, program_name):
+    """Class sessions are often named by their date/time (e.g. "Thursday,
+    October 1 · 5:00 PM – 6:00 PM"), which reads as noise on a schedule that
+    already shows the date and time. For those, show the class name instead."""
+    name = (name or '').strip()
+    if program_name and (not name or _DATE_LIKE_EVENT_NAME.match(name)):
+        return program_name
+    return name
+
+
 @app.route('/api/public/lobby-data', methods=['GET'])
 def public_lobby_data():
-    import datetime as _dtl
-    today = _dtl.date.today().isoformat()
+    # Was using the server's own clock (UTC on Railway), which rolls over to
+    # the next calendar day hours before it's actually midnight in Florida —
+    # during that window "today" here would already be tomorrow, silently
+    # shifting every relative date downstream by a day.
+    today = today_eastern().isoformat()
     upcoming_events = []
     announcements = []
     lobby_images = []
 
     try:
         conn = get_db()
-        upcoming_events = fetchall(conn, '''SELECT name, event_date, start_time, end_time, location
-            FROM events
-            WHERE event_date >= %s AND COALESCE(status,'active') != 'cancelled'
-            AND COALESCE(show_on_lobby, TRUE) = TRUE
-            ORDER BY event_date, start_time LIMIT 12''', (today,)) or []
+        upcoming_events = fetchall(conn, '''SELECT e.name, e.event_date, e.start_time, e.end_time, e.location,
+                yp.name AS program_name
+            FROM events e
+            LEFT JOIN youth_programs yp ON yp.id = e.program_id
+            WHERE e.event_date >= %s AND COALESCE(e.status,'active') != 'cancelled'
+            AND COALESCE(e.show_on_lobby, TRUE) = TRUE
+            ORDER BY e.event_date, e.start_time LIMIT 12''', (today,)) or []
         conn.close()
+        for ev in upcoming_events:
+            ev['name'] = lobby_event_title(ev.get('name'), ev.pop('program_name', None))
     except Exception as e:
         app.logger.warning(f'Lobby events query failed: {e}')
         try: conn.close()
@@ -21436,7 +27508,7 @@ def post_oncall_slack_report():
             names = ', '.join(f'{s["person_name"]} ({fmt12h(s.get("start_time","08:00"))}–{fmt12h(s.get("end_time","22:00"))})' for s in day_shifts)
             day_lines.append(f'{day_label}: {names}')
         else:
-            day_lines.append(f'{day_label}: ⚠️ _No coverage_')
+            day_lines.append(f'{day_label}:  _No coverage_')
     # Who's on right now
     now_time = now.strftime('%H:%M')
     now_dow = now.weekday()
@@ -21444,9 +27516,9 @@ def post_oncall_slack_report():
         if s['start_date'] <= now.date().isoformat() <= s['end_date']
         and (s.get('start_time','08:00') or '08:00') <= now_time <= (s.get('end_time','22:00') or '22:00')
         and now_dow in (_jrep.loads(s.get('days_of_week') or '[0,1,2,3,4,5,6]') or [0,1,2,3,4,5,6])), None)
-    current_line = f'📞 *On call now:* {current["person_name"]} (`{current["phone"]}`)' if current else '📞 *On call now:* ⚠️ Nobody scheduled'
+    current_line = f' *On call now:* {current["person_name"]} (`{current["phone"]}`)' if current else ' *On call now:*  Nobody scheduled'
     blocks = [
-        {'type':'header','text':{'type':'plain_text','text':f'📞 On-Call Schedule: {week_label}'}},
+        {'type':'header','text':{'type':'plain_text','text':f' On-Call Schedule: {week_label}'}},
         {'type':'section','text':{'type':'mrkdwn','text':current_line}},
         {'type':'divider'},
         {'type':'section','text':{'type':'mrkdwn','text':'\n'.join(day_lines)}},
@@ -21674,10 +27746,10 @@ def _notify_inbox_new_thread(conn, thread_id):
         first_msg = fetchone(conn, "SELECT body_text FROM inbox_messages WHERE thread_id=%s ORDER BY created_at LIMIT 1", (thread_id,))
         preview = ((first_msg or {}).get('body_text') or '').strip().replace('\n', ' ')[:200]
         send_email(recipients, f'New message: {thread.get("subject","(no subject)")}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'New message: {thread.get("subject","(no subject)")}',
             f'<p><strong>{thread.get("participant_name") or thread.get("participant_email","")}</strong> sent a new message to info@hwtco.org:</p>'
             f'<p style="color:#6b7280;font-size:13px;border-left:3px solid #145466;padding-left:10px">{preview}{"…" if len(preview)==200 else ""}</p>'
-            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p>'),
             source='inbox_notify')
     except Exception as e:
         app.logger.warning(f'Inbox new-thread notification failed: {e}')
@@ -21693,10 +27765,10 @@ def _notify_inbox_assigned(conn, thread_id, assignee_name):
         if not thread:
             return
         send_email(user['email'], f'Assigned to you: {thread.get("subject","(no subject)")}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'Assigned to you: {thread.get("subject","(no subject)")}',
             f'<p>You\'ve been assigned a conversation in the RoleCall Inbox:</p>'
             f'<p><strong>{thread.get("participant_name") or thread.get("participant_email","")}</strong> — {thread.get("subject","(no subject)")}</p>'
-            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+            f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p>'),
             source='inbox_notify')
     except Exception as e:
         app.logger.warning(f'Inbox assignment notification failed: {e}')
@@ -21736,11 +27808,11 @@ def _notify_inbox_mentioned(conn, thread_id, mentioned_names, author_name, comme
                 continue
             preview = (comment_body or '').strip().replace('\n', ' ')[:200]
             send_email(user['email'], f'{author_name} mentioned you: {thread.get("subject","(no subject)")}',
-                f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+                build_hwtc_email_html(f'{author_name} mentioned you: {thread.get("subject","(no subject)")}',
                 f'<p><strong>{author_name}</strong> mentioned you on a conversation with '
                 f'{thread.get("participant_name") or thread.get("participant_email","")} in the RoleCall Inbox:</p>'
                 f'<p style="color:#6b7280;font-size:13px;border-left:3px solid #145466;padding-left:10px">{preview}{"…" if len(preview)==200 else ""}</p>'
-                f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p></div>',
+                f'<p><a href="{os.environ.get("APP_BASE_URL","")}/#inbox">Open in RoleCall Inbox</a></p>'),
                 source='inbox_notify')
         except Exception as e:
             app.logger.warning(f'Inbox mention notification failed for {name}: {e}')
@@ -22524,7 +28596,7 @@ def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name
     if attachments:
         import base64 as _b64send
         resend_attachments = [{'filename': a['filename'], 'content_b64': _b64send.b64encode(a['data']).decode()} for a in attachments]
-    ok, err, resend_id = send_email(to_email, subject, html_body, from_email=from_email,
+    ok, err, resend_id = send_email(to_email, subject, build_hwtc_email_html(subject, html_body), from_email=from_email,
         from_name='Horizon West Theater Company', source='shared_inbox', extra_headers=headers,
         cc=cc_emails or None, bcc=bcc_emails or None, attachments=resend_attachments)
     if not ok:
@@ -23122,6 +29194,58 @@ def delete_inbox_thread(tid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+@app.route('/api/inbox/threads/bulk-update', methods=['POST'])
+def bulk_update_inbox_threads():
+    """Applies the same status/assigned_to change to several threads at
+    once — reuses update_inbox_thread for each id (same request body, same
+    Gmail label push and assignment notification per thread) rather than
+    re-implementing those side effects here."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    thread_ids = d.get('thread_ids') or []
+    if not thread_ids:
+        return jsonify({'error': 'No conversations selected'}), 400
+    updated, errors = 0, []
+    for tid in thread_ids:
+        try:
+            resp = update_inbox_thread(tid)
+            code = resp[1] if isinstance(resp, tuple) else 200
+            if code and code >= 400:
+                errors.append(tid)
+            else:
+                updated += 1
+        except Exception as e:
+            app.logger.warning(f'Bulk inbox update error for {tid}: {e}')
+            errors.append(tid)
+    return jsonify({'ok': True, 'updated': updated, 'errors': errors})
+
+
+@app.route('/api/inbox/threads/bulk-delete', methods=['POST'])
+def bulk_delete_inbox_threads():
+    """Deletes several threads at once — reuses delete_inbox_thread per id
+    so each one still gets trashed in Gmail, same as a single delete."""
+    err = require_permission('inbox')
+    if err: return err
+    d = request.json or {}
+    thread_ids = d.get('thread_ids') or []
+    if not thread_ids:
+        return jsonify({'error': 'No conversations selected'}), 400
+    deleted, errors = 0, []
+    for tid in thread_ids:
+        try:
+            resp = delete_inbox_thread(tid)
+            code = resp[1] if isinstance(resp, tuple) else 200
+            if code and code >= 400:
+                errors.append(tid)
+            else:
+                deleted += 1
+        except Exception as e:
+            app.logger.warning(f'Bulk inbox delete error for {tid}: {e}')
+            errors.append(tid)
+    return jsonify({'ok': True, 'deleted': deleted, 'errors': errors})
+
+
 @app.route('/api/inbox/check-now', methods=['POST'])
 def trigger_inbox_check_now():
     """Manual 'refresh' button — runs the same check the scheduler runs
@@ -23209,7 +29333,35 @@ def get_inbox_import_history_status():
     if err: return err
     return jsonify(_get_inbox_import_status())
 
+def _acquire_single_worker_lock():
+    """Gunicorn runs multiple worker processes, each importing this module
+    independently — without this, every worker starts its own scheduler, so a
+    weekly job (like the Monday on-call Slack report) fires once per worker
+    instead of once total. This is an atomic cross-process lock: only the
+    first worker to reach this actually creates the lock file (O_EXCL fails
+    for everyone else), so only that one worker goes on to start the
+    scheduler. The lock lives in /tmp, which is fresh on every deploy (a new
+    container/filesystem), so there's no stale-lock cleanup to do — it can
+    only ever be "already held" by a sibling worker from *this* boot.
+    Trade-off: if the one worker holding the lock later crashes and gets
+    replaced, the replacement won't take over the scheduler (no other worker
+    is watching for that), so the on-call report would silently stop firing
+    until the next full deploy. Rare in practice, and far better than firing
+    twice every week."""
+    import os
+    lock_path = '/tmp/rolecall_scheduler.lock'
+    try:
+        fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(fd, str(os.getpid()).encode())
+        os.close(fd)
+        return True
+    except FileExistsError:
+        return False
+
 def _start_oncall_scheduler():
+    if not _acquire_single_worker_lock():
+        app.logger.info('Scheduler already running in another worker process — skipping here')
+        return
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.cron import CronTrigger
@@ -23256,8 +29408,12 @@ def _start_oncall_scheduler():
                 app.logger.warning(f'Daily auto-close error: {e}')
         scheduler.add_job(_check_and_send, CronTrigger(minute='*'), id='oncall_check',
                           max_instances=1, coalesce=True, misfire_grace_time=30)
+        scheduler.add_job(_check_scheduled_reports_precise, CronTrigger(minute='*'), id='scheduled_reports_check',
+                          max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.add_job(_daily_auto_close, CronTrigger(hour=2, minute=0), id='daily_auto_close',
                           max_instances=1, coalesce=True)
+        scheduler.add_job(sad_auto_open_due_lotteries, CronTrigger(minute='*'), id='sad_auto_open',
+                          max_instances=1, coalesce=True, misfire_grace_time=30)
         try:
             from apscheduler.triggers.interval import IntervalTrigger
             scheduler.add_job(check_inbox_for_new_mail, IntervalTrigger(minutes=3), id='inbox_check',
@@ -23476,7 +29632,7 @@ def set_call_thread_ts(call_sid, thread_ts):
     weekday = now.weekday()  # 0=Monday, 6=Sunday
     conn = get_db()
     rows = fetchall(conn, '''SELECT * FROM on_call_schedule
-        WHERE start_date <= %s AND end_date >= %s
+        WHERE start_date <= %s AND end_date >= %s AND person_name != ''
         ORDER BY start_date DESC''', (today, today))
     conn.close()
     for row in (rows or []):
@@ -23508,7 +29664,7 @@ def get_oncall_now():
 
         conn = get_db()
         rows = fetchall(conn, '''SELECT * FROM on_call_schedule
-            WHERE start_date <= %s AND (end_date IS NULL OR end_date >= %s)
+            WHERE start_date <= %s AND (end_date IS NULL OR end_date >= %s) AND person_name != ''
             ORDER BY start_date DESC''', (today_str, today_str)) or []
         conn.close()
 
@@ -23563,8 +29719,8 @@ def twilio_voice():
         if not in_hours:
             msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
             ts_val = post_to_slack_calls([
-                {'type':'section','text':{'type':'mrkdwn','text':f'🌙 *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* After hours — voicemail offered'}},
-                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+                {'type':'section','text':{'type':'mrkdwn','text':f' *After Hours Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* After hours — voicemail offered'}},
+                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
             ], text=f'After hours call from {fmt_phone(caller)}')
             log_call(call_sid, caller, 'After Hours', '', 'after_hours', True, ts_val or '')
             voicemail_greeting = (es.get('twilio_voice_voicemail') or '').strip()
@@ -23604,10 +29760,10 @@ def twilio_voice():
         if forward_to:
             ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':
-                    f'📞 *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:* 🔔 Ringing…'}},
+                    f' *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:*  Ringing…'}},
                 {'type':'actions','elements':[
-                    {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
-                    {'type':'button','text':{'type':'plain_text','text':'📋 View Log'},'url':f'{host}/','action_id':'viewlog'}
+                    {'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
+                    {'type':'button','text':{'type':'plain_text','text':' View Log'},'url':f'{host}/','action_id':'viewlog'}
                 ]}
             ], text=f'Inbound call from {fmt_phone(caller)} → routed to {person_name}')
             log_call(call_sid, caller, person_name, forward_to, 'ringing', False, ts_val or '')
@@ -23649,8 +29805,8 @@ def twilio_voice():
         else:
             ts_val = post_to_slack_calls([
                 {'type':'section','text':{'type':'mrkdwn','text':
-                    f'⚠️ *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person and no fallback set'}},
-                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+                    f' *Missed Call — No Coverage*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* No on-call person and no fallback set'}},
+                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
             ], text=f'Missed call from {fmt_phone(caller)} — no coverage!')
             log_call(call_sid, caller, 'Nobody', '', 'no_coverage', False, ts_val or '')
             twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -23896,19 +30052,19 @@ def twilio_call_status():
     if dial_status:
         if dial_status == 'completed':
             status = 'answered'
-            emoji = '✅'
+            emoji = ''
             status_text = f'Answered by {person_name} · Duration: {mins(duration)}'
         elif dial_status in ('no-answer','busy'):
             status = 'missed'
-            emoji = '❌'
+            emoji = ''
             status_text = f'MISSED — {person_name} did not answer'
         elif dial_status == 'failed':
             status = 'failed'
-            emoji = '🔴'
+            emoji = ''
             status_text = f'Failed to connect to {person_name}'
         else:
             status = dial_status
-            emoji = '❓'
+            emoji = ''
             status_text = f'Status: {dial_status}'
         try:
             conn2 = get_db()
@@ -23958,7 +30114,7 @@ def twilio_call_status():
         thread_ts = get_call_thread_ts(call_sid)
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f'📲 *Answered* by {person_name}'}}
+                f' *Answered* by {person_name}'}}
         ], text=f'Answered by {person_name}', thread_ts=thread_ts)
 
     return '', 204
@@ -23997,20 +30153,37 @@ def lookup_contact_name_by_phone(phone):
         conn.close()
     return None
 
+def normalize_to_e164(raw):
+    """Best-effort normalize a US phone number to E.164 (+1XXXXXXXXXX) —
+    used when an on-call person kicks off a brand-new text from their own
+    phone by number rather than replying to an existing conversation."""
+    digits = ''.join(ch for ch in (raw or '') if ch.isdigit())
+    if len(digits) == 10:
+        return '+1' + digits
+    if len(digits) == 11 and digits.startswith('1'):
+        return '+' + digits
+    return raw
+
 @app.route('/twilio/sms', methods=['POST'])
 def twilio_sms():
     """Inbound SMS webhook.
 
-    Two very different things land here:
+    Three things can land here:
     1. A customer texting the HWTC number for the first time (or continuing
        a conversation) — forward it to whoever's on call.
-    2. The on-call person REPLYING on their own phone. Their reply is sent
-       to the HWTC Twilio number (since that's who the forwarded message
-       appeared to come from), so without tracking, it looks identical to a
-       new customer message and gets re-broadcast instead of delivered back
-       to the actual customer. We tell the two apart by checking whether the
-       From number matches whoever is currently on call, and route the
-       on-call person's replies to the most recently active customer thread.
+    2. The on-call person REPLYING on their own phone to an existing
+       conversation. Their reply is sent to the HWTC Twilio number (since
+       that's who the forwarded message appeared to come from), so without
+       tracking, it looks identical to a new customer message and gets
+       re-broadcast instead of delivered back to the actual customer. We
+       tell the two apart by checking whether the From number matches
+       whoever is currently on call, and route their replies to the most
+       recently active customer thread — or a specific one via "@1234
+       message" (last 4 digits of that customer's number).
+    3. The on-call person STARTING a brand-new text from their own phone to
+       someone who's never messaged in — "@8272908493 message", using the
+       full number instead of just the last 4. This creates the conversation
+       on the spot, so the reply-relay works from then on like any other.
     """
     oncall = get_oncall_now()
     ts = get_twilio_settings()
@@ -24029,17 +30202,56 @@ def twilio_sms():
     if is_oncall_replying:
         conn = get_db()
         target_row = None
-        # Optional "@1234 message" prefix lets the on-call person pick a
-        # specific conversation by the customer's last 4 digits, in case
-        # more than one person has texted in recently.
+        # Optional "@1234 message" prefix picks a specific conversation by
+        # the customer's last 4 digits, in case more than one person has
+        # texted in recently. "@8272908493 message" (a full number, however
+        # it's punctuated — dashes/parens/+1 are all fine) instead starts a
+        # brand-new conversation with that number from scratch.
         msg_body = body
+        used_explicit_code = False
         if body.startswith('@') and ' ' in body:
             code, rest = body[1:].split(' ', 1)
-            if code.isdigit() and len(code) == 4:
+            code_digits = ''.join(ch for ch in code if ch.isdigit())
+            if len(code_digits) == 4:
+                used_explicit_code = True
                 target_row = fetchone(conn, '''SELECT * FROM sms_conversations
-                    WHERE RIGHT(customer_phone, 4)=%s ORDER BY last_message_at DESC LIMIT 1''', (code,))
+                    WHERE RIGHT(customer_phone, 4)=%s ORDER BY last_message_at DESC LIMIT 1''', (code_digits,))
                 msg_body = rest.strip()
-        if not target_row:
+            elif len(code_digits) >= 10:
+                used_explicit_code = True
+                target_phone = normalize_to_e164(code_digits)
+                target_row = fetchone(conn, '''SELECT * FROM sms_conversations
+                    WHERE RIGHT(customer_phone,10)=RIGHT(%s,10)
+                    ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
+                if not target_row:
+                    execute(conn, '''INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at)
+                        VALUES (%s,%s,NOW())''', (target_phone, forward_to))
+                    conn.commit()
+                    target_row = fetchone(conn, '''SELECT * FROM sms_conversations
+                        WHERE customer_phone=%s ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
+                msg_body = rest.strip()
+            # Anything else after "@" (not 4 digits, not 10+) isn't a
+            # recognizable code — treat the whole thing as a plain reply
+            # below rather than guessing, so a typo never silently misfires
+            # to the wrong person.
+
+        if used_explicit_code and not target_row:
+            # A code was given but nothing matched it — do NOT fall back to
+            # "most recent conversation," since that's how a mistyped number
+            # ends up texting the wrong person. Tell the on-call person instead.
+            conn.close()
+            try:
+                from twilio.rest import Client as _TwClient
+                client = _TwClient(ts['account_sid'], ts['auth_token'])
+                client.messages.create(
+                    body="RoleCall: No matching conversation found for that number/code. Double-check it and try again, or just reply with no @code to use your most recent conversation.",
+                    from_=ts['from_phone'], to=from_num)
+            except Exception as e:
+                app.logger.warning(f'Failed to send "no match" notice to on-call: {e}')
+            twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+            return twiml, 200, {'Content-Type': 'text/xml'}
+
+        if not used_explicit_code:
             target_row = fetchone(conn, '''SELECT * FROM sms_conversations
                 WHERE last_message_at > NOW() - INTERVAL '4 hours'
                 ORDER BY last_message_at DESC LIMIT 1''')
@@ -24063,11 +30275,105 @@ def twilio_sms():
 
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f'↩️ *On-Call Reply Sent*\n*To:* `{fmt_phone(customer_phone)}`\n*Time:* {now_str}\n*Message:* {msg_body}'}}
+                f' *On-Call Reply Sent*\n*To:* `{fmt_phone(customer_phone)}`\n*Time:* {now_str}\n*Message:* {msg_body}'}}
         ], text=f'On-call reply sent to {fmt_phone(customer_phone)}: {msg_body[:100]}')
 
         twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
         return twiml, 200, {'Content-Type': 'text/xml'}
+
+    # --- Call-out reply relay: a crew member replying to a "so-and-so called
+    # out" text, or the guardian replying back to them, on a thread created
+    # in submit_portal_production_conflict(). Checked before the generic
+    # customer fallback since these numbers wouldn't otherwise mean anything.
+    #
+    # Everything from the HWTC number lands in ONE phone thread on the
+    # recipient's end, so if more than one call-out is active at once, a
+    # bare reply is ambiguous. Same fix as the on-call system: default to
+    # the most recently active thread, but let "@Emma message" target a
+    # specific one by the kid's first name. ---
+    conn = get_db()
+    from_last10 = _phone_last10(from_num)
+    RELAY_LOOKBACK = "INTERVAL '7 days'"
+
+    def resolve_callout_thread(where_clause, params, raw_body):
+        """Parse an optional '@name message' prefix and find the matching
+        thread; falls back to the most recent one if there's no prefix or
+        no match. Returns (thread_or_None, message_text_with_prefix_stripped)."""
+        msg = raw_body
+        if raw_body.startswith('@') and ' ' in raw_body:
+            code, rest = raw_body[1:].split(' ', 1)
+            code = code.strip()
+            if code:
+                named = fetchone(conn, f'''SELECT * FROM callout_relay_threads
+                    WHERE {where_clause} AND youth_name ILIKE %s
+                    AND last_message_at > NOW() - {RELAY_LOOKBACK}
+                    ORDER BY last_message_at DESC LIMIT 1''', params + (f'%{code}%',))
+                if named:
+                    return named, rest.strip()
+        fallback = fetchone(conn, f'''SELECT * FROM callout_relay_threads
+            WHERE {where_clause}
+            AND last_message_at > NOW() - {RELAY_LOOKBACK}
+            ORDER BY last_message_at DESC LIMIT 1''', params)
+        return fallback, msg
+
+    # Is this the guardian replying? Route to whichever crew member most recently engaged.
+    thread, msg_body = resolve_callout_thread(
+        "RIGHT(REGEXP_REPLACE(guardian_phone,'[^0-9]','','g'),10)=%s", (from_last10,), body)
+    if thread and thread.get('active_crew_phone'):
+        target_phone = thread['active_crew_phone']
+        try:
+            from twilio.rest import Client as _TwClient
+            client = _TwClient(ts['account_sid'], ts['auth_token'])
+            client.messages.create(body=f"[{thread.get('youth_name') or 'Parent'}'s guardian] {msg_body}",
+                from_=ts['from_phone'], to=target_phone)
+            execute(conn, 'UPDATE callout_relay_threads SET last_message_at=NOW() WHERE id=%s', (thread['id'],))
+            conn.commit()
+        except Exception as e:
+            app.logger.warning(f'Call-out relay (guardian→crew) failed: {e}')
+        conn.close()
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f" *Call-out reply* — {thread.get('guardian_name') or 'Guardian'} replied about {thread.get('youth_name')}\n*Message:* {msg_body}"}}
+        ], text=f"Call-out reply from {thread.get('guardian_name') or 'guardian'}: {msg_body[:100]}")
+        twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+        return twiml, 200, {'Content-Type': 'text/xml'}
+
+    # Is this one of the crew members who was alerted? Route to the guardian —
+    # or, if there's no guardian phone on file, tell them directly instead of
+    # letting it fall through to the generic "thanks for texting us" reply.
+    thread, msg_body = resolve_callout_thread(
+        "(crew_alert_phones::text LIKE %s OR RIGHT(REGEXP_REPLACE(active_crew_phone,'[^0-9]','','g'),10)=%s)",
+        (f'%{from_last10}%', from_last10), body)
+    if thread and not thread.get('guardian_phone'):
+        execute(conn, 'UPDATE callout_relay_threads SET last_message_at=NOW(), active_crew_phone=%s WHERE id=%s',
+            (from_num, thread['id']))
+        conn.commit(); conn.close()
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f" *Call-out reply couldn't be relayed* — no parent phone on file for {thread.get('youth_name')}\n*Message:* {msg_body}"}}
+        ], text=f"Call-out reply undeliverable (no parent phone) re: {thread.get('youth_name')}: {msg_body[:100]}")
+        twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response><Message>There's no phone number on file for {thread.get('youth_name')}'s parent, so this can't be relayed automatically. Please reach out another way — this has been logged for staff.</Message></Response>'''
+        return twiml, 200, {'Content-Type': 'text/xml'}
+    if thread:
+        try:
+            from twilio.rest import Client as _TwClient
+            client = _TwClient(ts['account_sid'], ts['auth_token'])
+            client.messages.create(body=f"[Re: {thread.get('youth_name')} call-out] {msg_body}",
+                from_=ts['from_phone'], to=thread['guardian_phone'])
+            execute(conn, '''UPDATE callout_relay_threads SET last_message_at=NOW(), active_crew_phone=%s
+                WHERE id=%s''', (from_num, thread['id']))
+            conn.commit()
+        except Exception as e:
+            app.logger.warning(f'Call-out relay (crew→guardian) failed: {e}')
+        conn.close()
+        post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f" *Call-out reply sent* — re: {thread.get('youth_name')} to {thread.get('guardian_name') or 'guardian'}\n*Message:* {msg_body}"}}
+        ], text=f"Call-out reply to {thread.get('guardian_name') or 'guardian'}: {msg_body[:100]}")
+        twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
+        return twiml, 200, {'Content-Type': 'text/xml'}
+    conn.close()
 
     # --- New/continuing customer message ---
     contact_name = lookup_contact_name_by_phone(from_num)
@@ -24096,7 +30402,7 @@ def twilio_sms():
     # Post to Slack
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'💬 *Inbound Text Message*\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
+            f' *Inbound Text Message*\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
     ], text=f'Text from {sender_label}: {body[:100]}')
     # Auto-reply to sender
     auto_reply = "Thanks for texting Horizon West Theater Company! Someone from our team will get back to you shortly."
@@ -24162,6 +30468,155 @@ def delete_oncall(oid):
     conn = get_db()
     execute(conn, 'DELETE FROM on_call_schedule WHERE id=%s', (oid,))
     conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+#  ON-CALL SIGNUP — public claim requests for "Open" shifts
+# ─────────────────────────────────────────────
+
+def get_oncall_managers_emails(conn):
+    """Everyone who should hear about a new on-call signup request: admins
+    plus anyone explicitly granted edit/view on the 'oncall' section.
+    Mirrors the youth-notification lookup pattern used elsewhere."""
+    rows = fetchall(conn, """SELECT email FROM users
+        WHERE email IS NOT NULL AND email != ''
+          AND (role='admin' OR role_permissions::text LIKE '%"oncall"%')""") or []
+    return [r['email'] for r in rows if r.get('email')]
+
+@app.route('/on-call-signup')
+def oncall_signup_page():
+    return send_from_directory('static', 'oncall-signup.html')
+
+@app.route('/api/public/oncall/board-members')
+def public_oncall_board_members():
+    """Active board roster for the signup picker. Only a has_phone flag is
+    exposed for each member — never the actual number — so the page can
+    decide whether to ask for one; the real lookup happens server-side at
+    submit time from the board member's linked volunteer record."""
+    conn = get_db()
+    rows = fetchall(conn, """SELECT b.id, b.name,
+        (v.phone IS NOT NULL AND v.phone != '') as has_phone
+        FROM board_members b
+        LEFT JOIN volunteers v ON v.id = b.volunteer_id
+        WHERE b.status='active' ORDER BY b.name""") or []
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/public/oncall/open-shifts')
+def public_oncall_open_shifts():
+    """Upcoming shifts staff have left unassigned (blank person_name),
+    for the public signup page. Each shift also reports whether it
+    already has a pending request, so the page can show 'Requested'
+    instead of a Sign Up button without exposing who requested it."""
+    conn = get_db()
+    today_str = today_eastern().isoformat()
+    shifts = fetchall(conn, """SELECT id, start_date, end_date, start_time, end_time, days_of_week, notes
+        FROM on_call_schedule
+        WHERE person_name = '' AND end_date >= %s
+        ORDER BY start_date ASC""", (today_str,)) or []
+    pending = fetchall(conn, "SELECT DISTINCT shift_id FROM oncall_signup_requests WHERE status='pending'") or []
+    pending_ids = {p['shift_id'] for p in pending}
+    conn.close()
+    for s in shifts:
+        s['has_pending_request'] = s['id'] in pending_ids
+    return jsonify(shifts)
+
+@app.route('/api/public/oncall/signup', methods=['POST'])
+def public_oncall_signup():
+    d = request.get_json(silent=True) or {}
+    shift_id = d.get('shift_id')
+    board_member_id = d.get('board_member_id')
+    phone_input = (d.get('phone') or '').strip()
+    notes = (d.get('notes') or '').strip()
+    if not shift_id or not board_member_id:
+        return jsonify({'error': 'Please select your name and a shift'}), 400
+    conn = get_db()
+    shift = fetchone(conn, 'SELECT * FROM on_call_schedule WHERE id=%s', (shift_id,))
+    if not shift:
+        conn.close(); return jsonify({'error': 'That shift no longer exists'}), 404
+    if (shift.get('person_name') or '').strip():
+        conn.close(); return jsonify({'error': 'That shift has already been claimed'}), 400
+    # Name, email, and (when on file) phone come from the board roster and
+    # its linked volunteer record — not client-supplied text. The picker
+    # only lets someone select an existing active member in the first place.
+    board_member = fetchone(conn, """SELECT b.id, b.name, b.email, v.phone as volunteer_phone
+        FROM board_members b
+        LEFT JOIN volunteers v ON v.id = b.volunteer_id
+        WHERE b.id=%s AND b.status='active'""", (board_member_id,))
+    if not board_member:
+        conn.close(); return jsonify({'error': 'That board member could not be found'}), 400
+    name = board_member['name']
+    email = board_member.get('email') or ''
+    phone = (board_member.get('volunteer_phone') or '').strip() or phone_input
+    if not phone:
+        conn.close(); return jsonify({'error': "We don't have a phone number on file for you — please enter one"}), 400
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO oncall_signup_requests (id, shift_id, board_member_id, name, phone, email, notes, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,'pending')''', (rid, shift_id, board_member_id, name, phone, email, notes))
+    conn.commit()
+    try:
+        managers = get_oncall_managers_emails(conn)
+        if managers:
+            date_str = str(shift.get('start_date'))
+            end_str = str(shift.get('end_date'))
+            html_body = f'''<div style="font-family:-apple-system,sans-serif;max-width:560px">
+                <h2 style="color:#145466">On-Call Week Signup Request</h2>
+                <table style="width:100%;border-collapse:collapse;font-size:14px">
+                  <tr><td style="padding:8px;font-weight:600;color:#666;width:140px">Board Member</td><td style="padding:8px">{name}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Phone</td><td style="padding:8px">{phone}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Email</td><td style="padding:8px">{email or '-'}</td></tr>
+                  <tr style="background:#f9f9f9"><td style="padding:8px;font-weight:600;color:#666">Week</td><td style="padding:8px">{date_str} &ndash; {end_str}</td></tr>
+                  <tr><td style="padding:8px;font-weight:600;color:#666">Notes</td><td style="padding:8px">{notes or '-'}</td></tr>
+                </table>
+                <p style="margin-top:16px"><a href="{APP_BASE_URL}/#oncall" style="color:#145466;font-weight:700">Review in RoleCall</a></p>
+            </div>'''
+            send_email(managers, f'On-Call Signup Request — {name}', build_hwtc_email_html(f'On-Call Signup Request — {name}', html_body))
+    except Exception as e:
+        app.logger.warning(f'oncall signup notify failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'id': rid})
+
+@app.route('/api/oncall/signups')
+def get_oncall_signups():
+    err = require_permission('oncall', level='view')
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT r.*, s.start_date, s.end_date, s.start_time, s.end_time
+        FROM oncall_signup_requests r JOIN on_call_schedule s ON s.id = r.shift_id
+        ORDER BY (r.status='pending') DESC, r.created_at DESC''')
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/api/oncall/signups/<rid>/approve', methods=['POST'])
+def approve_oncall_signup(rid):
+    err = require_permission('oncall')
+    if err: return err
+    conn = get_db()
+    req = fetchone(conn, 'SELECT * FROM oncall_signup_requests WHERE id=%s', (rid,))
+    if not req: conn.close(); return jsonify({'error': 'Not found'}), 404
+    me = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    reviewer = (me or {}).get('name', '')
+    execute(conn, "UPDATE on_call_schedule SET person_name=%s, phone=%s WHERE id=%s",
+            (req['name'], req['phone'], req['shift_id']))
+    execute(conn, "UPDATE oncall_signup_requests SET status='approved', reviewed_by=%s, reviewed_at=NOW() WHERE id=%s",
+            (reviewer, rid))
+    # Any other pending request for the same now-claimed shift is moot.
+    execute(conn, "UPDATE oncall_signup_requests SET status='auto_declined', reviewed_by=%s, reviewed_at=NOW() WHERE shift_id=%s AND status='pending' AND id!=%s",
+            (reviewer, req['shift_id'], rid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+@app.route('/api/oncall/signups/<rid>/decline', methods=['POST'])
+def decline_oncall_signup(rid):
+    err = require_permission('oncall')
+    if err: return err
+    conn = get_db()
+    me = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
+    execute(conn, "UPDATE oncall_signup_requests SET status='declined', reviewed_by=%s, reviewed_at=NOW() WHERE id=%s",
+            ((me or {}).get('name', ''), rid))
+    conn.commit()
+    conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/twilio/callback', methods=['POST'])
@@ -24246,11 +30701,11 @@ def twilio_voicemail():
     host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'🎙 *Voicemail* — {duration}s\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}},
+            f' *Voicemail* — {duration}s\n<{host}/twilio/voicemail-play?url={play_url}| Play Recording>'}},
         {'type':'actions','elements':[
-            {'type':'button','text':{'type':'plain_text','text':'📞 Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}
+            {'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={from_num}','action_id':'callback'}
         ]}
-    ], text=f'🎙 Voicemail ({duration}s)', thread_ts=thread_ts)
+    ], text=f' Voicemail ({duration}s)', thread_ts=thread_ts)
     return '', 204
 
 @app.route('/twilio/voicemail-transcript', methods=['POST'])
@@ -24273,7 +30728,7 @@ def twilio_voicemail_transcript():
     host = 'https://rolecall.hwtco.org'
     post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f'📝 *Transcript:* {transcript}\n<{host}/twilio/voicemail-play?url={play_url}|▶ Play Recording>'}}
+            f' *Transcript:* {transcript}\n<{host}/twilio/voicemail-play?url={play_url}| Play Recording>'}}
     ], text=f'Transcript: {transcript[:100]}', thread_ts=thread_ts)
     return '', 204
 
@@ -24712,6 +31167,185 @@ def public_partnership_interest_page():
     """Public-facing artistic partnership interest form."""
     return send_from_directory('static', 'partnership-interest.html')
 
+@app.route('/audition/<slug>')
+def public_audition_page_by_slug(slug):
+    """Public-facing audition submission form, matching the same simple
+    /register/<slug> URL style already used elsewhere — no context type
+    in the URL. The page resolves the slug against productions/programs
+    itself via the by-slug settings endpoint."""
+    return send_from_directory('static', 'audition-form.html')
+
+@app.route('/audition/<context_type>/<context_id>')
+def public_audition_page(context_type, context_id):
+    """Older /audition/<type>/<id> form of the link — kept working for
+    any link already shared using it, alongside the simpler /audition/<slug>."""
+    return send_from_directory('static', 'audition-form.html')
+
+@app.route('/audition/<slug>/schedule')
+def public_audition_schedule_page_by_slug(slug):
+    """The rehearsal-schedule link, in the same simple /audition/<slug>
+    style as the submission page itself."""
+    return send_from_directory('static', 'audition-schedule.html')
+
+@app.route('/audition-schedule/<context_type>/<context_id>')
+def public_audition_schedule_page(context_type, context_id):
+    """The rehearsal-schedule link shown from the audition form — an
+    auto-generated overview of this show's actual scheduled events, not a
+    manually-typed URL, so it can never go stale."""
+    return send_from_directory('static', 'audition-schedule.html')
+
+@app.route('/tv')
+def tv_page():
+    """Short address for a lobby TV: rolecall.hwtco.org/tv. Shows the main
+    lobby display by default; on days with auditions or a Rising Stars
+    rehearsal it asks which display this TV should show."""
+    resp = send_from_directory('static', 'tv.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/public/tv/active')
+def public_tv_active():
+    """Displays a TV can show right now: today's auditions (slots today or
+    anyone checked in today), the pick-up queue on Rising Stars days, and
+    the main lobby display (always last)."""
+    today = today_eastern().isoformat()
+    conn = get_db()
+    try:
+        rows = fetchall(conn, """SELECT DISTINCT context_type, context_id FROM (
+                SELECT context_type, context_id FROM audition_slots
+                  WHERE slot_date=%s AND COALESCE(status,'open') != 'cancelled'
+                UNION
+                SELECT context_type, context_id FROM audition_checkins
+                  WHERE checkin_date=%s::date
+            ) t""", (today, today)) or []
+        out = []
+        for r in rows:
+            rid, name, logo, slug = _resolve_audition_context(conn, r['context_type'], r['context_id'])
+            if not rid:
+                continue
+            url = ('/audition/' + slug + '/queue') if slug else ('/audition-queue/' + r['context_type'] + '/' + rid)
+            out.append({'key': r['context_type'] + ':' + rid, 'name': (name or 'Auditions') + ' Auditions',
+                        'url': url, 'kind': 'audition'})
+        out.sort(key=lambda x: x['name'])
+
+        # Pick-up queue, offered on days with a Rising Stars rehearsal/event
+        rs = fetchall(conn, """SELECT DISTINCT p.name FROM events e
+            JOIN productions p ON p.id=e.production_id
+            WHERE e.event_date=%s AND p.stage='rising_stars'
+              AND COALESCE(e.status,'') != 'cancelled'""", (today,)) or []
+        if rs:
+            out.append({'key': 'pickup', 'name': 'Pick-Up Queue',
+                        'detail': ', '.join(r['name'] for r in rs if r.get('name')),
+                        'url': '/pickup', 'kind': 'pickup'})
+
+        # The main lobby display is always an option (and the default)
+        out.append({'key': 'lobby', 'name': 'Main Lobby Display', 'url': '/lobby', 'kind': 'lobby'})
+    finally:
+        conn.close()
+    resp = jsonify(out)
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/audition/<slug>/queue')
+def public_audition_queue_page_by_slug(slug):
+    """The lobby-screen check-in queue display, same simple /audition/<slug>
+    style as the submission page itself. Meant to be left open on a TV or
+    tablet at the venue, not visited by auditionees on their own phones."""
+    return send_from_directory('static', 'audition-queue.html')
+
+@app.route('/audition-queue/<context_type>/<context_id>')
+def public_audition_queue_page(context_type, context_id):
+    """Older /audition-queue/<type>/<id> form of the link, for consistency
+    with the other audition pages that support both URL shapes."""
+    return send_from_directory('static', 'audition-queue.html')
+
+@app.route('/audition/<slug>/room-control')
+def audition_room_control_page_by_slug(slug):
+    """The in-room kiosk for whoever's running the room (not the front-desk
+    check-in tab, and not the passive lobby display) — shows full detail on
+    whoever's up and lets them call the next person themselves. Calls the
+    same staff-authed endpoints the admin tab uses, so it relies on the
+    browser already having a logged-in RoleCall session; the page itself
+    checks for that and prompts to log in if not."""
+    return send_from_directory('static', 'audition-room-control.html')
+
+@app.route('/audition-room-control/<context_type>/<context_id>')
+def audition_room_control_page(context_type, context_id):
+    return send_from_directory('static', 'audition-room-control.html')
+
+@app.route('/audition/<slug>/checkin')
+def audition_checkin_kiosk_page_by_slug(slug):
+    """A focused, touch-friendly check-in station — big search box, big
+    walk-in button, big result buttons — meant for a tablet or laptop at the
+    front desk, without the full RoleCall sidebar/nav around it. Separate
+    from the admin Check-In tab (still there for anyone who'd rather work
+    from the main app) and from room-control (that one runs the queue;
+    this one only gets people checked in). Same staff-login gate as
+    room-control."""
+    return send_from_directory('static', 'audition-checkin-kiosk.html')
+
+@app.route('/audition-checkin/<context_type>/<context_id>')
+def audition_checkin_kiosk_page(context_type, context_id):
+    return send_from_directory('static', 'audition-checkin-kiosk.html')
+
+@app.route('/studio-after-dark')
+@app.route('/studio-after-dark/enter')
+def sad_entry_page():
+    """The public lottery entry form — restricted in practice to existing
+    volunteers, since entering requires an email that matches an active
+    row in the volunteers table (checked server-side, not just client
+    trust)."""
+    return send_from_directory('static', 'studio-after-dark-entry.html')
+
+@app.route('/studio-after-dark/confirm/<token>')
+def sad_confirm_page(token):
+    return send_from_directory('static', 'studio-after-dark-confirm.html')
+
+@app.route('/studio-after-dark/scanner')
+def sad_scanner_page():
+    """Staff-only door scanner — same logged-in-RoleCall gate as the
+    audition room-control/check-in kiosk pages."""
+    return send_from_directory('static', 'studio-after-dark-scanner.html')
+
+@app.route('/studio-after-dark/performer-picker')
+def sad_performer_picker_page():
+    """Staff-only live random performer draw, run during the event itself."""
+    return send_from_directory('static', 'studio-after-dark-performer-picker.html')
+
+@app.route('/api/public/audition-settings-by-slug/<slug>')
+def get_audition_settings_by_slug(slug):
+    conn = get_db()
+    context_type, context_id, ctx_name, ctx_logo, ctx_slug = _resolve_audition_context_by_slug(conn, slug)
+    conn.close()
+    if not context_type:
+        return jsonify({'error': 'Not found'}), 404
+    return get_audition_settings(context_type, context_id)
+
+@app.route('/api/public/audition-schedule-by-slug/<slug>')
+def public_audition_schedule_data_by_slug(slug):
+    conn = get_db()
+    context_type, context_id, ctx_name, ctx_logo, ctx_slug = _resolve_audition_context_by_slug(conn, slug)
+    conn.close()
+    if not context_type:
+        return jsonify({'error': 'Not found'}), 404
+    return public_audition_schedule_data(context_type, context_id)
+
+@app.route('/api/public/audition-schedule/<context_type>/<context_id>')
+def public_audition_schedule_data(context_type, context_id):
+    conn = get_db()
+    resolved_id, ctx_name, ctx_logo, ctx_slug = _resolve_audition_context(conn, context_type, context_id)
+    if not resolved_id:
+        conn.close()
+        return jsonify({'error': 'Not found'}), 404
+    field = 'production_id' if context_type == 'production' else 'program_id'
+    events = fetchall(conn, f'''SELECT e.name, e.event_date, e.start_time, e.end_time, e.location, e.description
+        FROM events e WHERE e.{field}=%s AND e.event_date >= %s
+        ORDER BY e.event_date ASC, e.start_time ASC NULLS LAST''', (resolved_id, today_eastern().isoformat())) or []
+    conn.close()
+    return jsonify({'context_name': ctx_name, 'events': events})
+
 @app.route('/api/public/partnership-interest-info')
 def public_partnership_interest_info():
     conn = get_db()
@@ -24814,7 +31448,7 @@ def public_partnership_interest_submit():
                 f'Please log in to RoleCall → Artistic Partnership to review and follow up.')
         for email_addr in approver_emails:
             try:
-                send_email(email_addr, subject, body)
+                send_email(email_addr, subject, build_hwtc_email_html(subject, body))
             except Exception as email_err:
                 app.logger.warning(f'Partnership interest notify to {email_addr} failed: {email_err}')
     except Exception as e:
@@ -24846,6 +31480,8 @@ def get_rental_requests():
     try:
         requests_data = fetchall(conn, '''SELECT rr.*, rp.name AS partner_name,
             rp.contact_email AS partner_email, rp.contact_name AS partner_contact,
+            rp.contact_phone AS partner_phone, rp.organization_type AS partner_org_type,
+            rp.organization_website AS partner_website,
             rs.name AS space_name,
             ra.id AS agreement_id, ra.status AS agreement_status,
             ra.partner_signed_at, ra.partner_signed_name, ra.signing_token,
@@ -24948,7 +31584,7 @@ def create_rental_request():
         body = f'A new Artistic Partnership request has been submitted and requires approval.<br><br><strong>Title:</strong> {d.get("title","")}<br><strong>Start:</strong> {d.get("start_date","")}<br><strong>Purpose:</strong> {d.get("purpose","")}<br><br>Please log in to RoleCall → Artistic Partnership to review and approve.'
         for email_addr in approver_emails:
             try:
-                send_email(email_addr, subject, body)
+                send_email(email_addr, subject, build_hwtc_email_html(subject, body))
             except Exception as email_err:
                 app.logger.warning(f'Rental approver email to {email_addr} failed: {email_err}')
         if not approver_emails:
@@ -25122,8 +31758,30 @@ def _backfill_rental_calendar_events():
     except Exception as e:
         app.logger.warning(f'Rental event backfill failed: {e}')
 
+def _backfill_session_registration_events():
+    """One-time (but safely repeatable) backfill: give every already-confirmed
+    registration with sessions a real event, matching what now happens
+    automatically going forward via _auto_create_events_for_registration
+    (called from finalize_registration). Skips anything that already has a
+    linked event, so re-running this on every deploy is cheap and self-healing."""
+    try:
+        conn = get_db()
+        regs = fetchall(conn, """SELECT * FROM program_registrations
+            WHERE status='confirmed' AND session_ids IS NOT NULL
+            AND session_ids != '[]' AND session_ids != ''""") or []
+        for reg in regs:
+            try:
+                prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg.get('program_id'),)) if reg.get('program_id') else None
+                _auto_create_events_for_registration(conn, reg, prog)
+            except Exception as e:
+                app.logger.warning(f'Session registration event backfill error for {reg.get("id")}: {e}')
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'Session registration event backfill failed: {e}')
+
 _dedupe_rental_events()
 _backfill_rental_calendar_events()
+_backfill_session_registration_events()
 _fix_rental_event_locations()
 
 def _generate_rental_occurrences(conn, request_id, d):
@@ -25540,7 +32198,8 @@ def approve_rental_request(rid):
             try:
                 send_email(em,
                     f'Artistic Partnership Request Needs Your Approval (Level {next_level+1}): {req.get("title","")}',
-                    f'{approver_name} has approved this request at Level {next_level}.<br><br>Title: {req.get("title","")}<br><br>Please log in to RoleCall to review and approve at Level {next_level+1}: {next_level_config.get("label","")}.')
+                    build_hwtc_email_html(f'Artistic Partnership Request Needs Your Approval (Level {next_level+1}): {req.get("title","")}',
+                    f'<p>{approver_name} has approved this request at Level {next_level}.</p><p>Title: {req.get("title","")}</p><p>Please log in to RoleCall to review and approve at Level {next_level+1}: {next_level_config.get("label","")}.</p>'))
             except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'fully_approved': fully_approved, 'level': next_level})
@@ -25584,7 +32243,8 @@ def deny_rental_request(rid):
         try:
             send_email(partner['contact_email'],
                 f'Artistic Partnership Request Update: {req.get("title","")}',
-                f'Dear {partner.get("contact_name") or partner.get("pname","")},<br><br>We regret to inform you that your Artistic Partnership request "{req.get("title","")}" has not been approved at this time.<br><br>{("Reason: "+reason) if reason else ""}<br><br>Please contact us if you have questions.<br><br>Horizon West Theater Company')
+                build_hwtc_email_html(f'Artistic Partnership Request Update: {req.get("title","")}',
+                f'<p>Dear {partner.get("contact_name") or partner.get("pname","")},</p><p>We regret to inform you that your Artistic Partnership request "{req.get("title","")}" has not been approved at this time.</p><p>{("Reason: "+reason) if reason else ""}</p><p>Please contact us if you have questions.</p>'))
         except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -26376,7 +33036,7 @@ h2{{font-size:20px;border-bottom:2px solid #145466;padding-bottom:8px}}
 h3{{font-size:15px;color:#145466}}p{{margin:0 0 12px}}em{{color:#145466}}</style></head>
 <body>
 <div style="text-align:center;margin-bottom:24px">
-<img src="https://raw.githubusercontent.com/hwtcRaja/rolecall/main/static/images/hwtc_logo_teal.png" style="height:56px" alt="HWTC"/>
+<img src="https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png" style="height:56px" alt="HWTC"/>
 <div style="font-size:15px;font-weight:700;color:#0d3d4d;margin-top:8px">Horizon West Theater Company</div>
 <div style="font-size:12px;color:#6b7280;margin-top:2px">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden, FL 34787</div>
 <div style="font-size:12px;color:#6b7280">hwtco.org</div>
@@ -26455,7 +33115,7 @@ def rental_contract_internal_preview(aid):
 .banner{{background:#fef3c7;color:#92400e;padding:10px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-weight:700;text-align:center}}</style></head>
 <body>
 <div class="contract-wrap">
-<div class="banner">🔒 Internal Preview Only — not the signing link, and not sent to the partner</div>
+<div class="banner"> Internal Preview Only — not the signing link, and not sent to the partner</div>
 {signed_note}
 {contract}
 </div>
@@ -26490,7 +33150,7 @@ If you have any questions, please contact us.
 
 Horizon West Theater Company'''
         try:
-            send_email(email_to, subject, body)
+            send_email(email_to, subject, build_hwtc_email_html(subject, body))
             execute(conn, "UPDATE rental_agreements SET status='sent', sent_at=NOW() WHERE id=%s", (aid,))
             conn.commit()
         except Exception as e:
@@ -26762,9 +33422,9 @@ def submit_rental_signature(token):
         if partner_email:
             send_email(partner_email,
                 f'Your Signed Agreement: {title}',
-                f'Hi {name},<br><br>Thanks for signing! Attached is a signed copy of your Artistic Partnership and '
-                f'Studio Use Agreement for "{title}" for your records.<br><br>We look forward to working with you.<br><br>'
-                f'Horizon West Theater Company',
+                build_hwtc_email_html(f'Your Signed Agreement: {title}',
+                f'<p>Hi {name},</p><p>Thanks for signing! Attached is a signed copy of your Artistic Partnership and '
+                f'Studio Use Agreement for "{title}" for your records.</p><p>We look forward to working with you.</p>'),
                 attachments=attachments)
         else:
             app.logger.warning(f'Signed agreement for request {agr.get("request_id")} — no partner email on file, PDF not sent to partner')
@@ -26773,8 +33433,9 @@ def submit_rental_signature(token):
         for admin in (admins or []):
             send_email(admin['email'],
                 f'Agreement Signed: {title}',
-                f'{name} has signed the Artistic Partnership and Studio Use Agreement for {title}.<br><br>'
-                f'A signed PDF copy is attached. You can also view it anytime in RoleCall.',
+                build_hwtc_email_html(f'Agreement Signed: {title}',
+                f'<p>{name} has signed the Artistic Partnership and Studio Use Agreement for {title}.</p>'
+                f'<p>A signed PDF copy is attached. You can also view it anytime in RoleCall.</p>'),
                 attachments=attachments)
     except Exception as e:
         app.logger.warning(f'Signed agreement PDF/email error: {e}')
@@ -26998,11 +33659,11 @@ def create_rental_payment_plan(aid):
             if req and req.get('partner_email'):
                 try:
                     send_email(req['partner_email'], f'Payment Plan — {req.get("title","")}',
-                        f'Hi {req.get("partner_contact") or req.get("partner_name") or ""},<br><br>'
-                        f'Here is the payment schedule for <strong>{req.get("title","")}</strong>: {len(created_ids)} installment(s). '
-                        f'Each will be invoiced separately by Square, automatically emailed to you about a week before its due date.<br><br>'
-                        f'<a href="{payment_plan_url}">View the full Payment Plan</a><br><br>'
-                        f'Horizon West Theater Company')
+                        build_hwtc_email_html(f'Payment Plan — {req.get("title","")}',
+                        f'<p>Hi {req.get("partner_contact") or req.get("partner_name") or ""},</p>'
+                        f'<p>Here is the payment schedule for <strong>{req.get("title","")}</strong>: {len(created_ids)} installment(s). '
+                        f'Each will be invoiced separately by Square, automatically emailed to you about a week before its due date.</p>'
+                        f'<p><a href="{payment_plan_url}">View the full Payment Plan</a></p>'))
                 except Exception as e:
                     app.logger.warning(f'Payment plan email to partner failed: {e}')
     conn.close()
@@ -27170,12 +33831,12 @@ def rental_payment_plan_page(token):
             scheduled = not p.get('sent_at')
             label = p.get('installment_label') or ('Deposit' if p.get('payment_type') == 'deposit' else 'Final Payment' if p.get('payment_type') == 'final' else p.get('payment_type'))
             if paid:
-                status_html = '<span style="color:#166534;font-weight:700">✅ Paid</span>'
+                status_html = '<span style="color:#166534;font-weight:700"> Paid</span>'
             elif scheduled:
-                status_html = '<span style="color:#6b7280;font-weight:700">📅 Scheduled</span>'
+                status_html = '<span style="color:#6b7280;font-weight:700"> Scheduled</span>'
             else:
-                status_html = '<span style="color:#92400e;font-weight:700">⏳ Due</span>'
-            link_html = f'<a href="{p.get("public_url")}" style="color:#145466;font-weight:600">Pay / View Invoice ↗</a>' if p.get('public_url') and not paid else ''
+                status_html = '<span style="color:#92400e;font-weight:700"> Due</span>'
+            link_html = f'<a href="{p.get("public_url")}" style="color:#145466;font-weight:600">Pay / View Invoice </a>' if p.get('public_url') and not paid else ''
             rows.append(f'''<tr>
                 <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">{label}</td>
                 <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb">${(p.get("amount_cents") or 0)/100:.2f}</td>
@@ -27274,9 +33935,31 @@ def _apply_rental_invoice_update(conn, payment, invoice):
                 admins = fetchall(conn, "SELECT email FROM users WHERE role='admin' AND email IS NOT NULL") or []
                 for admin in admins:
                     send_email(admin['email'], f'{label} Paid: {(req or {}).get("title","")}',
-                        f'The payment &ldquo;{label}&rdquo; for <strong>{(req or {}).get("title","")}</strong> has been paid.<br><br>{progress_note}')
+                        build_hwtc_email_html(f'{label} Paid: {(req or {}).get("title","")}',
+                        f'<p>The payment &ldquo;{label}&rdquo; for <strong>{(req or {}).get("title","")}</strong> has been paid.</p><p>{progress_note}</p>'))
             except Exception as e:
                 app.logger.warning(f'Rental payment-paid notify error: {e}')
+
+@app.route('/api/rental/payments/<pid>/mark-paid', methods=['POST'])
+def mark_rental_payment_paid(pid):
+    """Manual override for when a payment came in outside Square — check,
+    cash, Venmo, etc. — or an invoice was never sent through Square at all.
+    Reuses the exact same paid-transition side effects as the Square-driven
+    path (agreement flips to Active on first payment, staff get the same
+    notification email) by feeding it a synthetic PAID status."""
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    payment = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (pid,))
+    if not payment:
+        conn.close(); return jsonify({'error': 'Payment not found'}), 404
+    if payment.get('square_invoice_status') == 'PAID':
+        conn.close(); return jsonify({'error': 'This invoice is already marked paid'}), 400
+    _apply_rental_invoice_update(conn, payment, {'status': 'PAID'})
+    conn.commit()
+    updated = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (pid,))
+    conn.close()
+    return jsonify(updated)
 
 @app.route('/api/rental/occurrences/<request_id>', methods=['GET'])
 def get_rental_occurrences(request_id):
@@ -27339,6 +34022,277 @@ def check_rental_availability():
         results.append({'date': date, 'conflicts': conflicts})
     conn.close()
     return jsonify({'space_name': space['name'] if space else '', 'results': results})
+
+
+# ── Space/Date Requests — internal staff version of the rental-request ──
+# ── flow above: any logged-in staff member can request a space, check ──
+# ── it against the calendar, and submit for the facilities manager.   ──
+def _space_request_dates(d):
+    """Given a request payload, compute the actual list of individual
+    dates — either the explicit specific_dates, or every matching weekday
+    between start_date and end_date for a recurring schedule."""
+    if not d.get('recurring'):
+        return d.get('specific_dates') or ([d.get('start_date')] if d.get('start_date') else [])
+    start = d.get('start_date')
+    end = d.get('end_date') or start
+    days = set(d.get('meeting_days') or [])  # 'Mon','Tue', etc.
+    if not start or not end or not days:
+        return []
+    wd_map = {'Mon':0,'Tue':1,'Wed':2,'Thu':3,'Fri':4,'Sat':5,'Sun':6}
+    wanted = {wd_map[x] for x in days if x in wd_map}
+    out = []
+    cur = date.fromisoformat(start)
+    last = date.fromisoformat(end)
+    while cur <= last:
+        if cur.weekday() in wanted:
+            out.append(cur.isoformat())
+        cur += timedelta(days=1)
+    return out
+
+
+@app.route('/api/space-requests/spaces', methods=['GET'])
+def list_spaces_for_request():
+    """Open to any logged-in staff member (unlike /api/rental/spaces,
+    which is gated to the rentals permission) — picking a space to
+    request shouldn't require rental-admin access."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    spaces = fetchall(conn, 'SELECT id, name, description, capacity FROM rental_spaces WHERE active=TRUE ORDER BY sort_order, name') or []
+    conn.close()
+    return jsonify(spaces)
+
+
+@app.route('/api/space-requests/check-availability', methods=['POST'])
+def check_space_request_availability():
+    """Same idea as /api/rental/check-availability, but open to any staff
+    member and also checks other pending/approved space requests, not
+    just external rentals — a purely-preview check, nothing is written."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    space_id = d.get('space_id')
+    exclude_request_id = d.get('exclude_request_id')
+    dates = _space_request_dates(d)
+    stime = (d.get('start_time') or '').strip()
+    etime = (d.get('end_time') or '').strip()
+    conn = get_db()
+    space = fetchone(conn, 'SELECT * FROM rental_spaces WHERE id=%s', (space_id,)) if space_id else None
+    results = []
+    for date_str in dates:
+        conflicts = []
+        if date_str and space_id:
+            rental_rows = fetchall(conn, '''SELECT ro.start_time, ro.end_time, rr.title
+                FROM rental_occurrences ro JOIN rental_requests rr ON rr.id=ro.request_id
+                WHERE rr.space_id=%s AND ro.occurrence_date=%s AND ro.status != 'cancelled' ''',
+                (space_id, date_str)) or []
+            for r in rental_rows:
+                if _rc_times_overlap(stime, etime, r.get('start_time',''), r.get('end_time','')):
+                    conflicts.append({'type': 'rental', 'title': r.get('title',''),
+                        'start_time': r.get('start_time',''), 'end_time': r.get('end_time','')})
+            other_rows = fetchall(conn, '''SELECT sr.title, sr.start_time, sr.end_time, sr.specific_dates, sr.recurring,
+                    sr.start_date, sr.end_date, sr.meeting_days
+                FROM space_requests sr WHERE sr.space_id=%s AND sr.status IN ('pending','approved')
+                    AND (sr.id != %s OR %s IS NULL)''',
+                (space_id, exclude_request_id, exclude_request_id)) or []
+            for r in other_rows:
+                r_dates = _space_request_dates({
+                    'recurring': r.get('recurring'), 'start_date': r.get('start_date'), 'end_date': r.get('end_date'),
+                    'meeting_days': json.loads(r.get('meeting_days') or '[]'),
+                    'specific_dates': json.loads(r.get('specific_dates') or '[]') if not r.get('recurring') else None,
+                })
+                if date_str in r_dates and _rc_times_overlap(stime, etime, r.get('start_time',''), r.get('end_time','')):
+                    conflicts.append({'type': 'space_request', 'title': r.get('title',''),
+                        'start_time': r.get('start_time',''), 'end_time': r.get('end_time','')})
+            if space:
+                event_rows = fetchall(conn, '''SELECT name, start_time, end_time FROM events
+                    WHERE (LOWER(room)=LOWER(%s) OR LOWER(location)=LOWER(%s))
+                    AND %s BETWEEN event_date AND COALESCE(NULLIF(end_date,''), event_date)''',
+                    (space['name'], space['name'], date_str)) or []
+                for ev in event_rows:
+                    if _rc_times_overlap(stime, etime, ev.get('start_time',''), ev.get('end_time','')):
+                        conflicts.append({'type': 'event', 'title': ev.get('name',''),
+                            'start_time': ev.get('start_time',''), 'end_time': ev.get('end_time','')})
+        results.append({'date': date_str, 'conflicts': conflicts})
+    conn.close()
+    return jsonify({'space_name': space['name'] if space else '', 'results': results})
+
+
+@app.route('/api/space-requests', methods=['GET'])
+def list_space_requests():
+    mine_only = request.args.get('mine') == '1'
+    if mine_only:
+        # Seeing your own submitted requests is open to any logged-in
+        # staff member — submitting a request itself was never gated,
+        # so viewing what you submitted shouldn't be either.
+        err = require_auth()
+    else:
+        err = require_permission('space_requests', 'view')
+    if err: return err
+    status = request.args.get('status')
+    conn = get_db()
+    q = '''SELECT sr.*, rs.name AS space_name FROM space_requests sr
+        LEFT JOIN rental_spaces rs ON rs.id=sr.space_id'''
+    conditions = []
+    params = []
+    if mine_only:
+        conditions.append('sr.requester_user_id=%s')
+        params.append(session.get('user_id'))
+    if status:
+        conditions.append('sr.status=%s')
+        params.append(status)
+    if conditions:
+        q += ' WHERE ' + ' AND '.join(conditions)
+    q += ' ORDER BY sr.created_at DESC'
+    rows = fetchall(conn, q, tuple(params)) or []
+    conn.close()
+    for r in rows:
+        try: r['meeting_days'] = json.loads(r.get('meeting_days') or '[]')
+        except Exception: r['meeting_days'] = []
+        try: r['specific_dates'] = json.loads(r.get('specific_dates') or '[]')
+        except Exception: r['specific_dates'] = []
+    return jsonify(rows)
+
+
+@app.route('/api/space-requests', methods=['POST'])
+def create_space_request():
+    """Any logged-in staff member can submit — this is deliberately not
+    gated by the rentals permission, since requesting a space is a
+    different action from managing rentals/approving requests."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    title = (d.get('title') or '').strip()
+    if not title:
+        return jsonify({'error': 'Title is required'}), 400
+    if not d.get('space_id'):
+        return jsonify({'error': 'Please select a space'}), 400
+    conn = get_db()
+    user = fetchone(conn, 'SELECT name, email FROM users WHERE id=%s', (session.get('user_id'),)) if session.get('user_id') else None
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO space_requests
+        (id, requester_user_id, requester_name, requester_email, title, purpose, space_id,
+         is_new_program, program_type, program_price, program_min_age, program_max_age, program_instructor_id,
+         recurring, meeting_days, start_date, end_date, specific_dates, start_time, end_time)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (rid, session.get('user_id'), (user or {}).get('name',''), (user or {}).get('email',''),
+         title, (d.get('purpose') or '').strip(), d.get('space_id'),
+         bool(d.get('is_new_program', False)), d.get('program_type') or 'class',
+         int(d.get('program_price') or 0), d.get('program_min_age') or None, d.get('program_max_age') or None,
+         d.get('program_instructor_id') or None,
+         bool(d.get('recurring', False)), json.dumps(d.get('meeting_days') or []),
+         d.get('start_date') or None, d.get('end_date') or None, json.dumps(d.get('specific_dates') or []),
+         (d.get('start_time') or '').strip(), (d.get('end_time') or '').strip()))
+    conn.commit()
+    # Notify the facilities manager the same way refund/rising-stars
+    # approvals do — best-effort, doesn't block the request either way.
+    try:
+        s = get_email_settings()
+        recipients = list(get_recipient_emails(s))
+        if recipients:
+            dates_preview = _space_request_dates(d)
+            send_email(recipients, f'New Space Request: {title}',
+                build_hwtc_email_html(f'New Space Request: {title}',
+                f'<p><strong>{(user or {}).get("name","A staff member")}</strong> requested a space'
+                f'{" for a new program" if d.get("is_new_program") else ""}: <strong>{title}</strong></p>'
+                f'<p>{len(dates_preview)} date(s) requested{", " + dates_preview[0] if dates_preview else ""}'
+                f'{" through " + dates_preview[-1] if len(dates_preview)>1 else ""}.</p>'
+                f'<p>Review it in RoleCall under Artistic Partnership → Space Requests.</p>'))
+    except Exception as e:
+        app.logger.warning(f'Space request notification failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'id': rid})
+
+
+@app.route('/api/space-requests/<rid>/deny', methods=['PUT'])
+def deny_space_request(rid):
+    err = require_permission('space_requests')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    req = fetchone(conn, 'SELECT * FROM space_requests WHERE id=%s', (rid,))
+    if not req: conn.close(); return jsonify({'error': 'Not found'}), 404
+    reviewer = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),)) if session.get('user_id') else None
+    execute(conn, '''UPDATE space_requests SET status='denied', denial_reason=%s,
+        approved_by=%s, approved_at=NOW(), updated_at=NOW() WHERE id=%s''',
+        ((d.get('reason') or '').strip(), (reviewer or {}).get('name',''), rid))
+    conn.commit()
+    try:
+        if req.get('requester_email'):
+            send_email(req['requester_email'], f'Space Request Update: {req["title"]}',
+                build_hwtc_email_html(f'Space Request Update: {req["title"]}',
+                f'<p>Hi {req.get("requester_name","")},</p>'
+                f'<p>Your space request for <strong>{req["title"]}</strong> was not approved at this time.</p>'
+                 f'{"<p>" + d.get("reason","") + "</p>" if d.get("reason") else ""}'
+                f'<p>Reach out if you have questions or want to try different dates.</p>'))
+    except Exception as e:
+        app.logger.warning(f'Space request denial email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/space-requests/<rid>/approve', methods=['PUT'])
+def approve_space_request(rid):
+    """Approving creates the actual calendar events for every requested
+    date, and — if this was for a brand-new program — the program record
+    itself (in draft registration status, so staff still finish pricing/
+    registration details before it goes live) with its schedule already
+    filled in from the request."""
+    err = require_permission('space_requests')
+    if err: return err
+    conn = get_db()
+    req = fetchone(conn, 'SELECT * FROM space_requests WHERE id=%s', (rid,))
+    if not req: conn.close(); return jsonify({'error': 'Not found'}), 404
+    if req.get('status') != 'pending':
+        conn.close(); return jsonify({'error': 'This request has already been reviewed'}), 400
+    space = fetchone(conn, 'SELECT name FROM rental_spaces WHERE id=%s', (req['space_id'],)) if req.get('space_id') else None
+    reviewer = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),)) if session.get('user_id') else None
+
+    program_id = None
+    if req.get('is_new_program'):
+        program_id = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO youth_programs
+            (id, name, description, program_type, instructor_id, price, min_age, max_age,
+             start_date, end_date, program_location, schedule_type, meeting_days,
+             meeting_start_time, meeting_end_time, status, registration_status)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'active','draft')''',
+            (program_id, req['title'], req.get('purpose') or '', req.get('program_type') or 'class',
+             req.get('program_instructor_id'), req.get('program_price') or 0,
+             req.get('program_min_age'), req.get('program_max_age'),
+             req.get('start_date'), req.get('end_date'), (space or {}).get('name',''),
+             'recurring' if req.get('recurring') else 'date_range', req.get('meeting_days') or '[]',
+             req.get('start_time') or '', req.get('end_time') or ''))
+
+    dates = _space_request_dates({
+        'recurring': req.get('recurring'), 'start_date': req.get('start_date'), 'end_date': req.get('end_date'),
+        'meeting_days': json.loads(req.get('meeting_days') or '[]'),
+        'specific_dates': json.loads(req.get('specific_dates') or '[]') if not req.get('recurring') else None,
+    })
+    for d_str in dates:
+        execute(conn, '''INSERT INTO events (id, name, event_date, start_time, end_time, location, room, program_id, description)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), req['title'], d_str, req.get('start_time') or None, req.get('end_time') or None,
+             (space or {}).get('name',''), (space or {}).get('name',''), program_id, req.get('purpose') or ''))
+
+    execute(conn, '''UPDATE space_requests SET status='approved', approved_by=%s, approved_at=NOW(),
+        created_program_id=%s, updated_at=NOW() WHERE id=%s''',
+        ((reviewer or {}).get('name',''), program_id, rid))
+    conn.commit()
+    try:
+        if req.get('requester_email'):
+            send_email(req['requester_email'], f'Space Request Approved: {req["title"]}',
+                build_hwtc_email_html(f'Space Request Approved: {req["title"]}',
+                f'<p>Hi {req.get("requester_name","")},</p>'
+                f'<p>Your space request for <strong>{req["title"]}</strong> has been approved — '
+                f'{len(dates)} date(s) are now on the calendar'
+                f'{" in " + space["name"] if space else ""}.</p>'
+                + (f'<p>A draft program has also been created — finish setting up pricing and registration details in RoleCall under Programs & Classes.</p>' if program_id else '')
+                + f'<p>Reach out with any questions.</p>'))
+    except Exception as e:
+        app.logger.warning(f'Space request approval email failed: {e}')
+    conn.close()
+    return jsonify({'ok': True, 'program_id': program_id, 'events_created': len(dates)})
+
 
 # ── Artistic Partnership: customer self-service portal ──────────────────────
 # Rather than routing replies through inbound email (which needs DNS/MX
@@ -27409,7 +34363,7 @@ def send_rental_message(rid):
         f'Or copy this link: {portal_url}'
     )
     mid = str(uuid.uuid4())
-    ok, err_msg = send_email(to_email, subject, email_body, from_name=sender_name)
+    ok, err_msg = send_email(to_email, subject, build_hwtc_email_html(subject, email_body), from_name=sender_name)
     if not ok:
         conn.close()
         return jsonify({'error': err_msg or 'Failed to send'}), 500
@@ -27582,8 +34536,9 @@ def public_rental_message_submit(token):
         for addr in approver_emails:
             try:
                 send_email(addr, f'New reply on Artistic Partnership request: {req.get("title","")}',
-                    f'{req.get("partner_contact","") or req.get("partner_email","")} replied about "{req.get("title","")}".<br><br>'
-                    f'Log in to RoleCall → Artistic Partnership to view and respond.')
+                    build_hwtc_email_html(f'New reply on Artistic Partnership request: {req.get("title","")}',
+                    f'<p>{req.get("partner_contact","") or req.get("partner_email","")} replied about "{req.get("title","")}".</p>'
+                    f'<p>Log in to RoleCall → Artistic Partnership to view and respond.</p>'))
             except Exception:
                 pass
     except Exception as e:
@@ -27966,7 +34921,10 @@ This is an internal reference tool, not legal advice. If a question touches on s
 
 @app.route('/api/productions/<pid>/contracts')
 def get_production_contracts(pid):
-    err = require_permission('productions', 'view')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions', 'view')
     if err: return err
     conn = get_db()
     docs = fetchall(conn, '''SELECT id, filename, uploaded_at, LENGTH(extracted_text) AS char_count
@@ -27976,7 +34934,10 @@ def get_production_contracts(pid):
 
 @app.route('/api/productions/<pid>/contracts/upload', methods=['POST'])
 def upload_production_contract(pid):
-    err = require_permission('productions')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions')
     if err: return err
     try:
         if 'file' not in request.files: return jsonify({'error': 'No file'}), 400
@@ -28000,16 +34961,23 @@ def upload_production_contract(pid):
 
 @app.route('/api/productions/contracts/<cid>', methods=['DELETE'])
 def delete_production_contract(cid):
-    err = require_permission('productions')
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        doc = fetchone(conn, 'SELECT production_id FROM production_contracts WHERE id=%s', (cid,))
+        err = require_own_production(doc['production_id']) if doc else require_permission('productions')
+    else:
+        err = require_permission('productions')
+    if err: conn.close(); return err
     execute(conn, 'DELETE FROM production_contracts WHERE id=%s', (cid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
 @app.route('/api/productions/<pid>/contract-qa')
 def get_production_contract_qa(pid):
-    err = require_permission('productions', 'view')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions', 'view')
     if err: return err
     conn = get_db()
     rows = fetchall(conn, '''SELECT * FROM production_contract_qa WHERE production_id=%s
@@ -28019,7 +34987,10 @@ def get_production_contract_qa(pid):
 
 @app.route('/api/productions/<pid>/contract-qa', methods=['POST'])
 def create_production_contract_qa(pid):
-    err = require_permission('productions', 'view')
+    if session.get('role') == 'director':
+        err = require_own_production(pid)
+    else:
+        err = require_permission('productions', 'view')
     if err: return err
     try:
         d = request.json or {}
@@ -28041,9 +35012,13 @@ def create_production_contract_qa(pid):
 
 @app.route('/api/productions/contract-qa/<qid>', methods=['DELETE'])
 def delete_production_contract_qa(qid):
-    err = require_permission('productions')
-    if err: return err
     conn = get_db()
+    if session.get('role') == 'director':
+        qa = fetchone(conn, 'SELECT production_id FROM production_contract_qa WHERE id=%s', (qid,))
+        err = require_own_production(qa['production_id']) if qa else require_permission('productions')
+    else:
+        err = require_permission('productions')
+    if err: conn.close(); return err
     execute(conn, 'DELETE FROM production_contract_qa WHERE id=%s', (qid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
@@ -28211,12 +35186,9 @@ def upload_program_cover(pid):
         url = f'/static/images/{filename}'
     import json as _ji
     conn2 = get_db()
-    prog_full = fetchone(conn2, 'SELECT program_images FROM youth_programs WHERE id=%s', (pid,))
-    try:
-        images = _ji.loads(prog_full.get('program_images') or '[]')
-    except Exception:
-        images = []
-    images = [url] + [img for img in images if img != url]
+    # Same fix as upload_production_cover — actually replace instead of
+    # silently accumulating old covers into an unmanaged photo gallery.
+    images = [url]
     execute(conn2, 'UPDATE youth_programs SET program_images=%s WHERE id=%s', (_ji.dumps(images), pid))
     conn2.commit(); conn2.close()
     return jsonify({'ok': True, 'url': url})
@@ -28378,8 +35350,115 @@ def get_donation_status(did):
         return jsonify({'error': 'Not found'}), 404
     return jsonify(don)
 
+def finalize_donation(conn, donation_id):
+    """Marks a paid donation completed and sends a thank-you email. Takes
+    just the donation's own id -- the row already has its own correct
+    amount_cents from when it was created, so there's no need to pass in
+    anything from the webhook's payment object (and for a donation
+    riding along with a ticket purchase, the webhook's payment total is
+    the COMBINED amount anyway, not the donation's share of it)."""
+    don = fetchone(conn, 'SELECT * FROM pending_donations WHERE id=%s', (donation_id,))
+    if not don or don['status'] == 'completed':
+        return
+    execute(conn, "UPDATE pending_donations SET status='completed' WHERE id=%s", (donation_id,))
+    conn.commit()
+    if don.get('email'):
+        try:
+            from html import escape
+            amount_fmt = f"${(don.get('amount_cents') or 0)/100:.2f}"
+            send_email([don['email']], 'Thank you for your donation!',
+                build_hwtc_email_html('Thank you for your donation!',
+                f'<h2 style="color:#145466">Thank You!</h2>'
+                f'<p>Hi {escape(don.get("name",""))},</p>'
+                f'<p>Thank you for your generous donation of {amount_fmt} to Horizon West Theater Company.</p>'
+                + (f'<p><em>"{escape(don["message"])}"</em></p>' if don.get('message') else '')
+                + '<p>Your support means the world to us!</p>'))
+        except Exception as e:
+            app.logger.warning(f'Donation thank-you email failed: {e}')
+
 
 # ── Marquee admin routes ─────────────────────────────────────────────────────
+
+@app.route('/api/marquee/box-office', methods=['GET'])
+def marquee_box_office():
+    """Ticket sales metrics for Marquee's Box Office tab -- a genuinely
+    separate revenue stream from the program_registrations-based
+    'productions' revenue already in the main dashboard (that's cast/
+    participation fees, e.g. Rising Stars; this is audience tickets to
+    actually watch a show), so it's kept as its own clearly-labeled
+    section rather than folded into or conflated with that number."""
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    totals = fetchone(conn, '''SELECT
+        COALESCE(SUM(t.price_cents),0) AS ticket_revenue,
+        COALESCE(SUM(o.service_fee_cents),0) AS fee_revenue,
+        COUNT(t.id) AS tickets_sold
+        FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+        WHERE o.status='completed' ''')
+    upcoming_count = (fetchone(conn, '''SELECT COUNT(*) AS c FROM performances
+        WHERE status IN ('on_sale','sold_out') AND performance_date >= CURRENT_DATE::text''') or {}).get('c', 0)
+    by_show = fetchall(conn, '''SELECT p.id, p.name,
+        COALESCE(SUM(t.price_cents),0) AS revenue,
+        COUNT(t.id) AS tickets_sold,
+        COUNT(DISTINCT pf.id) FILTER (WHERE pf.status IN ('on_sale','sold_out')) AS active_performances
+        FROM productions p
+        JOIN performances pf ON pf.production_id=p.id
+        LEFT JOIN tickets t ON t.performance_id=pf.id
+        LEFT JOIN ticket_orders o ON o.id=t.ticket_order_id AND o.status='completed'
+        GROUP BY p.id, p.name
+        HAVING COUNT(pf.id) > 0
+        ORDER BY revenue DESC''') or []
+    conn.close()
+    return jsonify({
+        'ticket_revenue': totals.get('ticket_revenue', 0),
+        'fee_revenue': totals.get('fee_revenue', 0),
+        'tickets_sold': totals.get('tickets_sold', 0),
+        'upcoming_performances': upcoming_count,
+        'shows': by_show,
+    })
+
+@app.route('/api/marquee/ticket-orders', methods=['GET'])
+def marquee_ticket_orders():
+    """Same search as the per-production Orders & Patrons panel, but
+    across every show at once, for the Box Office tab -- optionally
+    narrowed to one production via ?production_id=."""
+    err = require_permission('marquee', 'view')
+    if err: return err
+    q = (request.args.get('q') or '').strip()
+    production_id = (request.args.get('production_id') or '').strip()
+    conn = get_db()
+    where = ["t.status <> 'superseded'"]
+    params = []
+    if request.args.get('flagged'):
+        where.append("COALESCE(t.limit_flag,'') <> ''")
+    if production_id:
+        where.append('pf.production_id=%s')
+        params.append(production_id)
+    if q:
+        where.append('(t.guardian_name ILIKE %s OR t.guardian_email ILIKE %s OR t.guardian_phone ILIKE %s)')
+        like = f'%{q}%'
+        params.extend([like, like, like])
+    where_sql = ('WHERE ' + ' AND '.join(where)) if where else ''
+    orders = fetchall(conn, f'''SELECT t.*, pf.name AS performance_name, pf.performance_date, pf.performance_time,
+        p.name AS production_name
+        FROM ticket_orders t
+        JOIN performances pf ON pf.id=t.performance_id
+        JOIN productions p ON p.id=pf.production_id
+        {where_sql}
+        ORDER BY t.created_at DESC LIMIT 150''', tuple(params)) or []
+    if orders:
+        order_ids = [o['id'] for o in orders]
+        tix = fetchall(conn, 'SELECT ticket_order_id, seat_label FROM tickets WHERE ticket_order_id = ANY(%s)', (order_ids,)) or []
+        by_order = {}
+        for t in tix:
+            by_order.setdefault(t['ticket_order_id'], []).append(t['seat_label'])
+        for o in orders:
+            o['seat_labels'] = by_order.get(o['id'], [])
+            o['ticket_count'] = len(o['seat_labels'])
+    conn.close()
+    return jsonify(orders)
+
 
 @app.route('/api/marquee/orders', methods=['GET'])
 def marquee_orders():
@@ -28518,8 +35597,7 @@ def backfill_payment_amounts():
             continue
         total_cents = square_get_order_total_cents(oid)
         if total_cents is not None:
-            execute(conn, 'UPDATE program_registrations SET amount_paid_cents=%s WHERE square_order_id=%s OR square_checkout_id=%s',
-                (total_cents, oid, oid))
+            split_order_amount_across_registrations(conn, oid, total_cents)
             updated += 1
         else:
             failed += 1
@@ -28532,6 +35610,52 @@ def backfill_payment_amounts():
     conn.close()
     return jsonify({'ok': True, 'orders_updated': updated, 'orders_failed': failed,
         'orders_remaining': orders_remaining, 'step_up_updated': step_up_updated})
+
+
+@app.route('/api/marquee/resplit-shared-orders', methods=['POST'])
+def resplit_shared_orders():
+    """One-time repair for registrations written before the proportional
+    split existed: any order shared by more than one registration currently
+    has the FULL order total duplicated on every row (the old behavior).
+    That's only correct for same-program siblings, where per-program
+    revenue queries used to deduplicate by order to compensate — but it
+    silently misattributes revenue whenever one order spans two different
+    programs (see split_order_amount_across_registrations for the full
+    explanation). This re-derives each affected order's true total from
+    whatever's currently stored (they should all currently match, under
+    the old bug) and re-splits it proportionally, same as new payments now
+    get from the start. Safe to run more than once — it's idempotent."""
+    err = require_permission('marquee')
+    if err: return err
+    conn = get_db()
+    orders = fetchall(conn, '''SELECT COALESCE(square_order_id, square_checkout_id) AS oid,
+        COUNT(*) AS reg_count, MAX(amount_paid_cents) AS amt,
+        COUNT(DISTINCT amount_paid_cents) AS distinct_amts
+        FROM program_registrations
+        WHERE status != 'cancelled' AND amount_paid_cents IS NOT NULL
+        AND (square_order_id IS NOT NULL OR square_checkout_id IS NOT NULL)
+        GROUP BY COALESCE(square_order_id, square_checkout_id)
+        HAVING COUNT(*) > 1''') or []
+    fixed = 0
+    skipped = 0
+    for row in orders:
+        oid = row.get('oid')
+        amt = row.get('amt')
+        if not oid or amt is None:
+            skipped += 1
+            continue
+        # If every row sharing this order already has a DIFFERENT amount,
+        # it's already been split (either by this repair or the new write
+        # path) — leave it alone rather than re-splitting an already-split
+        # order using just one row's partial amount as if it were the total.
+        if row.get('distinct_amts', 1) > 1:
+            skipped += 1
+            continue
+        split_order_amount_across_registrations(conn, oid, amt)
+        fixed += 1
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'orders_fixed': fixed, 'orders_skipped_already_split': skipped})
 
 @app.route('/api/marquee/overview', methods=['GET'])
 def marquee_overview():
@@ -28557,15 +35681,20 @@ def marquee_overview():
     #    A Step Up hold only counts here once it's actually been charged
     #    (hold_status='charged') — a pending hold is a promise, not money in
     #    hand yet. Comp'd enrollments are $0 by design, not an unpaid gap.
+    #    Any amount refunded (pr.refund_amount_cents) is subtracted back out
+    #    regardless of how the registration was priced, since a refund can
+    #    happen without unenrolling (status stays 'confirmed').
     #  - expected_revenue: confirmed_revenue plus what's still outstanding —
     #    pending (uncharged) Step Up holds, and waitlisted registrations that
     #    could still convert. This is the optimistic "if everything comes
     #    through" number, not what's actually collected.
-    # Deduped by order for the Square side — sibling registrations sharing one
-    # order all carry that order's full amount, so counting each sibling
-    # separately would inflate the total.
+    # Each registration now carries its own correctly-split share of
+    # whatever order it belongs to (see split_order_amount_across_
+    # registrations) rather than the full order total duplicated across
+    # every row sharing it, so this sums each registration's own amount
+    # directly — no order-based dedup needed or wanted here anymore.
     revenue_row = fetchone(conn, '''WITH reg_revenue AS (
-        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
+        SELECT
             pr.status,
             CASE WHEN pr.is_comped THEN 0
                 WHEN su.hold_status = 'charged' THEN su.amount
@@ -28573,14 +35702,13 @@ def marquee_overview():
                 ELSE COALESCE(pr.amount_paid_cents,
                     COALESCE(yp.price, prod.price, 0) * COALESCE(pr.participant_count,1)
                     - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
-            END AS confirmed_amount,
+            END - COALESCE(pr.refund_amount_cents,0) AS confirmed_amount,
             CASE WHEN NOT pr.is_comped AND su.hold_status = 'pending' THEN su.amount ELSE 0 END AS pending_step_up_amount
         FROM program_registrations pr
         LEFT JOIN youth_programs yp ON yp.id=pr.program_id
         LEFT JOIN productions prod ON prod.id=pr.production_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status IN (\'confirmed\', \'waitlisted\')
-        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_estimate AS (
         SELECT pr.id,
@@ -28661,7 +35789,7 @@ def marquee_overview():
     # (uncharged) Step Up hold isn't money in hand yet even though the
     # registration itself shows as confirmed.
     program_breakdown = fetchall(conn, '''WITH dedup_regs AS (
-        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
+        SELECT
             pr.id, pr.program_id, pr.status,
             CASE WHEN pr.is_comped THEN 0
                 WHEN su.hold_status = 'charged' THEN su.amount
@@ -28669,7 +35797,7 @@ def marquee_overview():
                 ELSE COALESCE(pr.amount_paid_cents,
                     COALESCE(yp.price,0) * COALESCE(pr.participant_count,1)
                     - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
-            END AS confirmed_amount,
+            END - COALESCE(pr.refund_amount_cents,0) AS confirmed_amount,
             CASE WHEN NOT pr.is_comped AND su.hold_status = 'pending' THEN su.amount ELSE 0 END AS pending_step_up_amount,
             CASE WHEN pr.is_comped THEN 'comped'
                 WHEN su.hold_status = 'charged' THEN 'step_up'
@@ -28681,7 +35809,6 @@ def marquee_overview():
         JOIN youth_programs yp ON yp.id = pr.program_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status != \'cancelled\'
-        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_amt AS (
         SELECT pr.id, pr.program_id,
@@ -28728,7 +35855,7 @@ def marquee_overview():
     # dashboard can render both in one list. Only Rising Stars productions carry
     # paid registrations; regular mainstage productions use cast sign-up, not this.
     production_breakdown = fetchall(conn, '''WITH dedup_regs AS (
-        SELECT DISTINCT ON (COALESCE(pr.square_order_id, pr.id))
+        SELECT
             pr.id, pr.production_id, pr.status,
             CASE WHEN pr.is_comped THEN 0
                 WHEN su.hold_status = 'charged' THEN su.amount
@@ -28736,7 +35863,7 @@ def marquee_overview():
                 ELSE COALESCE(pr.amount_paid_cents,
                     COALESCE(prod.price,0) * COALESCE(pr.participant_count,1)
                     - COALESCE(pr.discount_amount,0) - COALESCE(pr.sibling_discount_amount,0))
-            END AS confirmed_amount,
+            END - COALESCE(pr.refund_amount_cents,0) AS confirmed_amount,
             CASE WHEN NOT pr.is_comped AND su.hold_status = 'pending' THEN su.amount ELSE 0 END AS pending_step_up_amount,
             CASE WHEN pr.is_comped THEN 'comped'
                 WHEN su.hold_status = 'charged' THEN 'step_up'
@@ -28748,7 +35875,6 @@ def marquee_overview():
         JOIN productions prod ON prod.id = pr.production_id
         LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
         WHERE pr.status != \'cancelled\'
-        ORDER BY COALESCE(pr.square_order_id, pr.id), pr.id
     ),
     waitlist_amt AS (
         SELECT pr.id, pr.production_id,
@@ -28784,7 +35910,7 @@ def marquee_overview():
         COALESCE((SELECT SUM(w.amount) FROM waitlist_amt w WHERE w.production_id=prod.id), 0) AS waitlist_revenue_cents
     FROM productions prod
     LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != \'cancelled\'
-    WHERE prod.registration_status != \'draft\' AND prod.stage=\'rising_stars\'
+    WHERE prod.registration_status != \'draft\' AND prod.stage IN (\'rising_stars\',\'teen_show\')
     GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status
     ORDER BY confirmed_count DESC, prod.name''') or []
     for row in production_breakdown:
@@ -28828,6 +35954,7 @@ def marquee_overview():
         except Exception: pass
         session_rev_regs = fetchall(conn, '''SELECT pr.id, pr.session_ids, pr.square_order_id,
             pr.amount_paid_cents, pr.is_comped, pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
+            pr.refund_amount_cents,
             yp.price AS program_price, yp.bundle_price,
             su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
             FROM program_registrations pr
@@ -28860,6 +35987,7 @@ def marquee_overview():
                 base_price = r.get('bundle_price') if (len(sids) > 1 and r.get('bundle_price')) else r.get('program_price')
                 amount = ((base_price or 0) * (r.get('participant_count') or 1)
                     - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+            amount = max(0, amount - (r.get('refund_amount_cents') or 0))
             per_session_share = amount / len(sids)
             for sid in sids:
                 session_rev_by_id[sid] = session_rev_by_id.get(sid, 0) + per_session_share
@@ -28906,6 +36034,7 @@ def marquee_overview():
             pr.child_first_name, pr.child_last_name,
             pr.guardian_name, pr.status, pr.amount_paid_cents, pr.is_comped,
             pr.participant_count, pr.discount_amount, pr.sibling_discount_amount,
+            pr.refund_amount_cents,
             COALESCE(yp.price, prod.price, 0) AS list_price,
             (SELECT h.amount FROM step_up_child_holds h
                 WHERE h.registration_id = pr.id ORDER BY h.created_at DESC LIMIT 1) AS step_up_amount,
@@ -28941,6 +36070,12 @@ def marquee_overview():
             else:
                 r['effective_amount_cents'] = estimate
                 r['amount_source'] = 'estimate'
+            # A refund can land on any of the above without changing status
+            # (see process_square_refund) — net it out here so the roster's
+            # per-registrant figure and the dashboard totals always agree.
+            if r.get('refund_amount_cents'):
+                r['effective_amount_cents'] = max(0, r['effective_amount_cents'] - r['refund_amount_cents'])
+                if r['amount_source'] != 'comped': r['amount_source'] = 'refunded'
             regs_by_program[pid2].append({k:v for k,v in r.items() if k!='group_id'})
     except Exception as e:
         app.logger.warning(f'Flat program registrants query failed: {e}')
@@ -28963,6 +36098,28 @@ def marquee_overview():
     })
 
 
+def compute_registration_amount(reg):
+    """Single source of truth for 'how much did this registration bring
+    in' — mirrors the CASE logic already used in the dashboard's SQL
+    aggregates (comped > charged Step Up > pending Step Up > direct Square
+    payment > price-based estimate). Used anywhere a registration's amount
+    is shown, so it can't drift out of sync with the dashboard totals like
+    it previously did here."""
+    if reg.get('is_comped'):
+        return 0, 'comped'
+    if reg.get('step_up_hold_status') == 'charged':
+        return reg.get('step_up_amount') or 0, 'step_up'
+    if reg.get('step_up_hold_status') == 'pending':
+        return 0, 'step_up_pending'
+    refunded = reg.get('refund_amount_cents') or 0
+    if reg.get('amount_paid_cents') is not None:
+        return max(0, reg['amount_paid_cents'] - refunded), 'square'
+    price = reg.get('program_price') or 0
+    count = reg.get('participant_count') or 1
+    discount = (reg.get('discount_amount') or 0) + (reg.get('sibling_discount_amount') or 0)
+    return max(0, price * count - discount - refunded), 'estimate'
+
+
 @app.route('/api/marquee/registrations', methods=['GET'])
 def marquee_all_registrations():
     err = require_permission('marquee', 'view')
@@ -28973,9 +36130,11 @@ def marquee_all_registrations():
     production_id = request.args.get('production_id')
     status = request.args.get('status')
     q1 = '''SELECT pr.*, yp.name AS program_name, yp.registration_form_type,
-        yp.sessions_enabled, yp.price AS program_price, 'program' AS context_type
+        yp.sessions_enabled, yp.price AS program_price, 'program' AS context_type,
+        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
+        LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
         WHERE pr.program_id IS NOT NULL'''
     p1 = []
     if program_id:
@@ -28983,9 +36142,11 @@ def marquee_all_registrations():
     if status:
         q1 += ' AND pr.status=%s'; p1.append(status)
     q2 = '''SELECT pr.*, p.name AS program_name, p.registration_form_type,
-        FALSE AS sessions_enabled, 'production' AS context_type
+        FALSE AS sessions_enabled, p.price AS program_price, 'production' AS context_type,
+        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
         FROM program_registrations pr
         JOIN productions p ON p.id=pr.production_id
+        LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
         WHERE pr.production_id IS NOT NULL'''
     p2 = []
     if production_id:
@@ -28995,6 +36156,8 @@ def marquee_all_registrations():
     regs1 = fetchall(conn, q1 + ' ORDER BY pr.created_at DESC LIMIT 200', p1) or []
     regs2 = (fetchall(conn, q2 + ' ORDER BY pr.created_at DESC LIMIT 200', p2) or []) if not program_id else []
     regs = sorted(regs1 + regs2, key=lambda r: str(r.get('created_at') or ''), reverse=True)[:200]
+    for r in regs:
+        r['amount_cents'], r['amount_source'] = compute_registration_amount(r)
     # Resolve session names for all program registrations
     sessions_by_program = {}
     for r in regs:
@@ -29011,7 +36174,7 @@ def marquee_all_registrations():
         except Exception:
             r['session_names'] = []
     programs = fetchall(conn, "SELECT id, name, start_date FROM youth_programs WHERE registration_status != 'draft' ORDER BY start_date ASC NULLS LAST, name ASC")
-    productions_rs = fetchall(conn, "SELECT id, name FROM productions WHERE stage='rising_stars' AND registration_status IS NOT NULL AND registration_status != 'draft' ORDER BY name")
+    productions_rs = fetchall(conn, "SELECT id, name FROM productions WHERE stage IN ('rising_stars','teen_show') AND registration_status IS NOT NULL AND registration_status != 'draft' ORDER BY name")
     conn.close()
     return jsonify({'registrations': regs, 'programs': programs, 'productions': productions_rs or []})
 
@@ -29029,7 +36192,7 @@ def rising_stars_live_stats():
         COUNT(pr.id) FILTER (WHERE pr.status='waitlisted') AS waitlisted_count
         FROM productions prod
         LEFT JOIN program_registrations pr ON pr.production_id=prod.id AND pr.status != 'cancelled'
-        WHERE prod.stage='rising_stars' AND prod.registration_status IS NOT NULL AND prod.registration_status != 'draft'
+        WHERE prod.stage IN ('rising_stars','teen_show') AND prod.registration_status IS NOT NULL AND prod.registration_status != 'draft'
         GROUP BY prod.id, prod.name, prod.price, prod.capacity, prod.registration_status, prod.image_url,
                  prod.portal_color, prod.registration_open_date, prod.registration_open_time
         ORDER BY prod.name''') or []
@@ -29037,7 +36200,7 @@ def rising_stars_live_stats():
     # Diagnostic: list every production tagged Rising Stars regardless of status,
     # so we can tell "wrong status" apart from "not tagged rising_stars" at a glance.
     debug_all_rs = fetchall(conn, '''SELECT id, name, stage, registration_status
-        FROM productions WHERE stage='rising_stars' ORDER BY name''') or []
+        FROM productions WHERE stage IN ('rising_stars','teen_show') ORDER BY name''') or []
 
     from zoneinfo import ZoneInfo as _ZIls
     for s in shows:
@@ -29060,7 +36223,7 @@ def rising_stars_live_stats():
         pr.created_at, pr.production_id, p.name AS production_name
         FROM program_registrations pr
         JOIN productions p ON p.id = pr.production_id
-        WHERE p.stage='rising_stars' AND pr.status != 'cancelled'
+        WHERE p.stage IN ('rising_stars','teen_show') AND pr.status != 'cancelled'
         ORDER BY pr.created_at DESC LIMIT 25''') or []
     conn.close()
 
@@ -29149,11 +36312,15 @@ def get_program_registrations(pid):
         if err: return err
     import json as _jreg
     conn = get_db()
-    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type
+    regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type, yp.price AS program_price,
+        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
+        LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
         WHERE pr.program_id=%s ORDER BY pr.created_at DESC''', (pid,))
-    # Resolve session names
+    # Resolve session names, and work out — the same way the financial
+    # dashboard does — what a registration actually counts as revenue-wise
+    # and why, so it's visible right here instead of a mystery elsewhere.
     sessions_map = {}
     session_rows = fetchall(conn, 'SELECT id, name FROM program_sessions WHERE program_id=%s', (pid,)) or []
     for sr in session_rows:
@@ -29164,6 +36331,7 @@ def get_program_registrations(pid):
             r['session_names'] = [sessions_map.get(sid, sid) for sid in sids if sid in sessions_map]
         except Exception:
             r['session_names'] = []
+        r['amount_cents'], r['amount_source'] = compute_registration_amount(r)
     interest = fetchall(conn, '''SELECT * FROM interest_list_entries
         WHERE program_id=%s ORDER BY created_at DESC''', (pid,))
     counts = {
@@ -29365,7 +36533,7 @@ def send_registration_payment_link(pid, rid):
     try:
         child_name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
         send_email([reg['guardian_email']], f'We noticed your registration wasn\'t finished — {prog["name"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'We noticed your registration wasn\'t finished — {prog["name"]}',
             f'<h2 style="color:#145466">Looks like you didn\'t quite finish!</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
             f'<p>We saw that you started registering {child_name or "your participant"} for '
@@ -29376,8 +36544,7 @@ def send_registration_payment_link(pid, rid):
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
             f'Finish Registration</a></p>'
             f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'))
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
@@ -29425,15 +36592,14 @@ def send_balance_payment_link(pid, rid):
     conn.commit()
     try:
         send_email([reg['guardian_email']], f'Balance payment due — {prog["name"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'Balance payment due — {prog["name"]}',
             f'<h2 style="color:#145466">Balance Payment Due</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
             f'<p>Your remaining balance of <strong>${balance/100:.2f}</strong> is due for '
             f'<strong>{prog["name"]}</strong>.</p>'
             f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
-            f'Pay Balance — ${balance/100:.2f}</a></p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'Pay Balance — ${balance/100:.2f}</a></p>'))
     except Exception as e:
         app.logger.warning(f'Balance link email failed: {e}')
     conn.close()
@@ -29481,7 +36647,7 @@ def send_production_registration_payment_link(pid, rid):
     try:
         child_name = f'{reg.get("child_first_name","")} {reg.get("child_last_name","")}'.strip()
         send_email([reg['guardian_email']], f'We noticed your registration wasn\'t finished — {prod["name"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'We noticed your registration wasn\'t finished — {prod["name"]}',
             f'<h2 style="color:#145466">Looks like you didn\'t quite finish!</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
             f'<p>We saw that you started registering {child_name or "your participant"} for '
@@ -29492,8 +36658,7 @@ def send_production_registration_payment_link(pid, rid):
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
             f'Finish Registration</a></p>'
             f'<p style="color:#6b7280;font-size:13px">Or copy this link: {pay_url}</p>'
-            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'<p>If this was a mistake, or you\'ve changed your mind, feel free to ignore this email — just wanted to make sure you had the chance to complete it if you meant to.</p>'))
     except Exception as e:
         app.logger.warning(f'Payment link email failed: {e}')
     conn.close()
@@ -29527,15 +36692,14 @@ def send_production_balance_payment_link(pid, rid):
     conn.commit()
     try:
         send_email([reg['guardian_email']], f'Balance payment due — {prod["name"]}',
-            f'<div style="font-family:-apple-system,sans-serif;max-width:560px">'
+            build_hwtc_email_html(f'Balance payment due — {prod["name"]}',
             f'<h2 style="color:#145466">Balance Payment Due</h2>'
             f'<p>Hi {reg.get("guardian_name","")},</p>'
             f'<p>Your remaining balance of <strong>${balance/100:.2f}</strong> is due for '
             f'<strong>{prod["name"]}</strong>.</p>'
             f'<p style="margin:24px 0"><a href="{pay_url}" style="background:#145466;color:#fff;'
             f'padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">'
-            f'Pay Balance — ${balance/100:.2f}</a></p>'
-            f'<p>Horizon West Theater Company</p></div>')
+            f'Pay Balance — ${balance/100:.2f}</a></p>'))
     except Exception as e:
         app.logger.warning(f'Balance link email failed: {e}')
     conn.close()
@@ -29559,6 +36723,34 @@ except Exception as _sche:
 def _require_ticketing():
     """Admin/treasurer/president/staff with ticketing perm may manage tickets."""
     return require_permission('ticketing')
+
+@app.route('/api/productions/<pid>/ticketing-settings', methods=['PUT'])
+def update_ticketing_settings(pid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    limit = d.get('max_tickets_per_performance')
+    if limit is not None:
+        try:
+            limit = int(limit)
+            if limit < 1: raise ValueError()
+        except (TypeError, ValueError):
+            return jsonify({'error': 'Enter a whole number of 1 or more, or leave it blank'}), 400
+    charge_fee = bool(d.get('charge_service_fee', False))
+    try:
+        fee_percent = float(d.get('service_fee_percent', 3.0))
+        fee_flat_cents = int(d.get('service_fee_flat_cents', 30))
+        if fee_percent < 0 or fee_flat_cents < 0: raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Service fee percent and flat amount must be zero or more'}), 400
+    conn = get_db()
+    execute(conn, '''UPDATE productions SET max_tickets_per_performance=%s,
+        charge_service_fee=%s, service_fee_percent=%s, service_fee_flat_cents=%s WHERE id=%s''',
+        (limit, charge_fee, fee_percent, fee_flat_cents, pid))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'max_tickets_per_performance': limit,
+        'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents})
 
 
 # ── VENUES ──────────────────────────────────────────────────────────────
@@ -29657,8 +36849,60 @@ def get_seat_map_detail(mid):
         conn.close(); return jsonify({'error': 'Seat map not found'}), 404
     sm['seats'] = fetchall(conn, '''SELECT * FROM seat_map_seats WHERE seat_map_id=%s
                                      ORDER BY section, row_name, seat_number''', (mid,))
+    sm['shapes'] = fetchall(conn, 'SELECT * FROM seat_map_shapes WHERE seat_map_id=%s', (mid,)) or []
     conn.close()
     return jsonify(sm)
+
+@app.route('/api/seat-maps/<mid>/shapes', methods=['POST'])
+def create_seat_map_shape(mid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    sid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO seat_map_shapes (id, seat_map_id, x, y, width, height, rotation, label, fill_color)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (sid, mid, d.get('x', 0), d.get('y', 0), d.get('width', 3), d.get('height', 2),
+         d.get('rotation', 0), (d.get('label') or '').strip(), d.get('fill_color') or '#94a3b8'))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_map_shapes WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify(row)
+
+@app.route('/api/seat-map-shapes/<sid>', methods=['PUT'])
+def update_seat_map_shape(sid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    fields, params = [], []
+    for key in ('x','y','width','height','rotation'):
+        if key in d:
+            fields.append(f'{key}=%s'); params.append(d[key])
+    if 'label' in d:
+        fields.append('label=%s'); params.append((d['label'] or '').strip())
+    if 'fill_color' in d:
+        fields.append('fill_color=%s'); params.append(d['fill_color'] or '#94a3b8')
+    if not fields:
+        return jsonify({'error': 'Nothing to update'}), 400
+    conn = get_db()
+    params.append(sid)
+    execute(conn, f'UPDATE seat_map_shapes SET {", ".join(fields)} WHERE id=%s', tuple(params))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_map_shapes WHERE id=%s', (sid,))
+    conn.close()
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(row)
+
+@app.route('/api/seat-map-shapes/<sid>', methods=['DELETE'])
+def delete_seat_map_shape(sid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM seat_map_shapes WHERE id=%s', (sid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/venues/<vid>/seat-maps', methods=['POST'])
@@ -29697,6 +36941,29 @@ def update_seat_map(mid):
     execute(conn, '''UPDATE seat_maps SET name=%s,capacity=%s,is_default=%s,notes=%s WHERE id=%s''',
             ((d.get('name') or '').strip(), int(d.get('capacity') or 0),
              bool(d.get('is_default', False)), (d.get('notes') or '').strip(), mid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_maps WHERE id=%s', (mid,))
+    conn.close()
+    return jsonify(row or {'ok': True})
+
+
+@app.route('/api/seat-maps/<mid>/stage', methods=['PUT'])
+def update_seat_map_stage(mid):
+    """Sets where the stage actually sits/faces for this room, so the
+    editor and every seat picker can draw it in the right spot instead of
+    always guessing 'below all the seats'."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    execute(conn, '''UPDATE seat_maps SET stage_x=%s, stage_y=%s, stage_width=%s, stage_depth=%s, stage_rotation=%s
+        WHERE id=%s''',
+        (float(d.get('stage_x') or 0), float(d.get('stage_y') or 0),
+         float(d.get('stage_width') or 8), float(d.get('stage_depth') or 2),
+         float(d.get('stage_rotation') or 0), mid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM seat_maps WHERE id=%s', (mid,))
     conn.close()
@@ -29782,6 +37049,186 @@ def generate_seat_section(mid):
     return jsonify({'ok': True, 'created': created})
 
 
+@app.route('/api/seat-maps/<mid>/generate-fan-section', methods=['POST'])
+def generate_fan_seat_section(mid):
+    """
+    Lay out a block where each row can have a different seat count and the
+    whole block can be rotated — the shape real venues actually have (angled
+    orchestra sections, curved rows), which generate-section's uniform grid
+    can't represent.
+      section: "House Left"
+      rows: [{"label":"J","count":3}, {"label":"H","count":5}, ...] — first
+            row in the list is the back/top row.
+      angle: rotation in degrees, applied around the block's own center
+             (0 = rows run left-to-right, unrotated)
+      number_from: seat numbering start per row (default 1)
+      anchor_x/anchor_y: top-left-ish placement before rotation (default 0,0)
+    Each row is centered on the block's width so unequal row lengths still
+    fan out symmetrically, matching a typical orchestra-seating taper.
+    """
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    section = (d.get('section') or '').strip()
+    seat_type = (d.get('seat_type') or 'standard').strip()
+    rows = d.get('rows') or []
+    angle_deg = float(d.get('angle') or 0)
+    number_from_default = int(d.get('number_from') or 1)
+    anchor_x = float(d.get('anchor_x') or 0)
+    anchor_y = float(d.get('anchor_y') or 0)
+    row_spacing = float(d.get('row_spacing') or 1)
+    seat_spacing = float(d.get('seat_spacing') or 1)
+
+    if not rows:
+        return jsonify({'error': 'rows is required — a list of {label, count}'}), 400
+
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+
+    max_y = fetchone(conn, 'SELECT COALESCE(MAX(y),0) AS m FROM seat_map_seats WHERE seat_map_id=%s', (mid,))
+    y_offset = (max_y['m'] or 0) + (2 if (max_y['m'] or 0) else 0)
+
+    max_count = max((int(r.get('count') or 0) for r in rows), default=0)
+    if max_count <= 0:
+        conn.close(); return jsonify({'error': 'Every row needs a count > 0'}), 400
+
+    import math
+    rad = math.radians(angle_deg)
+    cos_a, sin_a = math.cos(rad), math.sin(rad)
+    # Rotate around the center of the widest row so the block pivots in place
+    # rather than swinging out from a corner.
+    pivot_x = (max_count - 1) * seat_spacing / 2
+    pivot_y = (len(rows) - 1) * row_spacing / 2
+
+    created = 0
+    for r_i, row in enumerate(rows):
+        label = (row.get('label') or '').strip().upper() or chr(65 + r_i)
+        count = int(row.get('count') or 0)
+        if count <= 0:
+            continue
+        number_from = int(row.get('number_from') or number_from_default)
+        # Center this row within the widest row so shorter rows (the fan tip)
+        # sit centered rather than flush to one edge.
+        row_offset = (max_count - count) * seat_spacing / 2
+        for s_i in range(count):
+            seat_no = number_from + s_i
+            local_x = row_offset + s_i * seat_spacing
+            local_y = r_i * row_spacing
+            # Rotate (local_x, local_y) around the pivot, then place at anchor.
+            dx, dy = local_x - pivot_x, local_y - pivot_y
+            rx = dx * cos_a - dy * sin_a + pivot_x
+            ry = dx * sin_a + dy * cos_a + pivot_y
+            final_x = round(anchor_x + rx, 2)
+            final_y = round(anchor_y + y_offset + ry, 2)
+            seat_label = f'{label}{seat_no}'
+            execute(conn, '''INSERT INTO seat_map_seats
+                             (id,seat_map_id,section,row_name,seat_number,seat_label,x,y,seat_type)
+                             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    (str(uuid.uuid4()), mid, section, label, seat_no, seat_label,
+                     final_x, final_y, seat_type))
+            created += 1
+
+    cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else created, mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': created})
+
+
+@app.route('/api/seat-maps/<mid>/seed-bbt-chart', methods=['POST'])
+def seed_bbt_chart(mid):
+    """One-time helper: lays out a best-effort digitization of the BBT house
+    chart (4 angled blocks + accessible spots) using generate-fan-section,
+    so there's a real starting layout to look at and correct visually
+    instead of building 192 seats by hand. This is read off a photo of the
+    chart, not verified against the physical venue — treat row/seat counts
+    as a draft to check (and fix via drag-adjust or regenerate) before
+    seats go on sale, not as a guaranteed-accurate final chart."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+    conn.close()
+
+    blocks = [
+        # House Left — big angled fan, back-to-front J→A
+        dict(section='House Left', angle=28, anchor_x=0, anchor_y=0, rows=[
+            {'label':'J','count':3}, {'label':'H','count':5}, {'label':'G','count':7},
+            {'label':'F','count':8}, {'label':'E','count':7}, {'label':'D','count':7},
+            {'label':'C','count':6}, {'label':'B','count':3}, {'label':'A','count':3},
+        ]),
+        # Small inner block between House Left and center
+        dict(section='House Left Center', angle=12, anchor_x=10, anchor_y=-2, rows=[
+            {'label':'J','count':9,'number_from':4}, {'label':'G','count':5,'number_from':8},
+            {'label':'F','count':4,'number_from':9}, {'label':'E','count':4,'number_from':10},
+            {'label':'D','count':3,'number_from':8}, {'label':'C','count':2,'number_from':6},
+            {'label':'B','count':2,'number_from':3},
+        ]),
+        # House Right — big angled fan, mirrored
+        dict(section='House Right', angle=-28, anchor_x=24, anchor_y=0, rows=[
+            {'label':'G','count':9}, {'label':'F','count':11}, {'label':'E','count':13},
+            {'label':'D','count':14}, {'label':'C','count':16}, {'label':'B','count':3,'number_from':8},
+        ]),
+        # Rear block, bottom-left — vertical columns (rotated 90°)
+        dict(section='Rear', angle=90, anchor_x=0, anchor_y=20, rows=[
+            {'label':'D','count':10}, {'label':'C','count':10},
+            {'label':'B','count':8}, {'label':'A','count':1},
+        ]),
+    ]
+    total_created = 0
+    errors = []
+    for b in blocks:
+        conn = get_db()
+        sm2 = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+        if not sm2:
+            conn.close(); continue
+        max_y = fetchone(conn, 'SELECT COALESCE(MAX(y),0) AS m FROM seat_map_seats WHERE seat_map_id=%s', (mid,))
+        y_offset = (max_y['m'] or 0) + (2 if (max_y['m'] or 0) else 0)
+        rows = b['rows']
+        max_count = max((int(r.get('count') or 0) for r in rows), default=0)
+        if max_count <= 0:
+            conn.close(); continue
+        import math
+        rad = math.radians(b['angle'])
+        cos_a, sin_a = math.cos(rad), math.sin(rad)
+        pivot_x = (max_count - 1) / 2
+        pivot_y = (len(rows) - 1) / 2
+        created = 0
+        for r_i, row in enumerate(rows):
+            label = (row.get('label') or '').strip().upper() or chr(65 + r_i)
+            count = int(row.get('count') or 0)
+            if count <= 0: continue
+            number_from = int(row.get('number_from') or 1)
+            row_offset = (max_count - count) / 2
+            for s_i in range(count):
+                seat_no = number_from + s_i
+                local_x, local_y = row_offset + s_i, r_i
+                dx, dy = local_x - pivot_x, local_y - pivot_y
+                rx = dx*cos_a - dy*sin_a + pivot_x
+                ry = dx*sin_a + dy*cos_a + pivot_y
+                final_x = round(b['anchor_x'] + rx, 2)
+                final_y = round(b['anchor_y'] + y_offset + ry, 2)
+                seat_label = f"{label}{seat_no}"
+                execute(conn, '''INSERT INTO seat_map_seats
+                                 (id,seat_map_id,section,row_name,seat_number,seat_label,x,y,seat_type)
+                                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                        (str(uuid.uuid4()), mid, b['section'], label, seat_no, seat_label,
+                         final_x, final_y, 'standard'))
+                created += 1
+        conn.commit(); conn.close()
+        total_created += created
+
+    conn = get_db()
+    cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else total_created, mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'created': total_created,
+        'note': 'Draft layout from a photo of the chart — verify row/seat counts and accessible spots against the real venue before selling tickets.'})
+
+
 @app.route('/api/seats/<sid>', methods=['PUT'])
 def update_seat(sid):
     """Edit a single seat (mark accessible, house seat, rename, deactivate)."""
@@ -29790,13 +37237,16 @@ def update_seat(sid):
     d = request.json or {}
     conn = get_db()
     fields, vals = [], []
-    for f in ['section', 'row_name', 'seat_label', 'seat_type']:
+    for f in ['section', 'row_name', 'seat_label', 'seat_type', 'view_note']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append((d[f] or '').strip())
-    for f in ['seat_number', 'x', 'y']:
+    for f in ['seat_number']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append(int(d[f] or 0))
-    for f in ['accessible', 'house_seat', 'active']:
+    for f in ['x', 'y']:
+        if f in d:
+            fields.append(f'{f}=%s'); vals.append(float(d[f] or 0))
+    for f in ['accessible', 'house_seat', 'active', 'obstructed_view']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append(bool(d[f]))
     if not fields:
@@ -29814,9 +37264,64 @@ def delete_seat(sid):
     err = _require_ticketing()
     if err: return err
     conn = get_db()
+    row = fetchone(conn, 'SELECT seat_map_id FROM seat_map_seats WHERE id=%s', (sid,))
     execute(conn, 'DELETE FROM seat_map_seats WHERE id=%s', (sid,))
+    if row:
+        cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (row['seat_map_id'],))
+        execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else 0, row['seat_map_id']))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+@app.route('/api/seat-maps/<mid>/seats', methods=['POST'])
+def create_single_seat(mid):
+    """Add one seat at a specific position — used by the click-to-place
+    tool in the visual editor, for filling gaps or fixing counts by hand
+    rather than regenerating a whole block."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    sm = fetchone(conn, 'SELECT id FROM seat_maps WHERE id=%s', (mid,))
+    if not sm:
+        conn.close(); return jsonify({'error': 'Seat map not found'}), 404
+    row_name = (d.get('row_name') or '').strip().upper()
+    seat_number = int(d.get('seat_number') or 0)
+    seat_label = (d.get('seat_label') or '').strip() or (f'{row_name}{seat_number}' if row_name and seat_number else '')
+    sid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO seat_map_seats
+        (id,seat_map_id,section,row_name,seat_number,seat_label,x,y,seat_type,accessible)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        (sid, mid, (d.get('section') or '').strip(), row_name, seat_number or None, seat_label,
+         float(d.get('x') or 0), float(d.get('y') or 0), (d.get('seat_type') or 'standard').strip(),
+         bool(d.get('accessible', False))))
+    cap = fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE', (mid,))
+    execute(conn, 'UPDATE seat_maps SET capacity=%s WHERE id=%s', (cap['c'] if cap else 0, mid))
+    conn.commit()
+    row = fetchone(conn, 'SELECT * FROM seat_map_seats WHERE id=%s', (sid,))
+    conn.close()
+    return jsonify(row)
+
+
+@app.route('/api/seat-maps/<mid>/seats/bulk-position', methods=['PUT'])
+def bulk_update_seat_positions(mid):
+    """Save every seat's position in one call — used after a drag that
+    moves a multi-seat selection (a whole row/block) together, so that
+    doesn't turn into one request per seat."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    updates = d.get('updates') or []
+    if not updates:
+        return jsonify({'error': 'No updates provided'}), 400
+    conn = get_db()
+    for u in updates:
+        sid = u.get('id')
+        if not sid: continue
+        execute(conn, 'UPDATE seat_map_seats SET x=%s, y=%s WHERE id=%s AND seat_map_id=%s',
+            (float(u.get('x') or 0), float(u.get('y') or 0), sid, mid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'updated': len(updates)})
 
 
 @app.route('/api/seat-maps/<mid>/seats', methods=['DELETE'])
@@ -29842,7 +37347,9 @@ def get_performances(pid):
                v.name AS venue_name,
                sm.name AS seat_map_name,
                sm.capacity AS seat_map_capacity,
-               (SELECT COUNT(*) FROM ticket_types tt WHERE tt.performance_id=pf.id AND tt.active=TRUE) AS ticket_type_count
+               (SELECT COUNT(*) FROM performance_ticket_types ptt
+                JOIN ticket_types tt ON tt.id=ptt.ticket_type_id
+                WHERE ptt.performance_id=pf.id AND tt.active=TRUE) AS ticket_type_count
         FROM performances pf
         LEFT JOIN venues v ON pf.venue_id=v.id
         LEFT JOIN seat_maps sm ON pf.seat_map_id=sm.id
@@ -29880,6 +37387,12 @@ def create_performance(pid):
              reserved, (None if reserved else int(d.get('ga_capacity') or 0)),
              (d.get('sales_open_at') or '').strip(), (d.get('sales_close_at') or '').strip(),
              d.get('status', 'draft'), (d.get('notes') or '').strip()))
+    # Every ticket type already in this production's catalog defaults to
+    # enabled on the new performance — the common case is "same pricing as
+    # every other date," and staff can uncheck ones that don't apply.
+    for tt in fetchall(conn, 'SELECT id FROM ticket_types WHERE production_id=%s', (pid,)):
+        execute(conn, 'INSERT INTO performance_ticket_types (performance_id, ticket_type_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
+            (fid, tt['id']))
     conn.commit()
     row = fetchone(conn, '''SELECT pf.*, v.name AS venue_name, sm.name AS seat_map_name
                             FROM performances pf
@@ -29933,26 +37446,31 @@ def delete_performance(fid):
     err = _require_ticketing()
     if err: return err
     conn = get_db()
-    execute(conn, 'DELETE FROM ticket_types WHERE performance_id=%s', (fid,))
+    # Ticket types are a reusable production-level catalog now, not owned by
+    # a single performance — deleting a performance just drops its enabled
+    # set (performance_ticket_types cascades on its own FK) and leaves the
+    # catalog itself untouched for the production's other performances.
     execute(conn, 'DELETE FROM performances WHERE id=%s', (fid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
 
 # ── TICKET TYPES (price tiers) ──────────────────────────────────────────
-@app.route('/api/performances/<fid>/ticket-types', methods=['GET'])
-def get_ticket_types(fid):
+@app.route('/api/productions/<pid>/ticket-types', methods=['GET'])
+def get_production_ticket_types(pid):
+    """The reusable catalog for this show — created once, then toggled on
+    per performance instead of re-created every time."""
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT * FROM ticket_types WHERE performance_id=%s
-                             ORDER BY sort_order, name''', (fid,))
+    rows = fetchall(conn, '''SELECT * FROM ticket_types WHERE production_id=%s
+                             ORDER BY sort_order, name''', (pid,))
     conn.close()
     return jsonify(rows or [])
 
 
-@app.route('/api/performances/<fid>/ticket-types', methods=['POST'])
-def create_ticket_type(fid):
+@app.route('/api/productions/<pid>/ticket-types', methods=['POST'])
+def create_production_ticket_type(pid):
     err = _require_ticketing()
     if err: return err
     d = request.json or {}
@@ -29960,16 +37478,23 @@ def create_ticket_type(fid):
         return jsonify({'error': 'Ticket type name is required'}), 400
     tid = str(uuid.uuid4())
     conn = get_db()
-    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) AS m FROM ticket_types WHERE performance_id=%s', (fid,))
+    max_sort = fetchone(conn, 'SELECT COALESCE(MAX(sort_order),0) AS m FROM ticket_types WHERE production_id=%s', (pid,))
     execute(conn, '''INSERT INTO ticket_types
-                     (id,performance_id,name,price_cents,description,quantity_limit,sort_order,active)
+                     (id,production_id,name,price_cents,description,quantity_limit,sort_order,active)
                      VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
-            (tid, fid, d['name'].strip(),
+            (tid, pid, d['name'].strip(),
              int(round(float(d.get('price_dollars') or 0) * 100)) if d.get('price_dollars') is not None
                  else int(d.get('price_cents') or 0),
              (d.get('description') or '').strip(),
              d.get('quantity_limit') or None,
              (max_sort['m'] or 0) + 1, bool(d.get('active', True))))
+    # New ticket types default to enabled on every existing on-sale/draft
+    # performance of this production, so they're immediately usable instead
+    # of silently applying to nothing until someone remembers to toggle it.
+    perf_ids = [r['id'] for r in fetchall(conn, "SELECT id FROM performances WHERE production_id=%s AND status != 'cancelled'", (pid,))]
+    for fid in perf_ids:
+        execute(conn, '''INSERT INTO performance_ticket_types (performance_id, ticket_type_id) VALUES (%s,%s)
+                         ON CONFLICT DO NOTHING''', (fid, tid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM ticket_types WHERE id=%s', (tid,))
     conn.close()
@@ -30002,5 +37527,844 @@ def delete_ticket_type(tid):
     execute(conn, 'DELETE FROM ticket_types WHERE id=%s', (tid,))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+@app.route('/api/performances/<fid>/ticket-types', methods=['GET'])
+def get_performance_ticket_types(fid):
+    """The production's whole catalog, each marked whether it's enabled for
+    this specific performance — what the admin checklist renders from."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    perf = fetchone(conn, 'SELECT production_id FROM performances WHERE id=%s', (fid,))
+    if not perf:
+        conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    rows = fetchall(conn, '''SELECT tt.*, (ptt.ticket_type_id IS NOT NULL) AS enabled
+        FROM ticket_types tt
+        LEFT JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id AND ptt.performance_id=%s
+        WHERE tt.production_id=%s
+        ORDER BY tt.sort_order, tt.name''', (fid, perf['production_id']))
+    conn.close()
+    return jsonify(rows or [])
+
+
+@app.route('/api/performances/<fid>/ticket-types', methods=['PUT'])
+def set_performance_ticket_types(fid):
+    """Replaces the enabled set for this performance with exactly the ids
+    given — the admin checklist just sends whatever's checked."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    ids = d.get('ticket_type_ids') or []
+    conn = get_db()
+    perf = fetchone(conn, 'SELECT id FROM performances WHERE id=%s', (fid,))
+    if not perf:
+        conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    execute(conn, 'DELETE FROM performance_ticket_types WHERE performance_id=%s', (fid,))
+    for tid in ids:
+        execute(conn, 'INSERT INTO performance_ticket_types (performance_id, ticket_type_id) VALUES (%s,%s) ON CONFLICT DO NOTHING',
+            (fid, tid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'enabled': len(ids)})
+
+
+# ─────────────────────────────────────────────────────────────
+#  PUBLIC TICKET PURCHASE — seat status, holds, checkout
+# ─────────────────────────────────────────────────────────────
+
+def _clear_expired_holds(conn, performance_id):
+    execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND expires_at < NOW()', (performance_id,))
+
+
+@app.route('/api/public/production/<slug>/performances', methods=['GET'])
+def public_production_performances(slug):
+    """Lists on-sale performances for a production's ticket page, so the
+    page can show a date picker when there's more than one."""
+    conn = get_db()
+    prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url, ticket_logo_url,
+        max_tickets_per_performance, charge_service_fee, service_fee_percent, service_fee_flat_cents,
+        venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+    if not prod:
+        conn.close(); return jsonify({'error': 'Production not found'}), 404
+    perfs = fetchall(conn, '''SELECT pf.*, v.name AS venue_name, v.address AS venue_address,
+        v.city AS venue_city, v.notes AS venue_notes
+        FROM performances pf LEFT JOIN venues v ON pf.venue_id=v.id
+        WHERE pf.production_id=%s AND pf.status IN ('on_sale','sold_out')
+        ORDER BY pf.performance_date, pf.performance_time''', (prod['id'],))
+    conn.close()
+    return jsonify({'production': prod, 'performances': perfs})
+
+
+@app.route('/api/public/performances/<fid>/seat-status', methods=['GET'])
+def public_seat_status(fid):
+    """Everything the ticket picker needs: the seat map (with x/y so it can
+    be drawn), which seats are sold, which are held by someone else right
+    now, and which are free. session_token (if provided as a query param)
+    lets a returning buyer see their own held seats as 'mine' rather than
+    'held by someone else' — e.g. after a page refresh mid-checkout."""
+    session_token = request.args.get('session_token', '')
+    conn = get_db()
+    perf = fetchone(conn, '''SELECT pf.*, p.name AS production_name, p.portal_color, p.portal_logo_url,
+        p.image_url AS production_image_url, p.ticket_logo_url, p.slug AS production_slug,
+        v.name AS venue_name, v.address AS venue_address, v.city AS venue_city, v.notes AS venue_notes
+        FROM performances pf
+        JOIN productions p ON pf.production_id=p.id
+        LEFT JOIN venues v ON pf.venue_id=v.id
+        WHERE pf.id=%s''', (fid,))
+    if not perf:
+        conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    _clear_expired_holds(conn, fid)
+    seats = []
+    stage = None
+    shapes = []
+    if perf.get('reserved_seating') and perf.get('seat_map_id'):
+        seats = fetchall(conn, 'SELECT * FROM seat_map_seats WHERE seat_map_id=%s AND active=TRUE ORDER BY y, x',
+            (perf['seat_map_id'],))
+        sm = fetchone(conn, 'SELECT stage_x, stage_y, stage_width, stage_depth, stage_rotation FROM seat_maps WHERE id=%s',
+            (perf['seat_map_id'],))
+        if sm and sm.get('stage_x') is not None:
+            stage = {'x': sm['stage_x'], 'y': sm['stage_y'], 'width': sm.get('stage_width') or 8,
+                'depth': sm.get('stage_depth') or 2, 'rotation': sm.get('stage_rotation') or 0}
+        shapes = fetchall(conn, 'SELECT x, y, width, height, rotation, label, fill_color FROM seat_map_shapes WHERE seat_map_id=%s',
+            (perf['seat_map_id'],)) or []
+        sold_ids = {r['seat_id'] for r in fetchall(conn,
+            'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,))}
+        held_rows = fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))
+        held_map = {r['seat_id']: r['session_token'] for r in held_rows}
+        for s in seats:
+            if s['id'] in sold_ids:
+                s['status'] = 'sold'
+            elif s['id'] in held_map:
+                s['status'] = 'mine' if (session_token and held_map[s['id']] == session_token) else 'held'
+            else:
+                s['status'] = 'available'
+    ticket_types = fetchall(conn, '''SELECT tt.* FROM ticket_types tt
+        JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
+        WHERE ptt.performance_id=%s AND tt.active=TRUE ORDER BY tt.sort_order''', (fid,))
+    ga_sold = 0
+    if not perf.get('reserved_seating'):
+        ga_sold = (fetchone(conn, "SELECT COUNT(*) AS c FROM tickets WHERE performance_id=%s AND seat_id IS NULL", (fid,)) or {}).get('c', 0)
+    conn.close()
+    return jsonify({'performance': perf, 'seats': seats, 'ticket_types': ticket_types, 'ga_sold': ga_sold, 'stage': stage, 'shapes': shapes})
+
+
+@app.route('/api/public/performances/<fid>/hold-seats', methods=['POST'])
+def public_hold_seats(fid):
+    """Puts a short hold on the requested seats so this buyer has a window
+    to finish checkout without someone else grabbing the same seat. Holds
+    expire on their own (15 min) — nothing needs to explicitly release them
+    for the seat to free back up, though the picker does that too when a
+    buyer deselects a seat.
+
+    Each seat's hold is claimed with a single atomic INSERT ... ON CONFLICT
+    DO UPDATE ... WHERE statement rather than a separate check-then-write —
+    a plain "is it free? ok, write it" (even inside one transaction) has a
+    real gap between two concurrent requests for the same never-before-held
+    seat: both can pass the check before either writes, and the ON CONFLICT
+    DO UPDATE would then let whichever request's write lands second silently
+    steal the seat with no error to either buyer. The WHERE clause on the
+    DO UPDATE makes the write itself conditional, so only one of two
+    simultaneous claims for the same seat can ever succeed."""
+    d = request.json or {}
+    seat_ids = d.get('seat_ids') or []
+    session_token = (d.get('session_token') or '').strip()
+    if not session_token or not seat_ids:
+        return jsonify({'error': 'session_token and seat_ids are required'}), 400
+    conn = get_db()
+    perf = fetchone(conn, 'SELECT id, production_id FROM performances WHERE id=%s', (fid,))
+    if not perf:
+        conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    _clear_expired_holds(conn, fid)
+    sold_ids = {r['seat_id'] for r in fetchall(conn,
+        'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,))}
+    already_sold = [sid for sid in seat_ids if sid in sold_ids]
+    if already_sold:
+        conn.close()
+        return jsonify({'error': 'Some seats were just sold to another buyer', 'taken': already_sold}), 409
+
+    # Authoritative per-performance limit check, right here at hold time —
+    # not just at checkout. The picker has its own client-side heads-up
+    # before this call even happens, but that's just a courtesy; someone
+    # could always call this endpoint directly, so a seat literally can't
+    # be held past the limit regardless of what the browser does. This
+    # can't check by email (nobody's entered one yet at this point in the
+    # flow) so it's scoped to this session_token's own live holds for the
+    # performance — new seat_ids already held by this same session (e.g.
+    # a repeat call re-confirming the same seats) don't count twice.
+    prod = fetchone(conn, 'SELECT max_tickets_per_performance FROM productions WHERE id=%s', (perf['production_id'],))
+    limit = (prod or {}).get('max_tickets_per_performance')
+    if limit is not None:
+        existing_held = fetchall(conn, 'SELECT seat_id FROM seat_holds WHERE performance_id=%s AND session_token=%s',
+            (fid, session_token)) or []
+        existing_seat_ids = {r['seat_id'] for r in existing_held}
+        combined = existing_seat_ids | set(seat_ids)
+        if len(combined) > limit:
+            conn.close()
+            return jsonify({'error': f"This show limits {limit} ticket{'s' if limit != 1 else ''} per performance per person, and you've already selected {len(existing_seat_ids)}."}), 400
+
+    lost = []
+    for sid in seat_ids:
+        row = fetchone(conn, '''INSERT INTO seat_holds (id, performance_id, seat_id, session_token, expires_at)
+            VALUES (%s,%s,%s,%s, NOW() + INTERVAL '15 minutes')
+            ON CONFLICT (performance_id, seat_id) DO UPDATE SET
+                session_token=EXCLUDED.session_token, expires_at=EXCLUDED.expires_at, id=EXCLUDED.id
+            WHERE seat_holds.session_token=EXCLUDED.session_token OR seat_holds.expires_at < NOW()
+            RETURNING session_token''', (str(uuid.uuid4()), fid, sid, session_token))
+        if not row or row.get('session_token') != session_token:
+            lost.append(sid)
+    if lost:
+        # At least one seat in this request was already actively held by
+        # someone else — undo the ones we did just win so a partial hold
+        # never sits there silently; the buyer needs to reselect anyway.
+        conn.rollback()
+        conn.close()
+        return jsonify({'error': 'Some seats were just taken by another buyer', 'taken': lost}), 409
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'expires_in_seconds': 900})
+
+
+@app.route('/api/public/performances/<fid>/release-hold', methods=['POST'])
+def public_release_hold(fid):
+    d = request.json or {}
+    seat_ids = d.get('seat_ids') or []
+    session_token = (d.get('session_token') or '').strip()
+    conn = get_db()
+    if seat_ids:
+        execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND session_token=%s AND seat_id = ANY(%s)',
+            (fid, session_token, seat_ids))
+    else:
+        execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND session_token=%s', (fid, session_token))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/public/ticket-checkout', methods=['POST'])
+def public_ticket_checkout():
+    """A cart can span more than one performance now (same idea as the
+    existing multi-program registration cart): one ticket_orders row is
+    created per performance -- each keeps its own line items and total,
+    exactly like a single-performance order always has -- and every row
+    in this checkout shares one cart_id, then, once paid, the same Square
+    order/checkout ids. Seats only convert from 'held' to 'sold' once the
+    webhook confirms payment; checkout itself just validates, polices the
+    per-performance limit, and creates pending orders.
+
+    Request shape: {session_token, guardian_name, guardian_email,
+    guardian_phone, cart: [{performance_id, seats: [...]}, ...],
+    donation_cents} -- seats is [{seat_id, ticket_type_id}] for reserved
+    seating or [{ticket_type_id, quantity}] for general admission, same
+    as before, just nested one level under each cart entry now.
+    donation_cents is an optional add-on gift that rides along in the
+    same payment: it becomes its own pending_donations row sharing this
+    checkout's Square order/checkout id, so the same webhook call that
+    confirms the tickets also confirms the donation."""
+    d = request.json or {}
+    session_token = (d.get('session_token') or '').strip()
+    guardian_name = (d.get('guardian_name') or '').strip()
+    guardian_email = (d.get('guardian_email') or '').strip().lower()
+    guardian_phone = (d.get('guardian_phone') or '').strip()
+    email_key = ticket_email_key(guardian_email)
+    phone_key = ticket_phone_key(guardian_phone)
+    device_id = (d.get('device_id') or '').strip()[:64]
+    buyer_ip = _request_client_ip()[:64]
+    cart = d.get('cart') or []
+    donation_cents = d.get('donation_cents') or 0
+    try:
+        donation_cents = int(donation_cents)
+        if donation_cents < 0: raise ValueError()
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Invalid donation amount'}), 400
+
+    if not guardian_name or not guardian_email:
+        return jsonify({'error': 'Name and email are required'}), 400
+    if not phone_key:
+        return jsonify({'error': 'Please enter a 10-digit phone number'}), 400
+    if not cart:
+        return jsonify({'error': 'Your cart is empty'}), 400
+
+    conn = get_db()
+    groups = []  # each: {performance_id, prod_name, limit, line_items, fee_cents}
+    requested_by_perf = {}  # performance_id -> tickets requested in THIS submission, summed across any duplicate cart entries for the same performance
+
+    for entry in cart:
+        fid = entry.get('performance_id')
+        seat_selections = entry.get('seats') or []
+        if not fid or not seat_selections:
+            conn.close(); return jsonify({'error': 'Each cart item needs a performance and at least one ticket'}), 400
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+        if not perf:
+            conn.close(); return jsonify({'error': 'A performance in your cart no longer exists'}), 404
+        prod = fetchone(conn, '''SELECT name, max_tickets_per_performance,
+            charge_service_fee, service_fee_percent, service_fee_flat_cents
+            FROM productions WHERE id=%s''', (perf['production_id'],))
+        ticket_type_rows = {t['id']: t for t in fetchall(conn, '''SELECT tt.* FROM ticket_types tt
+            JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
+            WHERE ptt.performance_id=%s AND tt.active=TRUE''', (fid,))}
+
+        line_items = []  # each: seat_id (nullable), ticket_type_id, seat_label, price_cents
+        if perf.get('reserved_seating'):
+            _clear_expired_holds(conn, fid)
+            held = {r['seat_id']: r['session_token'] for r in
+                fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))}
+            seat_rows = {s['id']: s for s in fetchall(conn,
+                'SELECT * FROM seat_map_seats WHERE id = ANY(%s)', ([sel.get('seat_id') for sel in seat_selections],))}
+            for sel in seat_selections:
+                sid = sel.get('seat_id')
+                seat = seat_rows.get(sid)
+                if not seat:
+                    conn.close(); return jsonify({'error': 'A selected seat no longer exists'}), 400
+                if held.get(sid) != session_token:
+                    conn.close(); return jsonify({'error': f"Your hold on seat {seat['seat_label']} expired — please reselect."}), 409
+                tt = ticket_type_rows.get(sel.get('ticket_type_id'))
+                if not tt:
+                    # Never silently price a reserved seat at $0 because its
+                    # ticket type didn't resolve (missing, inactive, or this
+                    # performance has none configured) — that would let a
+                    # misconfigured performance be checked out for free.
+                    conn.close(); return jsonify({'error': f"Seat {seat['seat_label']} has no valid ticket type — please contact us."}), 400
+                line_items.append({'seat_id': sid, 'ticket_type_id': tt['id'],
+                    'seat_label': seat['seat_label'], 'price_cents': tt['price_cents'],
+                    'section': seat.get('section') or '', 'obstructed_view': bool(seat.get('obstructed_view')),
+                    'view_note': seat.get('view_note') or ''})
+        else:
+            for sel in seat_selections:
+                tt = ticket_type_rows.get(sel.get('ticket_type_id'))
+                if not tt:
+                    conn.close(); return jsonify({'error': 'Invalid ticket type'}), 400
+                qty = max(1, int(sel.get('quantity') or 1))
+                for _ in range(qty):
+                    line_items.append({'seat_id': None, 'ticket_type_id': tt['id'],
+                        'seat_label': tt['name'], 'price_cents': tt['price_cents']})
+
+        requested_by_perf[fid] = requested_by_perf.get(fid, 0) + len(line_items)
+        subtotal = sum(li['price_cents'] for li in line_items)
+        fee_cents = 0
+        if (prod or {}).get('charge_service_fee'):
+            pct = float(prod.get('service_fee_percent') or 0)
+            flat = int(prod.get('service_fee_flat_cents') or 0)
+            fee_cents = round(subtotal * pct / 100) + flat
+        groups.append({'performance_id': fid, 'prod_name': (prod or {}).get('name',''),
+            'limit': (prod or {}).get('max_tickets_per_performance'), 'line_items': line_items,
+            'fee_cents': fee_cents})
+
+    # A buyer who backs out of Square's payment page and checks out again
+    # shouldn't be blocked by their own abandoned checkout. Retire their
+    # recent unpaid checkouts for these performances first, cancelling the
+    # old Square payment link so it can no longer be paid. If Square won't
+    # cancel a link, that checkout keeps counting toward the limit.
+    perf_ids = list(requested_by_perf.keys())
+    buyer_conds, buyer_params = ['buyer_email_key=%s', 'buyer_phone_key=%s'], [email_key, phone_key]
+    if device_id:
+        buyer_conds.append('buyer_device_id=%s'); buyer_params.append(device_id)
+    prior = fetchall(conn, "SELECT id, cart_id, square_checkout_id FROM ticket_orders WHERE status='pending' "
+                     "AND created_at > NOW() - INTERVAL '" + str(TICKET_PENDING_WINDOW_MINUTES) + " minutes' "
+                     'AND performance_id = ANY(%s) AND (' + ' OR '.join(buyer_conds) + ')',
+                     tuple([perf_ids] + buyer_params)) or []
+    for cart_ref in set(r['cart_id'] for r in prior if r.get('cart_id')):
+        checkout_ids = set(r['square_checkout_id'] for r in prior if r.get('cart_id') == cart_ref and r.get('square_checkout_id'))
+        cancelled = True
+        for cid in checkout_ids:
+            try:
+                rr = requests.delete(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links/{cid}',
+                                     headers=square_headers(), timeout=10)
+                cancelled = cancelled and rr.status_code in (200, 404)
+            except Exception as e:
+                app.logger.warning(f'Could not cancel old ticket payment link {cid}: {e}')
+                cancelled = False
+        if cancelled:
+            execute(conn, "UPDATE ticket_orders SET status='superseded' WHERE cart_id=%s AND status='pending'", (cart_ref,))
+    conn.commit()
+
+    # Policing the per-performance limit: this is the authoritative check
+    # (the picker only offers a softer, client-side version). Tickets this
+    # buyer already has for the performance, paid or checked out in the
+    # last TICKET_PENDING_WINDOW_MINUTES, matched on email (normalized),
+    # phone, or this browser's device id, plus what's requested now, can't
+    # exceed the show's limit. Card and IP are only used afterwards to
+    # flag orders for staff (see flag_ticket_order_if_over_limit).
+    for fid, requested in requested_by_perf.items():
+        grp = next(g for g in groups if g['performance_id'] == fid)
+        limit = grp['limit']
+        if limit is None:
+            continue
+        existing_count = tickets_held_by_buyer(conn, fid, email_key, phone_key, device_id, raw_email=guardian_email)
+        if existing_count + requested > limit:
+            conn.close()
+            remaining = max(0, limit - existing_count)
+            msg = f"{grp['prod_name']} limits {limit} ticket{'s' if limit != 1 else ''} per performance per person"
+            msg += f" — you can get {remaining} more for this date." if remaining else " — you've already reached that limit for this date."
+            return jsonify({'error': msg}), 400
+
+    if 0 < donation_cents < 100:
+        conn.close()
+        return jsonify({'error': 'Minimum donation add-on is $1.00'}), 400
+
+    cart_id = str(uuid.uuid4())
+    order_ids = []
+    grand_total = 0
+    sq_line_items = []
+    for grp in groups:
+        total_cents = sum(li['price_cents'] for li in grp['line_items'])
+        grand_total += total_cents + grp['fee_cents']
+        order_id = str(uuid.uuid4())
+        order_ids.append(order_id)
+        execute(conn, '''INSERT INTO ticket_orders
+            (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json, total_cents, service_fee_cents, status, cart_id,
+             buyer_email_key, buyer_phone_key, buyer_device_id, buyer_ip)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s,%s)''',
+            (order_id, grp['performance_id'], guardian_name, guardian_email, guardian_phone,
+             json.dumps(grp['line_items']), total_cents, grp['fee_cents'], cart_id,
+             email_key, phone_key, device_id or None, buyer_ip or None))
+        for li in grp['line_items']:
+            sq_line_items.append({
+                'name': (f"{grp['prod_name']} — {li['seat_label'] or 'Ticket'}")[:191],
+                'quantity': '1',
+                'base_price_money': {'amount': li['price_cents'], 'currency': 'USD'},
+            })
+        if grp['fee_cents']:
+            sq_line_items.append({
+                'name': (f"{grp['prod_name']} — Service Fee")[:191],
+                'quantity': '1',
+                'base_price_money': {'amount': grp['fee_cents'], 'currency': 'USD'},
+            })
+
+    donation_id = None
+    if donation_cents > 0:
+        donation_id = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO pending_donations (id, name, email, amount_cents, message)
+            VALUES (%s,%s,%s,%s,%s)''', (donation_id, guardian_name, guardian_email, donation_cents,
+            'Added on at ticket checkout'))
+        sq_line_items.append({
+            'name': 'Donation — Horizon West Theater Company',
+            'quantity': '1',
+            'base_price_money': {'amount': donation_cents, 'currency': 'USD'},
+        })
+        grand_total += donation_cents
+    conn.commit()
+
+    if grand_total == 0:
+        for oid in order_ids:
+            _finalize_ticket_order(conn, oid, None, None)
+        conn.close()
+        return jsonify({'ok': True, 'type': 'confirmed_free', 'cart_id': cart_id})
+
+    redirect_url = f'{APP_BASE_URL}/tickets/confirmation?cart={cart_id}'
+    payload = {
+        'idempotency_key': uuid.uuid4().hex,
+        'order': {'location_id': SQUARE_LOCATION_ID, 'line_items': sq_line_items, 'reference_id': cart_id[:40]},
+        'checkout_options': {'redirect_url': redirect_url, 'ask_for_shipping_address': False},
+        'pre_populated_data': {'buyer_email': guardian_email},
+        'description': (f"Tickets — {groups[0]['prod_name']}" if len(groups) == 1 else "Tickets — multiple performances")[:191],
+    }
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
+            json=payload, headers=square_headers(), timeout=15)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment_link'):
+            lnk = data['payment_link']
+            execute(conn, 'UPDATE ticket_orders SET square_order_id=%s, square_checkout_id=%s WHERE cart_id=%s',
+                (lnk.get('order_id'), lnk.get('id'), cart_id))
+            if donation_id:
+                execute(conn, 'UPDATE pending_donations SET square_order_id=%s, square_checkout_id=%s WHERE id=%s',
+                    (lnk.get('order_id'), lnk.get('id'), donation_id))
+            conn.commit(); conn.close()
+            return jsonify({'ok': True, 'type': 'payment_required', 'payment_url': lnk.get('url'), 'cart_id': cart_id})
+        conn.close()
+        return jsonify({'error': 'Could not create payment link. Please try again.'}), 500
+    except Exception as e:
+        conn.close()
+        app.logger.error(f'Ticket checkout Square error: {e}')
+        return jsonify({'error': str(e)}), 500
+
+
+# ── Per-performance ticket limit: who counts as "the same buyer" ──────────
+TICKET_PENDING_WINDOW_MINUTES = 30   # unpaid checkouts count this long
+
+
+def ticket_email_key(email):
+    """Canonical form of an email for limit matching: lowercase, drop any
+    +tag, and for Gmail also drop dots (Gmail ignores both), so
+    mom.smith+2@gmail.com and momsmith@gmail.com are the same buyer."""
+    e = (email or '').strip().lower()
+    if '@' not in e:
+        return e
+    local, domain = e.rsplit('@', 1)
+    local = local.split('+', 1)[0]
+    if domain in ('gmail.com', 'googlemail.com'):
+        local = local.replace('.', '')
+        domain = 'gmail.com'
+    return local + '@' + domain
+
+
+def ticket_phone_key(phone):
+    digits = ''.join(ch for ch in (phone or '') if ch.isdigit())
+    if len(digits) == 11 and digits.startswith('1'):
+        digits = digits[1:]
+    return digits if len(digits) == 10 else ''
+
+
+def _request_client_ip():
+    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+    return fwd or (request.remote_addr or '')
+
+
+def _order_ticket_count(row):
+    try:
+        return len(json.loads(row.get('seats_json') or '[]'))
+    except Exception:
+        return 0
+
+
+def tickets_held_by_buyer(conn, performance_id, email_key, phone_key, device_id,
+                          raw_email='', include_pending=True, exclude_order_ids=None):
+    """Tickets this buyer already has for one performance (paid, plus
+    unpaid checkouts from the last TICKET_PENDING_WINDOW_MINUTES), matched
+    on email OR phone OR device."""
+    conds, params = [], []
+    if email_key:
+        conds.append('buyer_email_key=%s'); params.append(email_key)
+    if raw_email:
+        # orders placed before buyer_email_key existed
+        conds.append('(buyer_email_key IS NULL AND LOWER(guardian_email)=%s)'); params.append(raw_email.strip().lower())
+    if phone_key:
+        conds.append('buyer_phone_key=%s'); params.append(phone_key)
+    if device_id:
+        conds.append('buyer_device_id=%s'); params.append(device_id)
+    if not conds:
+        return 0
+    status_sql = "status='completed'"
+    if include_pending:
+        status_sql = ("(status='completed' OR (status='pending' AND created_at > NOW() - INTERVAL '"
+                      + str(TICKET_PENDING_WINDOW_MINUTES) + " minutes'))")
+    rows = fetchall(conn, 'SELECT id, seats_json FROM ticket_orders WHERE performance_id=%s AND '
+                    + status_sql + ' AND (' + ' OR '.join(conds) + ')',
+                    tuple([performance_id] + params)) or []
+    skip = set(exclude_order_ids or [])
+    return sum(_order_ticket_count(r) for r in rows if r['id'] not in skip)
+
+
+def _square_card_fingerprint(square_payment_id):
+    if not square_payment_id:
+        return None
+    try:
+        r = requests.get(f'{SQUARE_API_BASE}/v2/payments/{square_payment_id}', headers=square_headers(), timeout=10)
+        pay = (r.json() or {}).get('payment') or {}
+        return ((pay.get('card_details') or {}).get('card') or {}).get('fingerprint')
+    except Exception as e:
+        app.logger.warning(f'Square card fingerprint lookup failed: {e}')
+        return None
+
+
+def flag_ticket_order_if_over_limit(conn, order_id):
+    """After an order is paid, look for signs the same person went over the
+    performance limit. Never blocks or refunds anything: it records a flag
+    that Box Office shows to staff, who make the call.
+      over_limit - same email/phone/device went over (e.g. a checkout that
+                   sat unpaid past the pending window and then got paid)
+      same_card  - the same payment card used under different emails
+      same_ip    - the same internet connection under different emails
+                   (weak: households, schools and phone carriers share IPs)"""
+    o = fetchone(conn, 'SELECT o.*, p.max_tickets_per_performance AS lim FROM ticket_orders o '
+                 'JOIN performances pf ON pf.id=o.performance_id JOIN productions p ON p.id=pf.production_id '
+                 'WHERE o.id=%s', (order_id,))
+    if not o or o.get('lim') is None:
+        return
+    limit = o['lim']
+    reasons, related = [], set()
+    mine = _order_ticket_count(o)
+
+    held = tickets_held_by_buyer(conn, o['performance_id'], o.get('buyer_email_key'), o.get('buyer_phone_key'),
+                                 o.get('buyer_device_id'), include_pending=False, exclude_order_ids=[order_id])
+    if held + mine > limit:
+        reasons.append('over_limit')
+
+    for col, reason in (('card_fingerprint', 'same_card'), ('buyer_ip', 'same_ip')):
+        val = o.get(col)
+        if not val:
+            continue
+        rows = fetchall(conn, 'SELECT id, seats_json FROM ticket_orders WHERE performance_id=%s '
+                        "AND status='completed' AND " + col + '=%s AND id<>%s '
+                        "AND COALESCE(buyer_email_key,'')<>%s",
+                        (o['performance_id'], val, order_id, o.get('buyer_email_key') or '')) or []
+        if rows and mine + sum(_order_ticket_count(r) for r in rows) > limit:
+            reasons.append(reason)
+            related.update(r['id'] for r in rows)
+
+    if reasons:
+        flag = json.dumps({'reasons': reasons, 'related_order_ids': sorted(related), 'limit': limit})
+        execute(conn, 'UPDATE ticket_orders SET limit_flag=%s WHERE id=%s', (flag, order_id))
+        conn.commit()
+
+
+def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
+    """Turns a paid (or free) order into real tickets, releases the seat
+    holds that produced them, and marks the order completed."""
+    order = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (order_id,))
+    if not order or order['status'] == 'completed':
+        return
+    try:
+        line_items = json.loads(order.get('seats_json') or '[]')
+    except Exception:
+        line_items = []
+    for li in line_items:
+        execute(conn, '''INSERT INTO tickets
+            (id, ticket_order_id, performance_id, seat_id, ticket_type_id, seat_label, price_cents, confirmation_code,
+             section, obstructed_view, view_note)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), order_id, order['performance_id'], li.get('seat_id'),
+             li.get('ticket_type_id'), li.get('seat_label') or '', li.get('price_cents') or 0,
+             uuid.uuid4().hex[:8].upper(), li.get('section') or '', bool(li.get('obstructed_view')),
+             li.get('view_note') or ''))
+    execute(conn, "UPDATE ticket_orders SET status='completed' WHERE id=%s", (order_id,))
+    execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND seat_id = ANY(%s)',
+        (order['performance_id'], [li['seat_id'] for li in line_items if li.get('seat_id')]))
+    conn.commit()
+    try:
+        fp = _square_card_fingerprint(square_payment_id)
+        if fp:
+            execute(conn, 'UPDATE ticket_orders SET card_fingerprint=%s WHERE id=%s', (fp, order_id))
+            conn.commit()
+        flag_ticket_order_if_over_limit(conn, order_id)
+    except Exception as e:
+        app.logger.warning(f'Ticket limit flag check failed: {e}')
+    if order.get('guardian_email'):
+        try:
+            perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))
+            prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) if perf else None
+            seat_list = ', '.join(
+                (li.get('seat_label','') + (f" ({li['section']})" if li.get('section') else ''))
+                for li in line_items) or f'{len(line_items)} ticket(s)'
+            send_email([order['guardian_email']], f"Your tickets — {(prod or {}).get('name','')}",
+                build_hwtc_email_html(f"Your tickets — {(prod or {}).get('name','')}",
+                f'<h2 style="color:#145466">You\'re all set!</h2>'
+                f'<p>Hi {order.get("guardian_name","")},</p>'
+                f'<p>Thanks for your order for <strong>{(prod or {}).get("name","")}</strong>'
+                f'{" on "+perf.get("performance_date","") if perf and perf.get("performance_date") else ""}.</p>'
+                f'<p><strong>Seats/Tickets:</strong> {seat_list}</p>'
+                f'<p>See you at the show!</p>'))
+        except Exception as e:
+            app.logger.warning(f'Ticket confirmation email failed: {e}')
+
+
+@app.route('/api/public/ticket-order/<oid>', methods=['GET'])
+def public_ticket_order_status(oid):
+    conn = get_db()
+    order = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (oid,))
+    if not order:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))
+    prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) if perf else None
+    tickets = fetchall(conn, 'SELECT * FROM tickets WHERE ticket_order_id=%s', (oid,))
+    conn.close()
+    try:
+        order['seats'] = json.loads(order.get('seats_json') or '[]')
+    except Exception:
+        order['seats'] = []
+    return jsonify({'order': order, 'performance': perf, 'production_name': (prod or {}).get('name',''), 'tickets': tickets})
+
+@app.route('/api/public/ticket-cart/<cart_id>', methods=['GET'])
+def public_ticket_cart_status(cart_id):
+    """Confirmation-page equivalent of public_ticket_order_status, but for
+    a whole cart -- every performance's order that shared this checkout,
+    each with its own tickets, so a multi-show purchase shows as one
+    combined confirmation instead of only ever surfacing one of them."""
+    conn = get_db()
+    orders = fetchall(conn, 'SELECT * FROM ticket_orders WHERE cart_id=%s ORDER BY created_at', (cart_id,)) or []
+    if not orders:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    result = []
+    for order in orders:
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))
+        prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) if perf else None
+        tickets = fetchall(conn, 'SELECT * FROM tickets WHERE ticket_order_id=%s', (order['id'],))
+        try:
+            order['seats'] = json.loads(order.get('seats_json') or '[]')
+        except Exception:
+            order['seats'] = []
+        result.append({'order': order, 'performance': perf, 'production_name': (prod or {}).get('name',''), 'tickets': tickets})
+    # An add-on donation shares this same checkout's Square ids, not the
+    # cart_id itself (pending_donations has no cart_id column -- it's a
+    # separate table used standalone too), so it's looked up separately.
+    donation = None
+    ids = {o.get('square_order_id') for o in orders if o.get('square_order_id')} | {o.get('square_checkout_id') for o in orders if o.get('square_checkout_id')}
+    if ids:
+        donation = fetchone(conn, 'SELECT amount_cents, status FROM pending_donations WHERE square_order_id = ANY(%s) OR square_checkout_id = ANY(%s)',
+            (list(ids), list(ids)))
+    conn.close()
+    return jsonify({'orders': result, 'donation': donation})
+
+
+# ── ORDER / PATRON MANAGEMENT (staff) ────────────────────────────────────
+
+@app.route('/api/productions/<pid>/seat-holds', methods=['GET'])
+def get_production_seat_holds(pid):
+    """Every currently-live (non-expired) seat hold across this
+    production's performances — mainly so staff can see what a stuck or
+    abandoned checkout is holding onto and clear it themselves instead of
+    waiting out the 15-minute expiry, e.g. while testing or troubleshooting
+    a patron's report that a seat 'won't let them pick it'."""
+    err = require_auth()
+    if err: return err
+    performance_id = (request.args.get('performance_id') or '').strip()
+    conn = get_db()
+    perf_ids = [performance_id] if performance_id else [
+        r['id'] for r in fetchall(conn, 'SELECT id FROM performances WHERE production_id=%s', (pid,)) or []]
+    if not perf_ids:
+        conn.close(); return jsonify([])
+    holds = fetchall(conn, '''SELECT h.*, s.seat_label, pf.performance_date, pf.performance_time
+        FROM seat_holds h
+        JOIN seat_map_seats s ON s.id=h.seat_id
+        JOIN performances pf ON pf.id=h.performance_id
+        WHERE h.performance_id = ANY(%s) AND h.expires_at > NOW()
+        ORDER BY pf.performance_date, pf.performance_time, s.seat_label''', (perf_ids,)) or []
+    conn.close()
+    return jsonify(holds)
+
+@app.route('/api/seat-holds/<hold_id>', methods=['DELETE'])
+def delete_seat_hold(hold_id):
+    """Staff manually clearing one hold — releases it immediately instead
+    of waiting for the 15-minute expiry."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM seat_holds WHERE id=%s', (hold_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/productions/<pid>/ticket-orders', methods=['GET'])
+def get_production_ticket_orders(pid):
+    """The box-office view: every order across all of this production's
+    performances, searchable by patron name/email and optionally filtered
+    to one performance. Each order comes back with its ticket count and
+    seat labels so staff can see what's in it without opening every one."""
+    err = require_auth()
+    if err: return err
+    q = (request.args.get('q') or '').strip()
+    performance_id = (request.args.get('performance_id') or '').strip()
+    conn = get_db()
+    where = ['pf.production_id=%s', "t.status <> 'superseded'"]
+    params = [pid]
+    if performance_id:
+        where.append('t.performance_id=%s')
+        params.append(performance_id)
+    if q:
+        where.append('(t.guardian_name ILIKE %s OR t.guardian_email ILIKE %s OR t.guardian_phone ILIKE %s)')
+        like = f'%{q}%'
+        params.extend([like, like, like])
+    orders = fetchall(conn, f'''SELECT t.*, pf.name AS performance_name, pf.performance_date, pf.performance_time
+        FROM ticket_orders t
+        JOIN performances pf ON pf.id=t.performance_id
+        WHERE {" AND ".join(where)}
+        ORDER BY t.created_at DESC LIMIT 100''', tuple(params)) or []
+    if orders:
+        order_ids = [o['id'] for o in orders]
+        tix = fetchall(conn, 'SELECT ticket_order_id, seat_label FROM tickets WHERE ticket_order_id = ANY(%s)', (order_ids,)) or []
+        by_order = {}
+        for t in tix:
+            by_order.setdefault(t['ticket_order_id'], []).append(t['seat_label'])
+        for o in orders:
+            o['seat_labels'] = by_order.get(o['id'], [])
+            o['ticket_count'] = len(o['seat_labels'])
+    conn.close()
+    return jsonify(orders)
+
+
+@app.route('/api/ticket-orders/<oid>', methods=['GET'])
+def get_ticket_order_admin(oid):
+    """Full order detail for staff — same shape as the public confirmation
+    endpoint, plus each ticket's seat_id (needed for the move-seat UI,
+    which the public-facing version has no reason to expose)."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    order = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (oid,))
+    if not order:
+        conn.close(); return jsonify({'error': 'Not found'}), 404
+    perf = fetchone(conn, '''SELECT pf.*, p.name AS production_name, p.id AS production_id
+        FROM performances pf JOIN productions p ON p.id=pf.production_id WHERE pf.id=%s''', (order['performance_id'],))
+    tickets = fetchall(conn, 'SELECT * FROM tickets WHERE ticket_order_id=%s ORDER BY seat_label', (oid,)) or []
+    related = []
+    try:
+        flag = json.loads(order.get('limit_flag') or 'null')
+    except Exception:
+        flag = None
+    if flag and flag.get('related_order_ids'):
+        related = fetchall(conn, '''SELECT id, guardian_name, guardian_email, guardian_phone, seats_json, created_at
+            FROM ticket_orders WHERE id = ANY(%s) ORDER BY created_at''', (flag['related_order_ids'],)) or []
+        for r in related:
+            r['ticket_count'] = _order_ticket_count(r)
+            r.pop('seats_json', None)
+    conn.close()
+    try:
+        order['seats'] = json.loads(order.get('seats_json') or '[]')
+    except Exception:
+        order['seats'] = []
+    order['limit_flag'] = flag
+    # staff don't need the raw matching signals
+    for k in ('buyer_device_id', 'card_fingerprint', 'buyer_email_key', 'buyer_phone_key'):
+        order.pop(k, None)
+    return jsonify({'order': order, 'performance': perf, 'tickets': tickets, 'related_orders': related})
+
+
+@app.route('/api/tickets/<tid>/move-seat', methods=['PUT'])
+def move_ticket_seat(tid):
+    """Reassigns a sold ticket to a different seat in the same performance
+    — e.g. a patron calls asking to move, or staff need to consolidate a
+    party together. Refuses to move onto a seat that's already sold or
+    currently held by someone mid-checkout; doesn't touch price or the
+    ticket type, just which physical seat it points to."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    new_seat_id = (d.get('seat_id') or '').strip()
+    if not new_seat_id:
+        return jsonify({'error': 'A new seat is required'}), 400
+    conn = get_db()
+    ticket = fetchone(conn, 'SELECT * FROM tickets WHERE id=%s', (tid,))
+    if not ticket:
+        conn.close(); return jsonify({'error': 'Ticket not found'}), 404
+    if not ticket.get('seat_id'):
+        conn.close(); return jsonify({'error': 'This ticket is general admission and has no seat to move'}), 400
+    new_seat = fetchone(conn, 'SELECT * FROM seat_map_seats WHERE id=%s', (new_seat_id,))
+    if not new_seat:
+        conn.close(); return jsonify({'error': 'Seat not found'}), 404
+    already_sold = fetchone(conn, 'SELECT id FROM tickets WHERE performance_id=%s AND seat_id=%s AND id!=%s',
+        (ticket['performance_id'], new_seat_id, tid))
+    if already_sold:
+        conn.close(); return jsonify({'error': f"{new_seat['seat_label']} is already sold to someone else"}), 409
+    _clear_expired_holds(conn, ticket['performance_id'])
+    held = fetchone(conn, 'SELECT session_token FROM seat_holds WHERE performance_id=%s AND seat_id=%s',
+        (ticket['performance_id'], new_seat_id))
+    if held:
+        conn.close(); return jsonify({'error': f"{new_seat['seat_label']} is currently held by someone mid-checkout — try again shortly"}), 409
+    old_label = ticket.get('seat_label')
+    execute(conn, 'UPDATE tickets SET seat_id=%s, seat_label=%s WHERE id=%s',
+        (new_seat_id, new_seat['seat_label'], tid))
+    # Keep the order's own seats_json in sync too, since the confirmation
+    # page and order detail both read seat labels from there directly.
+    order = fetchone(conn, 'SELECT seats_json FROM ticket_orders WHERE id=%s', (ticket['ticket_order_id'],))
+    try:
+        seats = json.loads(order.get('seats_json') or '[]') if order else []
+        for s in seats:
+            if s.get('seat_id') == ticket['seat_id']:
+                s['seat_id'] = new_seat_id
+                s['seat_label'] = new_seat['seat_label']
+        execute(conn, 'UPDATE ticket_orders SET seats_json=%s WHERE id=%s', (json.dumps(seats), ticket['ticket_order_id']))
+    except Exception:
+        pass
+    conn.commit()
+    conn.close()
+    return jsonify({'ok': True, 'old_seat_label': old_label, 'new_seat_label': new_seat['seat_label']})
+
+
+@app.route('/tickets/<slug>')
+def public_tickets_page(slug):
+    return send_from_directory('static', 'tickets.html')
+
+@app.route('/tickets/confirmation')
+def public_tickets_confirmation_page():
+    return send_from_directory('static', 'tickets.html')
 
 

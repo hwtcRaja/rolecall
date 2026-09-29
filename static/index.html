@@ -18494,7 +18494,10 @@ function openUserEditModal(uid){
   + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">Give access to specific shows only. This matters when <strong>Productions</strong> and <strong>Youth Productions</strong> above are No Access. Anyone with those already sees every show. Covers the show\'s cast/crew, schedule, conflicts, announcements, registrations, auditions and check-in.</div>'
   + '<div class="pa-list" style="font-size:12.5px;color:var(--text-muted)">Loading shows…</div>'
  permSection.appendChild(paWrap)
- loadUserProductionAccess(uid)
+ // The modal isn't on the page yet at this point, so hand over the element
+ // itself rather than looking it up by id (that lookup found nothing and
+ // left the list stuck on "Loading shows…").
+ loadUserProductionAccess(uid, paWrap)
 
  // Save button
  const saveBtn = document.createElement('button')
@@ -18573,10 +18576,15 @@ function revokeAll(uid){
  })
 }
 
-async function loadUserProductionAccess(uid){
- const wrap = document.getElementById('prod-access-'+uid); if(!wrap) return
+async function loadUserProductionAccess(uid, wrapEl){
+ const wrap = wrapEl || document.getElementById('prod-access-'+uid); if(!wrap) return
  const list = wrap.querySelector('.pa-list')
- const [prods, access] = await Promise.all([api('/api/productions'), api('/api/users/'+uid+'/production-access')])
+ let prods, access
+ try{
+  [prods, access] = await Promise.all([api('/api/productions'), api('/api/users/'+uid+'/production-access')])
+ }catch(e){ list.innerHTML = '<span style="color:var(--red-600)">Couldn\'t load shows: '+escHtml(e.message||'')+'</span>'; return }
+ if(!Array.isArray(prods)){ list.innerHTML = '<span style="color:var(--red-600)">Couldn\'t load shows'+((prods&&prods.error)?': '+escHtml(prods.error):'')+'</span>'; return }
+ if(access && access.error){ list.innerHTML = '<span style="color:var(--red-600)">Couldn\'t load this person\'s show access: '+escHtml(access.error)+'</span>'; return }
  const grants = (access && access.grants) || {}
  const rows = (Array.isArray(prods)?prods:[]).filter(p=>p.status!=='archived' || grants[p.id])
  if(!rows.length){ list.textContent = 'No productions yet.'; return }

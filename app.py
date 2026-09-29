@@ -35750,6 +35750,57 @@ def resplit_shared_orders():
     conn.close()
     return jsonify({'ok': True, 'orders_fixed': fixed, 'orders_skipped_already_split': skipped})
 
+def program_instruction_cost(conn, program_id):
+    """Planned instructor cost for a paid-instruction program, so Marquee can
+    show what the program actually nets. Uses the same pay rules as the
+    BloomBooks payroll report: 'per_class' pays the rate once per scheduled
+    class; 'hourly' pays the rate x each class's scheduled length (the
+    event's own times, else the program's meeting times). Scheduled classes
+    are the program's non-cancelled events. With no rate or no classes on
+    the calendar yet, falls back to the program's lump-sum
+    instructor_expected_pay estimate. Returns None if not paid instruction."""
+    p = fetchone(conn, '''SELECT is_paid_instruction, pay_rate_type, pay_rate_amount, instructor_expected_pay,
+        meeting_start_time, meeting_end_time FROM youth_programs WHERE id=%s''', (program_id,))
+    if not p or not p.get('is_paid_instruction'):
+        return None
+    rate_type = p.get('pay_rate_type') or 'hourly'
+    rate = float(p.get('pay_rate_amount') or 0)
+    default_hours = _hours_between(p.get('meeting_start_time') or '', p.get('meeting_end_time') or '')
+    events = fetchall(conn, """SELECT id, start_time, end_time FROM events
+        WHERE program_id=%s AND COALESCE(status,'active') != 'cancelled'""", (program_id,)) or []
+    classes = len(events)
+    hours = 0.0
+    for e in events:
+        h = _hours_between(e.get('start_time') or '', e.get('end_time') or '')
+        hours += h if h > 0 else default_hours
+    if rate > 0 and classes:
+        cost = rate * classes if rate_type == 'per_class' else rate * hours
+        basis = rate_type
+    else:
+        cost = float(p.get('instructor_expected_pay') or 0)
+        basis = 'estimate' if cost > 0 else 'not_set'
+    paid_classes = 0
+    if events:
+        try:
+            row = fetchone(conn, """SELECT COUNT(DISTINCT cpe.rolecall_event_id) AS c
+                FROM bb_contractor_payment_events cpe
+                JOIN bb_contractor_payments cp ON cp.id = cpe.payment_id
+                WHERE cp.status != 'void' AND cpe.rolecall_event_id = ANY(%s)""", ([e['id'] for e in events],))
+            paid_classes = int((row or {}).get('c') or 0)
+        except Exception:
+            try: conn.rollback()
+            except Exception: pass
+    return {
+        'instruction_cost_cents': int(round(cost * 100)),
+        'instruction_basis': basis,
+        'instruction_rate': rate,
+        'instruction_rate_type': rate_type,
+        'instruction_classes': classes,
+        'instruction_hours': round(hours, 2),
+        'instruction_classes_paid': paid_classes,
+    }
+
+
 @app.route('/api/marquee/overview', methods=['GET'])
 def marquee_overview():
     err = require_permission('marquee', 'view')
@@ -35943,6 +35994,20 @@ def marquee_overview():
     for row in program_breakdown:
         row['type'] = 'program'
         row['revenue_cents'] = row['confirmed_revenue_cents']  # kept for anything still reading the old field name
+        # Paid instruction: subtract the planned instructor cost so the
+        # program's figure reflects what HWTC actually keeps.
+        try:
+            ic = program_instruction_cost(conn, row['id'])
+        except Exception as e:
+            app.logger.warning(f'Instruction cost failed for {row.get("name")}: {e}')
+            try: conn.rollback()
+            except Exception: pass
+            ic = None
+        row['paid_instruction'] = bool(ic)
+        if ic:
+            row.update(ic)
+            row['net_confirmed_cents'] = int(row['confirmed_revenue_cents'] or 0) - ic['instruction_cost_cents']
+            row['net_expected_cents'] = int(row['expected_revenue_cents'] or 0) - ic['instruction_cost_cents']
 
     # Rising Stars production breakdown — same shape as program_breakdown so the
     # dashboard can render both in one list. Only Rising Stars productions carry
@@ -36173,8 +36238,12 @@ def marquee_overview():
     except Exception as e:
         app.logger.warning(f'Flat program registrants query failed: {e}')
 
+    instruction_cost_total = sum(int(r.get('instruction_cost_cents') or 0) for r in program_breakdown if r.get('paid_instruction'))
     conn.close()
     return jsonify({
+        'instruction_cost_total': instruction_cost_total,
+        'net_confirmed_revenue': (confirmed_revenue or 0) - instruction_cost_total,
+        'net_expected_revenue': (expected_revenue or 0) - instruction_cost_total,
         'reg_counts': reg_counts,
         'cart_revenue': total_revenue,
         'confirmed_revenue': confirmed_revenue,

@@ -1491,6 +1491,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn btn-secondary btn-sm" onclick="openDonorImportModal()">Import CSV</button>
  <button class="btn btn-secondary btn-sm" onclick="openDonorCampaignsModal()">Campaigns</button>
  <button class="btn btn-secondary btn-sm" onclick="openDonorTiersModal()"> Tiers &amp; Benefits</button>
+ <button class="btn btn-secondary btn-sm" onclick="openBenefitTracker()">Benefit Tracker</button>
  <button class="btn btn-primary" onclick="openAddDonorModal()">+ Add Donor</button>
  </div>
  </div>
@@ -15184,19 +15185,23 @@ function renderDonorDetailPage(donor){
  ${donor.benefits && donor.benefits.length ? `
  <div class="card" style="padding:20px;margin-bottom:16px">
  <div style="font-size:15px;font-weight:700;margin-bottom:4px"> ${donor.tier_name||'Tier'} Benefits</div>
- <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">All benefits including inherited from lower tiers</div>
+ <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">All benefits including inherited from lower tiers</div>
+ ${renderDonorEligibilityBanner(donor)}
+ ${renderDonorBenefitCodes(donor)}
  ${donor.benefits.filter(b=>b.is_trackable).map(b=>{
  const uses = donor.benefit_usage.filter(u=>u.benefit_id===b.id)
+ const bst = ((donor.benefit_status||{}).benefits||[]).find(x=>x.benefit_id===b.id)
  return `<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="flex:1">
  <div style="font-size:13px;font-weight:600">${escHtml(b.name)}
  ${b.tier_name&&b.tier_name!==donor.tier_name?`<span style="font-size:10px;color:var(--text-hint);font-weight:400"> · from ${escHtml(b.tier_name)}</span>`:''}
  </div>
  ${b.description?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(b.description)}</div>`:''}
- ${uses.length?`<div style="font-size:11px;color:var(--green-600);margin-top:2px">Used ${uses.length}× — last ${formatDateTime(uses[0].used_at)}</div>`:''}
+ ${bst ? `<div style="font-size:11px;margin-top:3px;font-weight:600;color:${bst.remaining>0?'var(--teal-dark)':'var(--text-muted)'}">Used ${bst.used} of ${bst.allowed} this eligibility year${bst.last_used_at?' · last '+formatDateTime(bst.last_used_at):''}</div>` : ''}
+ ${uses.length?`<div style="font-size:11px;color:var(--text-hint);margin-top:2px">All time: used ${uses.length}×</div>`:''}
  </div>
- <button onclick="recordBenefitUse('${donor.id}','${b.id}')" class="btn btn-secondary btn-sm" style="font-size:11px">
- ${uses.length ? '+ Use Again': 'Mark Used'}
+ <button onclick="openRecordBenefitUse('${donor.id}','${b.id}', '${escHtml(b.name).replace(/'/g,"\\'")}')" class="btn btn-secondary btn-sm" style="font-size:11px">
+ ${bst && bst.remaining===0 ? '+ Use Again' : 'Mark Used'}
 </button>
  </div>`
  }).join('')}
@@ -15546,6 +15551,200 @@ async function deleteDonation(donationId, donorId){
  if(!donor.error) renderDonorDetailPage(donor)
  const donors = await api('/api/donors')
  if(Array.isArray(donors)) allDonors = donors
+}
+
+// ── Benefit eligibility (donor detail) ──
+function renderDonorBenefitCodes(donor){
+ const codes = donor.benefit_codes || []
+ if(!codes.length) return ''
+ return '<div style="margin:0 0 12px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-hint);margin-bottom:6px">Codes</div>'
+  + codes.map(c=>'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px">'
+    + '<span style="font-family:monospace;font-weight:700;cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(\''+c.code+'\');toast(\'Copied\',\'success\')">'+escHtml(c.code)+'</span>'
+    + '<span style="flex:1;color:var(--text-muted)">'+escHtml(c.description||c.benefit_name)+(c.production_name?' · '+escHtml(c.production_name):'')+'</span>'
+    + '<span style="font-size:11px;font-weight:700;color:'+(c.status==='active'?'#166534':'#64748b')+'">'+(c.status==='active'?(c.redemptions?'Redeemed '+c.redemptions+'×':'Active'):'Off')+'</span>'
+    + (c.status==='active'?'<button class="btn btn-secondary btn-sm" style="font-size:10.5px" onclick="voidBenefitCode(\''+c.id+'\',\''+donor.id+'\')">Turn off</button>':'')
+    + '</div>').join('') + '</div>'
+}
+function renderDonorEligibilityBanner(donor){
+ const st = donor.benefit_status || {}
+ const fmt = d => d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'
+ const ok = !!st.eligible_now
+ return '<div style="background:'+(ok?'#ecfdf5':'#fef2f2')+';border:1.5px solid '+(ok?'#a7f3d0':'#fecaca')+';border-radius:var(--radius);padding:10px 12px;margin-bottom:12px;font-size:12.5px;line-height:1.5">'
+  + '<div style="font-weight:800;color:'+(ok?'#065f46':'#991b1b')+'">'+(ok?'Eligible to use benefits until '+fmt(st.eligible_until):'Benefit window ended '+fmt(st.eligible_until))+'</div>'
+  + '<div style="color:var(--text-muted)">Reached tier '+fmt(st.window_start)+(st.eligible_reason?' · '+escHtml(st.eligible_reason):'')+'</div>'
+  + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px">'
+  + '<span style="font-size:11.5px;color:var(--text-muted)">Extend this donor to</span>'
+  + '<input type="date" id="dd-ben-override" value="'+escHtml(donor.benefits_override_until||'')+'" style="width:auto;padding:4px 6px;font-size:12px"/>'
+  + '<span style="font-size:11.5px;color:var(--text-muted);margin-left:6px">Reached tier on</span>'
+  + '<input type="date" id="dd-ben-achieved" value="'+escHtml(st.window_start||'')+'" style="width:auto;padding:4px 6px;font-size:12px"/>'
+  + '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="saveDonorBenefitWindow(\''+donor.id+'\')">Save</button>'
+  + '</div></div>'
+}
+async function saveDonorBenefitWindow(donorId){
+ const res = await api('/api/donors/'+donorId+'/benefit-eligibility','PUT',{
+  until: document.getElementById('dd-ben-override').value || '',
+  tier_achieved_date: document.getElementById('dd-ben-achieved').value || ''
+ })
+ if(res.ok){ toast('Benefit window saved','success'); const donor = await api('/api/donors/'+donorId+'/detail'); if(!donor.error) renderDonorDetailPage(donor) }
+ else toast(res.error||'Error','error')
+}
+function openRecordBenefitUse(donorId, benefitId, benefitName, afterSave){
+ window._benefitUseAfterSave = afterSave || null
+ const today = new Date().toISOString().slice(0,10)
+ showAdHocModal('benefit-use-modal', 'Record Benefit Use',
+  '<div style="font-weight:700;margin-bottom:12px">'+escHtml(benefitName||'')+'</div>'
+  + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+  + '<div class="form-group"><label>Used on</label><input type="date" id="bu-date" value="'+today+'"/></div>'
+  + '<div class="form-group"><label>How many uses</label><input type="number" id="bu-qty" min="1" value="1"/></div></div>'
+  + '<div class="form-group"><label>Notes</label><input id="bu-notes" placeholder="e.g. HSM Jr, Nov 7 · 4 tickets"/></div>'
+  + '<button class="btn btn-primary" style="width:100%" onclick="saveRecordBenefitUse(\''+donorId+'\',\''+benefitId+'\')">Save</button>')
+}
+async function saveRecordBenefitUse(donorId, benefitId){
+ const res = await api('/api/donors/'+donorId+'/benefits/use','POST',{
+  benefit_id: benefitId, used_on: document.getElementById('bu-date').value,
+  quantity: parseInt(document.getElementById('bu-qty').value||'1',10)||1,
+  notes: document.getElementById('bu-notes').value||''
+ })
+ if(!res.ok){ toast(res.error||'Error','error'); return }
+ closeAdHocModal('benefit-use-modal')
+ toast('Benefit use recorded','success')
+ if(typeof window._benefitUseAfterSave === 'function'){ window._benefitUseAfterSave(); return }
+ const donor = await api('/api/donors/'+donorId+'/detail')
+ if(!donor.error) renderDonorDetailPage(donor)
+}
+
+// ── Benefit Tracker: who has a benefit, who's used it, who to contact ──
+var _btBenefitId = ''
+var _btStatus = 'unused'
+var _btProductionId = ''
+var _btProductions = null
+var BT_TYPES = [['manual','Tracked by hand (no code)'],['bogo_tickets','2-for-1 tickets'],['pct_ticket_order','% off a ticket order'],['pct_class','% off a class'],['comp_per_show','Comp tickets per show']]
+async function openBenefitTracker(){
+ const [benefits, settings] = await Promise.all([api('/api/donor-benefits'), api('/api/donor-benefit-settings')])
+ const list = Array.isArray(benefits) ? benefits.filter(b=>b.is_trackable) : []
+ if(!_btBenefitId && list.length) _btBenefitId = list[0].id
+ showAdHocModal('benefit-tracker-modal', 'Benefit Tracker',
+  '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">'
+  + '<div style="font-weight:700;font-size:13px;margin-bottom:6px">Eligibility rules</div>'
+  + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">'
+  + '<div class="form-group" style="margin:0"><label>Window after reaching a tier (days)</label><input type="number" id="bt-window" min="1" value="'+(settings.window_days||365)+'" style="width:120px"/></div>'
+  + '<div class="form-group" style="margin:0"><label>Grace: everyone eligible until</label><input type="date" id="bt-grace" value="'+escHtml(settings.grace_until||'')+'"/></div>'
+  + '<div class="form-group" style="margin:0;flex:1;min-width:180px"><label>Grace note</label><input id="bt-grace-note" value="'+escHtml(settings.grace_note||'')+'" placeholder="Catch-up while we start tracking"/></div>'
+  + '<button class="btn btn-secondary btn-sm" onclick="saveBenefitSettings()">Save rules</button></div>'
+  + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">A donor can use benefits for the window after the donation that reached their tier. The grace date lets everyone with a tier use benefits until then (leave blank to turn it off). Individual donors can be extended from their profile.</div>'
+  + '</div>'
+  + (list.length
+     ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
+       + '<select id="bt-benefit" onchange="_btBenefitId=this.value;loadBenefitTrackerList()" style="width:auto;min-width:240px">'
+       + list.map(b=>'<option value="'+b.id+'"'+(b.id===_btBenefitId?' selected':'')+'>'+escHtml(b.name)+' ('+escHtml(b.tier_name)+'+)</option>').join('')
+       + '</select>'
+       + ['unused','used','expired','all'].map(k=>'<span class="bt-pill" data-k="'+k+'" onclick="_btStatus=\''+k+'\';loadBenefitTrackerList()" style="padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--border)">'+({unused:'Can still use',used:'Used',expired:'Window ended',all:'All'})[k]+'</span>').join('')
+       + '</div><div id="bt-list">Loading…</div>'
+     : '<div style="color:var(--text-muted);font-size:13px">No trackable benefits yet. Add them under Tiers &amp; Benefits.</div>'))
+ if(list.length) loadBenefitTrackerList()
+}
+async function saveBenefitSettings(){
+ const res = await api('/api/donor-benefit-settings','PUT',{
+  window_days: parseInt(document.getElementById('bt-window').value||'365',10)||365,
+  grace_until: document.getElementById('bt-grace').value||'',
+  grace_note: document.getElementById('bt-grace-note').value||''
+ })
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Rules saved','success'); loadBenefitTrackerList()
+}
+async function loadBenefitTrackerList(){
+ const holder = document.getElementById('bt-list'); if(!holder) return
+ document.querySelectorAll('.bt-pill').forEach(p=>{
+  const on = p.dataset.k===_btStatus
+  p.style.background = on ? 'var(--teal)' : 'transparent'; p.style.color = on ? '#fff' : 'var(--text-muted)'; p.style.borderColor = on ? 'var(--teal)' : 'var(--border)'
+ })
+ holder.innerHTML = 'Loading…'
+ if(_btProductions === null){ const ps = await api('/api/productions'); _btProductions = Array.isArray(ps) ? ps.filter(p=>p.status!=='archived') : [] }
+ const data = await api('/api/donor-benefits/'+_btBenefitId+'/donors?status='+_btStatus+(_btProductionId?'&production_id='+encodeURIComponent(_btProductionId):''))
+ if(!data || data.error){ holder.innerHTML = '<div style="color:#b91c1c">'+escHtml((data&&data.error)||'Could not load')+'</div>'; return }
+ const rows = data.donors || []
+ const fmt = d => d ? new Date(String(d).slice(0,10)+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'
+ const emails = rows.map(r=>r.email).filter(Boolean)
+ const stateStyle = {unused:'background:#dcfce7;color:#166534', used:'background:#e0f2fe;color:#075985', expired:'background:#f1f5f9;color:#64748b'}
+ const stateLabel = {unused:'Can use', used:'Used', expired:'Window ended'}
+ const bt = data.benefit.benefit_type || 'manual'
+ const codePanel = '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:10px">'
+  + '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
+  + '<div class="form-group" style="margin:0"><label>Benefit type</label><select id="bt-type" onchange="btTypeChanged()" style="width:auto">'
+  + BT_TYPES.map(t=>'<option value="'+t[0]+'"'+(t[0]===bt?' selected':'')+'>'+t[1]+'</option>').join('') + '</select></div>'
+  + '<div class="form-group bt-opt" data-for="pct_ticket_order pct_class" style="margin:0"><label>Percent off</label><input type="number" id="bt-pct" min="1" max="100" value="'+(data.benefit.code_percent||(bt==='pct_class'?30:10))+'" style="width:80px"/></div>'
+  + '<div class="form-group bt-opt" data-for="bogo_tickets" style="margin:0"><label>Max tickets</label><input type="number" id="bt-maxt" min="2" value="'+(data.benefit.code_max_tickets||4)+'" style="width:80px"/></div>'
+  + '<div class="form-group bt-opt" data-for="pct_class" style="margin:0"><label>Up to people</label><input type="number" id="bt-maxp" min="1" value="'+(data.benefit.code_max_people||2)+'" style="width:80px"/></div>'
+  + '<div class="form-group bt-opt" data-for="comp_per_show" style="margin:0"><label>Comps per show</label><input type="number" id="bt-comp" min="1" value="'+(data.benefit.code_comp_tickets||15)+'" style="width:80px"/></div>'
+  + '<button class="btn btn-secondary btn-sm" onclick="saveBenefitCodeSettings()">Save type</button>'
+  + '</div>'
+  + (bt==='comp_per_show' ? '<div class="form-group" style="margin:10px 0 0"><label>Show (comp codes are per show)</label><select id="bt-prod" onchange="_btProductionId=this.value;loadBenefitTrackerList()" style="width:auto;min-width:240px"><option value="">Pick a show…</option>'
+      + (_btProductions||[]).map(p=>'<option value="'+p.id+'"'+(p.id===_btProductionId?' selected':'')+'>'+escHtml(p.name)+'</option>').join('') + '</select></div>' : '')
+  + (bt!=='manual' ? '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="generateBenefitCodes()">Generate codes for everyone who can use it</button>'
+      + '<span style="font-size:11.5px;color:var(--text-muted)">Each donor gets their own code. It only works during their benefit window and marks the benefit used when redeemed. Codes show in the list and the CSV.</span></div>' : '')
+  + '</div>'
+ holder.innerHTML = codePanel +
+  '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'
+  + '<span style="font-size:12.5px;color:var(--text-muted)">'+rows.length+' donor'+(rows.length===1?'':'s')+' · '+emails.length+' with email · allowed '
+  + '<input type="number" min="1" id="bt-uses" value="'+(data.benefit.uses_allowed||1)+'" style="width:56px;padding:3px 6px;font-size:12px"/> use(s) per window '
+  + '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="saveBenefitUsesAllowed()">Set</button></span>'
+  + '<span style="flex:1"></span>'
+  + '<button class="btn btn-secondary btn-sm" onclick="copyBenefitEmails()" '+(emails.length?'':'disabled')+'>Copy emails</button>'
+  + '<a class="btn btn-secondary btn-sm" href="/api/donor-benefits/'+_btBenefitId+'/donors?status='+_btStatus+'&format=csv'+(_btProductionId?'&production_id='+encodeURIComponent(_btProductionId):'')+'">Download CSV</a>'
+  + '</div>'
+  + (rows.length ? '<div style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+    + '<thead><tr style="background:var(--bg);text-align:left"><th style="padding:8px">Donor</th><th style="padding:8px">Tier</th><th style="padding:8px">Eligible until</th><th style="padding:8px">Status</th><th style="padding:8px">Code</th><th style="padding:8px"></th></tr></thead><tbody>'
+    + rows.map(r=>'<tr style="border-top:1px solid var(--border)">'
+      + '<td style="padding:8px"><div style="font-weight:600;cursor:pointer" onclick="closeAdHocModal(\'benefit-tracker-modal\');openDonorDetail(\''+r.donor_id+'\')">'+escHtml(r.name)+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.email||'no email')+'</div></td>'
+      + '<td style="padding:8px">'+escHtml(r.tier_name||'')+'</td>'
+      + '<td style="padding:8px" title="'+escHtml(r.eligible_reason||'')+'">'+fmt(r.eligible_until)+'</td>'
+      + '<td style="padding:8px"><span style="font-size:10.5px;padding:2px 8px;border-radius:10px;font-weight:700;'+stateStyle[r.state]+'">'+stateLabel[r.state]+'</span><div style="font-size:10.5px;color:var(--text-muted);margin-top:2px">'+r.used+' of '+r.allowed+' used'+(r.last_used_at?' · '+fmt(r.last_used_at):'')+'</div></td>'
+      + '<td style="padding:8px;font-family:monospace;font-size:12px">'+(r.code?'<span style="cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(\''+r.code+'\');toast(\'Copied\',\'success\')">'+escHtml(r.code)+'</span>':'<span style="color:var(--text-hint)">—</span>')+'</td>'
+      + '<td style="padding:8px;text-align:right">'+(r.state!=='expired'?'<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openRecordBenefitUse(\''+r.donor_id+'\',\''+_btBenefitId+'\',\''+escHtml(data.benefit.name).replace(/\'/g,"\\\'")+' — '+escHtml(r.name).replace(/\'/g,"\\\'")+'\', loadBenefitTrackerList)">Mark used</button>':'')+'</td>'
+      + '</tr>').join('')
+    + '</tbody></table></div>'
+    : '<div style="padding:16px;color:var(--text-muted);font-size:13px">Nobody in this list.</div>')
+ window._btEmails = emails
+ btTypeChanged()
+}
+function btTypeChanged(){
+ const t = (document.getElementById('bt-type')||{}).value || 'manual'
+ document.querySelectorAll('.bt-opt').forEach(el=>{ el.style.display = el.dataset.for.split(' ').indexOf(t) >= 0 ? '' : 'none' })
+}
+async function saveBenefitCodeSettings(){
+ const v = id => (document.getElementById(id)||{}).value || ''
+ const res = await api('/api/donor-benefits/'+_btBenefitId+'/code-settings','PUT',{
+  benefit_type: v('bt-type'), code_percent: v('bt-pct'), code_max_tickets: v('bt-maxt'),
+  code_max_people: v('bt-maxp'), code_comp_tickets: v('bt-comp')
+ })
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Benefit type saved','success'); loadBenefitTrackerList()
+}
+async function generateBenefitCodes(){
+ const t = (document.getElementById('bt-type')||{}).value
+ if(t==='comp_per_show' && !_btProductionId){ toast('Pick the show first','error'); return }
+ if(!confirm('Create a code for every donor who can still use this benefit? Donors who already have one keep it.')) return
+ const res = await api('/api/donor-benefits/'+_btBenefitId+'/generate-codes','POST',{production_id: _btProductionId||null})
+ if(res.error){ toast(res.error,'error'); return }
+ toast(res.created+' new code'+(res.created===1?'':'s')+(res.already_had?' · '+res.already_had+' already had one':''),'success')
+ loadBenefitTrackerList()
+}
+async function voidBenefitCode(cid, donorId){
+ if(!confirm('Turn off this code? It will stop working immediately.')) return
+ const res = await api('/api/benefit-codes/'+cid+'/void','POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Code turned off','success')
+ const donor = await api('/api/donors/'+donorId+'/detail'); if(!donor.error) renderDonorDetailPage(donor)
+}
+function copyBenefitEmails(){
+ const list = (window._btEmails||[]).join(', ')
+ navigator.clipboard.writeText(list).then(()=>toast('Copied '+(window._btEmails||[]).length+' emails','success'))
+}
+async function saveBenefitUsesAllowed(){
+ const n = parseInt(document.getElementById('bt-uses').value||'1',10)||1
+ const res = await api('/api/donor-benefits/'+_btBenefitId+'/uses-allowed','PUT',{uses_allowed:n})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Updated','success'); loadBenefitTrackerList()
 }
 
 async function recordBenefitUse(donorId, benefitId){

@@ -510,6 +510,7 @@ function renderPurchaseScreen(){
     + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
     + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
     + '</div>'
+    + renderDonorCodeSection()
     + '<div id="checkout-error"></div>'
     + '<button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="checkout-btn" onclick="doCheckout()" disabled>Checkout</button>'
     + '<button class="btn btn-secondary" style="width:100%" id="add-to-cart-btn" onclick="addCurrentSelectionToCart()" disabled> Add to Cart</button>'
@@ -885,7 +886,7 @@ function updateCheckoutButtonState(){
     : Object.values(gaQuantities).some(function(q){ return q>0 })) : false
   var cartCount = ticketCartCount()
   var liveTotal = hasLiveItems ? (computeTotalCents() + currentPerformanceFeeCents()) : 0
-  var grand = liveTotal + cartTotalCents() + selectedDonationCents
+  var grand = Math.max(0, liveTotal + cartTotalCents() - donorCodeSavings()) + selectedDonationCents
   btn.disabled = !hasLiveItems && !cartCount && !selectedDonationCents
   if(hasLiveItems && cartCount){
     btn.textContent = 'Checkout Everything — '+fmtMoney(grand)
@@ -995,6 +996,54 @@ function lineItemsToSeatsPayload(lineItems){
 // clicking "Checkout" on a show's own page still works exactly like it
 // always did when there's nothing else in the cart, and transparently
 // includes other shows' tickets too when there are.
+// ── Donor benefit codes (2-for-1, % off, comps) ──
+var appliedDonorCode = null   // {code, label, savings_cents, sig}
+function renderDonorCodeSection(){
+  var a = appliedDonorCode
+  return '<div class="form-group" style="margin-bottom:12px"><label>Donor code</label>'
+    + '<div style="display:flex;gap:8px">'
+    + '<input type="text" id="tk-donor-code" placeholder="HWTC-…" value="'+escH(a?a.code:'')+'" style="text-transform:uppercase;flex:1"'+(a?' disabled':'')+'/>'
+    + (a ? '<button type="button" class="btn btn-secondary" style="width:auto;padding:10px 14px" onclick="removeDonorCode()">Remove</button>'
+         : '<button type="button" class="btn btn-secondary" style="width:auto;padding:10px 14px" onclick="applyDonorCode()">Apply</button>')
+    + '</div><div id="tk-donor-code-msg" style="font-size:12.5px;margin-top:6px;'+(a?'color:var(--teal-dark);font-weight:700':'')+'">'
+    + (a ? escH(a.label)+' · you save '+fmtMoney(a.savings_cents) : '') + '</div></div>'
+}
+function _cartSig(){ return JSON.stringify(buildFullCartPayload()) }
+async function applyDonorCode(silent){
+  var input = document.getElementById('tk-donor-code')
+  var code = ((appliedDonorCode && appliedDonorCode.code) || (input ? input.value : '') || '').trim().toUpperCase()
+  var msg = document.getElementById('tk-donor-code-msg')
+  if(!code){ if(msg && !silent) msg.textContent = 'Enter your code.'; return }
+  var cart = buildFullCartPayload()
+  var res = await api('/api/public/ticket-promo/preview','POST',{code: code, cart: cart})
+  if(res && res.valid){
+    appliedDonorCode = {code: res.code, label: res.label, savings_cents: res.savings_cents||0, sig: JSON.stringify(cart)}
+  } else {
+    appliedDonorCode = null
+    if(msg){ msg.style.color = '#b91c1c'; msg.textContent = (res && res.error) || 'That code didn\'t work.' }
+    updateCheckoutButtonState()
+    return
+  }
+  refreshDonorCodeSection()
+  updateCheckoutButtonState()
+}
+function removeDonorCode(){ appliedDonorCode = null; refreshDonorCodeSection(); updateCheckoutButtonState() }
+function refreshDonorCodeSection(){
+  var input = document.getElementById('tk-donor-code')
+  var holder = input ? input.closest('.form-group') : null
+  if(holder) holder.outerHTML = renderDonorCodeSection()
+}
+// Re-check the code whenever the tickets in play change
+var _donorCodeRecheckTimer = null
+function donorCodeSavings(){
+  if(!appliedDonorCode) return 0
+  if(appliedDonorCode.sig !== _cartSig()){
+    clearTimeout(_donorCodeRecheckTimer)
+    _donorCodeRecheckTimer = setTimeout(function(){ applyDonorCode(true) }, 300)
+  }
+  return appliedDonorCode.savings_cents || 0
+}
+
 function buildFullCartPayload(){
   var cart = ticketCartGet().map(function(item){
     return {performance_id: item.performance_id, seats: lineItemsToSeatsPayload(item.line_items)}
@@ -1023,9 +1072,11 @@ async function doCheckout(){
   btn.disabled = true; btn.textContent = 'Processing…'
   var res = await api('/api/public/ticket-checkout','POST',{
     session_token: getSessionToken(), guardian_name: name, guardian_email: email, guardian_phone: phone,
-    device_id: getDeviceId(), cart: cart, donation_cents: selectedDonationCents
+    device_id: getDeviceId(), cart: cart, donation_cents: selectedDonationCents,
+    promo_code: appliedDonorCode ? appliedDonorCode.code : ''
   })
   if(res.error){
+    if(res.promo_error){ appliedDonorCode = null; refreshDonorCodeSection() }
     errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">'+escH(res.error)+'</div>'
     btn.disabled = false; updateCheckoutButtonState()
     return
@@ -1033,6 +1084,7 @@ async function doCheckout(){
   // Only clear the persisted cart once the order(s) are actually created
   // — an error above means nothing was charged, so leave it intact.
   ticketCartSave([])
+  appliedDonorCode = null
   selectedDonationCents = 0; donationCustomActive = false; donationTouched = false
   if(res.type === 'payment_required' && res.payment_url){
     window.location.href = res.payment_url
@@ -1073,6 +1125,7 @@ function renderCartPage(){
       + '</div>'
   }).join('')
   html += '<div class="total-row"><span>Cart Total</span><span>'+fmtMoney(grandTotal)+'</span></div>'
+  html += '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">Have a donor code? Enter it below; the savings show on the checkout button.</div>'
   html += '</div>'
 
   html += renderDonationSection(true)
@@ -1084,6 +1137,7 @@ function renderCartPage(){
     + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
     + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
     + '</div>'
+    + renderDonorCodeSection()
     + '<div id="checkout-error"></div>'
     + '<button class="btn btn-primary" style="width:100%" id="checkout-btn" onclick="doCheckout()">Checkout</button>'
     + '</div>'

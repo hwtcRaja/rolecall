@@ -50,6 +50,21 @@ input{user-select:text}
 .walkin-form{background:#fff;border:1.5px solid #e7e2d9;border-radius:14px;padding:16px;margin-top:12px}
 .walkin-input{width:100%;padding:14px 16px;border:1.5px solid #d6d3ce;border-radius:10px;font-family:inherit;font-size:16px;margin-bottom:10px}
 .login-gate{max-width:420px;margin:100px auto;text-align:center;padding:40px 30px}
+.kiosk-tabs{display:flex;gap:8px;margin-bottom:16px}
+.kiosk-tab{flex:1;padding:14px;border-radius:12px;border:2px solid #e7e2d9;background:#fff;font-family:inherit;font-size:15px;font-weight:800;color:#57534e;cursor:pointer}
+.kiosk-tab.on{background:#145466;border-color:#145466;color:#fff}
+.sched-counts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.sched-count{flex:1;min-width:88px;background:#fff;border:1.5px solid #e7e2d9;border-radius:12px;padding:10px 12px}
+.sched-count b{display:block;font-size:22px;font-weight:800}
+.sched-count span{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:#78716c}
+.sched-slot{background:#fff;border:1.5px solid #e7e2d9;border-radius:14px;padding:14px 16px;margin-bottom:10px}
+.sched-slot.now{border-color:#145466;box-shadow:0 0 0 3px rgba(20,84,102,0.15)}
+.sched-slot.past{opacity:0.75}
+.sched-time{font-size:16px;font-weight:800;color:#0d3d4d}
+.sched-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #f0eee9}
+.sched-name{flex:1;font-size:15.5px;font-weight:700}
+.sched-pill{font-size:11.5px;font-weight:800;padding:4px 10px;border-radius:20px;white-space:nowrap}
+.sched-btn{padding:10px 14px;border-radius:10px;border:none;font-family:inherit;font-size:13px;font-weight:800;cursor:pointer}
 .login-gate a{display:inline-block;margin-top:16px;background:#145466;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700}
 </style>
 </head>
@@ -108,6 +123,12 @@ async function boot(){
       </div>
     </div>
     <div class="wrap">
+      <div class="kiosk-tabs">
+        <button class="kiosk-tab on" id="tab-checkin" onclick="showKioskTab('checkin')">Check In</button>
+        <button class="kiosk-tab" id="tab-schedule" onclick="showKioskTab('schedule')">Today's Schedule</button>
+      </div>
+      <div id="kiosk-schedule" style="display:none"></div>
+      <div id="kiosk-checkin-pane">
       <input type="text" class="search-input" id="kiosk-search" placeholder=" Search name to check in…" autocomplete="off" autofocus oninput="filterKioskSearch()"/>
       <button class="walkin-btn" onclick="showWalkInForm()">+ Walk-In (not on the list)</button>
       <div class="walkin-form" id="kiosk-walkin-form" style="display:none">
@@ -121,6 +142,7 @@ async function boot(){
       <div class="recent-section">
         <div class="recent-title">Just Checked In</div>
         <div id="kiosk-recent"><div class="empty-hint">No one yet this session</div></div>
+      </div>
       </div>
     </div>`
 
@@ -165,6 +187,87 @@ function filterKioskSearch(){
   }).join('')
 }
 
+// ── Today's schedule: who's booked for each time slot and whether they're here ──
+var KIOSK_TAB = 'checkin'
+var SCHED_TIMER = null
+function showKioskTab(tab){
+  KIOSK_TAB = tab
+  document.getElementById('tab-checkin').classList.toggle('on', tab==='checkin')
+  document.getElementById('tab-schedule').classList.toggle('on', tab==='schedule')
+  document.getElementById('kiosk-checkin-pane').style.display = tab==='checkin' ? '' : 'none'
+  document.getElementById('kiosk-schedule').style.display = tab==='schedule' ? '' : 'none'
+  clearInterval(SCHED_TIMER); SCHED_TIMER = null
+  if(tab==='schedule'){
+    loadKioskSchedule(true)
+    SCHED_TIMER = setInterval(function(){ loadKioskSchedule(false) }, 15000)
+  } else {
+    document.getElementById('kiosk-search')?.focus()
+  }
+}
+function fmtT(t){ if(!t) return ''; var p = t.split(':'); var h = +p[0], m = +p[1]; return ((h%12)||12)+':'+String(m).padStart(2,'0')+(h>=12?' PM':' AM') }
+async function loadKioskSchedule(scrollToNow){
+  var el = document.getElementById('kiosk-schedule'); if(!el) return
+  var d = await api('/api/auditions/schedule/'+CONTEXT_TYPE+'/'+CONTEXT_ID)
+  if(!d || d.error){ el.innerHTML = '<div class="empty-hint">Couldn\'t load the schedule.</div>'; return }
+  var c = d.counts || {}
+  var meta = {
+    expected:['#f3f4f6','#44403c','Expected'], late:['#fef3c7','#92400e','Late'],
+    waiting:['#dcfce7','#166534','Here'], auditioning:['#ccfbf1','#115e59','Auditioning'],
+    done:['#e0f2fe','#0369a1','Done'], no_show:['#fee2e2','#991b1b','No-show']
+  }
+  var now = new Date(), hhmm = String(now.getHours()).padStart(2,'0')+':'+String(now.getMinutes()).padStart(2,'0')
+  var html = '<div class="sched-counts">'
+    + '<div class="sched-count"><b>'+(c.expected||0)+'</b><span>Still coming</span></div>'
+    + '<div class="sched-count"><b style="color:#92400e">'+(c.late||0)+'</b><span>Late</span></div>'
+    + '<div class="sched-count"><b style="color:#166534">'+((c.waiting||0)+(c.auditioning||0))+'</b><span>Here now</span></div>'
+    + '<div class="sched-count"><b style="color:#0369a1">'+(c.done||0)+'</b><span>Done</span></div>'
+    + '<div class="sched-count"><b style="color:#991b1b">'+(c.no_show||0)+'</b><span>No-show</span></div>'
+    + '</div>'
+  var slots = d.slots || []
+  if(!slots.length) html += '<div class="empty-hint">No audition time slots today.</div>'
+  var nowId = null
+  slots.forEach(function(sl){ if(!nowId && (sl.end_time||'') > hhmm) nowId = sl.id })
+  slots.forEach(function(sl){
+    var cls = sl.id===nowId ? 'now' : (sl.ended ? 'past' : '')
+    html += '<div class="sched-slot '+cls+'" id="slot-'+sl.id+'">'
+      + '<div style="display:flex;align-items:center;gap:10px"><div class="sched-time">'+fmtT(sl.start_time)+' – '+fmtT(sl.end_time)+'</div>'
+      + (sl.id===nowId ? '<span class="sched-pill" style="background:#145466;color:#fff">Now / next</span>' : '')
+      + '<div style="flex:1"></div><div style="font-size:12px;color:#78716c">'+sl.people.length+(sl.capacity?' / '+sl.capacity:'')+' booked</div></div>'
+      + (sl.people.length ? sl.people.map(function(p){
+          var m = meta[p.state] || meta.expected
+          var act = ''
+          if(p.state==='expected' || p.state==='late'){
+            act = '<button class="sched-btn" style="background:#145466;color:#fff" onclick="checkInFromSchedule(\''+p.submission_id+'\',\''+escH(p.name).replace(/'/g,"\\'")+'\')">Check In</button>'
+              + '<button class="sched-btn" style="background:#f0eee9;color:#57534e" onclick="kioskNoShow(\''+p.submission_id+'\')">No-show</button>'
+          }
+          return '<div class="sched-row">'
+            + '<div style="min-width:44px;font-size:16px;font-weight:800;color:#145466">'+(p.queue_number?'#'+p.queue_number:'')+'</div>'
+            + '<div class="sched-name">'+escH(p.name)+(p.age!=null?' <span style="font-weight:500;color:#78716c;font-size:13px">('+p.age+')</span>':'')+'</div>'
+            + '<span class="sched-pill" style="background:'+m[0]+';color:'+m[1]+'">'+m[2]+'</span>'
+            + act + '</div>'
+        }).join('') : '<div style="font-size:13px;color:#a8a29e;padding-top:8px">Nobody booked</div>')
+      + '</div>'
+  })
+  var extra = d.unscheduled || []
+  if(extra.length){
+    html += '<div class="sched-slot"><div class="sched-time" style="font-size:14px">Here without a booked time ('+extra.length+')</div>'
+      + extra.map(function(x){ return '<div class="sched-row"><div style="min-width:44px;font-size:16px;font-weight:800;color:#145466">#'+x.queue_number+'</div><div class="sched-name">'+escH(x.name||'')+(x.walk_in?' <span style="font-weight:500;color:#78716c;font-size:13px">(walk-in)</span>':'')+'</div></div>' }).join('')
+      + '</div>'
+  }
+  el.innerHTML = html
+  if(scrollToNow && nowId){ var t = document.getElementById('slot-'+nowId); if(t) t.scrollIntoView({block:'start', behavior:'smooth'}) }
+}
+async function checkInFromSchedule(submissionId, name){
+  await doKioskCheckin({submission_id: submissionId}, name)
+  loadKioskSchedule(false)
+}
+async function kioskNoShow(submissionId){
+  if(!confirm('Mark this person as a no-show?')) return
+  var res = await api('/api/auditions/submissions/'+submissionId+'/status','PUT',{status:'no_show'})
+  if(res && res.error){ alert(res.error); return }
+  loadKioskSchedule(false)
+}
+
 function showWalkInForm(){
   var form = document.getElementById('kiosk-walkin-form')
   if(form){ form.style.display=''; document.getElementById('kiosk-walkin-name')?.focus() }
@@ -192,7 +295,7 @@ async function doKioskCheckin(payload, displayName){
   RECENT.unshift({id:res.id, queue_number:res.queue_number, name:displayName, photo:null})
   RECENT = RECENT.slice(0,6)
   renderRecent()
-  document.getElementById('kiosk-search').value = ''
+  var _sb = document.getElementById('kiosk-search'); if(_sb) _sb.value = ''
   await loadKioskData()
   openCamModal(res.id)
 }

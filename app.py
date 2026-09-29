@@ -35456,7 +35456,16 @@ def marquee_ticket_orders():
             by_order.setdefault(t['ticket_order_id'], []).append(t['seat_label'])
         for o in orders:
             o['seat_labels'] = by_order.get(o['id'], [])
-            o['ticket_count'] = len(o['seat_labels'])
+            if not o['seat_labels']:
+                # unpaid orders have no tickets yet; show what they reserved
+                try:
+                    _items = json.loads(o.get('seats_json') or '[]')
+                except Exception:
+                    _items = []
+                o['seat_labels'] = [li.get('seat_label') for li in _items if li.get('seat_label')]
+                o['ticket_count'] = len(_items)
+            else:
+                o['ticket_count'] = len(o['seat_labels'])
     conn.close()
     return jsonify(orders)
 
@@ -38276,7 +38285,16 @@ def get_production_ticket_orders(pid):
             by_order.setdefault(t['ticket_order_id'], []).append(t['seat_label'])
         for o in orders:
             o['seat_labels'] = by_order.get(o['id'], [])
-            o['ticket_count'] = len(o['seat_labels'])
+            if not o['seat_labels']:
+                # unpaid orders have no tickets yet; show what they reserved
+                try:
+                    _items = json.loads(o.get('seats_json') or '[]')
+                except Exception:
+                    _items = []
+                o['seat_labels'] = [li.get('seat_label') for li in _items if li.get('seat_label')]
+                o['ticket_count'] = len(_items)
+            else:
+                o['ticket_count'] = len(o['seat_labels'])
     conn.close()
     return jsonify(orders)
 
@@ -38316,6 +38334,123 @@ def get_ticket_order_admin(oid):
     for k in ('buyer_device_id', 'card_fingerprint', 'buyer_email_key', 'buyer_phone_key'):
         order.pop(k, None)
     return jsonify({'order': order, 'performance': perf, 'tickets': tickets, 'related_orders': related})
+
+
+# ── Staff actions on ticket orders that never got paid ────────────────────
+# Tickets only exist once an order is paid, so an unpaid ("pending") order
+# is just a reservation: staff can cancel it, record it as paid (cash/check
+# at the door), or delete it. Paid orders go through Request Refund instead.
+UNPAID_TICKET_STATUSES = ('pending', 'superseded', 'cancelled')
+
+
+def _cancel_ticket_checkout(conn, order):
+    """Cancel the Square payment link behind an unpaid order so it can't be
+    paid later. One link can cover several performances bought together,
+    so every order in that checkout is cancelled with it. Returns the ids
+    cancelled, or None if Square refused to cancel the link."""
+    cart_id = order.get('cart_id')
+    siblings = fetchall(conn, "SELECT * FROM ticket_orders WHERE cart_id=%s AND status IN ('pending','superseded')",
+                        (cart_id,)) if cart_id else [order]
+    siblings = siblings or [order]
+    for cid in set(o.get('square_checkout_id') for o in siblings if o.get('square_checkout_id')):
+        try:
+            rr = requests.delete(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links/{cid}',
+                                 headers=square_headers(), timeout=10)
+            if rr.status_code not in (200, 404):
+                return None
+        except Exception as e:
+            app.logger.warning(f'Could not cancel ticket payment link {cid}: {e}')
+            return None
+    ids = [o['id'] for o in siblings]
+    for o in siblings:
+        seat_ids = [li.get('seat_id') for li in json.loads(o.get('seats_json') or '[]') if li.get('seat_id')]
+        if seat_ids:
+            execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND seat_id = ANY(%s)',
+                    (o['performance_id'], seat_ids))
+    execute(conn, "UPDATE ticket_orders SET status='cancelled' WHERE id = ANY(%s)", (ids,))
+    for cid in set(o.get('square_checkout_id') for o in siblings if o.get('square_checkout_id')):
+        execute(conn, "UPDATE pending_donations SET status='cancelled' WHERE square_checkout_id=%s AND status='pending'", (cid,))
+    conn.commit()
+    return ids
+
+
+@app.route('/api/ticket-orders/<oid>/cancel', methods=['POST'])
+def cancel_ticket_order(oid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        order = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (oid,))
+        if not order:
+            return jsonify({'error': 'Order not found'}), 404
+        if order['status'] not in ('pending', 'superseded'):
+            return jsonify({'error': 'Only unpaid orders can be cancelled. Use Request Refund for paid orders.'}), 400
+        ids = _cancel_ticket_checkout(conn, order)
+        if ids is None:
+            return jsonify({'error': "Square wouldn't cancel this checkout link. Try again in a minute."}), 502
+        return jsonify({'ok': True, 'cancelled_order_ids': ids})
+    finally:
+        conn.close()
+
+
+@app.route('/api/ticket-orders/<oid>/mark-paid', methods=['POST'])
+def mark_ticket_order_paid(oid):
+    """Record an unpaid order as paid outside Square (cash/check), which
+    issues the tickets exactly like an online payment would."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        order = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (oid,))
+        if not order:
+            return jsonify({'error': 'Order not found'}), 404
+        if order['status'] not in UNPAID_TICKET_STATUSES:
+            return jsonify({'error': 'This order is already paid.'}), 400
+        items = json.loads(order.get('seats_json') or '[]')
+        seat_ids = [li.get('seat_id') for li in items if li.get('seat_id')]
+        if seat_ids:
+            taken = fetchall(conn, 'SELECT seat_label FROM tickets WHERE performance_id=%s AND seat_id = ANY(%s)',
+                             (order['performance_id'], seat_ids)) or []
+            if taken:
+                return jsonify({'error': 'Some of these seats have since been sold: '
+                                + ', '.join(t['seat_label'] or '?' for t in taken)
+                                + '. Move this buyer to other seats with a new order.'}), 409
+        # Stop the old online link from charging them a second time
+        if order['status'] in ('pending', 'superseded') and order.get('square_checkout_id'):
+            try:
+                requests.delete(f"{SQUARE_API_BASE}/v2/online-checkout/payment-links/{order['square_checkout_id']}",
+                                headers=square_headers(), timeout=10)
+            except Exception as e:
+                app.logger.warning(f'Could not cancel payment link on manual payment: {e}')
+        execute(conn, "UPDATE ticket_orders SET status='pending' WHERE id=%s", (oid,))
+        conn.commit()
+        _finalize_ticket_order(conn, oid, None, None)
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/ticket-orders/<oid>', methods=['DELETE'])
+def delete_ticket_order(oid):
+    """Remove an unpaid or cancelled order entirely. Paid orders can't be
+    deleted here (their tickets and payment record need to stay)."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        order = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (oid,))
+        if not order:
+            return jsonify({'error': 'Order not found'}), 404
+        if order['status'] not in UNPAID_TICKET_STATUSES:
+            return jsonify({'error': 'Paid orders can\'t be deleted. Use Request Refund instead.'}), 400
+        if order['status'] in ('pending', 'superseded'):
+            if _cancel_ticket_checkout(conn, order) is None:
+                return jsonify({'error': "Square wouldn't cancel this checkout link, so the order wasn't deleted. Try again in a minute."}), 502
+        execute(conn, 'DELETE FROM ticket_orders WHERE id=%s', (oid,))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
 
 
 @app.route('/api/tickets/<tid>/move-seat', methods=['PUT'])

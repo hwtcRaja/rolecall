@@ -1669,6 +1669,7 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_color TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS portal_image_url TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS ticket_logo_url TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS default_donation_cents INTEGER DEFAULT 0",
         # A small logo/crest shown alongside the show's branding (cast list,
         # hero header) — separate from portal_image_url, which is the big
         # background photo behind the hero banner.
@@ -2964,6 +2965,15 @@ def init_db():
         # fee always shows as its own line, both to staff in the order
         # detail view and to the buyer in their confirmation.
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS service_fee_cents INTEGER DEFAULT 0",
+        # Buyer signals for the per-performance ticket limit: blocked on
+        # email/phone/device at checkout; flagged (never blocked) on card/IP.
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_email_key TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_phone_key TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_device_id TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_ip TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS card_fingerprint TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS limit_flag TEXT",
+        "CREATE INDEX IF NOT EXISTS ix_ticket_orders_perf_buyer ON ticket_orders(performance_id, buyer_email_key)",
         # General-purpose labeled rectangle for a seat map -- not a seat,
         # not interactive to a buyer, just a visual/orientation marker
         # ("Backstage", "Wings Left", etc.) or a way to approximate a
@@ -25383,7 +25393,7 @@ def square_webhook():
                             # square_order_id/checkout_id (one per
                             # performance), same as a multi-program
                             # registration cart, so confirm all of them.
-                            tords = fetchall(conn, "SELECT * FROM ticket_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                            tords = fetchall(conn, "SELECT * FROM ticket_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status IN ('pending','superseded')",
                                 (order_id, order_id)) or []
                             for tord in tords:
                                 _finalize_ticket_order(conn, tord['id'], payment_id, order_id)
@@ -35419,8 +35429,10 @@ def marquee_ticket_orders():
     q = (request.args.get('q') or '').strip()
     production_id = (request.args.get('production_id') or '').strip()
     conn = get_db()
-    where = []
+    where = ["t.status <> 'superseded'"]
     params = []
+    if request.args.get('flagged'):
+        where.append("COALESCE(t.limit_flag,'') <> ''")
     if production_id:
         where.append('pf.production_id=%s')
         params.append(production_id)
@@ -36732,14 +36744,22 @@ def update_ticketing_settings(pid):
         if fee_percent < 0 or fee_flat_cents < 0: raise ValueError()
     except (TypeError, ValueError):
         return jsonify({'error': 'Service fee percent and flat amount must be zero or more'}), 400
+    try:
+        default_donation = int(d.get('default_donation_cents') or 0)
+    except (TypeError, ValueError):
+        default_donation = 0
+    if default_donation not in (0, 500, 1000, 1500, 2000):
+        return jsonify({'error': 'Pick one of the donation amounts shown'}), 400
     conn = get_db()
     execute(conn, '''UPDATE productions SET max_tickets_per_performance=%s,
-        charge_service_fee=%s, service_fee_percent=%s, service_fee_flat_cents=%s WHERE id=%s''',
-        (limit, charge_fee, fee_percent, fee_flat_cents, pid))
+        charge_service_fee=%s, service_fee_percent=%s, service_fee_flat_cents=%s,
+        default_donation_cents=%s WHERE id=%s''',
+        (limit, charge_fee, fee_percent, fee_flat_cents, default_donation, pid))
     conn.commit()
     conn.close()
     return jsonify({'ok': True, 'max_tickets_per_performance': limit,
-        'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents})
+        'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents,
+        'default_donation_cents': default_donation})
 
 
 # ── VENUES ──────────────────────────────────────────────────────────────
@@ -37571,7 +37591,7 @@ def public_production_performances(slug):
     page can show a date picker when there's more than one."""
     conn = get_db()
     prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url, ticket_logo_url,
-        max_tickets_per_performance, charge_service_fee, service_fee_percent, service_fee_flat_cents,
+        max_tickets_per_performance, default_donation_cents, charge_service_fee, service_fee_percent, service_fee_flat_cents,
         venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
     if not prod:
         conn.close(); return jsonify({'error': 'Production not found'}), 404
@@ -37595,6 +37615,7 @@ def public_seat_status(fid):
     conn = get_db()
     perf = fetchone(conn, '''SELECT pf.*, p.name AS production_name, p.portal_color, p.portal_logo_url,
         p.image_url AS production_image_url, p.ticket_logo_url, p.slug AS production_slug,
+        p.default_donation_cents,
         v.name AS venue_name, v.address AS venue_address, v.city AS venue_city, v.notes AS venue_notes
         FROM performances pf
         JOIN productions p ON pf.production_id=p.id
@@ -37752,6 +37773,10 @@ def public_ticket_checkout():
     guardian_name = (d.get('guardian_name') or '').strip()
     guardian_email = (d.get('guardian_email') or '').strip().lower()
     guardian_phone = (d.get('guardian_phone') or '').strip()
+    email_key = ticket_email_key(guardian_email)
+    phone_key = ticket_phone_key(guardian_phone)
+    device_id = (d.get('device_id') or '').strip()[:64]
+    buyer_ip = _request_client_ip()[:64]
     cart = d.get('cart') or []
     donation_cents = d.get('donation_cents') or 0
     try:
@@ -37762,6 +37787,8 @@ def public_ticket_checkout():
 
     if not guardian_name or not guardian_email:
         return jsonify({'error': 'Name and email are required'}), 400
+    if not phone_key:
+        return jsonify({'error': 'Please enter a 10-digit phone number'}), 400
     if not cart:
         return jsonify({'error': 'Your cart is empty'}), 400
 
@@ -37830,23 +37857,47 @@ def public_ticket_checkout():
             'limit': (prod or {}).get('max_tickets_per_performance'), 'line_items': line_items,
             'fee_cents': fee_cents})
 
+    # A buyer who backs out of Square's payment page and checks out again
+    # shouldn't be blocked by their own abandoned checkout. Retire their
+    # recent unpaid checkouts for these performances first, cancelling the
+    # old Square payment link so it can no longer be paid. If Square won't
+    # cancel a link, that checkout keeps counting toward the limit.
+    perf_ids = list(requested_by_perf.keys())
+    buyer_conds, buyer_params = ['buyer_email_key=%s', 'buyer_phone_key=%s'], [email_key, phone_key]
+    if device_id:
+        buyer_conds.append('buyer_device_id=%s'); buyer_params.append(device_id)
+    prior = fetchall(conn, "SELECT id, cart_id, square_checkout_id FROM ticket_orders WHERE status='pending' "
+                     "AND created_at > NOW() - INTERVAL '" + str(TICKET_PENDING_WINDOW_MINUTES) + " minutes' "
+                     'AND performance_id = ANY(%s) AND (' + ' OR '.join(buyer_conds) + ')',
+                     tuple([perf_ids] + buyer_params)) or []
+    for cart_ref in set(r['cart_id'] for r in prior if r.get('cart_id')):
+        checkout_ids = set(r['square_checkout_id'] for r in prior if r.get('cart_id') == cart_ref and r.get('square_checkout_id'))
+        cancelled = True
+        for cid in checkout_ids:
+            try:
+                rr = requests.delete(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links/{cid}',
+                                     headers=square_headers(), timeout=10)
+                cancelled = cancelled and rr.status_code in (200, 404)
+            except Exception as e:
+                app.logger.warning(f'Could not cancel old ticket payment link {cid}: {e}')
+                cancelled = False
+        if cancelled:
+            execute(conn, "UPDATE ticket_orders SET status='superseded' WHERE cart_id=%s AND status='pending'", (cart_ref,))
+    conn.commit()
+
     # Policing the per-performance limit: this is the authoritative check
-    # (the picker only ever offers a softer, client-side version of this)
-    # -- existing completed tickets for this email at this performance,
-    # plus what's being requested right now, can't exceed the show's own
-    # limit. Checking by email rather than session closes the obvious
-    # "just check out twice" loophole; it can't stop someone from using a
-    # second email, which is an inherent limit of not requiring accounts.
+    # (the picker only offers a softer, client-side version). Tickets this
+    # buyer already has for the performance, paid or checked out in the
+    # last TICKET_PENDING_WINDOW_MINUTES, matched on email (normalized),
+    # phone, or this browser's device id, plus what's requested now, can't
+    # exceed the show's limit. Card and IP are only used afterwards to
+    # flag orders for staff (see flag_ticket_order_if_over_limit).
     for fid, requested in requested_by_perf.items():
         grp = next(g for g in groups if g['performance_id'] == fid)
         limit = grp['limit']
         if limit is None:
             continue
-        existing = fetchone(conn, '''SELECT COUNT(*) AS c FROM tickets t
-            JOIN ticket_orders o ON t.ticket_order_id=o.id
-            WHERE t.performance_id=%s AND o.guardian_email=%s AND o.status='completed' ''',
-            (fid, guardian_email))
-        existing_count = (existing or {}).get('c', 0)
+        existing_count = tickets_held_by_buyer(conn, fid, email_key, phone_key, device_id, raw_email=guardian_email)
         if existing_count + requested > limit:
             conn.close()
             remaining = max(0, limit - existing_count)
@@ -37868,10 +37919,12 @@ def public_ticket_checkout():
         order_id = str(uuid.uuid4())
         order_ids.append(order_id)
         execute(conn, '''INSERT INTO ticket_orders
-            (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json, total_cents, service_fee_cents, status, cart_id)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)''',
+            (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json, total_cents, service_fee_cents, status, cart_id,
+             buyer_email_key, buyer_phone_key, buyer_device_id, buyer_ip)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s,%s,%s,%s,%s)''',
             (order_id, grp['performance_id'], guardian_name, guardian_email, guardian_phone,
-             json.dumps(grp['line_items']), total_cents, grp['fee_cents'], cart_id))
+             json.dumps(grp['line_items']), total_cents, grp['fee_cents'], cart_id,
+             email_key, phone_key, device_id or None, buyer_ip or None))
         for li in grp['line_items']:
             sq_line_items.append({
                 'name': (f"{grp['prod_name']} — {li['seat_label'] or 'Ticket'}")[:191],
@@ -37934,6 +37987,125 @@ def public_ticket_checkout():
         return jsonify({'error': str(e)}), 500
 
 
+# ── Per-performance ticket limit: who counts as "the same buyer" ──────────
+TICKET_PENDING_WINDOW_MINUTES = 30   # unpaid checkouts count this long
+
+
+def ticket_email_key(email):
+    """Canonical form of an email for limit matching: lowercase, drop any
+    +tag, and for Gmail also drop dots (Gmail ignores both), so
+    mom.smith+2@gmail.com and momsmith@gmail.com are the same buyer."""
+    e = (email or '').strip().lower()
+    if '@' not in e:
+        return e
+    local, domain = e.rsplit('@', 1)
+    local = local.split('+', 1)[0]
+    if domain in ('gmail.com', 'googlemail.com'):
+        local = local.replace('.', '')
+        domain = 'gmail.com'
+    return local + '@' + domain
+
+
+def ticket_phone_key(phone):
+    digits = ''.join(ch for ch in (phone or '') if ch.isdigit())
+    if len(digits) == 11 and digits.startswith('1'):
+        digits = digits[1:]
+    return digits if len(digits) == 10 else ''
+
+
+def _request_client_ip():
+    fwd = (request.headers.get('X-Forwarded-For') or '').split(',')[0].strip()
+    return fwd or (request.remote_addr or '')
+
+
+def _order_ticket_count(row):
+    try:
+        return len(json.loads(row.get('seats_json') or '[]'))
+    except Exception:
+        return 0
+
+
+def tickets_held_by_buyer(conn, performance_id, email_key, phone_key, device_id,
+                          raw_email='', include_pending=True, exclude_order_ids=None):
+    """Tickets this buyer already has for one performance (paid, plus
+    unpaid checkouts from the last TICKET_PENDING_WINDOW_MINUTES), matched
+    on email OR phone OR device."""
+    conds, params = [], []
+    if email_key:
+        conds.append('buyer_email_key=%s'); params.append(email_key)
+    if raw_email:
+        # orders placed before buyer_email_key existed
+        conds.append('(buyer_email_key IS NULL AND LOWER(guardian_email)=%s)'); params.append(raw_email.strip().lower())
+    if phone_key:
+        conds.append('buyer_phone_key=%s'); params.append(phone_key)
+    if device_id:
+        conds.append('buyer_device_id=%s'); params.append(device_id)
+    if not conds:
+        return 0
+    status_sql = "status='completed'"
+    if include_pending:
+        status_sql = ("(status='completed' OR (status='pending' AND created_at > NOW() - INTERVAL '"
+                      + str(TICKET_PENDING_WINDOW_MINUTES) + " minutes'))")
+    rows = fetchall(conn, 'SELECT id, seats_json FROM ticket_orders WHERE performance_id=%s AND '
+                    + status_sql + ' AND (' + ' OR '.join(conds) + ')',
+                    tuple([performance_id] + params)) or []
+    skip = set(exclude_order_ids or [])
+    return sum(_order_ticket_count(r) for r in rows if r['id'] not in skip)
+
+
+def _square_card_fingerprint(square_payment_id):
+    if not square_payment_id:
+        return None
+    try:
+        r = requests.get(f'{SQUARE_API_BASE}/v2/payments/{square_payment_id}', headers=square_headers(), timeout=10)
+        pay = (r.json() or {}).get('payment') or {}
+        return ((pay.get('card_details') or {}).get('card') or {}).get('fingerprint')
+    except Exception as e:
+        app.logger.warning(f'Square card fingerprint lookup failed: {e}')
+        return None
+
+
+def flag_ticket_order_if_over_limit(conn, order_id):
+    """After an order is paid, look for signs the same person went over the
+    performance limit. Never blocks or refunds anything: it records a flag
+    that Box Office shows to staff, who make the call.
+      over_limit - same email/phone/device went over (e.g. a checkout that
+                   sat unpaid past the pending window and then got paid)
+      same_card  - the same payment card used under different emails
+      same_ip    - the same internet connection under different emails
+                   (weak: households, schools and phone carriers share IPs)"""
+    o = fetchone(conn, 'SELECT o.*, p.max_tickets_per_performance AS lim FROM ticket_orders o '
+                 'JOIN performances pf ON pf.id=o.performance_id JOIN productions p ON p.id=pf.production_id '
+                 'WHERE o.id=%s', (order_id,))
+    if not o or o.get('lim') is None:
+        return
+    limit = o['lim']
+    reasons, related = [], set()
+    mine = _order_ticket_count(o)
+
+    held = tickets_held_by_buyer(conn, o['performance_id'], o.get('buyer_email_key'), o.get('buyer_phone_key'),
+                                 o.get('buyer_device_id'), include_pending=False, exclude_order_ids=[order_id])
+    if held + mine > limit:
+        reasons.append('over_limit')
+
+    for col, reason in (('card_fingerprint', 'same_card'), ('buyer_ip', 'same_ip')):
+        val = o.get(col)
+        if not val:
+            continue
+        rows = fetchall(conn, 'SELECT id, seats_json FROM ticket_orders WHERE performance_id=%s '
+                        "AND status='completed' AND " + col + '=%s AND id<>%s '
+                        "AND COALESCE(buyer_email_key,'')<>%s",
+                        (o['performance_id'], val, order_id, o.get('buyer_email_key') or '')) or []
+        if rows and mine + sum(_order_ticket_count(r) for r in rows) > limit:
+            reasons.append(reason)
+            related.update(r['id'] for r in rows)
+
+    if reasons:
+        flag = json.dumps({'reasons': reasons, 'related_order_ids': sorted(related), 'limit': limit})
+        execute(conn, 'UPDATE ticket_orders SET limit_flag=%s WHERE id=%s', (flag, order_id))
+        conn.commit()
+
+
 def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
     """Turns a paid (or free) order into real tickets, releases the seat
     holds that produced them, and marks the order completed."""
@@ -37957,6 +38129,14 @@ def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
     execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND seat_id = ANY(%s)',
         (order['performance_id'], [li['seat_id'] for li in line_items if li.get('seat_id')]))
     conn.commit()
+    try:
+        fp = _square_card_fingerprint(square_payment_id)
+        if fp:
+            execute(conn, 'UPDATE ticket_orders SET card_fingerprint=%s WHERE id=%s', (fp, order_id))
+            conn.commit()
+        flag_ticket_order_if_over_limit(conn, order_id)
+    except Exception as e:
+        app.logger.warning(f'Ticket limit flag check failed: {e}')
     if order.get('guardian_email'):
         try:
             perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))
@@ -38074,7 +38254,7 @@ def get_production_ticket_orders(pid):
     q = (request.args.get('q') or '').strip()
     performance_id = (request.args.get('performance_id') or '').strip()
     conn = get_db()
-    where = ['pf.production_id=%s']
+    where = ['pf.production_id=%s', "t.status <> 'superseded'"]
     params = [pid]
     if performance_id:
         where.append('t.performance_id=%s')
@@ -38115,12 +38295,27 @@ def get_ticket_order_admin(oid):
     perf = fetchone(conn, '''SELECT pf.*, p.name AS production_name, p.id AS production_id
         FROM performances pf JOIN productions p ON p.id=pf.production_id WHERE pf.id=%s''', (order['performance_id'],))
     tickets = fetchall(conn, 'SELECT * FROM tickets WHERE ticket_order_id=%s ORDER BY seat_label', (oid,)) or []
+    related = []
+    try:
+        flag = json.loads(order.get('limit_flag') or 'null')
+    except Exception:
+        flag = None
+    if flag and flag.get('related_order_ids'):
+        related = fetchall(conn, '''SELECT id, guardian_name, guardian_email, guardian_phone, seats_json, created_at
+            FROM ticket_orders WHERE id = ANY(%s) ORDER BY created_at''', (flag['related_order_ids'],)) or []
+        for r in related:
+            r['ticket_count'] = _order_ticket_count(r)
+            r.pop('seats_json', None)
     conn.close()
     try:
         order['seats'] = json.loads(order.get('seats_json') or '[]')
     except Exception:
         order['seats'] = []
-    return jsonify({'order': order, 'performance': perf, 'tickets': tickets})
+    order['limit_flag'] = flag
+    # staff don't need the raw matching signals
+    for k in ('buyer_device_id', 'card_fingerprint', 'buyer_email_key', 'buyer_phone_key'):
+        order.pop(k, None)
+    return jsonify({'order': order, 'performance': perf, 'tickets': tickets, 'related_orders': related})
 
 
 @app.route('/api/tickets/<tid>/move-seat', methods=['PUT'])

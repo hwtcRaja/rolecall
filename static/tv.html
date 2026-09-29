@@ -31,7 +31,101 @@
 </div>
 <iframe id="frame" title="Lobby display" allow="autoplay"></iframe>
 <button id="switcher" onclick="showPicker()">Switch display</button>
+<!-- One tap turns on announcements for every display this TV shows. It sits
+     over everything until tapped, since taps inside a display don't count. -->
+<div id="sound-tap" onclick="enableTvSound()" style="position:fixed;inset:0;z-index:20;cursor:pointer;display:none">
+  <div style="position:absolute;left:50%;bottom:28px;transform:translateX(-50%);background:rgba(0,0,0,0.72);color:#fff;border:1px solid rgba(255,255,255,0.3);border-radius:999px;padding:12px 22px;font-size:16px;font-weight:700;white-space:nowrap">Tap anywhere to turn on announcements</div>
+</div>
 <script>
+// ── HWTC Announcer: a soft three-note chime, then the number spoken ──────
+// Browsers only allow audio after a tap, so unlock() must run inside a
+// click handler once; after that the page can announce unattended.
+var HwtcAnnouncer = (function(){
+  var ctx = null, unlocked = false, voice = null
+  function pickVoice(){
+    try{
+      var vs = speechSynthesis.getVoices() || []
+      var en = vs.filter(function(v){ return /^en(-|_|$)/i.test(v.lang) })
+      var prefer = [/Google US English/i, /Samantha/i, /Natural/i, /Aria/i, /Jenny/i, /Zira/i, /Google UK English Female/i]
+      for(var i=0;i<prefer.length;i++){
+        var m = en.find(function(v){ return prefer[i].test(v.name) })
+        if(m){ voice = m; return }
+      }
+      voice = en.find(function(v){ return /en-US/i.test(v.lang) }) || en[0] || null
+    }catch(e){}
+  }
+  try{ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice }catch(e){}
+
+  function unlock(){
+    try{
+      if(!ctx) ctx = new (window.AudioContext||window.webkitAudioContext)()
+      if(ctx.state === 'suspended') ctx.resume()
+      // a silent blip inside the tap keeps iOS/TV browsers happy
+      var o = ctx.createOscillator(), g = ctx.createGain(); g.gain.value = 0
+      o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.01)
+    }catch(e){}
+    try{ var p = new SpeechSynthesisUtterance(' '); p.volume = 0; speechSynthesis.speak(p) }catch(e){}
+    unlocked = true
+  }
+
+  // Warm bell: sine fundamental + a quiet octave partial, quick attack,
+  // long ring-out, with a soft echo so it doesn't sound like a beep.
+  function bell(freq, at, dur){
+    var out = ctx.createGain(); out.gain.value = 0.9
+    var echo = ctx.createDelay(); echo.delayTime.value = 0.18
+    var fb = ctx.createGain(); fb.gain.value = 0.25
+    out.connect(ctx.destination); out.connect(echo); echo.connect(fb); fb.connect(echo); fb.connect(ctx.destination)
+    ;[[1, 0.28], [2, 0.07], [3.01, 0.025]].forEach(function(p){
+      var o = ctx.createOscillator(), g = ctx.createGain()
+      o.type = 'sine'; o.frequency.value = freq * p[0]
+      g.gain.setValueAtTime(0.0001, at)
+      g.gain.exponentialRampToValueAtTime(p[1], at + 0.015)
+      g.gain.exponentialRampToValueAtTime(0.0001, at + dur)
+      o.connect(g); g.connect(out); o.start(at); o.stop(at + dur + 0.05)
+    })
+  }
+  function chime(){
+    if(!ctx) return 0
+    if(ctx.state === 'suspended') ctx.resume()
+    var t = ctx.currentTime + 0.05
+    bell(659.25, t, 1.6)          // E5
+    bell(830.61, t + 0.28, 1.6)   // G#5
+    bell(987.77, t + 0.56, 2.2)   // B5
+    return 1500                   // ms until the chime has mostly rung out
+  }
+  function say(text){
+    try{
+      speechSynthesis.cancel(); speechSynthesis.resume()
+      var u = new SpeechSynthesisUtterance(text)
+      if(voice) u.voice = voice
+      u.rate = 0.92; u.pitch = 1; u.volume = 1
+      speechSynthesis.speak(u)
+    }catch(e){}
+  }
+  function announce(number){
+    if(!unlocked) return
+    var wait = 0
+    try{ wait = chime() }catch(e){}
+    setTimeout(function(){
+      say('Now auditioning, number ' + number + '. Number ' + number + ', please come to the audition room.')
+    }, wait)
+  }
+  return { unlock: unlock, announce: announce, isUnlocked: function(){ return unlocked } }
+})()
+
+function enableTvSound(){
+  HwtcAnnouncer.unlock()
+  document.getElementById('sound-tap').style.display = 'none'
+}
+function updateSoundTap(){
+  var needs = !HwtcAnnouncer.isUnlocked() && (options.find(function(o){ return o.key === currentKey }) || {}).kind === 'audition'
+  document.getElementById('sound-tap').style.display = needs ? '' : 'none'
+}
+window.addEventListener('message', function(ev){
+  if(ev.origin !== location.origin || !ev.data || ev.data.type !== 'hwtc-announce') return
+  HwtcAnnouncer.announce(ev.data.number)
+})
+
 // rolecall.hwtco.org/tv: leave this open on a lobby TV.
 // - Normal days: shows the main lobby display.
 // - Days with auditions or a Rising Stars rehearsal: asks which display this
@@ -59,12 +153,14 @@ function showDisplay(item){
   currentKey = item.key
   document.getElementById('screen').style.display = 'none'
   var f = document.getElementById('frame')
-  f.src = item.url
+  f.src = item.url + (item.kind === 'audition' ? (item.url.indexOf('?') < 0 ? '?' : '&') + 'embed=tv' : '')
   f.style.display = 'block'
+  updateSoundTap()
 }
 
 function showPicker(){
   currentKey = null
+  document.getElementById('sound-tap').style.display = 'none'
   stopAskTimer()
   document.getElementById('frame').style.display = 'none'
   document.getElementById('frame').removeAttribute('src')
@@ -92,6 +188,7 @@ function showPicker(){
 
 function pick(i){
   var o = options[i]; if(!o) return
+  HwtcAnnouncer.unlock()   // picking with a tap/remote click counts as the unlock
   pickedKey = o.key
   try{ localStorage.setItem('hwtc_tv_pick', JSON.stringify({key:o.key, day:dayStamp()})) }catch(e){}
   showDisplay(o)

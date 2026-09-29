@@ -62,39 +62,102 @@ var soundEnabled = false
 
 function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
 
+// ── HWTC Announcer: a soft three-note chime, then the number spoken ──────
+// Browsers only allow audio after a tap, so unlock() must run inside a
+// click handler once; after that the page can announce unattended.
+var HwtcAnnouncer = (function(){
+  var ctx = null, unlocked = false, voice = null
+  function pickVoice(){
+    try{
+      var vs = speechSynthesis.getVoices() || []
+      var en = vs.filter(function(v){ return /^en(-|_|$)/i.test(v.lang) })
+      var prefer = [/Google US English/i, /Samantha/i, /Natural/i, /Aria/i, /Jenny/i, /Zira/i, /Google UK English Female/i]
+      for(var i=0;i<prefer.length;i++){
+        var m = en.find(function(v){ return prefer[i].test(v.name) })
+        if(m){ voice = m; return }
+      }
+      voice = en.find(function(v){ return /en-US/i.test(v.lang) }) || en[0] || null
+    }catch(e){}
+  }
+  try{ pickVoice(); speechSynthesis.onvoiceschanged = pickVoice }catch(e){}
+
+  function unlock(){
+    try{
+      if(!ctx) ctx = new (window.AudioContext||window.webkitAudioContext)()
+      if(ctx.state === 'suspended') ctx.resume()
+      // a silent blip inside the tap keeps iOS/TV browsers happy
+      var o = ctx.createOscillator(), g = ctx.createGain(); g.gain.value = 0
+      o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime + 0.01)
+    }catch(e){}
+    try{ var p = new SpeechSynthesisUtterance(' '); p.volume = 0; speechSynthesis.speak(p) }catch(e){}
+    unlocked = true
+  }
+
+  // Warm bell: sine fundamental + a quiet octave partial, quick attack,
+  // long ring-out, with a soft echo so it doesn't sound like a beep.
+  function bell(freq, at, dur){
+    var out = ctx.createGain(); out.gain.value = 0.9
+    var echo = ctx.createDelay(); echo.delayTime.value = 0.18
+    var fb = ctx.createGain(); fb.gain.value = 0.25
+    out.connect(ctx.destination); out.connect(echo); echo.connect(fb); fb.connect(echo); fb.connect(ctx.destination)
+    ;[[1, 0.28], [2, 0.07], [3.01, 0.025]].forEach(function(p){
+      var o = ctx.createOscillator(), g = ctx.createGain()
+      o.type = 'sine'; o.frequency.value = freq * p[0]
+      g.gain.setValueAtTime(0.0001, at)
+      g.gain.exponentialRampToValueAtTime(p[1], at + 0.015)
+      g.gain.exponentialRampToValueAtTime(0.0001, at + dur)
+      o.connect(g); g.connect(out); o.start(at); o.stop(at + dur + 0.05)
+    })
+  }
+  function chime(){
+    if(!ctx) return 0
+    if(ctx.state === 'suspended') ctx.resume()
+    var t = ctx.currentTime + 0.05
+    bell(659.25, t, 1.6)          // E5
+    bell(830.61, t + 0.28, 1.6)   // G#5
+    bell(987.77, t + 0.56, 2.2)   // B5
+    return 1500                   // ms until the chime has mostly rung out
+  }
+  function say(text){
+    try{
+      speechSynthesis.cancel(); speechSynthesis.resume()
+      var u = new SpeechSynthesisUtterance(text)
+      if(voice) u.voice = voice
+      u.rate = 0.92; u.pitch = 1; u.volume = 1
+      speechSynthesis.speak(u)
+    }catch(e){}
+  }
+  function announce(number){
+    if(!unlocked) return
+    var wait = 0
+    try{ wait = chime() }catch(e){}
+    setTimeout(function(){
+      say('Now auditioning, number ' + number + '. Number ' + number + ', please come to the audition room.')
+    }, wait)
+  }
+  return { unlock: unlock, announce: announce, isUnlocked: function(){ return unlocked } }
+})()
+
+// Inside /tv the parent page owns the sound (so one tap there covers every
+// display it switches between); this page just tells it what to announce.
+var EMBEDDED_IN_TV = new URLSearchParams(location.search).get('embed') === 'tv' && window.parent !== window
+if(EMBEDDED_IN_TV){ var _gate = document.getElementById('sound-gate'); if(_gate) _gate.style.display = 'none' }
+
 function enableSound(){
   soundEnabled = true
   document.getElementById('sound-gate').style.display = 'none'
-  // Priming utterance, spoken (near-)silently, right on the user's tap —
-  // most browsers only allow speechSynthesis after a real user gesture,
-  // and this "unlocks" it for the rest of the session's unattended polls.
-  try{
-    var primer = new SpeechSynthesisUtterance(' ')
-    primer.volume = 0
-    speechSynthesis.speak(primer)
-  } catch(e){}
+  HwtcAnnouncer.unlock()
 }
 
 function announce(number){
   document.body.classList.remove('flash')
   void document.body.offsetWidth // restart the CSS animation
   document.body.classList.add('flash')
-  if(!soundEnabled) return
-  try{
-    var ctx = new (window.AudioContext||window.webkitAudioContext)()
-    var osc = ctx.createOscillator()
-    var gain = ctx.createGain()
-    osc.connect(gain); gain.connect(ctx.destination)
-    osc.frequency.value = 880
-    gain.gain.setValueAtTime(0.2, ctx.currentTime)
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.5)
-    osc.start(); osc.stop(ctx.currentTime+0.5)
-  } catch(e){}
-  try{
-    var utter = new SpeechSynthesisUtterance('Number '+number+', please come in.')
-    utter.rate = 0.95
-    setTimeout(function(){ speechSynthesis.speak(utter) }, 600)
-  } catch(e){}
+  if(EMBEDDED_IN_TV){
+    try{ window.parent.postMessage({type: 'hwtc-announce', number: number}, location.origin) }catch(e){}
+    return
+  }
+  if(soundEnabled) HwtcAnnouncer.announce(number)
 }
 
 function render(data){

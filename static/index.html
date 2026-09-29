@@ -34183,7 +34183,7 @@ async function renderMarqueeBoxOfficeOrders(){
   }
   function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '—' }
   function fmtDate(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return String(d).slice(0,10) } }
-  var statusMap = {completed:'background:#dcfce7;color:#166534', pending:'background:#fef3c7;color:#92400e'}
+  var statusMap = {completed:'background:#dcfce7;color:#166534', pending:'background:#fef3c7;color:#92400e', cancelled:'background:#f1f5f9;color:#475569'}
   holder.innerHTML = '<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
     + '<thead><tr style="border-bottom:2px solid var(--border)">'
     + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Contact</th>'
@@ -35022,6 +35022,7 @@ async function openTicketOrderDetail(oid){
   var when = perf ? tkFmtDate(perf.performance_date)+(perf.performance_time?' · '+tkFmtTime(perf.performance_time):'') : ''
   var flag = ticketFlagObj(order)
   var related = data.related_orders || []
+  var isUnpaid = ['pending','superseded','cancelled'].indexOf(order.status) >= 0
   var flagHtml = flag
     ? '<div style="background:#fff7ed;border:1.5px solid #fdba74;border-radius:var(--radius);padding:12px 14px;margin-bottom:16px">'
       + '<div style="font-weight:800;font-size:13.5px;color:#9a3412;margin-bottom:4px">Possible over-limit buyer (limit '+flag.limit+' per performance)</div>'
@@ -35054,12 +35055,57 @@ async function openTicketOrderDetail(oid){
           + (t.seat_id?'<button class="btn btn-secondary btn-sm" onclick="openMoveSeatModal(\''+t.id+'\',\''+order.performance_id+'\',\''+oid+'\')">Move Seat</button>':'')
           + '</div></div>'
       }).join('')
+    + (isUnpaid
+        ? '<div style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin:4px 0 6px">Reserved (not paid yet)</div>'
+          + ((order.seats||[]).map(function(li){
+              return '<div style="display:flex;justify-content:space-between;padding:8px 12px;background:var(--bg);border-radius:var(--radius);margin-bottom:6px;font-size:13px">'
+                + '<span>'+escHtml(li.seat_label||li.ticket_type_name||'General Admission')+(li.section?' <span style="color:var(--text-muted)">— '+escHtml(li.section)+'</span>':'')+'</span>'
+                + '<span style="font-weight:700">'+fmtMoneyCents(li.price_cents)+'</span></div>'
+            }).join('') || '<div style="font-size:13px;color:var(--text-muted)">No seats recorded.</div>')
+        : '')
     + '<div style="display:flex;justify-content:space-between;font-weight:800;font-size:15px;padding-top:12px;margin-top:8px;border-top:2px solid var(--border)">'
-    + '<span>Total Paid</span><span>'+fmtMoneyCents(order.total_cents)+'</span></div>'
-    + '<div style="display:flex;gap:8px;margin-top:18px">'
-    + '<button class="btn btn-secondary" style="flex:1" onclick="openRefundRequestFromOrder(\''+oid+'\')"> Request Refund</button>'
-    + '</div>'
+    + '<span>'+(isUnpaid?'Amount Due':'Total Paid')+'</span><span>'+fmtMoneyCents(order.total_cents)+'</span></div>'
+    + (isUnpaid
+        ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:14px;line-height:1.5">'
+            + (order.status==='cancelled'
+                ? 'This order was cancelled and its seats were released.'
+                : 'The buyer started checkout but hasn\'t paid. No tickets have been issued.')
+          + '</div>'
+          + '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
+          + '<button class="btn btn-primary" style="flex:1" onclick="markTicketOrderPaid(\''+oid+'\')">Record as Paid</button>'
+          + (order.status!=='cancelled' ? '<button class="btn btn-secondary" style="flex:1" onclick="cancelTicketOrder(\''+oid+'\')">Cancel Order</button>' : '')
+          + '<button class="btn btn-secondary" style="flex:1;color:#b91c1c" onclick="deleteTicketOrder(\''+oid+'\')">Delete</button>'
+          + '</div>'
+        : '<div style="display:flex;gap:8px;margin-top:18px">'
+          + '<button class="btn btn-secondary" style="flex:1" onclick="openRefundRequestFromOrder(\''+oid+'\')"> Request Refund</button>'
+          + '</div>')
   showAdHocModal('order-detail-modal', 'Order Details', body)
+}
+
+// ── Unpaid ticket orders: staff actions ──
+function _refreshTicketOrderViews(){
+  closeAdHocModal('order-detail-modal')
+  if(document.getElementById('mq-boxoffice-search') && typeof renderMarqueeBoxOfficeOrders === 'function') renderMarqueeBoxOfficeOrders()
+  Object.keys(_ticketOrdersOpen||{}).forEach(function(pid){ if(_ticketOrdersOpen[pid] && typeof searchTicketOrders === 'function') searchTicketOrders(pid) })
+}
+async function markTicketOrderPaid(oid){
+  if(!confirm('Record this order as paid (cash, check, etc.)? Tickets will be issued and the buyer will get their confirmation email.')) return
+  var res = await api('/api/ticket-orders/'+oid+'/mark-paid','POST',{})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Marked as paid, tickets issued','success'); _refreshTicketOrderViews()
+}
+async function cancelTicketOrder(oid){
+  if(!confirm('Cancel this unpaid order? Its seats are released and the buyer\'s payment link stops working. If they bought other dates in the same checkout, those are cancelled too.')) return
+  var res = await api('/api/ticket-orders/'+oid+'/cancel','POST',{})
+  if(res.error){ toast(res.error,'error'); return }
+  var n = (res.cancelled_order_ids||[]).length
+  toast(n > 1 ? 'Cancelled ('+n+' performances in that checkout)' : 'Order cancelled','success'); _refreshTicketOrderViews()
+}
+async function deleteTicketOrder(oid){
+  if(!confirm('Delete this order permanently? This can\'t be undone.')) return
+  var res = await api('/api/ticket-orders/'+oid,'DELETE')
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Order deleted','success'); _refreshTicketOrderViews()
 }
 
 async function openMoveSeatModal(ticketId, performanceId, orderId){

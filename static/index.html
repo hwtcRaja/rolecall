@@ -12967,18 +12967,42 @@ async function loadCheckinTab(contextType, contextId, isPoll){
  const root = document.getElementById('checkin-root-'+contextId)
  if(!root) return
  try{
-  const [checkins, submissions] = await Promise.all([
-   api(`/api/auditions/checkins/${contextType}/${contextId}`),
-   api(`/api/auditions/list/${contextType}/${contextId}`)
+  const viewDate = (window._checkinViewDate||{})[contextId] || ''
+  const [checkins, submissions, days] = await Promise.all([
+   api(`/api/auditions/checkins/${contextType}/${contextId}`+(viewDate?'?date='+encodeURIComponent(viewDate):'')),
+   api(`/api/auditions/list/${contextType}/${contextId}`),
+   api(`/api/auditions/checkin-days/${contextType}/${contextId}`)
   ])
   if(!Array.isArray(checkins)){ if(!isPoll) root.innerHTML = '<div style="color:var(--red-600);padding:16px">Could not load check-ins.</div>'; return }
-  renderCheckinTab(root, contextType, contextId, checkins, Array.isArray(submissions)?submissions:[])
+  renderCheckinTab(root, contextType, contextId, checkins, Array.isArray(submissions)?submissions:[], days && days.days ? days : null)
  } catch(e){
   if(!isPoll) root.innerHTML = '<div style="color:var(--red-600);padding:16px">Failed to load check-in: '+e.message+'</div>'
  }
 }
 
-function renderCheckinTab(root, contextType, contextId, checkins, submissions){
+function setCheckinViewDate(contextType, contextId, date){
+ window._checkinViewDate = window._checkinViewDate || {}
+ window._checkinViewDate[contextId] = date
+ loadCheckinTab(contextType, contextId)
+}
+
+function renderCheckinTab(root, contextType, contextId, checkins, submissions, days){
+ const today = days ? days.today : ''
+ const viewDate = ((window._checkinViewDate||{})[contextId]) || today
+ const isPast = !!(days && viewDate && viewDate !== today)
+ const fmtDay = d => { try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) }catch(e){ return d } }
+ // Day picker: today plus every earlier day this audition had check-ins
+ let dayPills = ''
+ if(days){
+  const list = (days.days||[]).filter(x=>x.date!==today)
+  if(list.length){
+   const pill = (d, label) => { const on = d===viewDate; return `<span onclick="setCheckinViewDate('${contextType}','${contextId}','${d===today?'':d}')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${on?'#145466':'var(--border)'};background:${on?'#145466':'transparent'};color:${on?'#fff':'var(--text-muted)'}">${label}</span>` }
+   dayPills = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><span style="font-size:11.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Day</span>`
+    + pill(today, 'Today')
+    + list.map(x=>pill(x.date, fmtDay(x.date)+' · '+x.count+(x.first!=null?' (#'+x.first+'–'+x.last+')':''))).join('')
+    + `</div>`
+  }
+ }
  // Preserve the search box's current text and focus across a poll-driven
  // re-render, so typing isn't interrupted every 6 seconds.
  const searchBox = document.getElementById('checkin-search-'+contextId)
@@ -12993,7 +13017,11 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions){
  const roomControlUrl = `${window.location.origin}/audition-room-control/${contextType}/${contextId}`
  const kioskUrl = `${window.location.origin}/audition-checkin/${contextType}/${contextId}`
 
- let html = `<div class="card" style="padding:18px 20px;margin-bottom:14px;background:${called?'#f0fdfa':'var(--bg)'};border-color:${called?'#5eead4':'var(--border)'}">
+ let html = dayPills
+ if(isPast){
+  html += `<div class="card" style="padding:12px 16px;margin-bottom:14px;background:#fffbeb;border-color:#fcd34d;font-size:13px">Viewing check-ins from <strong>${fmtDay(viewDate)}</strong> (read-only). <a href="#" onclick="setCheckinViewDate('${contextType}','${contextId}','');return false">Back to today</a></div>`
+ } else {
+ html += `<div class="card" style="padding:18px 20px;margin-bottom:14px;background:${called?'#f0fdfa':'var(--bg)'};border-color:${called?'#5eead4':'var(--border)'}">
   <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap">
    <div>
     <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">Now Auditioning</div>
@@ -13030,6 +13058,8 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions){
   </div>
  </div>`
 
+ } // end today-only cards
+
  // Queue list — waiting first (in order), then called, then completed/no-show at the bottom
  const displayOrder = [
   ...checkins.filter(c=>c.status==='called'),
@@ -13038,9 +13068,9 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions){
   ...checkins.filter(c=>c.status==='no_show'),
  ]
  html += `<div class="card" style="padding:16px 18px">
-  <div style="font-size:13px;font-weight:700;margin-bottom:10px">Today's Queue (${checkins.length})</div>`
+  <div style="font-size:13px;font-weight:700;margin-bottom:10px">${isPast ? 'Checked in '+fmtDay(viewDate) : "Today's Queue"} (${checkins.length})</div>`
  if(!displayOrder.length){
-  html += `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">No one checked in yet today.</div>`
+  html += `<div style="text-align:center;padding:20px;color:var(--text-muted);font-size:13px">${isPast ? 'No check-ins that day.' : 'No one checked in yet today.'}</div>`
  } else {
   html += displayOrder.map(c=>{
    const statusMeta = {
@@ -13054,7 +13084,8 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions){
    if(c.status==='waiting') actions = `<button class="btn btn-primary btn-sm" onclick="callSpecificCheckin('${c.id}','${contextType}','${contextId}')">Call</button><button class="btn btn-secondary btn-sm" onclick="noShowCheckin('${c.id}','${contextType}','${contextId}')">No-Show</button>`
    else if(c.status==='called') actions = `<button class="btn btn-secondary btn-sm" onclick="completeCheckin('${c.id}','${contextType}','${contextId}')">Mark Done</button>`
    else if(c.status==='completed'||c.status==='no_show') actions = `<button class="btn btn-secondary btn-sm" onclick="undoCheckin('${c.id}','${contextType}','${contextId}')">Undo</button>`
-   actions += `<button onclick="removeCheckin('${c.id}','${contextType}','${contextId}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);padding:4px 6px" title="Remove">×</button>`
+   if(isPast) actions = ''
+   else actions += `<button onclick="removeCheckin('${c.id}','${contextType}','${contextId}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);padding:4px 6px" title="Remove">×</button>`
    const photoHtml = c.checkin_photo_url
     ? `<img src="${c.checkin_photo_url}" alt="" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0"/>`
     : `<div style="width:32px;height:32px;border-radius:50%;background:var(--border);color:var(--text-muted);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0">${escHtml((c.display_name||'?').trim().charAt(0).toUpperCase())}</div>`
@@ -13068,7 +13099,7 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions){
      </div>
     </div>
     <div style="display:flex;gap:6px;flex-shrink:0;align-items:center">
-     ${!c.checkin_photo_url?`<button onclick="openCheckinPhotoModal('${c.id}','${contextType}','${contextId}')" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px" title="Add photo"></button>`:''}
+     ${!c.checkin_photo_url && !isPast?`<button onclick="openCheckinPhotoModal('${c.id}','${contextType}','${contextId}')" style="background:none;border:none;cursor:pointer;font-size:14px;padding:2px" title="Add photo"></button>`:''}
      ${actions}
     </div>
    </div>`

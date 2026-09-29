@@ -2973,6 +2973,45 @@ def init_db():
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS buyer_ip TEXT",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS card_fingerprint TEXT",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS limit_flag TEXT",
+        # When money actually came in, for Marquee's period filters. Set by
+        # triggers so every path that confirms/charges/completes is covered
+        # without touching each one; older rows are backfilled from created_at.
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP",
+        "ALTER TABLE step_up_child_holds ADD COLUMN IF NOT EXISTS charged_at TIMESTAMP",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP",
+        """CREATE OR REPLACE FUNCTION hwtc_stamp_paid_at() RETURNS trigger AS $$
+        BEGIN
+            IF NEW.status = 'confirmed' AND NEW.paid_at IS NULL
+               AND (TG_OP = 'INSERT' OR OLD.status IS DISTINCT FROM 'confirmed') THEN
+                NEW.paid_at := NOW();
+            END IF;
+            RETURN NEW;
+        END $$ LANGUAGE plpgsql""",
+        "DROP TRIGGER IF EXISTS trg_reg_paid_at ON program_registrations",
+        "CREATE TRIGGER trg_reg_paid_at BEFORE INSERT OR UPDATE ON program_registrations FOR EACH ROW EXECUTE FUNCTION hwtc_stamp_paid_at()",
+        """CREATE OR REPLACE FUNCTION hwtc_stamp_charged_at() RETURNS trigger AS $$
+        BEGIN
+            IF NEW.hold_status = 'charged' AND NEW.charged_at IS NULL
+               AND (TG_OP = 'INSERT' OR OLD.hold_status IS DISTINCT FROM 'charged') THEN
+                NEW.charged_at := NOW();
+            END IF;
+            RETURN NEW;
+        END $$ LANGUAGE plpgsql""",
+        "DROP TRIGGER IF EXISTS trg_stepup_charged_at ON step_up_child_holds",
+        "CREATE TRIGGER trg_stepup_charged_at BEFORE INSERT OR UPDATE ON step_up_child_holds FOR EACH ROW EXECUTE FUNCTION hwtc_stamp_charged_at()",
+        """CREATE OR REPLACE FUNCTION hwtc_stamp_completed_at() RETURNS trigger AS $$
+        BEGIN
+            IF NEW.status = 'completed' AND NEW.completed_at IS NULL
+               AND (TG_OP = 'INSERT' OR OLD.status IS DISTINCT FROM 'completed') THEN
+                NEW.completed_at := NOW();
+            END IF;
+            RETURN NEW;
+        END $$ LANGUAGE plpgsql""",
+        "DROP TRIGGER IF EXISTS trg_ticket_completed_at ON ticket_orders",
+        "CREATE TRIGGER trg_ticket_completed_at BEFORE INSERT OR UPDATE ON ticket_orders FOR EACH ROW EXECUTE FUNCTION hwtc_stamp_completed_at()",
+        "UPDATE program_registrations SET paid_at=created_at WHERE paid_at IS NULL AND status='confirmed'",
+        "UPDATE step_up_child_holds SET charged_at=updated_at WHERE charged_at IS NULL AND hold_status='charged'",
+        "UPDATE ticket_orders SET completed_at=created_at WHERE completed_at IS NULL AND status='completed'",
         "CREATE INDEX IF NOT EXISTS ix_ticket_orders_perf_buyer ON ticket_orders(performance_id, buyer_email_key)",
         # General-purpose labeled rectangle for a seat map -- not a seat,
         # not interactive to a buyer, just a visual/orientation marker
@@ -35750,7 +35789,7 @@ def resplit_shared_orders():
     conn.close()
     return jsonify({'ok': True, 'orders_fixed': fixed, 'orders_skipped_already_split': skipped})
 
-def program_instruction_cost(conn, program_id):
+def program_instruction_cost(conn, program_id, start=None, end=None):
     """Planned instructor cost for a paid-instruction program, so Marquee can
     show what the program actually nets. Uses the same pay rules as the
     BloomBooks payroll report: 'per_class' pays the rate once per scheduled
@@ -35758,7 +35797,9 @@ def program_instruction_cost(conn, program_id):
     event's own times, else the program's meeting times). Scheduled classes
     are the program's non-cancelled events. With no rate or no classes on
     the calendar yet, falls back to the program's lump-sum
-    instructor_expected_pay estimate. Returns None if not paid instruction."""
+    instructor_expected_pay estimate. Returns None if not paid instruction.
+    With start/end (dates, end exclusive), only classes dated in that window
+    count, and the lump-sum estimate only counts if the program starts in it."""
     p = fetchone(conn, '''SELECT is_paid_instruction, pay_rate_type, pay_rate_amount, instructor_expected_pay,
         meeting_start_time, meeting_end_time FROM youth_programs WHERE id=%s''', (program_id,))
     if not p or not p.get('is_paid_instruction'):
@@ -35766,8 +35807,11 @@ def program_instruction_cost(conn, program_id):
     rate_type = p.get('pay_rate_type') or 'hourly'
     rate = float(p.get('pay_rate_amount') or 0)
     default_hours = _hours_between(p.get('meeting_start_time') or '', p.get('meeting_end_time') or '')
-    events = fetchall(conn, """SELECT id, start_time, end_time FROM events
+    events = fetchall(conn, """SELECT id, start_time, end_time, event_date FROM events
         WHERE program_id=%s AND COALESCE(status,'active') != 'cancelled'""", (program_id,)) or []
+    if start and end:
+        _s, _e = start.isoformat(), end.isoformat()
+        events = [e for e in events if e.get('event_date') and _s <= str(e['event_date'])[:10] < _e]
     classes = len(events)
     hours = 0.0
     for e in events:
@@ -35779,6 +35823,11 @@ def program_instruction_cost(conn, program_id):
     else:
         cost = float(p.get('instructor_expected_pay') or 0)
         basis = 'estimate' if cost > 0 else 'not_set'
+        if start and end and cost:
+            ps = fetchone(conn, 'SELECT start_date FROM youth_programs WHERE id=%s', (program_id,)) or {}
+            sd = str(ps.get('start_date') or '')[:10]
+            if not (sd and start.isoformat() <= sd < end.isoformat()):
+                cost = 0.0
     paid_classes = 0
     if events:
         try:
@@ -35799,6 +35848,290 @@ def program_instruction_cost(conn, program_id):
         'instruction_hours': round(hours, 2),
         'instruction_classes_paid': paid_classes,
     }
+
+
+# ── Marquee dashboard summary: three revenue buckets + a period filter ────
+# Buckets: Programs & Classes (youth_programs), Ticket Sales (audience
+# tickets), Enrollment (Rising Stars / Teen Show fees). Donations are shown
+# alongside but kept out of the bucket total.
+#
+# Periods count money by WHEN IT CAME IN (registration paid_at, Step Up
+# charged_at, ticket completed_at, donation_date), so they line up with
+# deposits. "active" instead shows everything for what's currently
+# enrolling/running/upcoming, whenever it was paid.
+MARQUEE_PERIODS = ('active', 'month', 'last_month', 'quarter', 'year', 'last_year', 'custom')
+
+
+def _marquee_period_bounds(period, start_s='', end_s=''):
+    import datetime as _d
+    t = today_eastern()
+    def first_of_month(y, m): return _d.date(y, m, 1)
+    def add_months(dt, n):
+        m = dt.month - 1 + n
+        return _d.date(dt.year + m // 12, m % 12 + 1, 1)
+    if period == 'month':
+        s = first_of_month(t.year, t.month); return s, add_months(s, 1)
+    if period == 'last_month':
+        e = first_of_month(t.year, t.month); return add_months(e, -1), e
+    if period == 'quarter':
+        s = first_of_month(t.year, 3 * ((t.month - 1) // 3) + 1); return s, add_months(s, 3)
+    if period == 'year':
+        return _d.date(t.year, 1, 1), _d.date(t.year + 1, 1, 1)
+    if period == 'last_year':
+        return _d.date(t.year - 1, 1, 1), _d.date(t.year, 1, 1)
+    if period == 'custom':
+        try:
+            s = _d.date.fromisoformat(start_s[:10]); e = _d.date.fromisoformat(end_s[:10]) + _d.timedelta(days=1)
+            if e > s:
+                return s, e
+        except Exception:
+            pass
+    return None, None
+
+
+def _eastern_date(ts):
+    """DB timestamps are naive UTC (NOW()); convert to an Eastern date."""
+    if not ts:
+        return None
+    import datetime as _d
+    from zoneinfo import ZoneInfo
+    if isinstance(ts, str):
+        if len(ts.strip()) == 10:   # plain date, no time to convert
+            try: return _d.date.fromisoformat(ts.strip())
+            except Exception: return None
+        try:
+            ts = _d.datetime.fromisoformat(ts.replace('Z', '+00:00'))
+        except Exception:
+            try: return _d.date.fromisoformat(ts[:10])
+            except Exception: return None
+    if isinstance(ts, _d.datetime):
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=_d.timezone.utc)
+        return ts.astimezone(ZoneInfo('America/New_York')).date()
+    return ts
+
+
+def _date_str(d):
+    return str(d)[:10] if d else ''
+
+
+@app.route('/api/marquee/summary', methods=['GET'])
+def marquee_summary():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    period = request.args.get('period') or 'active'
+    if period not in MARQUEE_PERIODS:
+        period = 'active'
+    start, end = _marquee_period_bounds(period, request.args.get('start') or '', request.args.get('end') or '')
+    if period != 'active' and not start:
+        period = 'active'
+    today = today_eastern()
+    today_s = today.isoformat()
+    in_window = (lambda d: d is not None and start <= d < end) if start else (lambda d: True)
+
+    conn = get_db()
+    try:
+        progs = fetchall(conn, '''SELECT id, name, status, registration_status, start_date, end_date, capacity,
+            is_paid_instruction, sessions_enabled, price FROM youth_programs
+            WHERE COALESCE(registration_status,'draft') != 'draft' ''') or []
+        prods = fetchall(conn, """SELECT id, name, stage, status, registration_status, start_date, end_date, capacity, price
+            FROM productions WHERE stage IN ('rising_stars','teen_show')
+            AND COALESCE(registration_status,'draft') != 'draft'""") or []
+        regs = fetchall(conn, '''SELECT pr.id, pr.program_id, pr.production_id, pr.status, pr.is_comped,
+                pr.amount_paid_cents, pr.refund_amount_cents, pr.participant_count, pr.discount_amount,
+                pr.sibling_discount_amount, COALESCE(pr.paid_at, pr.created_at) AS paid_at,
+                COALESCE(yp.price, prod.price, 0) AS program_price,
+                su.hold_status AS step_up_hold_status, su.amount AS step_up_amount,
+                COALESCE(su.charged_at, su.updated_at) AS step_up_charged_at
+            FROM program_registrations pr
+            LEFT JOIN youth_programs yp ON yp.id = pr.program_id
+            LEFT JOIN productions prod ON prod.id = pr.production_id
+            LEFT JOIN step_up_child_holds su ON su.registration_id = pr.id
+            WHERE pr.status IN ('confirmed','waitlisted','pending_payment')''') or []
+
+        def is_active(row):
+            if (row.get('status') or '') in ('completed', 'archived', 'cancelled'):
+                return False
+            if (row.get('registration_status') or '') == 'cancelled':
+                return False
+            if (row.get('registration_status') or '') == 'open':
+                return True
+            ed = _date_str(row.get('end_date'))
+            return (not ed) or ed >= today_s
+
+        def blank(row, kind):
+            return {'id': row['id'], 'name': row['name'], 'kind': kind,
+                    'registration_status': row.get('registration_status'), 'status': row.get('status'),
+                    'start_date': _date_str(row.get('start_date')), 'end_date': _date_str(row.get('end_date')),
+                    'capacity': row.get('capacity'), 'active': is_active(row),
+                    'enrolled': 0, 'waitlisted': 0, 'pending_payment': 0, 'comped': 0,
+                    'gross_cents': 0, 'pending_step_up_cents': 0, 'waitlist_value_cents': 0}
+
+        prog_rows = {p['id']: dict(blank(p, 'program'), paid_instruction=bool(p.get('is_paid_instruction'))) for p in progs}
+        prod_rows = {p['id']: dict(blank(p, 'enrollment'), stage=p.get('stage')) for p in prods}
+
+        for r in regs:
+            row = prog_rows.get(r.get('program_id')) or prod_rows.get(r.get('production_id'))
+            if not row:
+                continue
+            st = r['status']
+            if st == 'waitlisted':
+                row['waitlisted'] += 1
+                if not r.get('is_comped'):
+                    row['waitlist_value_cents'] += max(0, (r.get('program_price') or 0) * (r.get('participant_count') or 1)
+                        - (r.get('discount_amount') or 0) - (r.get('sibling_discount_amount') or 0))
+                continue
+            if st == 'pending_payment':
+                row['pending_payment'] += 1
+                continue
+            row['enrolled'] += 1
+            if r.get('is_comped'):
+                row['comped'] += 1
+            amount, source = compute_registration_amount(r)
+            if source == 'step_up_pending':
+                row['pending_step_up_cents'] += int(r.get('step_up_amount') or 0)
+                continue
+            when = _eastern_date(r.get('step_up_charged_at') if source == 'step_up' else r.get('paid_at'))
+            if start:
+                if in_window(when):
+                    row['gross_cents'] += int(amount or 0)
+            else:
+                row['gross_cents'] += int(amount or 0)
+
+        # which rows belong in this view
+        def keep(row):
+            if start:
+                return row['gross_cents'] != 0 or row.get('instructor_cost_cents', 0) != 0
+            return row['active']
+
+        # instructor pay for paid-instruction programs
+        for row in prog_rows.values():
+            row['instructor_cost_cents'] = 0
+            if not row['paid_instruction']:
+                continue
+            if not start and not row['active']:
+                continue
+            try:
+                ic = program_instruction_cost(conn, row['id'], start, end)
+            except Exception as e:
+                app.logger.warning(f'Instruction cost failed for {row["name"]}: {e}')
+                try: conn.rollback()
+                except Exception: pass
+                ic = None
+            if ic:
+                row.update(ic)
+                row['instructor_cost_cents'] = ic['instruction_cost_cents']
+        for row in prog_rows.values():
+            row['net_cents'] = row['gross_cents'] - row['instructor_cost_cents']
+
+        programs = sorted([r for r in prog_rows.values() if keep(r)], key=lambda r: (-r['gross_cents'], r['name']))
+        enrollment = sorted([r for r in prod_rows.values() if keep(r)], key=lambda r: (-r['gross_cents'], r['name']))
+
+        # ── ticket sales ──
+        torders = fetchall(conn, '''SELECT o.id, o.total_cents, o.service_fee_cents, o.seats_json,
+                COALESCE(o.completed_at, o.created_at) AS paid_at,
+                pf.id AS performance_id, pf.performance_date, pf.performance_time, pf.production_id,
+                p.name AS production_name
+            FROM ticket_orders o JOIN performances pf ON pf.id = o.performance_id
+            JOIN productions p ON p.id = pf.production_id
+            WHERE o.status = 'completed' ''') or []
+        perfs = fetchall(conn, '''SELECT pf.id, pf.production_id, pf.performance_date, pf.performance_time, pf.status,
+                p.name AS production_name FROM performances pf JOIN productions p ON p.id=pf.production_id
+            WHERE COALESCE(pf.status,'draft') != 'draft' ''') or []
+        shows = {}
+        def show_for(pid, name):
+            if pid not in shows:
+                shows[pid] = {'id': pid, 'name': name, 'gross_cents': 0, 'fee_cents': 0, 'tickets': 0,
+                              'orders': 0, 'performances': {}, 'upcoming_performances': 0}
+            return shows[pid]
+        def perf_for(sh, pf):
+            if pf['id'] not in sh['performances']:
+                sh['performances'][pf['id']] = {'id': pf['id'], 'date': _date_str(pf.get('performance_date')),
+                    'time': pf.get('performance_time') or '', 'tickets': 0, 'gross_cents': 0}
+            return sh['performances'][pf['id']]
+        for pf in perfs:
+            upcoming = _date_str(pf.get('performance_date')) >= today_s
+            if not start and upcoming:
+                sh = show_for(pf['production_id'], pf['production_name'])
+                sh['upcoming_performances'] += 1
+                perf_for(sh, pf)
+        for o in torders:
+            pdate = _date_str(o.get('performance_date'))
+            if start:
+                if not in_window(_eastern_date(o.get('paid_at'))):
+                    continue
+            elif pdate < today_s:
+                continue
+            sh = show_for(o['production_id'], o['production_name'])
+            n = _order_ticket_count(o)
+            sh['gross_cents'] += int(o.get('total_cents') or 0)
+            sh['fee_cents'] += int(o.get('service_fee_cents') or 0)
+            sh['tickets'] += n
+            sh['orders'] += 1
+            pr = perf_for(sh, {'id': o['performance_id'], 'performance_date': o.get('performance_date'),
+                               'performance_time': o.get('performance_time')})
+            pr['tickets'] += n
+            pr['gross_cents'] += int(o.get('total_cents') or 0)
+        ticket_shows = []
+        for sh in shows.values():
+            sh['performances'] = sorted(sh['performances'].values(), key=lambda x: (x['date'], x['time']))
+            ticket_shows.append(sh)
+        ticket_shows.sort(key=lambda x: (-x['gross_cents'], x['name']))
+
+        # ── donations (not part of the bucket total) ──
+        if start:
+            don = fetchone(conn, '''SELECT COALESCE(SUM(amount),0) AS t, COUNT(*) AS c FROM donor_donations
+                WHERE donation_date >= %s AND donation_date < %s''', (start.isoformat(), end.isoformat())) or {}
+            donations_label = 'in this period'
+        else:
+            don = fetchone(conn, '''SELECT COALESCE(SUM(amount),0) AS t, COUNT(*) AS c FROM donor_donations
+                WHERE donation_date >= %s''', (today.replace(month=1, day=1).isoformat(),)) or {}
+            donations_label = 'this year'
+    finally:
+        conn.close()
+
+    def total(rows, key): return sum(int(r.get(key) or 0) for r in rows)
+    instructed = [r for r in programs if r['paid_instruction']]
+    uninstructed = [r for r in programs if not r['paid_instruction']]
+    buckets = {
+        'programs': {
+            'gross_cents': total(programs, 'gross_cents'),
+            'instructor_cost_cents': total(programs, 'instructor_cost_cents'),
+            'net_cents': total(programs, 'net_cents'),
+            'pending_step_up_cents': total(programs, 'pending_step_up_cents'),
+            'waitlist_value_cents': total(programs, 'waitlist_value_cents'),
+            'enrolled': total(programs, 'enrolled'), 'count': len(programs),
+            'instructed': {'count': len(instructed), 'gross_cents': total(instructed, 'gross_cents'),
+                           'instructor_cost_cents': total(instructed, 'instructor_cost_cents'),
+                           'net_cents': total(instructed, 'net_cents')},
+            'not_instructed': {'count': len(uninstructed), 'gross_cents': total(uninstructed, 'gross_cents')},
+        },
+        'tickets': {
+            'gross_cents': total(ticket_shows, 'gross_cents'), 'fee_cents': total(ticket_shows, 'fee_cents'),
+            'tickets': total(ticket_shows, 'tickets'), 'orders': total(ticket_shows, 'orders'),
+            'count': len(ticket_shows),
+        },
+        'enrollment': {
+            'gross_cents': total(enrollment, 'gross_cents'),
+            'pending_step_up_cents': total(enrollment, 'pending_step_up_cents'),
+            'waitlist_value_cents': total(enrollment, 'waitlist_value_cents'),
+            'enrolled': total(enrollment, 'enrolled'), 'count': len(enrollment),
+        },
+    }
+    gross_all = buckets['programs']['gross_cents'] + buckets['tickets']['gross_cents'] + buckets['enrollment']['gross_cents']
+    return jsonify({
+        'period': period,
+        'start': start.isoformat() if start else None,
+        'end_inclusive': (end - __import__('datetime').timedelta(days=1)).isoformat() if end else None,
+        'buckets': buckets,
+        'total': {'gross_cents': gross_all,
+                  'instructor_cost_cents': buckets['programs']['instructor_cost_cents'],
+                  'net_cents': gross_all - buckets['programs']['instructor_cost_cents']},
+        'donations': {'amount': float(don.get('t') or 0), 'count': int(don.get('c') or 0), 'label': donations_label},
+        'programs': programs,
+        'ticket_shows': ticket_shows,
+        'enrollment': enrollment,
+    })
 
 
 @app.route('/api/marquee/overview', methods=['GET'])

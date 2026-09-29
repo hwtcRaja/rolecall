@@ -474,6 +474,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-section">Production Tools</div>
         <div class="nav-item" onclick="navTo('show-contracts',this)"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
         <div class="nav-item" onclick="navTo('licensing',this)"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
+        <div class="nav-item" onclick="navTo('talent',this)"><span class="nav-icon" id="ni-talent"></span>Talent Database</div>
 
         <!-- INSTRUCTOR (restricted role) -->
         <div class="nav-section" id="nav-section-instructor" style="display:none">My Teaching</div>
@@ -1285,6 +1286,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </section>
 
  <!-- LICENSING REQUESTS PAGE -->
+ <section class="page" id="page-talent">
+ <div class="page-header"><div><div class="page-title">Talent Database</div>
+ <div class="page-subtitle">Everyone who has auditioned, across every show. Add notes and tags that carry forward to their next audition. <span id="talent-count"></span></div></div></div>
+ <div style="margin-bottom:12px"><input type="text" placeholder="Search name, email, phone, or tag…" oninput="onTalentSearch(this.value)" style="max-width:420px"/></div>
+ <div id="talent-list"></div>
+ </section>
+
  <section class="page" id="page-licensing">
  <div class="page-header">
  <div><div class="page-title">Licensing Requests</div><div class="page-subtitle">Track show licensing requests, whether the licensor has been contacted, and contract status</div></div>
@@ -4528,6 +4536,7 @@ const NAV_PERM_MAP = {
  'productions': 'productions',
  'show-contracts': 'productions',
  'licensing': 'licensing',
+ 'talent': 'productions',
  'youth': 'youth',
  'youth-programs-page': 'programs',
  'rising-stars-page':'rising_stars',
@@ -4693,6 +4702,7 @@ function navTo(page,el){
  if(page==='production-signin') initProdSignIn()
  if(page==='show-contracts') loadShowContractsPage()
  if(page==='licensing') loadLicensingPage()
+ if(page==='talent') loadTalentPage()
  if(page==='settings') loadSettings()
  if(page==='email-templates-page') loadEmailTemplatesPage()
  if(page==='portal-admin'){ renderPortalAdmin() }
@@ -12968,6 +12978,15 @@ async function loadCheckinTab(contextType, contextId, isPoll){
  if(!root) return
  try{
   const viewDate = (window._checkinViewDate||{})[contextId] || ''
+  if(((window._checkinMode||{})[contextId]) === 'schedule'){
+   const [sched, sdays] = await Promise.all([
+    api(`/api/auditions/schedule/${contextType}/${contextId}`+(viewDate?'?date='+encodeURIComponent(viewDate):'')),
+    api(`/api/auditions/checkin-days/${contextType}/${contextId}`)
+   ])
+   if(!sched || sched.error){ if(!isPoll) root.innerHTML = '<div style="color:var(--red-600);padding:16px">Could not load the schedule.</div>'; return }
+   renderCheckinSchedule(root, contextType, contextId, sched, sdays)
+   return
+  }
   const [checkins, submissions, days] = await Promise.all([
    api(`/api/auditions/checkins/${contextType}/${contextId}`+(viewDate?'?date='+encodeURIComponent(viewDate):'')),
    api(`/api/auditions/list/${contextType}/${contextId}`),
@@ -12978,6 +12997,94 @@ async function loadCheckinTab(contextType, contextId, isPoll){
  } catch(e){
   if(!isPoll) root.innerHTML = '<div style="color:var(--red-600);padding:16px">Failed to load check-in: '+e.message+'</div>'
  }
+}
+
+// ── Check-In tab: Queue / Schedule toggle ──
+function checkinModeToggle(contextType, contextId, mode){
+ const pill = (m, label) => { const on = m===mode; return `<span onclick="setCheckinMode('${contextType}','${contextId}','${m}')" style="padding:7px 16px;border-radius:20px;font-size:12.5px;font-weight:700;cursor:pointer;border:1.5px solid ${on?'#145466':'var(--border)'};background:${on?'#145466':'transparent'};color:${on?'#fff':'var(--text-muted)'}">${label}</span>` }
+ return `<div style="display:flex;gap:8px;margin-bottom:12px">${pill('queue','Queue')}${pill('schedule','Schedule')}</div>`
+}
+function setCheckinMode(contextType, contextId, mode){
+ window._checkinMode = window._checkinMode || {}
+ window._checkinMode[contextId] = mode
+ loadCheckinTab(contextType, contextId)
+}
+async function markScheduleNoShow(sid, contextType, contextId, undo){
+ await api(`/api/auditions/submissions/${sid}/status`, 'PUT', {status: undo ? 'pending' : 'no_show'})
+ toast(undo ? 'No-show cleared' : 'Marked as no-show', 'success')
+ loadCheckinTab(contextType, contextId)
+}
+
+function renderCheckinSchedule(root, contextType, contextId, sched, days){
+ const fmtDay = d => { try{ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) }catch(e){ return d } }
+ const fmtT = t => { if(!t) return ''; const [h,m] = t.split(':').map(Number); return ((h%12)||12)+':'+String(m).padStart(2,'0')+(h>=12?' PM':' AM') }
+ const today = sched.today, viewDate = sched.date, isToday = viewDate === today
+ let html = checkinModeToggle(contextType, contextId, 'schedule')
+ // day picker: every day with time slots or check-ins, past and upcoming
+ const list = ((days && days.days) || []).filter(x => (x.booked||0) > 0 || (x.count||0) > 0 || x.date === today)
+ if(!list.find(x=>x.date===today)) list.push({date: today, booked: 0, count: 0})
+ list.sort((a,b)=>a.date<b.date?-1:1)
+ html += `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><span style="font-size:11.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Day</span>`
+  + list.map(x=>{ const on = x.date===viewDate
+     return `<span onclick="setCheckinViewDate('${contextType}','${contextId}','${x.date===today?'':x.date}')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${on?'#145466':'var(--border)'};background:${on?'#145466':'transparent'};color:${on?'#fff':'var(--text-muted)'}">${x.date===today?'Today':fmtDay(x.date)}${x.booked?' · '+x.booked+' booked':''}</span>` }).join('')
+  + `</div>`
+
+ const c = sched.counts || {}
+ const chip = (n, label, bg, col) => `<div style="background:${bg};color:${col};border-radius:10px;padding:10px 14px;min-width:92px"><div style="font-size:20px;font-weight:800">${n||0}</div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px">${label}</div></div>`
+ html += `<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">`
+  + chip(c.expected, isToday?'Still expected':'Expected', '#f3f4f6', '#374151')
+  + (isToday ? chip(c.late, 'Late', '#fef3c7', '#92400e') : '')
+  + chip((c.waiting||0)+(c.auditioning||0), 'Here now', '#dcfce7', '#166534')
+  + chip(c.done, 'Auditioned', '#e0f2fe', '#0369a1')
+  + chip(c.no_show, 'No-show', '#fee2e2', '#991b1b')
+  + `</div>`
+
+ const stateMeta = {
+  expected: ['#f3f4f6','#6b7280','Expected'], late: ['#fef3c7','#92400e','Late: not checked in'],
+  waiting: ['#dcfce7','#166534','Checked in'], auditioning: ['#ccfbf1','#115e59','Auditioning now'],
+  done: ['#e0f2fe','#0369a1','Auditioned'], no_show: ['#fee2e2','#991b1b','No-show'],
+ }
+ const slots = sched.slots || []
+ if(!slots.length){
+  html += `<div class="card" style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">No audition time slots on ${isToday?'today':fmtDay(viewDate)}.</div>`
+ }
+ slots.forEach(sl=>{
+  html += `<div class="card" style="padding:14px 16px;margin-bottom:10px">
+   <div style="display:flex;align-items:center;gap:10px;margin-bottom:${sl.people.length?'8px':'0'}">
+    <div style="font-size:14px;font-weight:800;color:#0d3d4d">${fmtT(sl.start_time)}–${fmtT(sl.end_time)}</div>
+    ${sl.location?`<div style="font-size:12px;color:var(--text-muted)">${escHtml(sl.location)}</div>`:''}
+    <div style="flex:1"></div>
+    <div style="font-size:11.5px;color:var(--text-muted)">${sl.people.length}${sl.capacity?' / '+sl.capacity:''} booked</div>
+   </div>`
+   + (sl.people.length ? sl.people.map(p=>{
+      const [bg,col,label] = stateMeta[p.state] || stateMeta.expected
+      let actions = ''
+      if(p.state==='expected' || p.state==='late'){
+       if(isToday) actions += `<button class="btn btn-primary btn-sm" onclick="checkInSubmission('${p.submission_id}','${contextType}','${contextId}')">Check In</button>`
+       actions += `<button class="btn btn-secondary btn-sm" onclick="markScheduleNoShow('${p.submission_id}','${contextType}','${contextId}')">No-show</button>`
+      } else if(p.state==='no_show' && !p.checkin_id && p.submission_status==='no_show'){
+       actions += `<button class="btn btn-secondary btn-sm" onclick="markScheduleNoShow('${p.submission_id}','${contextType}','${contextId}',true)">Undo</button>`
+      }
+      return `<div style="display:flex;align-items:center;gap:10px;padding:7px 10px;background:var(--bg);border-radius:8px;margin-bottom:5px">
+       <div style="font-size:14px;font-weight:800;color:#145466;min-width:40px">${p.queue_number?'#'+p.queue_number:''}</div>
+       <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:700">${escHtml(p.name)}${p.age!=null?` <span style="font-weight:400;color:var(--text-muted)">(${p.age})</span>`:''}</div>
+        <div style="font-size:11px;color:var(--text-muted)">${escHtml(p.email||'')}${p.phone?' · '+escHtml(p.phone):''}</div>
+       </div>
+       <span style="font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:20px;background:${bg};color:${col};white-space:nowrap">${label}</span>
+       <div style="display:flex;gap:6px">${actions}</div>
+      </div>` }).join('')
+     : `<div style="font-size:12px;color:var(--text-hint)">Nobody booked.</div>`)
+   + `</div>`
+ })
+ const extra = sched.unscheduled || []
+ if(extra.length){
+  html += `<div class="card" style="padding:14px 16px;margin-bottom:10px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">Checked in without a booked time (${extra.length})</div>`
+   + extra.map(x=>`<div style="font-size:12.5px;padding:4px 0">#${x.queue_number} · ${escHtml(x.name||'Booked for another day')}${x.walk_in?' <span style="color:var(--text-muted)">(walk-in)</span>':''}</div>`).join('')
+   + `</div>`
+ }
+ html += `<div style="font-size:11.5px;color:var(--text-muted);margin-top:4px">People are marked <strong>Late</strong> once their slot ends without a check-in, and count as <strong>No-show</strong> for past days. Marking someone a no-show here also sets their audition status to No Show.</div>`
+ root.innerHTML = html
 }
 
 function setCheckinViewDate(contextType, contextId, date){
@@ -12994,7 +13101,7 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions, d
  // Day picker: today plus every earlier day this audition had check-ins
  let dayPills = ''
  if(days){
-  const list = (days.days||[]).filter(x=>x.date!==today)
+  const list = (days.days||[]).filter(x=>x.date!==today && (x.count||0) > 0)
   if(list.length){
    const pill = (d, label) => { const on = d===viewDate; return `<span onclick="setCheckinViewDate('${contextType}','${contextId}','${d===today?'':d}')" style="padding:5px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid ${on?'#145466':'var(--border)'};background:${on?'#145466':'transparent'};color:${on?'#fff':'var(--text-muted)'}">${label}</span>` }
    dayPills = `<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:12px"><span style="font-size:11.5px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px">Day</span>`
@@ -13017,7 +13124,7 @@ function renderCheckinTab(root, contextType, contextId, checkins, submissions, d
  const roomControlUrl = `${window.location.origin}/audition-room-control/${contextType}/${contextId}`
  const kioskUrl = `${window.location.origin}/audition-checkin/${contextType}/${contextId}`
 
- let html = dayPills
+ let html = checkinModeToggle(contextType, contextId, 'queue') + dayPills
  if(isPast){
   html += `<div class="card" style="padding:12px 16px;margin-bottom:14px;background:#fffbeb;border-color:#fcd34d;font-size:13px">Viewing check-ins from <strong>${fmtDay(viewDate)}</strong> (read-only). <a href="#" onclick="setCheckinViewDate('${contextType}','${contextId}','');return false">Back to today</a></div>`
  } else {
@@ -13320,6 +13427,7 @@ function renderAuditionList(submissions, contextId, filterStatus){
  ${avatarHTML(s.submitter_name, 30)}
  <div style="font-size:14px;font-weight:700">${escHtml(s.submitter_name)}</div>
  <span class="aud-status-badge" style="background:${bg};color:${col};padding:2px 9px;border-radius:20px;font-size:11px;font-weight:700">${AUDITION_STATUS_LABELS[s.status]||s.status}</span>
+ ${s.talent && s.talent.person_id ? `<span onclick="openTalentProfile('${s.talent.person_id}',{type:'${s.context_type}',id:'${s.context_id}'})" title="${escHtml(s.talent.latest_note||'Open their talent profile')}" style="cursor:pointer;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:${s.talent.prior_auditions?'#ede9fe':'#f3f4f6'};color:${s.talent.prior_auditions?'#5b21b6':'#6b7280'}">${s.talent.prior_auditions ? 'Auditioned '+s.talent.prior_auditions+'× before'+(s.talent.prior_cast?' · cast '+s.talent.prior_cast+'×':'') : 'First audition'}${s.talent.note_count?' · '+s.talent.note_count+' note'+(s.talent.note_count===1?'':'s'):''}</span>` : ''}
  </div>
  ${(()=>{
  let roleList = []
@@ -13437,6 +13545,121 @@ async function toggleAuditionTabVisible(contextType, contextId, containerId, new
  await api(`/api/auditions/settings/${contextType}/${contextId}`, 'PUT', updated)
  toast(newState ? 'Auditions tab is now visible in the family portal': 'Auditions tab hidden from the family portal', 'success')
  loadAuditionsTab(contextType, contextId, containerId)
+}
+
+// ── Talent Database ──────────────────────────────────────────────────────
+var _talentQuery = ''
+var _talentTimer = null
+async function loadTalentPage(){
+ const el = document.getElementById('talent-list'); if(!el) return
+ el.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
+ const rows = await api('/api/talent'+(_talentQuery?'?q='+encodeURIComponent(_talentQuery):''))
+ if(!Array.isArray(rows)){ el.innerHTML = '<div class="card" style="padding:20px;color:var(--red-600)">'+escHtml((rows&&rows.error)||'Could not load')+'</div>'; return }
+ const fmtD = d => d ? new Date(String(d).replace(' ','T')).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'
+ document.getElementById('talent-count').textContent = rows.length+' '+(rows.length===1?'person':'people')
+ if(!rows.length){ el.innerHTML = '<div class="card" style="padding:24px;text-align:center;color:var(--text-muted)">'+(_talentQuery?'No one matches that search.':'No auditions yet.')+'</div>'; return }
+ el.innerHTML = '<div class="card" style="padding:0;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+  + '<thead><tr style="background:var(--bg);text-align:left"><th style="padding:10px 14px">Person</th><th style="padding:10px">Auditions</th><th style="padding:10px">Cast</th><th style="padding:10px">Last audition</th><th style="padding:10px">Tags</th><th style="padding:10px">Notes</th></tr></thead><tbody>'
+  + rows.map(r=>'<tr onclick="openTalentProfile(\''+r.id+'\')" style="border-top:1px solid var(--border);cursor:pointer" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+    + '<td style="padding:10px 14px"><div style="display:flex;align-items:center;gap:10px">'
+    + (r.headshot_url ? '<img src="'+escHtml(r.headshot_url)+'" style="width:34px;height:34px;border-radius:50%;object-fit:cover"/>' : avatarHTML(r.name, 34))
+    + '<div><div style="font-weight:700">'+escHtml(r.name)+(r.age!=null?' <span style="font-weight:400;color:var(--text-muted)">('+r.age+')</span>':'')+'</div>'
+    + '<div style="font-size:11.5px;color:var(--text-muted)">'+escHtml(r.email||'')+(r.phone?' · '+escHtml(r.phone):'')+'</div></div></div></td>'
+    + '<td style="padding:10px">'+r.audition_count+'</td>'
+    + '<td style="padding:10px">'+(r.cast_count?'<span style="font-weight:700;color:#166534">'+r.cast_count+'</span>':'0')+'</td>'
+    + '<td style="padding:10px;color:var(--text-muted)">'+fmtD(r.last_audition)+'</td>'
+    + '<td style="padding:10px">'+(r.tags||[]).map(t=>'<span style="display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:10px;background:var(--teal-50);color:var(--teal-dark);margin:1px">'+escHtml(t)+'</span>').join('')+'</td>'
+    + '<td style="padding:10px">'+(r.note_count||'')+'</td>'
+    + '</tr>').join('') + '</tbody></table></div>'
+}
+function onTalentSearch(v){
+ _talentQuery = v.trim()
+ clearTimeout(_talentTimer); _talentTimer = setTimeout(loadTalentPage, 250)
+}
+
+async function openTalentProfile(pid, fromContext){
+ const data = await api('/api/talent/'+pid)
+ if(!data || data.error){ toast((data&&data.error)||'Could not load','error'); return }
+ window._talentOpen = {pid: pid, ctx: fromContext || null}
+ const p = data.person
+ const fmtD = d => d ? new Date(String(d).replace(' ','T')).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : ''
+ const statusPill = st => { const [bg,col] = (AUDITION_STATUS_COLORS[st]||AUDITION_STATUS_COLORS.pending); return '<span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:10px;background:'+bg+';color:'+col+'">'+escHtml(AUDITION_STATUS_LABELS[st]||st)+'</span>' }
+ const roles = a => { let r=[]; try{ r = JSON.parse(a.roles_requested||'[]') }catch(e){}; if(!r.length && a.role_requested) r=[a.role_requested]; return r }
+ const links = a => [
+   a.headshot_file_url||a.headshot_url ? '<a href="'+escHtml(a.headshot_file_url||a.headshot_url)+'" target="_blank">Headshot</a>' : '',
+   a.resume_file_url||a.resume_url ? '<a href="'+escHtml(a.resume_file_url||a.resume_url)+'" target="_blank">Resume</a>' : '',
+   a.video_url ? '<a href="'+escHtml(a.video_url)+'" target="_blank">Video</a>' : '',
+   a.video_clip_url ? '<a href="'+escHtml(a.video_clip_url)+'" target="_blank">Clip</a>' : '',
+  ].filter(Boolean).join(' · ')
+ const body =
+  '<div style="display:flex;gap:14px;align-items:center;margin-bottom:14px">'
+  + (p.headshot_url ? '<img src="'+escHtml(p.headshot_url)+'" style="width:64px;height:64px;border-radius:50%;object-fit:cover"/>' : avatarHTML(p.name, 64))
+  + '<div><div style="font-size:18px;font-weight:800">'+escHtml(p.name)+(p.age!=null?' <span style="font-weight:500;color:var(--text-muted);font-size:14px">age '+p.age+'</span>':'')+'</div>'
+  + '<div style="font-size:12.5px;color:var(--text-muted)">'+[p.pronouns, p.email, p.phone].filter(Boolean).map(escHtml).join(' · ')+'</div></div></div>'
+  // tags
+  + '<div class="form-group"><label>Tags</label><div style="display:flex;gap:8px"><input id="talent-tags" value="'+escHtml((p.tags||[]).join(', '))+'" placeholder="e.g. strong dancer, belter, tech interest"/><button class="btn btn-secondary btn-sm" onclick="saveTalentTags(\''+pid+'\')">Save</button></div>'
+  + '<div style="font-size:11px;color:var(--text-muted);margin-top:3px">Comma-separated. Searchable from the Talent Database.</div></div>'
+  // notes
+  + '<div style="font-size:14px;font-weight:800;margin:16px 0 8px">Notes</div>'
+  + '<div style="display:flex;gap:8px;margin-bottom:10px"><textarea id="talent-note" rows="2" placeholder="Add a note for future auditions…" style="flex:1"></textarea>'
+  + '<button class="btn btn-primary btn-sm" style="align-self:flex-start" onclick="addTalentNote(\''+pid+'\')">Add</button></div>'
+  + ((data.notes||[]).length ? data.notes.map(n=>'<div style="padding:8px 10px;background:var(--bg);border-radius:8px;margin-bottom:6px">'
+      + '<div style="font-size:13px;white-space:pre-wrap">'+escHtml(n.note)+'</div>'
+      + '<div style="display:flex;gap:8px;align-items:center;font-size:11px;color:var(--text-muted);margin-top:4px">'
+      + '<span>'+escHtml(n.author||'')+' · '+fmtD(n.created_at)+(n.show_name?' · re: '+escHtml(n.show_name):'')+'</span><span style="flex:1"></span>'
+      + '<a href="#" onclick="deleteTalentNote(\''+n.id+'\',\''+pid+'\');return false" style="color:var(--text-muted)">Delete</a></div></div>').join('')
+    : '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">No notes yet.</div>')
+  // audition history
+  + '<div style="font-size:14px;font-weight:800;margin:18px 0 8px">Audition history ('+(data.auditions||[]).length+')</div>'
+  + (data.auditions||[]).map(a=>'<div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin-bottom:8px">'
+     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div style="font-weight:700">'+escHtml(a.show_name)+'</div>'+statusPill(a.status)
+     + (a.cast_role?'<span style="font-size:12px;font-weight:700;color:#166534">Cast as '+escHtml(a.cast_role)+'</span>':'')
+     + '<span style="flex:1"></span><span style="font-size:11.5px;color:var(--text-muted)">'+fmtD(a.submitted_at)+(a.queue_number?' · #'+a.queue_number:'')+'</span></div>'
+     + (roles(a).length?'<div style="font-size:12px;color:var(--text-muted);margin-top:4px">Auditioned for: '+roles(a).map(escHtml).join(', ')+'</div>':'')
+     + (a.crew_interest?'<div style="font-size:12px;color:var(--text-muted)">Also interested in crew</div>':'')
+     + (a.admin_notes?'<div style="font-size:12px;margin-top:4px"><strong>Show notes:</strong> '+escHtml(a.admin_notes)+'</div>':'')
+     + (links(a)?'<div style="font-size:12px;margin-top:4px">'+links(a)+'</div>':'')
+     + '</div>').join('')
+  // merge
+  + '<details style="margin-top:14px"><summary style="font-size:12px;color:var(--text-muted);cursor:pointer">Duplicate person? Merge another record into this one</summary>'
+  + '<div style="display:flex;gap:8px;margin-top:8px"><input id="talent-merge-q" placeholder="Search by name or email" oninput="searchTalentMerge(\''+pid+'\',this.value)"/></div><div id="talent-merge-results"></div></details>'
+ showAdHocModal('talent-profile-modal', 'Talent Profile', body)
+}
+async function saveTalentTags(pid){
+ const tags = (document.getElementById('talent-tags').value||'').split(',').map(t=>t.trim()).filter(Boolean)
+ const res = await api('/api/talent/'+pid,'PUT',{tags})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Tags saved','success'); if(document.getElementById('talent-list')) loadTalentPage()
+}
+async function addTalentNote(pid){
+ const note = (document.getElementById('talent-note').value||'').trim()
+ if(!note) return
+ const ctx = (window._talentOpen||{}).ctx || {}
+ const res = await api('/api/talent/'+pid+'/notes','POST',{note, context_type: ctx.type||null, context_id: ctx.id||null})
+ if(res.error){ toast(res.error,'error'); return }
+ openTalentProfile(pid, (window._talentOpen||{}).ctx)
+}
+async function deleteTalentNote(nid, pid){
+ if(!confirm('Delete this note?')) return
+ await api('/api/talent/notes/'+nid,'DELETE')
+ openTalentProfile(pid, (window._talentOpen||{}).ctx)
+}
+var _talentMergeTimer = null
+function searchTalentMerge(pid, q){
+ clearTimeout(_talentMergeTimer)
+ _talentMergeTimer = setTimeout(async ()=>{
+  const box = document.getElementById('talent-merge-results'); if(!box) return
+  if(!q.trim()){ box.innerHTML=''; return }
+  const rows = await api('/api/talent?q='+encodeURIComponent(q.trim()))
+  box.innerHTML = (Array.isArray(rows)?rows:[]).filter(r=>r.id!==pid).slice(0,6).map(r=>'<div style="display:flex;gap:8px;align-items:center;padding:6px 0;font-size:12.5px"><span style="flex:1">'+escHtml(r.name)+' · '+escHtml(r.email||'no email')+' · '+r.audition_count+' audition(s)</span><button class="btn btn-secondary btn-sm" onclick="mergeTalent(\''+pid+'\',\''+r.id+'\')">Merge in</button></div>').join('') || '<div style="font-size:12px;color:var(--text-muted);padding:6px 0">No other matches.</div>'
+ }, 250)
+}
+async function mergeTalent(pid, other){
+ if(!confirm('Merge that record into this one? Their auditions, notes and tags move here. This can\'t be undone.')) return
+ const res = await api('/api/talent/'+pid+'/merge','POST',{other_id: other})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Merged','success'); openTalentProfile(pid, (window._talentOpen||{}).ctx)
+ if(document.getElementById('talent-list')) loadTalentPage()
 }
 
 async function updateAuditionStatus(sid, contextId, status){

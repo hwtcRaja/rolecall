@@ -7356,10 +7356,31 @@ def checkin_for_audition():
     return jsonify({'ok': True, 'id': cid, 'queue_number': qnum})
 
 
+@app.route('/api/auditions/checkin-days/<context_type>/<context_id>', methods=['GET'])
+def get_audition_checkin_days(context_type, context_id):
+    """Every day this audition had check-ins, newest first, with counts."""
+    err = _require_audition_staff_auth(context_type, context_id)
+    if err: return err
+    conn = get_db()
+    rows = fetchall(conn, """SELECT checkin_date, COUNT(*) AS n, MIN(queue_number) AS first_num, MAX(queue_number) AS last_num
+        FROM audition_checkins WHERE context_type=%s AND context_id=%s
+        GROUP BY checkin_date ORDER BY checkin_date DESC""", (context_type, context_id)) or []
+    conn.close()
+    return jsonify({'today': today_eastern().isoformat(),
+                    'days': [{'date': str(r['checkin_date'])[:10], 'count': r['n'],
+                              'first': r['first_num'], 'last': r['last_num']} for r in rows]})
+
+
 @app.route('/api/auditions/checkins/<context_type>/<context_id>', methods=['GET'])
 def get_audition_checkins(context_type, context_id):
     err = _require_audition_staff_auth(context_type, context_id)
     if err: return err
+    # ?date=YYYY-MM-DD shows an earlier audition day (default: today)
+    import datetime as _dt
+    try:
+        day = _dt.date.fromisoformat((request.args.get('date') or '')[:10])
+    except ValueError:
+        day = today_eastern()
     conn = get_db()
     rows = fetchall(conn, """SELECT c.*,
         COALESCE(s.submitter_name, c.walk_in_name) AS display_name,
@@ -7370,7 +7391,7 @@ def get_audition_checkins(context_type, context_id):
         FROM audition_checkins c
         LEFT JOIN audition_submissions s ON s.id=c.submission_id
         WHERE c.context_type=%s AND c.context_id=%s AND c.checkin_date=%s
-        ORDER BY c.queue_number ASC""", (context_type, context_id, today_eastern()))
+        ORDER BY c.queue_number ASC""", (context_type, context_id, day))
     conn.close()
     rows = rows or []
     for r in rows:

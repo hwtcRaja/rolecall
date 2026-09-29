@@ -2986,6 +2986,33 @@ def init_db():
             grace_until TEXT,
             grace_note TEXT DEFAULT '')""",
         "INSERT INTO donor_benefit_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
+        # Talent database: one record per person across every audition, so
+        # staff can keep notes and see someone's history at a glance.
+        """CREATE TABLE IF NOT EXISTS talent_people (
+            id TEXT PRIMARY KEY,
+            match_key TEXT UNIQUE,
+            name TEXT NOT NULL,
+            email TEXT,
+            phone TEXT,
+            birthday TEXT,
+            pronouns TEXT,
+            headshot_url TEXT,
+            tags TEXT DEFAULT '[]',
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS talent_notes (
+            id TEXT PRIMARY KEY,
+            person_id TEXT NOT NULL REFERENCES talent_people(id) ON DELETE CASCADE,
+            note TEXT NOT NULL,
+            context_type TEXT,
+            context_id TEXT,
+            author TEXT,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE audition_submissions ADD COLUMN IF NOT EXISTS talent_person_id TEXT",
+        """CREATE TABLE IF NOT EXISTS talent_aliases (
+            match_key TEXT PRIMARY KEY,
+            person_id TEXT NOT NULL REFERENCES talent_people(id) ON DELETE CASCADE)""",
+        "CREATE INDEX IF NOT EXISTS ix_aud_sub_talent ON audition_submissions(talent_person_id)",
         # Donor benefit codes (auto-generated, one per donor per benefit;
         # comp codes are one per donor per show).
         "ALTER TABLE donor_tier_benefits ADD COLUMN IF NOT EXISTS benefit_type TEXT DEFAULT 'manual'",
@@ -7265,6 +7292,228 @@ def save_audition_settings(context_type, context_id):
     return jsonify({'ok': True})
 
 
+# ── Talent database ───────────────────────────────────────────────────────
+# Every audition submission is linked to a talent_people record, matched by
+# email (normalized the same way as ticket buyers) or, with no email, by
+# name + birthday. Staff notes live on the person, so they carry forward to
+# every future audition. Directors don't get this cross-show view.
+def _talent_match_key(email, name, birthday):
+    ek = ticket_email_key(email or '')
+    if ek and '@' in ek:
+        return 'e:' + ek
+    nm = ' '.join((name or '').lower().split())
+    if not nm:
+        return None
+    return 'n:' + nm + '|' + (birthday or '')[:10]
+
+
+def link_submission_to_talent(conn, sub):
+    """Find or create the person for one submission and link it. Keeps the
+    person's contact details current from their newest submission."""
+    key = _talent_match_key(sub.get('submitter_email'), sub.get('submitter_name'), sub.get('birthday'))
+    if not key:
+        return None
+    person = fetchone(conn, 'SELECT * FROM talent_people WHERE match_key=%s', (key,))
+    if not person:
+        # a merged-away duplicate's email/name still points at the kept record
+        person = fetchone(conn, '''SELECT p.* FROM talent_aliases a JOIN talent_people p ON p.id=a.person_id
+            WHERE a.match_key=%s''', (key,))
+    headshot = sub.get('headshot_file_url') or sub.get('headshot_url') or None
+    if not person:
+        pid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO talent_people (id, match_key, name, email, phone, birthday, pronouns, headshot_url)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (match_key) DO NOTHING''',
+            (pid, key, sub.get('submitter_name') or '', sub.get('submitter_email'), sub.get('phone'),
+             sub.get('birthday'), sub.get('pronouns'), headshot))
+        person = fetchone(conn, 'SELECT * FROM talent_people WHERE match_key=%s', (key,))
+    else:
+        execute(conn, '''UPDATE talent_people SET name=%s,
+                email=COALESCE(NULLIF(%s,''), email), phone=COALESCE(NULLIF(%s,''), phone),
+                birthday=COALESCE(NULLIF(%s,''), birthday), pronouns=COALESCE(NULLIF(%s,''), pronouns),
+                headshot_url=COALESCE(%s, headshot_url), updated_at=NOW() WHERE id=%s''',
+            (sub.get('submitter_name') or person['name'], sub.get('submitter_email') or '', sub.get('phone') or '',
+             sub.get('birthday') or '', sub.get('pronouns') or '', headshot, person['id']))
+    execute(conn, 'UPDATE audition_submissions SET talent_person_id=%s WHERE id=%s', (person['id'], sub['id']))
+    return person['id']
+
+
+def backfill_talent_links(conn, limit=5000):
+    rows = fetchall(conn, '''SELECT id, submitter_name, submitter_email, phone, birthday, pronouns,
+            headshot_url, headshot_file_url FROM audition_submissions
+        WHERE talent_person_id IS NULL ORDER BY submitted_at ASC LIMIT %s''', (limit,)) or []
+    for r in rows:
+        try:
+            link_submission_to_talent(conn, r)
+        except Exception as e:
+            app.logger.warning(f'talent link failed for {r["id"]}: {e}')
+            try: conn.rollback()
+            except Exception: pass
+    conn.commit()
+    return len(rows)
+
+
+def _require_talent_access(level='view'):
+    if session.get('role') == 'director':
+        return jsonify({'error': 'The talent database is staff-only'}), 403
+    return require_permission('productions', level)
+
+
+_talent_ctx_cache = {}
+def _talent_context_name(conn, ctype, cid):
+    k = (ctype, cid)
+    if k not in _talent_ctx_cache:
+        try:
+            _, name, _, _ = _resolve_audition_context(conn, ctype, cid)
+        except Exception:
+            name = None
+        _talent_ctx_cache[k] = name or ('Program' if ctype == 'program' else 'Production')
+    return _talent_ctx_cache[k]
+
+
+@app.route('/api/talent', methods=['GET'])
+def talent_list():
+    err = _require_talent_access()
+    if err: return err
+    q = (request.args.get('q') or '').strip().lower()
+    tag = (request.args.get('tag') or '').strip().lower()
+    conn = get_db()
+    try:
+        backfill_talent_links(conn, limit=500)
+        rows = fetchall(conn, '''SELECT p.*,
+                (SELECT COUNT(*) FROM audition_submissions s WHERE s.talent_person_id=p.id) AS audition_count,
+                (SELECT COUNT(*) FROM audition_submissions s WHERE s.talent_person_id=p.id AND s.status='cast') AS cast_count,
+                (SELECT MAX(s.submitted_at) FROM audition_submissions s WHERE s.talent_person_id=p.id) AS last_audition,
+                (SELECT COUNT(*) FROM talent_notes n WHERE n.person_id=p.id) AS note_count
+            FROM talent_people p ORDER BY last_audition DESC NULLS LAST, p.name''') or []
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        try:
+            tags = json.loads(r.get('tags') or '[]')
+        except Exception:
+            tags = []
+        if q and q not in (r.get('name') or '').lower() and q not in (r.get('email') or '').lower() \
+                and q not in (r.get('phone') or '') and not any(q in t.lower() for t in tags):
+            continue
+        if tag and tag not in [t.lower() for t in tags]:
+            continue
+        r['tags'] = tags
+        r['age'] = compute_age(r.get('birthday'))
+        r.pop('match_key', None)
+        out.append(r)
+    return jsonify(out)
+
+
+@app.route('/api/talent/<pid>', methods=['GET'])
+def talent_detail(pid):
+    err = _require_talent_access()
+    if err: return err
+    conn = get_db()
+    try:
+        p = fetchone(conn, 'SELECT * FROM talent_people WHERE id=%s', (pid,))
+        if not p:
+            return jsonify({'error': 'Not found'}), 404
+        subs = fetchall(conn, '''SELECT s.id, s.context_type, s.context_id, s.submitted_at, s.status, s.cast_role,
+                s.cast_title, COALESCE(s.roles_requested,'[]') AS roles_requested, s.role_requested, s.admin_notes,
+                s.notes, s.audition_type, s.headshot_url, s.headshot_file_url, s.resume_url, s.resume_file_url,
+                s.video_url, s.video_clip_url, s.crew_interest, COALESCE(s.crew_roles_requested,'[]') AS crew_roles_requested,
+                sl.slot_date, c.queue_number, c.status AS checkin_status
+            FROM audition_submissions s
+            LEFT JOIN audition_slots sl ON sl.id=s.slot_id
+            LEFT JOIN LATERAL (SELECT queue_number, status FROM audition_checkins ac WHERE ac.submission_id=s.id
+                               ORDER BY ac.checked_in_at DESC LIMIT 1) c ON TRUE
+            WHERE s.talent_person_id=%s ORDER BY s.submitted_at DESC''', (pid,)) or []
+        for s in subs:
+            s['show_name'] = _talent_context_name(conn, s['context_type'], s['context_id'])
+        notes = fetchall(conn, 'SELECT * FROM talent_notes WHERE person_id=%s ORDER BY created_at DESC', (pid,)) or []
+        for n in notes:
+            if n.get('context_id'):
+                n['show_name'] = _talent_context_name(conn, n.get('context_type'), n['context_id'])
+    finally:
+        conn.close()
+    try:
+        p['tags'] = json.loads(p.get('tags') or '[]')
+    except Exception:
+        p['tags'] = []
+    p['age'] = compute_age(p.get('birthday'))
+    p.pop('match_key', None)
+    return jsonify({'person': p, 'auditions': subs, 'notes': notes})
+
+
+@app.route('/api/talent/<pid>', methods=['PUT'])
+def talent_update(pid):
+    err = _require_talent_access('edit')
+    if err: return err
+    d = request.json or {}
+    tags = [str(t).strip()[:40] for t in (d.get('tags') or []) if str(t).strip()][:20]
+    conn = get_db()
+    execute(conn, 'UPDATE talent_people SET tags=%s, updated_at=NOW() WHERE id=%s', (json.dumps(tags), pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'tags': tags})
+
+
+@app.route('/api/talent/<pid>/notes', methods=['POST'])
+def talent_add_note(pid):
+    err = _require_talent_access('edit')
+    if err: return err
+    d = request.json or {}
+    note = (d.get('note') or '').strip()
+    if not note:
+        return jsonify({'error': 'Write a note first'}), 400
+    conn = get_db()
+    nid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO talent_notes (id, person_id, note, context_type, context_id, author)
+        VALUES (%s,%s,%s,%s,%s,%s)''', (nid, pid, note[:4000], d.get('context_type') or None,
+        d.get('context_id') or None, session.get('name') or session.get('email') or ''))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'id': nid})
+
+
+@app.route('/api/talent/notes/<nid>', methods=['DELETE'])
+def talent_delete_note(nid):
+    err = _require_talent_access('edit')
+    if err: return err
+    conn = get_db()
+    execute(conn, 'DELETE FROM talent_notes WHERE id=%s', (nid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/talent/<pid>/merge', methods=['POST'])
+def talent_merge(pid):
+    """Fold a duplicate record (e.g. same person, different email) into this
+    one: auditions, notes and tags all move over."""
+    err = _require_talent_access('edit')
+    if err: return err
+    other = (request.json or {}).get('other_id')
+    if not other or other == pid:
+        return jsonify({'error': 'Pick a different person to merge in'}), 400
+    conn = get_db()
+    try:
+        a = fetchone(conn, 'SELECT * FROM talent_people WHERE id=%s', (pid,))
+        b = fetchone(conn, 'SELECT * FROM talent_people WHERE id=%s', (other,))
+        if not a or not b:
+            return jsonify({'error': 'Not found'}), 404
+        tags = sorted(set(json.loads(a.get('tags') or '[]')) | set(json.loads(b.get('tags') or '[]')))
+        execute(conn, 'UPDATE audition_submissions SET talent_person_id=%s WHERE talent_person_id=%s', (pid, other))
+        execute(conn, 'UPDATE talent_notes SET person_id=%s WHERE person_id=%s', (pid, other))
+        execute(conn, 'UPDATE talent_people SET tags=%s, email=COALESCE(email,%s), phone=COALESCE(phone,%s), '
+                      'birthday=COALESCE(birthday,%s), headshot_url=COALESCE(headshot_url,%s) WHERE id=%s',
+                (json.dumps(tags), b.get('email'), b.get('phone'), b.get('birthday'), b.get('headshot_url'), pid))
+        # the duplicate's email/name keeps pointing here, so their next
+        # submission lands on the merged person instead of recreating them
+        execute(conn, 'UPDATE talent_aliases SET person_id=%s WHERE person_id=%s', (pid, other))
+        execute(conn, 'DELETE FROM talent_people WHERE id=%s', (other,))
+        if b.get('match_key'):
+            execute(conn, '''INSERT INTO talent_aliases (match_key, person_id) VALUES (%s,%s)
+                ON CONFLICT (match_key) DO UPDATE SET person_id=EXCLUDED.person_id''', (b['match_key'], pid))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
 @app.route('/api/auditions/list/<context_type>/<context_id>', methods=['GET'])
 def get_audition_submissions(context_type, context_id):
     if session.get('role') == 'director' and context_type == 'production':
@@ -7285,6 +7534,7 @@ def get_audition_submissions(context_type, context_id):
             s.resume_file_url, s.headshot_file_url, s.video_clip_url,
             s.crew_interest, COALESCE(s.crew_roles_requested, '[]') as crew_roles_requested, s.crew_experience,
             s.submitter_passphrase, COALESCE(s.custom_answers, '{}') as custom_answers,
+            s.talent_person_id,
             sl.slot_date, sl.start_time, sl.end_time, sl.location as slot_location
             FROM audition_submissions s
             LEFT JOIN audition_slots sl ON sl.id=s.slot_id
@@ -7303,6 +7553,36 @@ def get_audition_submissions(context_type, context_id):
             conn.close()
             app.logger.error(f'get_audition_submissions fallback error: {e2}')
             return jsonify([])
+    # Talent history: how often this person has auditioned / been cast
+    # elsewhere, plus staff notes. Not shown to directors (cross-show data).
+    if session.get('role') != 'director' and rows:
+        try:
+            unlinked = [r for r in rows if not r.get('talent_person_id')]
+            for r in unlinked:
+                r['talent_person_id'] = link_submission_to_talent(conn, r)
+            if unlinked:
+                conn.commit()
+            pids = list(set(r['talent_person_id'] for r in rows if r.get('talent_person_id')))
+            hist, notes = {}, {}
+            if pids:
+                for h in fetchall(conn, '''SELECT s.talent_person_id AS pid, s.id, s.context_id, s.status, s.cast_role
+                        FROM audition_submissions s WHERE s.talent_person_id = ANY(%s)''', (pids,)) or []:
+                    hist.setdefault(h['pid'], []).append(h)
+                notes = {n['person_id']: n for n in (fetchall(conn, '''SELECT DISTINCT ON (person_id) person_id, note, created_at,
+                        (SELECT COUNT(*) FROM talent_notes t2 WHERE t2.person_id=t.person_id) AS n
+                        FROM talent_notes t WHERE person_id = ANY(%s) ORDER BY person_id, created_at DESC''', (pids,)) or [])}
+            for r in rows:
+                pid = r.get('talent_person_id')
+                others = [h for h in hist.get(pid, []) if h['id'] != r['id']] if pid else []
+                nt = notes.get(pid) if pid else None
+                r['talent'] = {'person_id': pid, 'prior_auditions': len(others),
+                               'prior_cast': sum(1 for h in others if h['status'] == 'cast'),
+                               'note_count': int(nt['n']) if nt else 0,
+                               'latest_note': (nt['note'][:140] if nt else '')}
+        except Exception as e:
+            app.logger.warning(f'talent history for list failed: {e}')
+            try: conn.rollback()
+            except Exception: pass
     conn.close()
     # Age is computed here rather than stored, so it's always current as of
     # today rather than frozen at submission time.
@@ -7356,6 +7636,83 @@ def checkin_for_audition():
     return jsonify({'ok': True, 'id': cid, 'queue_number': qnum})
 
 
+@app.route('/api/auditions/schedule/<context_type>/<context_id>', methods=['GET'])
+def get_audition_schedule(context_type, context_id):
+    """Who was booked into each time slot on a day, matched against that
+    day's check-ins: Expected, Here (waiting / auditioning / done), or No
+    show (marked, or their slot ended without a check-in). ?date= defaults
+    to today (Eastern)."""
+    err = _require_audition_staff_auth(context_type, context_id)
+    if err: return err
+    import datetime as _dt
+    try:
+        day = _dt.date.fromisoformat((request.args.get('date') or '')[:10])
+    except ValueError:
+        day = today_eastern()
+    day_s = day.isoformat()
+    now = now_eastern()
+    conn = get_db()
+    try:
+        slots = fetchall(conn, """SELECT id, slot_date, start_time, end_time, location, capacity, slot_type
+            FROM audition_slots WHERE context_type=%s AND context_id=%s AND slot_date=%s
+            AND COALESCE(status,'open') != 'cancelled' ORDER BY start_time""", (context_type, context_id, day_s)) or []
+        slot_ids = [s['id'] for s in slots]
+        subs = fetchall(conn, """SELECT id, submitter_name, submitter_email, phone, status, slot_id, birthday,
+                roles_requested, role_requested
+            FROM audition_submissions WHERE slot_id = ANY(%s) ORDER BY submitter_name""", (slot_ids,)) if slot_ids else []
+        checkins = fetchall(conn, """SELECT id, submission_id, walk_in_name, queue_number, status, checked_in_at, checkin_photo_url
+            FROM audition_checkins WHERE context_type=%s AND context_id=%s AND checkin_date=%s""",
+            (context_type, context_id, day)) or []
+    finally:
+        conn.close()
+    by_sub = {c['submission_id']: c for c in checkins if c.get('submission_id')}
+    counts = {'expected': 0, 'waiting': 0, 'auditioning': 0, 'done': 0, 'no_show': 0, 'late': 0}
+    out_slots = []
+    for sl in slots:
+        # has this slot's time passed? (past days: yes; future days: no)
+        end = (sl.get('end_time') or '')[:5]
+        if day < now.date():
+            ended = True
+        elif day > now.date():
+            ended = False
+        else:
+            ended = bool(end) and now.strftime('%H:%M') > end
+        people = []
+        for s in [x for x in subs or [] if x['slot_id'] == sl['id']]:
+            c = by_sub.get(s['id'])
+            if c and c['status'] == 'no_show':
+                state = 'no_show'
+            elif c and c['status'] == 'completed':
+                state = 'done'
+            elif c and c['status'] == 'called':
+                state = 'auditioning'
+            elif c:
+                state = 'waiting'
+            elif (s.get('status') or '') == 'no_show':
+                state = 'no_show'
+            elif ended:
+                state = 'late' if day == now.date() else 'no_show'
+            else:
+                state = 'expected'
+            counts[state] += 1
+            people.append({'submission_id': s['id'], 'name': s.get('submitter_name') or '',
+                           'email': s.get('submitter_email') or '', 'phone': s.get('phone') or '',
+                           'age': compute_age(s.get('birthday')), 'submission_status': s.get('status') or 'pending',
+                           'state': state, 'checkin_id': c['id'] if c else None,
+                           'queue_number': c['queue_number'] if c else None,
+                           'checked_in_at': str(c['checked_in_at']) if c and c.get('checked_in_at') else None,
+                           'photo': c.get('checkin_photo_url') if c else None})
+        out_slots.append({'id': sl['id'], 'start_time': sl.get('start_time'), 'end_time': sl.get('end_time'),
+                          'location': sl.get('location') or '', 'capacity': sl.get('capacity'),
+                          'ended': ended, 'people': people})
+    booked_ids = set(s['id'] for s in subs or [])
+    unscheduled = [{'name': c.get('walk_in_name') or '', 'queue_number': c['queue_number'], 'status': c['status'],
+                    'walk_in': not c.get('submission_id')}
+                   for c in checkins if not c.get('submission_id') or c['submission_id'] not in booked_ids]
+    return jsonify({'date': day_s, 'today': today_eastern().isoformat(), 'slots': out_slots,
+                    'counts': counts, 'unscheduled': sorted(unscheduled, key=lambda x: x['queue_number'] or 0)})
+
+
 @app.route('/api/auditions/checkin-days/<context_type>/<context_id>', methods=['GET'])
 def get_audition_checkin_days(context_type, context_id):
     """Every day this audition had check-ins, newest first, with counts."""
@@ -7365,10 +7722,18 @@ def get_audition_checkin_days(context_type, context_id):
     rows = fetchall(conn, """SELECT checkin_date, COUNT(*) AS n, MIN(queue_number) AS first_num, MAX(queue_number) AS last_num
         FROM audition_checkins WHERE context_type=%s AND context_id=%s
         GROUP BY checkin_date ORDER BY checkin_date DESC""", (context_type, context_id)) or []
+    slot_days = fetchall(conn, """SELECT sl.slot_date, COUNT(s.id) AS booked FROM audition_slots sl
+        LEFT JOIN audition_submissions s ON s.slot_id = sl.id
+        WHERE sl.context_type=%s AND sl.context_id=%s AND COALESCE(sl.status,'open') != 'cancelled'
+        GROUP BY sl.slot_date""", (context_type, context_id)) or []
     conn.close()
+    days = {str(r['checkin_date'])[:10]: {'date': str(r['checkin_date'])[:10], 'count': r['n'],
+            'first': r['first_num'], 'last': r['last_num'], 'booked': 0} for r in rows}
+    for r in slot_days:
+        dd = str(r['slot_date'])[:10]
+        days.setdefault(dd, {'date': dd, 'count': 0, 'first': None, 'last': None, 'booked': 0})['booked'] = int(r['booked'] or 0)
     return jsonify({'today': today_eastern().isoformat(),
-                    'days': [{'date': str(r['checkin_date'])[:10], 'count': r['n'],
-                              'first': r['first_num'], 'last': r['last_num']} for r in rows]})
+                    'days': sorted(days.values(), key=lambda x: x['date'], reverse=True)})
 
 
 @app.route('/api/auditions/checkins/<context_type>/<context_id>', methods=['GET'])
@@ -8699,6 +9064,17 @@ def submit_audition():
         json.dumps(d.get('custom_answers') or {}),
     ))
     conn.commit()
+    try:
+        link_submission_to_talent(conn, {'id': sid, 'submitter_name': name,
+            'submitter_email': (d.get('submitter_email') or '').strip(), 'phone': (d.get('phone') or '').strip(),
+            'birthday': (d.get('birthday') or '').strip(), 'pronouns': (d.get('pronouns') or '').strip(),
+            'headshot_file_url': (d.get('headshot_file_url') or '').strip() or None,
+            'headshot_url': (d.get('headshot_url') or '').strip() or None})
+        conn.commit()
+    except Exception as e:
+        app.logger.warning(f'talent link on submit failed: {e}')
+        try: conn.rollback()
+        except Exception: pass
     # Get context name
     ctx_name = ''
     instructor_id = None
@@ -8819,8 +9195,12 @@ def update_audition_status(sid):
         err = require_auth()
     if err: conn.close(); return err
     d = request.json or {}
-    execute(conn, 'UPDATE audition_submissions SET status=%s,admin_notes=%s,updated_at=NOW() WHERE id=%s',
-        (d.get('status','pending'), d.get('admin_notes',''), sid))
+    if 'admin_notes' in d:
+        execute(conn, 'UPDATE audition_submissions SET status=%s,admin_notes=%s,updated_at=NOW() WHERE id=%s',
+            (d.get('status','pending'), d.get('admin_notes',''), sid))
+    else:
+        execute(conn, 'UPDATE audition_submissions SET status=%s,updated_at=NOW() WHERE id=%s',
+            (d.get('status','pending'), sid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

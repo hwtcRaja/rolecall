@@ -1285,14 +1285,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </section>
 
- <!-- LICENSING REQUESTS PAGE -->
+ <!-- TALENT DATABASE PAGE -->
  <section class="page" id="page-talent">
- <div class="page-header"><div><div class="page-title">Talent Database</div>
- <div class="page-subtitle">Everyone who has auditioned, across every show. Add notes and tags that carry forward to their next audition. <span id="talent-count"></span></div></div></div>
- <div style="margin-bottom:12px"><input type="text" placeholder="Search name, email, phone, or tag…" oninput="onTalentSearch(this.value)" style="max-width:420px"/></div>
+ <div class="page-header">
+ <div><div class="page-title">Talent Database</div>
+ <div class="page-subtitle">Everyone who has auditioned, across every show. Notes and tags carry forward to their next audition. <span id="talent-count" style="font-weight:600"></span></div></div>
+ </div>
+ <div class="page-body">
+ <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+ <div class="search-input-wrap" style="flex:1;min-width:220px;max-width:460px"><span></span><input type="text" id="talent-search" placeholder="Search name, email, phone, or tag…" oninput="onTalentSearch(this.value)"/></div>
+ </div>
  <div id="talent-list"></div>
+ </div>
  </section>
 
+ <!-- LICENSING REQUESTS PAGE -->
  <section class="page" id="page-licensing">
  <div class="page-header">
  <div><div class="page-title">Licensing Requests</div><div class="page-subtitle">Track show licensing requests, whether the licensor has been contacted, and contract status</div></div>
@@ -2972,6 +2979,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-talent">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Talent Database</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-talent" placeholder="contact-round" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('talent',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-responsibility">
  <span style="font-size:16px"></span>
  </div>
@@ -4536,7 +4554,7 @@ const NAV_PERM_MAP = {
  'productions': 'productions',
  'show-contracts': 'productions',
  'licensing': 'licensing',
- 'talent': 'productions',
+ 'talent': 'talent',
  'youth': 'youth',
  'youth-programs-page': 'programs',
  'rising-stars-page':'rising_stars',
@@ -4565,6 +4583,7 @@ const NAV_PERM_MAP = {
 // Mirrors PERM_LEGACY_FALLBACK in app.py - keep the two in sync.
 const PERM_LEGACY_FALLBACK = {
  'licensing': 'productions',
+ 'talent': 'productions',
  'space_requests': 'rentals',
  'foh_training': 'events',
 }
@@ -10665,7 +10684,7 @@ const NAV_ICON_DEFAULTS = {
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
   board:'', directors:'', 'my-time':'', 'space-requests':'', surveys:'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
-  oncall:'', 'hours-store':'', responsibility:'', licensing:'', inbox:'',
+  oncall:'', 'hours-store':'', responsibility:'', licensing:'', talent:'', inbox:'',
  'instructor-dashboard':'', 'director-dashboard':'', 'foh-training':'', 'studio-after-dark':''
 }
 
@@ -13623,7 +13642,7 @@ async function openTalentProfile(pid, fromContext){
   // merge
   + '<details style="margin-top:14px"><summary style="font-size:12px;color:var(--text-muted);cursor:pointer">Duplicate person? Merge another record into this one</summary>'
   + '<div style="display:flex;gap:8px;margin-top:8px"><input id="talent-merge-q" placeholder="Search by name or email" oninput="searchTalentMerge(\''+pid+'\',this.value)"/></div><div id="talent-merge-results"></div></details>'
- showAdHocModal('talent-profile-modal', 'Talent Profile', body)
+ showAdHocModal('talent-profile-modal', 'Talent Profile', body, 760)
 }
 async function saveTalentTags(pid){
  const tags = (document.getElementById('talent-tags').value||'').split(',').map(t=>t.trim()).filter(Boolean)
@@ -15895,6 +15914,7 @@ async function openBenefitTracker(){
        + ['unused','used','expired','all'].map(k=>'<span class="bt-pill" data-k="'+k+'" onclick="_btStatus=\''+k+'\';loadBenefitTrackerList()" style="padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--border)">'+({unused:'Can still use',used:'Used',expired:'Window ended',all:'All'})[k]+'</span>').join('')
        + '</div><div id="bt-list">Loading…</div>'
      : '<div style="color:var(--text-muted);font-size:13px">No trackable benefits yet. Add them under Tiers &amp; Benefits.</div>'))
+ var _btBox = document.querySelector('#benefit-tracker-modal > div'); if(_btBox) _btBox.style.maxWidth = '920px'
  if(list.length) loadBenefitTrackerList()
 }
 async function saveBenefitSettings(){
@@ -18586,6 +18606,7 @@ const PERM_SECTIONS = [
  {key:'hours_store', label:'Hours Store', desc:'Manage store items, exchange rate, and redemption requests'},
  {key:'responsibility_grid', label:'Responsibility Grid', desc:'RACI grid, process flows, and org chart across all board & committee roles'},
  {key:'licensing', label:'Licensing Requests', desc:'Show licensing requests & contract/renewal tracking (falls back to Productions access if not set)'},
+ {key:'talent', label:'Talent Database', desc:'Everyone who has auditioned across all shows: history, notes, tags, merging duplicates. Includes minors\' contact info (falls back to Productions access if not set; never available to Directors)'},
  {key:'space_requests', label:'Request a Space', desc:'Review, approve, and deny staff space/date requests (submitting a request stays open to all staff; falls back to Artistic Partnership access if not set)'},
  {key:'surveys', label:'Surveys', desc:'Create surveys, manage questions, and view response results'},
  {key:'foh_training', label:'FOH Training', desc:'Front of House training content, quiz questions, and who has passed (falls back to Events access if not set)'},
@@ -35859,13 +35880,13 @@ async function openRefundRequestFromOrder(oid){
   navTo('refund-requests')
 }
 
-function showAdHocModal(id, title, bodyHtml){
+function showAdHocModal(id, title, bodyHtml, maxWidth){
   var existing = document.getElementById(id)
   if(existing) existing.remove()
   var overlay = document.createElement('div')
   overlay.id = id
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
-  overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:440px;max-height:85vh;overflow-y:auto;padding:24px">'
+  overlay.innerHTML = '<div style="background:var(--surface);border-radius:var(--radius-lg);width:100%;max-width:'+(maxWidth||440)+'px;max-height:85vh;overflow-y:auto;overscroll-behavior:contain;padding:24px">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">'
     + '<div style="font-size:16px;font-weight:800">'+escHtml(title)+'</div>'
     + '<button onclick="closeAdHocModal(\''+id+'\')" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted);line-height:1">×</button>'

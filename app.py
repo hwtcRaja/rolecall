@@ -36769,11 +36769,11 @@ def marquee_box_office():
         FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
         WHERE o.status='completed' ''')
     upcoming_count = (fetchone(conn, '''SELECT COUNT(*) AS c FROM performances
-        WHERE status IN ('on_sale','sold_out') AND performance_date >= CURRENT_DATE::text''') or {}).get('c', 0)
+        WHERE status IN ('presale','on_sale','sold_out') AND performance_date >= CURRENT_DATE::text''') or {}).get('c', 0)
     by_show = fetchall(conn, '''SELECT p.id, p.name,
         COALESCE(SUM(t.price_cents),0) AS revenue,
         COUNT(t.id) AS tickets_sold,
-        COUNT(DISTINCT pf.id) FILTER (WHERE pf.status IN ('on_sale','sold_out')) AS active_performances
+        COUNT(DISTINCT pf.id) FILTER (WHERE pf.status IN ('presale','on_sale','sold_out')) AS active_performances
         FROM productions p
         JOIN performances pf ON pf.production_id=p.id
         LEFT JOIN tickets t ON t.performance_id=pf.id
@@ -39127,6 +39127,10 @@ def get_performances(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
+    try:
+        open_presale_performances_if_due(conn, pid)
+    except Exception:
+        conn.rollback()
     perfs = fetchall(conn, '''
         SELECT pf.*,
                v.name AS venue_name,
@@ -39218,7 +39222,7 @@ def set_performance_status(fid):
     if err: return err
     d = request.json or {}
     status = (d.get('status') or '').strip()
-    if status not in ('draft', 'on_sale', 'sold_out', 'closed', 'cancelled'):
+    if status not in ('draft', 'presale', 'on_sale', 'sold_out', 'closed', 'cancelled'):
         return jsonify({'error': f'Invalid status: {status}'}), 400
     conn = get_db()
     execute(conn, 'UPDATE performances SET status=%s, updated_at=NOW() WHERE id=%s', (status, fid))
@@ -39389,14 +39393,36 @@ def production_sale_state(prod, presale_key=''):
     return False, info
 
 
+def presale_key_ok(prod, key):
+    return bool(prod.get('presale_key') and key and hmac.compare_digest(str(key).strip(), prod['presale_key']))
+
+
+def open_presale_performances_if_due(conn, production_id=None):
+    """Performances marked Pre-Sale switch to On Sale by themselves once
+    their show's Public on-sale time has passed."""
+    now_s = now_eastern().strftime('%Y-%m-%dT%H:%M')
+    q = '''UPDATE performances pf SET status='on_sale', updated_at=NOW() FROM productions pr
+        WHERE pf.production_id=pr.id AND pf.status='presale'
+          AND COALESCE(pr.public_sale_at,'') <> '' AND pr.public_sale_at <= %s'''
+    params = [now_s]
+    if production_id:
+        q += ' AND pr.id=%s'; params.append(production_id)
+    execute(conn, q, tuple(params))
+    conn.commit()
+
+
 def presale_block_for_performance(conn, performance_id, keys):
     """None if this performance can be sold now, else an error response.
     keys: {production_id: presale_key} from the buyer's page."""
-    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key FROM performances pf
+    open_presale_performances_if_due(conn)
+    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pf.status AS perf_status FROM performances pf
         JOIN productions pr ON pr.id=pf.production_id WHERE pf.id=%s''', (performance_id,))
     if not p:
         return None
-    ok, info = production_sale_state(p, (keys or {}).get(p['id']) or '')
+    key = (keys or {}).get(p['id']) or ''
+    if p.get('perf_status') == 'presale' and not presale_key_ok(p, key):
+        return jsonify({'error': 'This performance is only available through the pre-sale link right now.', 'not_on_sale': True}), 403
+    ok, info = production_sale_state(p, key)
     if ok:
         return None
     return jsonify({'error': 'Tickets for this show aren\'t on sale yet.', 'not_on_sale': True,
@@ -39413,7 +39439,10 @@ def public_production_performances(slug):
         venue AS venue_text, public_sale_at, presale_key FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
     if not prod:
         conn.close(); return jsonify({'error': 'Production not found'}), 404
-    allowed, sale = production_sale_state(prod, request.args.get('presale') or '')
+    open_presale_performances_if_due(conn, prod['id'])
+    key = request.args.get('presale') or ''
+    has_key = presale_key_ok(prod, key)
+    allowed, sale = production_sale_state(prod, key)
     prod.pop('presale_key', None)
     if not allowed:
         # Countdown only: no dates or seat maps until the public sale opens
@@ -39422,8 +39451,11 @@ def public_production_performances(slug):
     perfs = fetchall(conn, '''SELECT pf.*, v.name AS venue_name, v.address AS venue_address,
         v.city AS venue_city, v.notes AS venue_notes
         FROM performances pf LEFT JOIN venues v ON pf.venue_id=v.id
-        WHERE pf.production_id=%s AND pf.status IN ('on_sale','sold_out')
-        ORDER BY pf.performance_date, pf.performance_time''', (prod['id'],))
+        WHERE pf.production_id=%s AND pf.status IN %s
+        ORDER BY pf.performance_date, pf.performance_time''',
+        (prod['id'], ('presale', 'on_sale', 'sold_out') if has_key else ('on_sale', 'sold_out')))
+    if has_key and any(p.get('status') == 'presale' for p in perfs):
+        sale['presale'] = True
     conn.close()
     return jsonify({'production': prod, 'performances': perfs, 'sale': sale})
 

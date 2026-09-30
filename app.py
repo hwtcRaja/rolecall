@@ -39552,10 +39552,12 @@ def open_presale_performances_if_due(conn, production_id=None):
     conn.commit()
 
 
-def sale_channel_for(conn, performance_id, keys):
+def sale_channel_for(conn, performance_id, keys, preview=False):
     """'presale' if this purchase is happening through the pre-sale (a
     Pre-Sale performance, or before the public on-sale time with a valid
     link); otherwise 'public'."""
+    if preview:
+        return 'test'
     p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pr.presale_opens_at, pf.status AS perf_status
         FROM performances pf JOIN productions pr ON pr.id=pf.production_id WHERE pf.id=%s''', (performance_id,))
     if not p:
@@ -39567,15 +39569,32 @@ def sale_channel_for(conn, performance_id, keys):
     return 'presale' if (ok and info.get('presale')) else 'public'
 
 
-def presale_block_for_performance(conn, performance_id, keys):
+def staff_ticket_preview(flag):
+    """True when a logged-in staff member with ticketing access asked for
+    preview mode (?preview=1): countdowns and pre-sale timing are skipped
+    and Draft / Pre-Sale performances show, so the whole flow can be tested
+    before anything is live. Orders placed this way are tagged 'test'."""
+    if not flag or 'user_id' not in session:
+        return False
+    try:
+        return require_permission('ticketing', 'view') is None
+    except Exception:
+        return False
+
+
+def presale_block_for_performance(conn, performance_id, keys, preview=False):
     """None if this performance can be sold now, else an error response.
     keys: {production_id: presale_key} from the buyer's page."""
+    if preview:
+        return None
     open_presale_performances_if_due(conn)
     p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pr.presale_opens_at, pf.status AS perf_status FROM performances pf
         JOIN productions pr ON pr.id=pf.production_id WHERE pf.id=%s''', (performance_id,))
     if not p:
         return None
     key = (keys or {}).get(p['id']) or ''
+    if p.get('perf_status') not in ('presale', 'on_sale', 'sold_out'):
+        return jsonify({'error': 'This performance isn\'t on sale.', 'not_on_sale': True}), 403
     if p.get('perf_status') == 'presale' and not presale_key_ok(p, key):
         return jsonify({'error': 'This performance is only available through the pre-sale link right now.', 'not_on_sale': True}), 403
     _po = _presale_parse(p.get('presale_opens_at'))
@@ -39607,6 +39626,10 @@ def public_production_performances(slug):
     has_key = presale_key_ok(prod, key)
     allowed, sale = production_sale_state(prod, key)
     prod.pop('presale_key', None)
+    preview = staff_ticket_preview(request.args.get('preview'))
+    if preview:
+        sale['preview'] = True
+        allowed = True
     if not allowed:
         # Countdown only: no dates or seat maps until the public sale opens
         conn.close()
@@ -39616,7 +39639,8 @@ def public_production_performances(slug):
         FROM performances pf LEFT JOIN venues v ON pf.venue_id=v.id
         WHERE pf.production_id=%s AND pf.status IN %s
         ORDER BY pf.performance_date, pf.performance_time''',
-        (prod['id'], ('presale', 'on_sale', 'sold_out') if (has_key and not sale.get('seconds_until_presale')) else ('on_sale', 'sold_out')))
+        (prod['id'], ('draft', 'presale', 'on_sale', 'sold_out') if preview
+                     else ('presale', 'on_sale', 'sold_out') if (has_key and not sale.get('seconds_until_presale')) else ('on_sale', 'sold_out')))
     if has_key and any(p.get('status') == 'presale' for p in perfs):
         sale['presale'] = True
     conn.close()
@@ -39804,7 +39828,7 @@ def public_hold_seats(fid):
     perf = fetchone(conn, 'SELECT id, production_id FROM performances WHERE id=%s', (fid,))
     if not perf:
         conn.close(); return jsonify({'error': 'Performance not found'}), 404
-    _blocked = presale_block_for_performance(conn, fid, d.get('presale_keys') or {})
+    _blocked = presale_block_for_performance(conn, fid, d.get('presale_keys') or {}, staff_ticket_preview(d.get('preview')))
     if _blocked:
         conn.close(); return _blocked
     _clear_expired_holds(conn, fid)
@@ -39919,7 +39943,8 @@ def public_ticket_checkout():
     _pconn = get_db()
     try:
         for _entry in cart:
-            _blocked = presale_block_for_performance(_pconn, (_entry or {}).get('performance_id'), d.get('presale_keys') or {})
+            _blocked = presale_block_for_performance(_pconn, (_entry or {}).get('performance_id'), d.get('presale_keys') or {},
+                                                     staff_ticket_preview(d.get('preview')))
             if _blocked:
                 return _blocked
     finally:
@@ -40112,7 +40137,7 @@ def public_ticket_checkout():
         if benefit_code and grp_discount and benefit_code.get('source') == 'team':
             execute(conn, 'UPDATE ticket_orders SET team_comp_code_id=%s WHERE id=%s', (benefit_code['id'], order_id))
         execute(conn, 'UPDATE ticket_orders SET sale_channel=%s WHERE id=%s',
-                (sale_channel_for(conn, grp['performance_id'], d.get('presale_keys') or {}), order_id))
+                (sale_channel_for(conn, grp['performance_id'], d.get('presale_keys') or {}, staff_ticket_preview(d.get('preview'))), order_id))
         _perf = fetchone(conn, 'SELECT performance_date, performance_time FROM performances WHERE id=%s', (grp['performance_id'],)) or {}
         _when = str(_perf.get('performance_date') or '')[:10] + (' ' + (_perf.get('performance_time') or '')[:5] if _perf.get('performance_time') else '')
         for li in grp['line_items']:
@@ -40827,6 +40852,7 @@ def notify_ticket_sale(conn, cart_id):
             show = o.get('share_name') or o.get('production_name')
             lines.append('• *' + str(n) + ' ticket' + ('' if n == 1 else 's') + '* for ' + show + ' — ' + dt
                          + (' _(pre-sale)_' if o.get('sale_channel') == 'presale' else '')
+                         + (' _(TEST order from staff preview)_' if o.get('sale_channel') == 'test' else '')
                          + (' _(code, ' + _money(o.get('discount_cents')) + ' off)_' if o.get('discount_cents') else ''))
         head = ':admission_tickets: *' + buyer + '* just bought tickets'
         money = 'Paid *' + _money(paid) + '*' + (' + *' + _money(donation) + '* donation :heart:' if donation else '')
@@ -41904,6 +41930,27 @@ def mark_ticket_order_paid(oid):
         conn.commit()
         _finalize_ticket_order(conn, oid, None, None)
         notify_ticket_sale(conn, order.get('cart_id'))
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/ticket-orders/<oid>/delete-test', methods=['POST'])
+def delete_test_ticket_order(oid):
+    """Remove a paid order placed in staff preview mode (tagged 'test'),
+    freeing its seats. Real payments, if any, still need refunding in Square."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        o = fetchone(conn, 'SELECT id, sale_channel FROM ticket_orders WHERE id=%s', (oid,))
+        if not o:
+            return jsonify({'error': 'Order not found'}), 404
+        if o.get('sale_channel') != 'test':
+            return jsonify({'error': 'Only test orders can be deleted this way.'}), 400
+        execute(conn, 'DELETE FROM tickets WHERE ticket_order_id=%s', (oid,))
+        execute(conn, 'DELETE FROM ticket_orders WHERE id=%s', (oid,))
+        conn.commit()
         return jsonify({'ok': True})
     finally:
         conn.close()

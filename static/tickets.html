@@ -527,6 +527,7 @@ function renderPurchaseScreen(){
       + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomBy(0.8)" aria-label="Zoom out">−</button>'
       + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomReset()">Reset View</button>'
       + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomBy(1.25)" aria-label="Zoom in">+</button>'
+      + '<span id="picker-zoom-hint" style="font-size:11.5px;color:var(--text-muted);visibility:hidden">Drag to move around</span>'
       + '</div>'
     html += '<div class="seat-legend">'
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.available+'"></span>Available</span>'
@@ -581,29 +582,60 @@ function renderPurchaseScreen(){
   wirePickerZoomEvents()
 }
 
-// --- Zoom for the buyer's seat picker -----------------------------------
+// --- Zoom + pan for the buyer's seat picker -----------------------------
 // Manipulates the existing <svg>'s viewBox attribute directly rather than
-// regenerating the SVG string on every wheel tick or touchmove — seats
-// are already positioned in SVG user-space coordinates, so changing the
-// viewBox alone zooms the whole picture with no need to redraw anything.
-// This also sidesteps a real bug a full re-render would risk during a
-// pinch gesture: replacing the <svg> element mid-touch can leave it
-// detached from the document while still receiving touch events from
-// whichever element the gesture actually started on.
-// Zooms toward the view's current fixed center rather than the cursor or
-// pinch midpoint — simpler, and there's no panning to go with it, so the
-// view can never drift off the map.
+// regenerating the SVG on every wheel tick or touchmove (seats are already
+// in SVG user-space, so moving the viewBox moves the whole picture, and
+// replacing the <svg> mid-gesture would break the gesture).
+// Zooming keeps the point under the cursor / between the fingers in place;
+// once zoomed in, dragging (mouse, or one finger) moves around the map.
+// The view is kept inside the map's bounds so it can't drift off into
+// empty space. A drag never counts as tapping a seat.
+var _pickerMouse = null, _pickerDragged = false
+function clampPickerCenter(){
+  var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
+  var minCx = pickerViewBase.cx - pickerViewBase.w/2 + vw/2, maxCx = pickerViewBase.cx + pickerViewBase.w/2 - vw/2
+  var minCy = pickerViewBase.cy - pickerViewBase.h/2 + vh/2, maxCy = pickerViewBase.cy + pickerViewBase.h/2 - vh/2
+  pickerViewCenter.x = Math.min(maxCx, Math.max(minCx, pickerViewCenter.x))
+  pickerViewCenter.y = Math.min(maxCy, Math.max(minCy, pickerViewCenter.y))
+}
 function applyPickerViewBox(svg){
+  clampPickerCenter()
   var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
   var vx = pickerViewCenter.x - vw/2, vy = pickerViewCenter.y - vh/2
   svg.setAttribute('viewBox', vx+' '+vy+' '+vw+' '+vh)
+  // one finger scrolls the page at full view, and pans the map when zoomed
+  svg.style.touchAction = pickerZoom > 1.001 ? 'none' : 'pan-x pan-y'
+  svg.style.cursor = pickerZoom > 1.001 ? 'grab' : ''
+  var hint = document.getElementById('picker-zoom-hint')
+  if(hint) hint.style.visibility = pickerZoom > 1.001 ? 'visible' : 'hidden'
+}
+// SVG units per screen pixel for the current view ("meet" letterboxing)
+function pickerUnitsPerPx(svg){
+  var r = svg.getBoundingClientRect()
+  var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
+  return Math.max(vw/(r.width||1), vh/(r.height||1))
+}
+function pickerScreenToSvg(svg, clientX, clientY){
+  var r = svg.getBoundingClientRect(), k = pickerUnitsPerPx(svg)
+  return {x: pickerViewCenter.x + (clientX - (r.left + r.width/2))*k,
+          y: pickerViewCenter.y + (clientY - (r.top + r.height/2))*k}
+}
+function pickerZoomAt(svg, newZoom, clientX, clientY){
+  newZoom = Math.max(1, Math.min(6, newZoom))
+  if(clientX == null){ pickerZoom = newZoom; applyPickerViewBox(svg); return }
+  var before = pickerScreenToSvg(svg, clientX, clientY)
+  pickerZoom = newZoom
+  var after = pickerScreenToSvg(svg, clientX, clientY)
+  pickerViewCenter.x += before.x - after.x
+  pickerViewCenter.y += before.y - after.y
+  applyPickerViewBox(svg)
 }
 
 function pickerZoomBy(factor){
   if(!pickerViewBase) return
-  pickerZoom = Math.max(1, Math.min(6, pickerZoom*factor))
   var svg = document.getElementById('picker-svg')
-  if(svg) applyPickerViewBox(svg)
+  if(svg) pickerZoomAt(svg, pickerZoom*factor)
 }
 
 function pickerZoomReset(){
@@ -624,27 +656,86 @@ function wirePickerZoomEvents(){
   var svg = document.getElementById('picker-svg')
   if(!svg || svg._zoomWired) return
   svg._zoomWired = true
+  applyPickerViewBox(svg)
+  var DRAG_PX = 6
+
   svg.addEventListener('wheel', function(evt){
     evt.preventDefault()
-    pickerZoomBy(evt.deltaY < 0 ? 1.1 : 0.9)
+    pickerZoomAt(svg, pickerZoom*(evt.deltaY < 0 ? 1.12 : 0.89), evt.clientX, evt.clientY)
   }, {passive:false})
-  var pinchStartDist = null, pinchStartZoom = null
+
+  // mouse / pen drag (move/up listen on the window so a drag that leaves
+  // the map still ends cleanly; registered once, since the map redraws)
+  svg.addEventListener('pointerdown', function(evt){
+    if(evt.pointerType === 'touch' || pickerZoom <= 1.001) return
+    _pickerMouse = {x: evt.clientX, y: evt.clientY, cx: pickerViewCenter.x, cy: pickerViewCenter.y}
+    _pickerDragged = false
+  })
+  if(!window._pickerPanWired){
+    window._pickerPanWired = true
+    window.addEventListener('pointermove', function(evt){
+      var m = _pickerMouse, sv = document.getElementById('picker-svg')
+      if(!m || !sv) return
+      var dx = evt.clientX - m.x, dy = evt.clientY - m.y
+      if(!_pickerDragged && Math.abs(dx) + Math.abs(dy) < 6) return
+      _pickerDragged = true
+      sv.style.cursor = 'grabbing'
+      var k = pickerUnitsPerPx(sv)
+      pickerViewCenter.x = m.cx - dx*k
+      pickerViewCenter.y = m.cy - dy*k
+      applyPickerViewBox(sv)
+    })
+    window.addEventListener('pointerup', function(){
+      if(!_pickerMouse) return
+      _pickerMouse = null
+      var sv = document.getElementById('picker-svg'); if(sv) applyPickerViewBox(sv)
+    })
+  }
+
+  // touch: one finger drags (when zoomed), two fingers pinch + move
+  var t1 = null, pinch = null
   svg.addEventListener('touchstart', function(evt){
-    if(evt.touches.length===2){
-      pinchStartDist = pickerTouchDistance(evt.touches)
-      pinchStartZoom = pickerZoom
+    if(evt.touches.length === 2){
+      var mx = (evt.touches[0].clientX + evt.touches[1].clientX)/2, my = (evt.touches[0].clientY + evt.touches[1].clientY)/2
+      pinch = {dist: pickerTouchDistance(evt.touches), zoom: pickerZoom, mx: mx, my: my, anchor: pickerScreenToSvg(svg, mx, my)}
+      t1 = null; _pickerDragged = true
+    } else if(evt.touches.length === 1){
+      t1 = {x: evt.touches[0].clientX, y: evt.touches[0].clientY, cx: pickerViewCenter.x, cy: pickerViewCenter.y}
+      _pickerDragged = false
     }
   }, {passive:true})
   svg.addEventListener('touchmove', function(evt){
-    if(evt.touches.length===2 && pinchStartDist){
+    if(evt.touches.length === 2 && pinch){
       evt.preventDefault()
-      var dist = pickerTouchDistance(evt.touches)
-      pickerZoom = Math.max(1, Math.min(6, pinchStartZoom * (dist/pinchStartDist)))
+      var mx = (evt.touches[0].clientX + evt.touches[1].clientX)/2, my = (evt.touches[0].clientY + evt.touches[1].clientY)/2
+      pickerZoom = Math.max(1, Math.min(6, pinch.zoom * (pickerTouchDistance(evt.touches)/pinch.dist)))
+      // keep the spot that started between the fingers under the fingers
+      var now = pickerScreenToSvg(svg, mx, my)
+      pickerViewCenter.x += pinch.anchor.x - now.x
+      pickerViewCenter.y += pinch.anchor.y - now.y
+      applyPickerViewBox(svg)
+    } else if(evt.touches.length === 1 && t1 && pickerZoom > 1.001){
+      var dx = evt.touches[0].clientX - t1.x, dy = evt.touches[0].clientY - t1.y
+      if(!_pickerDragged && Math.abs(dx) + Math.abs(dy) < DRAG_PX) return
+      evt.preventDefault()
+      _pickerDragged = true
+      var k = pickerUnitsPerPx(svg)
+      pickerViewCenter.x = t1.cx - dx*k
+      pickerViewCenter.y = t1.cy - dy*k
       applyPickerViewBox(svg)
     }
   }, {passive:false})
-  svg.addEventListener('touchend', function(){ pinchStartDist = null })
-  svg.addEventListener('touchcancel', function(){ pinchStartDist = null })
+  function endTouch(evt){
+    if(!evt.touches || evt.touches.length < 2) pinch = null
+    if(!evt.touches || evt.touches.length === 0) t1 = null
+  }
+  svg.addEventListener('touchend', endTouch)
+  svg.addEventListener('touchcancel', endTouch)
+
+  // a drag that ends on a seat must not select it
+  svg.addEventListener('click', function(evt){
+    if(_pickerDragged){ evt.stopPropagation(); evt.preventDefault(); _pickerDragged = false }
+  }, true)
 }
 
 var SEAT_STATUS_COLORS = {available:'#16728b', mine:'#0a3a48', held:'#d97706', sold:'#d1d5db'}
@@ -668,7 +759,7 @@ function renderPickerSVG(){
   var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
   var vx = pickerViewCenter.x - vw/2, vy = pickerViewCenter.y - vh/2
   var seatR = 0.4
-  var svg = '<svg id="picker-svg" viewBox="'+vx+' '+vy+' '+vw+' '+vh+'" style="width:100%;height:auto;max-height:70vh;background:var(--bg);border-radius:8px;border:1px solid var(--border);touch-action:none" preserveAspectRatio="xMidYMid meet">'
+  var svg = '<svg id="picker-svg" viewBox="'+vx+' '+vy+' '+vw+' '+vh+'" style="width:100%;height:auto;max-height:70vh;background:var(--bg);border-radius:8px;border:1px solid var(--border);touch-action:pan-x pan-y;user-select:none;-webkit-user-select:none" preserveAspectRatio="xMidYMid meet">'
   if(stageInfo){
     svg += '<g transform="translate('+stageInfo.x+','+stageInfo.y+') rotate('+stageInfo.rotation+')">'
       + '<rect x="'+(-stageInfo.width/2)+'" y="'+(-stageInfo.depth/2)+'" width="'+stageInfo.width+'" height="'+stageInfo.depth+'" rx="0.15" fill="#334155"/>'

@@ -1919,6 +1919,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-general" class="settings-panel" style="">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">General</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Notifications and alert settings</div>
+    <div class="settings-section" style="margin-bottom:16px" id="slack-tickets-section">
+     <div style="font-weight:600;font-size:14px;margin-bottom:4px">Slack Ticket Alerts</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6">Post to a Slack channel every time someone buys tickets: who, which show and date, any donation, plus running totals for that show and all shows.</div>
+     <div id="slack-tickets-status" style="font-size:12.5px;margin-bottom:10px"></div>
+     <div class="form-group"><label>Slack webhook URL</label>
+      <input type="password" id="slack-tickets-webhook" placeholder="https://hooks.slack.com/services/…" autocomplete="off"/>
+      <div style="font-size:11px;color:var(--text-hint);margin-top:3px;line-height:1.6">In Slack: <strong>Apps → search "Incoming WebHooks" → Add to Slack</strong>, pick your ticket channel (e.g. #ticket-sales), and copy the Webhook URL here. Leave blank to keep the current one.</div></div>
+     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="slack-tickets-enabled" style="width:auto" checked/> Send ticket alerts</label>
+     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="slack-tickets-names" style="width:auto" checked/> Include the buyer's name (otherwise it just says "Someone")</label>
+     <div style="display:flex;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="saveSlackTicketSettings()">Save</button>
+      <button class="btn btn-secondary btn-sm" onclick="testSlackTicketSettings()">Send test message</button>
+      <button class="btn btn-secondary btn-sm" style="color:#b91c1c;margin-left:auto" onclick="clearSlackTicketWebhook()">Disconnect</button>
+     </div>
+    </div>
     <div class="settings-section" style="margin-bottom:16px">
  <div style="font-weight:600;font-size:14px;margin-bottom:16px">Notification Alerts</div><div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated reports and alerts. Get a free API key at <a href="https://resend.com" target="_blank" style="color:var(--teal-600)">resend.com</a>.</div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
@@ -10687,6 +10702,7 @@ async function attachFile(e,volId){
 // SETTINGS
 // ═══════════════════════════════════════════════════════════════
 async function loadSettings(){
+ try{ loadSlackTicketSettings() }catch(e){}
  const [itypes,wtypes,events,etemplates,programs,users,elicsData,clItems,oclItems,evTypes,piData]=await Promise.all([
  api('/api/interest-types'),api('/api/waiver-types'),api('/api/events'),api('/api/email-templates'),
  api('/api/youth-programs'),api('/api/users'),api('/api/elics'),api('/api/checklist-items'),api('/api/opening-checklist-items'),api('/api/event-types'),api('/api/paid-instructors')
@@ -35881,6 +35897,40 @@ async function openTicketingSettings(pid){
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Anyone with this link can buy before the public on-sale time (cast families, donors, members). Share it privately. After the public on-sale time it works like the normal page.</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.6"><strong>Performance statuses:</strong> <span style="color:#6d28d9;font-weight:700">Pre-Sale</span> performances can only be bought through this link, and switch to On Sale by themselves at the Public on-sale time. <span style="color:#047857;font-weight:700">On Sale</span> performances are open to everyone (after the on-sale time, if one is set).</div></div>'
     + '<button class="btn btn-primary" style="width:100%" onclick="saveTicketingSettings(\''+pid+'\')">Save</button>')
+}
+
+// ── Slack ticket alerts (Settings → General) ──
+async function loadSlackTicketSettings(){
+  var st = document.getElementById('slack-tickets-status'); if(!st) return
+  var d = await api('/api/settings/slack-tickets')
+  if(!d || d.error){ st.innerHTML = ''; return }
+  st.innerHTML = d.configured
+    ? '<span style="color:#166534;font-weight:700">Connected</span> <span style="color:var(--text-muted)">('+escHtml(d.webhook_hint)+')</span>'
+    : '<span style="color:var(--text-muted)">Not connected yet.</span>'
+  document.getElementById('slack-tickets-enabled').checked = !!d.enabled
+  document.getElementById('slack-tickets-names').checked = !!d.names
+}
+async function saveSlackTicketSettings(extra){
+  var body = Object.assign({
+    enabled: document.getElementById('slack-tickets-enabled').checked,
+    names: document.getElementById('slack-tickets-names').checked
+  }, extra || {})
+  var url = (document.getElementById('slack-tickets-webhook').value||'').trim()
+  if(url && !('webhook' in body)) body.webhook = url
+  var res = await api('/api/settings/slack-tickets','PUT', body)
+  if(res && res.error){ toast(res.error,'error'); return false }
+  document.getElementById('slack-tickets-webhook').value = ''
+  toast('Slack settings saved','success'); loadSlackTicketSettings(); return true
+}
+async function testSlackTicketSettings(){
+  if((document.getElementById('slack-tickets-webhook').value||'').trim()){ if(!(await saveSlackTicketSettings())) return }
+  var res = await api('/api/settings/slack-tickets/test','POST',{})
+  if(res && res.error){ toast(res.error,'error'); return }
+  toast('Test message sent to Slack','success')
+}
+async function clearSlackTicketWebhook(){
+  if(!confirm('Disconnect Slack ticket alerts?')) return
+  saveSlackTicketSettings({webhook: ''})
 }
 
 async function saveTicketingSettings(pid, presaleAction){

@@ -330,11 +330,12 @@ async function init(){
     document.getElementById('app').innerHTML = '<div class="error-box">No production specified.</div>'
     return
   }
-  // Private pre-sale link: ?presale=KEY. Remembered on this device so the
-  // buyer can move between dates, the cart and checkout without losing it.
+  // Private pre-sale link: ?presale=KEY. Only the link itself unlocks the
+  // pre-sale view; opening the normal link (even on a device that used the
+  // pre-sale link before) shows the normal page. The key is still kept for
+  // this device's cart/checkout, which may happen on a different page.
   var urlKey = new URLSearchParams(window.location.search).get('presale') || ''
-  if(urlKey) presaleKeySave('slug:'+slug, urlKey)
-  var myKey = urlKey || presaleKeyGet('slug:'+slug)
+  var myKey = urlKey
   var data = await api('/api/public/production/'+encodeURIComponent(slug)+'/performances'+(myKey?'?presale='+encodeURIComponent(myKey):''))
   if(data.error){
     document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'

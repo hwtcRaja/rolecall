@@ -35998,7 +35998,9 @@ async function openTicketingSettings(pid){
           + '<div style="display:flex;gap:10px;margin-top:6px;font-size:12px"><a href="#" onclick="saveTicketingSettings(\''+pid+'\',\'new\');return false">Make a new link</a><span style="color:var(--text-muted)">(the old one stops working)</span>'
           + '<a href="#" style="color:#b91c1c;margin-left:auto" onclick="saveTicketingSettings(\''+pid+'\',\'off\');return false">Turn off pre-sale</a></div>'
         : '<button type="button" class="btn btn-secondary btn-sm" onclick="saveTicketingSettings(\''+pid+'\',\'new\')">Create pre-sale link</button>')
-    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Anyone with this link can buy before the public on-sale time (cast families, donors, members). Share it privately. After the public on-sale time it works like the normal page.</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-top:10px"><label style="margin:0;font-size:12px;font-weight:600;white-space:nowrap">Pre-sale opens</label>'
+    + '<input type="datetime-local" id="tk-presale-opens" value="'+escHtml((prod&&prod.presale_opens_at)||'')+'" style="width:auto"/></div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Anyone with this link can buy before the public on-sale time (cast families, donors, members). Share it privately. If you set a pre-sale open time, the link shows its own countdown until then, so you can send it out early. After the public on-sale time it works like the normal page.</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.6"><strong>Performance statuses:</strong> <span style="color:#6d28d9;font-weight:700">Pre-Sale</span> performances can only be bought through this link, and switch to On Sale by themselves at the Public on-sale time. <span style="color:#047857;font-weight:700">On Sale</span> performances are open to everyone (after the on-sale time, if one is set).</div></div>'
     + '<button class="btn btn-primary" style="width:100%" onclick="saveTicketingSettings(\''+pid+'\')">Save</button>')
 }
@@ -36064,6 +36066,7 @@ async function saveTicketingSettings(pid, presaleAction){
     default_donation_cents: donDefault,
     public_sale_at: document.getElementById('tk-public-sale')?.value || '',
     share_name: document.getElementById('tk-share-name')?.value || '',
+    presale_opens_at: document.getElementById('tk-presale-opens')?.value || '',
     presale: presaleAction || ''
   })
   if(res.error){ toast(res.error,'error'); return }
@@ -36076,6 +36079,7 @@ async function saveTicketingSettings(pid, presaleAction){
     prod.default_donation_cents = donDefault
     prod.public_sale_at = res.public_sale_at || ''
     prod.share_name = res.share_name || ''
+    prod.presale_opens_at = res.presale_opens_at || ''
     prod.presale_key = res.presale_key || ''
   }
   if(presaleAction){

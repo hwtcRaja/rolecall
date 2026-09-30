@@ -3485,6 +3485,7 @@ def require_admin():
 PERM_LEGACY_FALLBACK = {
     'talent': 'productions',
     'email_log': 'email',
+    'donor_benefits': 'donors',
     'waivers': 'volunteers',
     'carpools': 'youth',
     'notifications': 'settings',
@@ -3529,10 +3530,14 @@ SECTION_ROUTE_PERMS = {
         'update_donor', 'delete_donor', 'merge_donors', 'get_donor_detail', 'add_donation', 'update_donation',
         'delete_donation', 'send_thank_you', 'record_benefit_use', 'set_donor_tier', 'set_donor_benefit_override',
         'get_all_donations_list')},
+    # Donor Benefits page (eligibility, codes, outreach lists)
+    **{fn: (['donor_benefits', 'donors'], ['donor_benefits', 'donors']) for fn in (
+        'donor_benefit_settings_api', 'set_benefit_uses_allowed', 'set_benefit_code_settings',
+        'generate_benefit_codes', 'void_benefit_code', 'donors_for_benefit', 'delete_benefit_use')},
+    'get_all_donor_benefits': (['donor_benefits', 'donor_tiers', 'donors'], ['donor_tiers']),
+    # editing the benefits themselves belongs to Tiers & Benefits
     **{fn: (['donor_tiers', 'donors'], ['donor_tiers', 'donors']) for fn in (
-        'update_tier_benefit', 'delete_tier_benefit', 'delete_benefit_use', 'donor_benefit_settings_api',
-        'set_benefit_uses_allowed', 'set_benefit_code_settings', 'generate_benefit_codes', 'void_benefit_code',
-        'donors_for_benefit', 'get_all_donor_benefits')},
+        'update_tier_benefit', 'delete_tier_benefit')},
     'get_donor_tiers': (['donor_tiers', 'donors'], ['donor_tiers']),
     **{fn: (['donor_tiers'], ['donor_tiers']) for fn in ('create_donor_tier', 'update_donor_tier', 'delete_donor_tier', 'add_tier_benefit')},
     **{fn: (['donor_campaigns', 'donors'], ['donor_campaigns']) for fn in ('get_donor_campaigns', 'get_campaign_benefits')},

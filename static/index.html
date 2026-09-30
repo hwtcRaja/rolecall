@@ -15994,47 +15994,59 @@ async function loadBenefitTrackerList(){
  const withCode = canUse.filter(r=>r.code).length
  const rows = _btStatus==='all' ? all : all.filter(r=>r.state===_btStatus)
  const bt = data.benefit.benefit_type || 'manual'
+ const codeable = bt !== 'manual' && !(bt === 'comp_per_show' && !_btProductionId)
  const fmt = d => d ? new Date(String(d).slice(0,10)+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'
  const step = (n, t) => '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="width:24px;height:24px;border-radius:50%;background:var(--teal);color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center">'+n+'</span><span style="font-size:14px;font-weight:800">'+t+'</span></div>'
 
  // ── Step 2: donor codes ──
- let codes = '<div class="card" style="padding:16px 18px;margin-bottom:14px;border:1.5px solid var(--teal-100,#ccfbf1)">'
-  + step(2, 'Donor codes')
-  + '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
-  + '<div class="form-group" style="margin:0"><label>What this benefit does</label><select id="bt-type" onchange="btTypeChanged()" style="width:auto">'
-  + BT_TYPES.map(t=>'<option value="'+t[0]+'"'+(t[0]===bt?' selected':'')+'>'+t[1]+'</option>').join('') + '</select></div>'
-  + '<div class="form-group bt-opt" data-for="pct_ticket_order pct_class" style="margin:0"><label>Percent off</label><input type="number" id="bt-pct" min="1" max="100" value="'+(data.benefit.code_percent||(bt==='pct_class'?30:10))+'" style="width:80px"/></div>'
-  + '<div class="form-group bt-opt" data-for="bogo_tickets" style="margin:0"><label>Max tickets</label><input type="number" id="bt-maxt" min="2" value="'+(data.benefit.code_max_tickets||4)+'" style="width:80px"/></div>'
-  + '<div class="form-group bt-opt" data-for="pct_class" style="margin:0"><label>Up to people</label><input type="number" id="bt-maxp" min="1" value="'+(data.benefit.code_max_people||2)+'" style="width:80px"/></div>'
-  + '<div class="form-group bt-opt" data-for="comp_per_show" style="margin:0"><label>Comps per show</label><input type="number" id="bt-comp" min="1" value="'+(data.benefit.code_comp_tickets||15)+'" style="width:80px"/></div>'
-  + '<button class="btn btn-secondary btn-sm" onclick="saveBenefitCodeSettings()">Save</button>'
+ const val = (k, d) => (data.benefit[k] != null && data.benefit[k] !== '') ? data.benefit[k] : d
+ const choice = (key, title, detail) => {
+  const on = key === bt
+  return '<label class="bt-choice" data-k="'+key+'" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1.5px solid '+(on?'var(--teal)':'var(--border)')+';border-radius:var(--radius);cursor:pointer;background:'+(on?'var(--teal-50,#f0fdfa)':'transparent')+'">'
+   + '<input type="radio" name="bt-type" value="'+key+'" '+(on?'checked':'')+' onchange="btTypeChanged()" style="width:auto;margin-top:3px"/>'
+   + '<div style="flex:1"><div style="font-size:13px;font-weight:700">'+title+'</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px;line-height:1.6">'+detail+'</div></div></label>'
+ }
+ const num = (id, v, w) => '<input type="number" id="'+id+'" min="1" value="'+v+'" onclick="event.stopPropagation()" oninput="btTypeChanged()" style="width:'+(w||60)+'px;padding:3px 6px;font-size:12px;display:inline-block"/>'
+ let codes = '<div class="card" style="padding:16px 18px;margin-bottom:14px">'
+  + step(2, 'What does this benefit give?')
+  + '<div style="display:grid;gap:8px">'
+  + choice('manual', 'Nothing automatic (track it by hand)', 'No code. When a donor uses it, click <strong>Mark used</strong> in the list below.')
+  + choice('bogo_tickets', '2-for-1 tickets', 'Every second ticket free on one order for one show, up to '+num('bt-maxt', val('code_max_tickets',4))+' tickets.')
+  + choice('pct_ticket_order', 'Percent off a ticket order', num('bt-pct-t', bt==='pct_ticket_order'?val('code_percent',10):10)+' % off one ticket order.')
+  + choice('pct_class', 'Percent off a class', num('bt-pct-c', bt==='pct_class'?val('code_percent',30):30)+' % off one class registration, for up to '+num('bt-maxp', val('code_max_people',2))+' people.')
+  + choice('comp_per_show', 'Free tickets to a show', num('bt-comp', val('code_comp_tickets',15))+' free tickets per show. You create a separate set of codes for each show.')
   + '</div>'
- if(bt === 'manual'){
-  codes += '<div style="font-size:12.5px;color:var(--text-muted);margin-top:10px">This benefit is tracked by hand, so it has no codes. To give donors codes, choose what it does above (2-for-1 tickets, % off tickets, % off a class, or comp tickets) and click Save.</div>'
- } else {
-  if(bt === 'comp_per_show'){
-   codes += '<div class="form-group" style="margin:12px 0 0"><label>Which show? (comp codes are per show)</label><select id="bt-prod" onchange="_btProductionId=this.value;loadBenefitTrackerList()" style="width:auto;min-width:260px"><option value="">Pick a show…</option>'
-    + (_btProductions||[]).map(p=>'<option value="'+p.id+'"'+(p.id===_btProductionId?' selected':'')+'>'+escHtml(p.name)+'</option>').join('') + '</select></div>'
-  }
+  + '<div style="display:flex;align-items:center;gap:10px;margin-top:12px"><button class="btn btn-secondary btn-sm" id="bt-save-type" onclick="saveBenefitCodeSettings()">Save</button>'
+  + '<span id="bt-save-note" style="font-size:12px;color:var(--text-muted)"></span></div>'
+  + '</div>'
+ window._btSavedType = {type: bt, code_max_tickets: String(val('code_max_tickets',4)), code_percent: String(val('code_percent', bt==='pct_class'?30:10)), code_max_people: String(val('code_max_people',2)), code_comp_tickets: String(val('code_comp_tickets',15))}
+
+ // ── create codes (only once a code type is saved) ──
+ if(bt !== 'manual'){
   const needs = canUse.length - withCode
   const blocked = bt === 'comp_per_show' && !_btProductionId
-  codes += '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px;padding:12px 14px;background:var(--bg);border-radius:var(--radius)">'
-   + '<div style="font-size:13px"><strong>'+canUse.length+'</strong> donor'+(canUse.length===1?'':'s')+' can use this now · <strong>'+withCode+'</strong> have a code'+(needs>0?' · <strong style="color:var(--teal-dark)">'+needs+' need one</strong>':'')+'</div>'
-   + '<span style="flex:1"></span>'
-   + (blocked ? '<span style="font-size:12px;color:#b45309;font-weight:700">Pick a show first</span>'
-      : '<button class="btn btn-primary" onclick="generateBenefitCodes()"'+(needs>0?'':' disabled')+'>'+(needs>0?'Create '+needs+' code'+(needs===1?'':'s'):'Everyone has a code')+'</button>')
+  codes += '<div class="card" style="padding:16px 18px;margin-bottom:14px;border:1.5px solid var(--teal)">'
+   + step(3, 'Create donor codes')
+   + (bt === 'comp_per_show' ? '<div class="form-group" style="margin:0 0 12px"><label>For which show?</label><select id="bt-prod" onchange="_btProductionId=this.value;loadBenefitTrackerList()" style="width:auto;min-width:260px"><option value="">Pick a show…</option>'
+       + (_btProductions||[]).map(p=>'<option value="'+p.id+'"'+(p.id===_btProductionId?' selected':'')+'>'+escHtml(p.name)+'</option>').join('') + '</select></div>' : '')
+   + '<div style="font-size:13px;margin-bottom:10px"><strong>'+canUse.length+'</strong> donor'+(canUse.length===1?'':'s')+' can use this now · <strong>'+withCode+'</strong> have a code'+(needs>0?' · '+needs+' don\'t yet':'')+'</div>'
+   + (blocked ? '<div style="font-size:12.5px;color:#b45309;font-weight:700">Pick a show first.</div>'
+      : '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 14px;background:var(--bg);border-radius:var(--radius)">'
+        + '<div style="font-size:12.5px;color:var(--text-muted);flex:1;min-width:220px">Codes are only made for the donors you choose. Click <strong>Create code</strong> on a donor below, or tick several and create them together.</div>'
+        + '<button class="btn btn-primary" id="bt-create-selected" onclick="createCodesForSelected()" disabled>Create codes for selected (0)</button>'
+        + '</div>')
+   + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:8px;line-height:1.6">Each chosen donor gets their own code, like HWTC-2FOR1-K7Q3. It only works during their benefit window and marks the benefit used when it\'s redeemed. Donors type it into the <strong>Promo or donor code</strong> box at ticket checkout'+(bt==='pct_class'?' (or the discount code box when registering for a class)':'')+'. After creating, codes show in the list below and in the CSV for your email.</div>'
    + '</div>'
-   + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:8px">Each donor gets their own code (e.g. HWTC-2FOR1-K7Q3). It only works during their benefit window and marks the benefit used when it\'s redeemed. Buyers enter it in the "Promo or donor code" box at checkout'+(bt==='pct_class'?' (or the discount code box on class registration)':'')+'. Codes appear in the list below and in the CSV.</div>'
  }
- codes += '</div>'
 
  // ── Step 3: donors ──
  let people = '<div class="card" style="padding:16px 18px">'
-  + step(3, 'Donors with this benefit')
+  + step(bt==='manual'?3:4, 'Donors with this benefit')
   + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
   + ['unused','used','expired','all'].map(k=>{ const on = k===_btStatus; return '<span onclick="_btStatus=\''+k+'\';loadBenefitTrackerList()" style="padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid '+(on?'var(--teal)':'var(--border)')+';background:'+(on?'var(--teal)':'transparent')+';color:'+(on?'#fff':'var(--text-muted)')+'">'+({unused:'Can still use',used:'Used',expired:'Window ended',all:'All'})[k]+' ('+counts[k]+')</span>' }).join('')
   + '<span style="flex:1"></span>'
   + '<button class="btn btn-secondary btn-sm" onclick="copyBenefitEmails()">Copy emails</button>'
+  + '<button class="btn btn-secondary btn-sm" style="color:#b91c1c" onclick="openResetBenefitUsage(null, \''+escHtml(data.benefit.name).replace(/'/g,"\\'")+'\')">Reset usage…</button>'
   + '<a class="btn btn-secondary btn-sm" href="/api/donor-benefits/'+_btBenefitId+'/donors?status='+_btStatus+'&format=csv'+(_btProductionId?'&production_id='+encodeURIComponent(_btProductionId):'')+'">Download CSV</a>'
   + '</div>'
   + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Allowed '
@@ -16043,21 +16055,105 @@ async function loadBenefitTrackerList(){
  const stateStyle = {unused:'background:#dcfce7;color:#166534', used:'background:#e0f2fe;color:#075985', expired:'background:#f1f5f9;color:#64748b'}
  const stateLabel = {unused:'Can use', used:'Used', expired:'Window ended'}
  people += rows.length ? '<div style="max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
-  + '<thead><tr style="background:var(--bg);text-align:left;position:sticky;top:0"><th style="padding:8px">Donor</th><th style="padding:8px">Tier</th><th style="padding:8px">Eligible until</th><th style="padding:8px">Status</th><th style="padding:8px">Code</th><th style="padding:8px"></th></tr></thead><tbody>'
-  + rows.map(r=>'<tr style="border-top:1px solid var(--border)">'
+  + '<thead><tr style="background:var(--bg);text-align:left;position:sticky;top:0">'
+  + (codeable ? '<th style="padding:8px;width:28px"><input type="checkbox" id="bt-sel-all" title="Select everyone here who can get a code" onchange="btSelectAll(this.checked)" style="width:auto"/></th>' : '')
+  + '<th style="padding:8px">Donor</th><th style="padding:8px">Tier</th><th style="padding:8px">Eligible until</th><th style="padding:8px">Status</th><th style="padding:8px">Code</th><th style="padding:8px"></th></tr></thead><tbody>'
+  + rows.map(r=>{ const can = codeable && r.state==='unused' && !r.code
+    return '<tr style="border-top:1px solid var(--border)">'
+    + (codeable ? '<td style="padding:8px">'+(can?'<input type="checkbox" class="bt-sel" value="'+r.donor_id+'" onchange="btSelChanged()" style="width:auto"/>':'')+'</td>' : '')
     + '<td style="padding:8px"><div style="font-weight:600;cursor:pointer" onclick="openDonorDetail(\''+r.donor_id+'\')">'+escHtml(r.name)+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.email||'no email')+'</div></td>'
     + '<td style="padding:8px">'+escHtml(r.tier_name||'')+'</td>'
     + '<td style="padding:8px" title="'+escHtml(r.eligible_reason||'')+'">'+fmt(r.eligible_until)+'</td>'
     + '<td style="padding:8px"><span style="font-size:10.5px;padding:2px 8px;border-radius:10px;font-weight:700;'+stateStyle[r.state]+'">'+stateLabel[r.state]+'</span><div style="font-size:10.5px;color:var(--text-muted);margin-top:2px">'+r.used+' of '+r.allowed+' used'+(r.last_used_at?' · '+fmt(r.last_used_at):'')+'</div></td>'
-    + '<td style="padding:8px;font-family:monospace;font-size:12px">'+(r.code?'<span style="cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(\''+r.code+'\');toast(\'Copied\',\'success\')">'+escHtml(r.code)+'</span>':'<span style="color:var(--text-hint)">—</span>')+'</td>'
-    + '<td style="padding:8px;text-align:right">'+(r.state!=='expired'?'<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openRecordBenefitUse(\''+r.donor_id+'\',\''+_btBenefitId+'\',\''+escHtml(data.benefit.name).replace(/'/g,"\\'")+' — '+escHtml(r.name).replace(/'/g,"\\'")+'\', loadBenefitTrackerList)">Mark used</button>':'')+'</td>'
-    + '</tr>').join('') + '</tbody></table></div>'
+    + '<td style="padding:8px;font-family:monospace;font-size:12px">'+(r.code?'<span style="cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(\''+r.code+'\');toast(\'Copied\',\'success\')">'+escHtml(r.code)+'</span>':(can?'<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="generateBenefitCodes([\''+r.donor_id+'\'])">Create code</button>':'<span style="color:var(--text-hint)">—</span>'))+'</td>'
+    + '<td style="padding:8px;text-align:right">'+(r.state!=='expired'?'<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openRecordBenefitUse(\''+r.donor_id+'\',\''+_btBenefitId+'\',\''+escHtml(data.benefit.name).replace(/'/g,"\\'")+' — '+escHtml(r.name).replace(/'/g,"\\'")+'\', loadBenefitTrackerList)">Mark used</button>':'')
+    + ((r.used||r.code) ? ' <a href="#" style="font-size:11px;color:var(--text-muted)" title="Clear this donor\'s usage for this benefit" onclick="openResetBenefitUsage(\''+r.donor_id+'\', \''+escHtml(r.name).replace(/'/g,"\\'")+'\');return false">Reset</a>' : '')+'</td>'
+    + '</tr>' }).join('') + '</tbody></table></div>'
   : '<div style="padding:16px;color:var(--text-muted);font-size:13px">Nobody in this list.</div>'
  people += '</div>'
 
  holder.innerHTML = codes + people
  window._btEmails = rows.map(r=>r.email).filter(Boolean)
  btTypeChanged()
+}
+
+function btTypeChanged(){
+ const picked = (document.querySelector('input[name="bt-type"]:checked')||{}).value || 'manual'
+ document.querySelectorAll('.bt-choice').forEach(el=>{
+  const on = el.dataset.k === picked
+  el.style.borderColor = on ? 'var(--teal)' : 'var(--border)'
+  el.style.background = on ? 'var(--teal-50,#f0fdfa)' : 'transparent'
+ })
+ const saved = window._btSavedType || {}
+ const cur = _btCurrentCodeSettings()
+ const dirty = picked !== saved.type || ['code_max_tickets','code_percent','code_max_people','code_comp_tickets'].some(k=>{
+   const relevant = {code_max_tickets:'bogo_tickets', code_max_people:'pct_class', code_comp_tickets:'comp_per_show'}[k]
+   if(k==='code_percent') return (picked==='pct_ticket_order'||picked==='pct_class') && String(cur.code_percent)!==String(saved.code_percent)
+   return picked===relevant && String(cur[k])!==String(saved[k])
+ })
+ const note = document.getElementById('bt-save-note'), btn = document.getElementById('bt-save-type')
+ if(note) note.innerHTML = dirty ? '<strong style="color:#b45309">Not saved yet.</strong> Click Save'+(picked!=='manual'?' to turn on codes for this benefit.':'.') : 'Saved.'
+ if(btn){ btn.className = dirty ? 'btn btn-primary btn-sm' : 'btn btn-secondary btn-sm' }
+}
+function _btCurrentCodeSettings(){
+ const picked = (document.querySelector('input[name="bt-type"]:checked')||{}).value || 'manual'
+ const v = id => (document.getElementById(id)||{}).value || ''
+ return {benefit_type: picked,
+  code_percent: picked==='pct_class' ? v('bt-pct-c') : v('bt-pct-t'),
+  code_max_tickets: v('bt-maxt'), code_max_people: v('bt-maxp'), code_comp_tickets: v('bt-comp')}
+}
+async function saveBenefitCodeSettings(){
+ const res = await api('/api/donor-benefits/'+_btBenefitId+'/code-settings','PUT', _btCurrentCodeSettings())
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Saved','success'); loadBenefitTrackerList()
+}
+function btSelChanged(){
+ const n = document.querySelectorAll('.bt-sel:checked').length
+ const btn = document.getElementById('bt-create-selected')
+ if(btn){ btn.disabled = !n; btn.textContent = 'Create codes for selected ('+n+')' }
+ const all = document.getElementById('bt-sel-all'), boxes = document.querySelectorAll('.bt-sel')
+ if(all) all.checked = boxes.length > 0 && n === boxes.length
+}
+function btSelectAll(on){ document.querySelectorAll('.bt-sel').forEach(b=>{ b.checked = on }); btSelChanged() }
+function createCodesForSelected(){
+ const ids = Array.from(document.querySelectorAll('.bt-sel:checked')).map(b=>b.value)
+ if(ids.length) generateBenefitCodes(ids)
+}
+async function generateBenefitCodes(donorIds){
+ if(!donorIds || !donorIds.length) return
+ if(donorIds.length > 1 && !confirm('Create codes for these '+donorIds.length+' donors?')) return
+ const res = await api('/api/donor-benefits/'+_btBenefitId+'/generate-codes','POST',{production_id: _btProductionId||null, donor_ids: donorIds})
+ if(res.error){ toast(res.error,'error'); return }
+ toast(res.created+' code'+(res.created===1?'':'s')+' created'+(res.already_had?' · '+res.already_had+' already had one':''),'success')
+ loadBenefitTrackerList()
+}
+async function voidBenefitCode(cid, donorId){
+ if(!confirm('Turn off this code? It will stop working immediately.')) return
+ const res = await api('/api/benefit-codes/'+cid+'/void','POST',{})
+ if(res.error){ toast(res.error,'error'); return }
+ toast('Code turned off','success')
+ const donor = await api('/api/donors/'+donorId+'/detail'); if(!donor.error) renderDonorDetailPage(donor)
+}
+
+function openResetBenefitUsage(donorId, label){
+ const who = donorId ? 'for <strong>'+escHtml(label)+'</strong>' : 'for <strong>everyone</strong> on <strong>'+escHtml(label)+'</strong>'
+ showAdHocModal('reset-usage-modal', 'Reset benefit usage',
+  '<div style="font-size:13px;line-height:1.6;margin-bottom:12px">This wipes the usage history '+who+', so the benefit shows as unused again. Handy after testing.</div>'
+  + '<ul style="font-size:12.5px;color:var(--text-muted);line-height:1.7;margin:0 0 12px 18px">'
+  + '<li>"Used" records are deleted, including ones added by hand.</li>'
+  + '<li>Codes that were redeemed work again.</li>'
+  + '<li>Ticket orders and payments are <strong>not</strong> changed.</li></ul>'
+  + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="reset-del-codes" style="width:auto"/> Also delete '+(donorId?'their code':'the codes')+' (you can create new ones after)</label>'
+  + '<div style="display:flex;gap:8px"><button class="btn btn-secondary" style="flex:1" onclick="closeAdHocModal(\'reset-usage-modal\')">Cancel</button>'
+  + '<button class="btn btn-primary" style="flex:1;background:#b91c1c;border-color:#b91c1c" onclick="doResetBenefitUsage('+(donorId?'\''+donorId+'\'':'null')+')">Reset usage</button></div>')
+}
+async function doResetBenefitUsage(donorId){
+ const res = await api('/api/donor-benefits/'+_btBenefitId+'/reset-usage','POST',{
+  donor_id: donorId, delete_codes: !!(document.getElementById('reset-del-codes')||{}).checked })
+ if(res.error){ toast(res.error,'error'); return }
+ closeAdHocModal('reset-usage-modal')
+ toast('Usage reset'+(res.uses_cleared?' · '+res.uses_cleared+' use'+(res.uses_cleared===1?'':'s')+' cleared':'')+(res.codes_deleted?' · '+res.codes_deleted+' code'+(res.codes_deleted===1?'':'s')+' deleted':''),'success')
+ loadBenefitTrackerList()
 }
 
 function copyBenefitEmails(){

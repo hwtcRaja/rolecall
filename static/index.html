@@ -35865,6 +35865,9 @@ async function openTicketingSettings(pid){
     + '</select>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">What the donation buttons start on at checkout. Buyers can still change it or pick No Thanks. Handy for free shows where you want to nudge a small gift.</div></div>'
     + '<div style="border-top:1px solid var(--border);margin:16px 0"></div>'
+    + '<div class="form-group"><label>Short name for shared links</label>'
+    + '<input id="tk-share-name" maxlength="60" value="'+escHtml((prod&&prod.share_name)||'')+'" placeholder="'+escHtml((prod&&prod.name)||'e.g. HSM Jr.')+'"/>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">How the link looks when it\'s texted or posted, e.g. <strong>"'+escHtml(((prod&&(prod.share_name||prod.name))||'HSM Jr.'))+' Tickets"</strong> or <strong>"… Pre-Sale Tickets"</strong> for the pre-sale link, with the show art and dates. Leave blank to use the full show name.</div></div>'
     + '<div class="form-group"><label>Public on-sale</label>'
     + '<input type="datetime-local" id="tk-public-sale" value="'+escHtml((prod&&prod.public_sale_at)||'')+'"/>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Before this time the ticket page shows a countdown and nobody can buy, except through the pre-sale link below. Leave blank to sell as soon as performances are on sale. Eastern time.</div></div>'
@@ -35894,6 +35897,7 @@ async function saveTicketingSettings(pid, presaleAction){
     service_fee_percent: feePct, service_fee_flat_cents: feeFlat,
     default_donation_cents: donDefault,
     public_sale_at: document.getElementById('tk-public-sale')?.value || '',
+    share_name: document.getElementById('tk-share-name')?.value || '',
     presale: presaleAction || ''
   })
   if(res.error){ toast(res.error,'error'); return }
@@ -35905,6 +35909,7 @@ async function saveTicketingSettings(pid, presaleAction){
     prod.service_fee_flat_cents = feeFlat
     prod.default_donation_cents = donDefault
     prod.public_sale_at = res.public_sale_at || ''
+    prod.share_name = res.share_name || ''
     prod.presale_key = res.presale_key || ''
   }
   if(presaleAction){

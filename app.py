@@ -30776,6 +30776,10 @@ def _start_oncall_scheduler():
                     post_daily_ticket_report()
             except Exception as e:
                 app.logger.warning(f'Daily ticket report error: {e}')
+            try:
+                post_sale_countdown_alerts()
+            except Exception as e:
+                app.logger.warning(f'Sale countdown alerts error: {e}')
         scheduler.add_job(_daily_ticket_report_tick, CronTrigger(minute='*'), id='daily_ticket_report',
                           max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.add_job(sad_auto_open_due_lotteries, CronTrigger(minute='*'), id='sad_auto_open',
@@ -40899,6 +40903,8 @@ def slack_ticket_settings():
                     _set_setting(conn, 'slack_daily_time', t)
             if 'daily_chart' in d:
                 _set_setting(conn, 'slack_daily_chart', '1' if d.get('daily_chart') else '0')
+            if 'countdown' in d:
+                _set_setting(conn, 'slack_countdown_enabled', '1' if d.get('countdown') else '0')
             conn.commit()
         url = _setting(conn, 'slack_ticket_webhook') or ''
         return jsonify({'configured': bool(url), 'webhook_hint': (url[:34] + '…' + url[-4:]) if url else '',
@@ -40906,7 +40912,8 @@ def slack_ticket_settings():
                         'names': _setting(conn, 'slack_ticket_names', '1') == '1',
                         'daily': _setting(conn, 'slack_daily_enabled', '0') == '1',
                         'daily_time': _setting(conn, 'slack_daily_time', '09:00') or '09:00',
-                        'daily_chart': _setting(conn, 'slack_daily_chart', '1') == '1'})
+                        'daily_chart': _setting(conn, 'slack_daily_chart', '1') == '1',
+                        'countdown': _setting(conn, 'slack_countdown_enabled', '1') == '1'})
     finally:
         conn.close()
 
@@ -41107,6 +41114,54 @@ def post_daily_ticket_report(force=False):
         conn.close()
     r = requests.post(url, json=payload, timeout=15)
     return r
+
+
+def post_sale_countdown_alerts():
+    """Runs every minute: posts to the Slack channel 10 minutes and 5
+    minutes before a show's pre-sale or public sale opens, and again when
+    it opens. Each message is sent once (remembered in settings), and a
+    missed minute still catches up within its window."""
+    import datetime as _dt
+    conn = get_db()
+    try:
+        url = (_setting(conn, 'slack_ticket_webhook') or '').strip()
+        if not url or _setting(conn, 'slack_countdown_enabled', '1') != '1':
+            return
+        now = now_eastern()
+        rows = fetchall(conn, '''SELECT id, name, share_name, slug, public_sale_at, presale_opens_at, presale_key
+            FROM productions WHERE COALESCE(public_sale_at,'') <> '' OR COALESCE(presale_opens_at,'') <> '' ''') or []
+        for p in rows:
+            show = p.get('share_name') or p['name']
+            link = APP_BASE_URL.rstrip('/') + '/tickets/' + (p.get('slug') or p['id'])
+            for kind, field in (('presale', 'presale_opens_at'), ('public', 'public_sale_at')):
+                when = _presale_parse(p.get(field))
+                if not when or (kind == 'presale' and not p.get('presale_key')):
+                    continue
+                secs = (when - now).total_seconds()
+                label = 'pre-sale' if kind == 'presale' else 'public sale'
+                clock = when.strftime('%-I:%M %p').replace(':00 ', ' ')
+                if 300 < secs <= 600:
+                    mark, text = '10', ':alarm_clock: *' + show + '* ' + label + ' opens in *10 minutes* (' + clock + ').'
+                elif 0 < secs <= 300:
+                    mark, text = '5', ':hourglass_flowing_sand: *' + show + '* ' + label + ' opens in *5 minutes* (' + clock + ').'
+                elif -900 < secs <= 0:
+                    mark, text = 'open', (':tada: *' + show + '* ' + label + ' is *OPEN!*'
+                                          + ('' if kind == 'presale' else '\n<' + link + '|' + link.replace('https://', '') + '>')
+                                          + '\nOrders will show up here as they come in.')
+                else:
+                    continue
+                key = 'slack_countdown:' + p['id'] + ':' + kind + ':' + (p.get(field) or '') + ':' + mark
+                if _setting(conn, key):
+                    continue
+                if mark == '10' and _setting(conn, key[:-2] + '5'):
+                    continue
+                _set_setting(conn, key, '1'); conn.commit()
+                try:
+                    requests.post(url, json={'text': text}, timeout=10)
+                except Exception as e:
+                    app.logger.warning(f'Countdown Slack post failed: {e}')
+    finally:
+        conn.close()
 
 
 @app.route('/api/settings/slack-tickets/daily-now', methods=['POST'])

@@ -3012,6 +3012,21 @@ def init_db():
         # Which door an order came through: 'presale' (the private link) or
         # 'public'. Older orders are backfilled: bought before the show's
         # public on-sale time means it came through the pre-sale.
+        # Production team comps: a per-show allowance (default + per-person
+        # overrides, and which departments get them), with a personal comp
+        # code per team member that draws down as tickets are claimed.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS team_comp_default INTEGER DEFAULT 0",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS team_comp_departments TEXT DEFAULT ''",
+        "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS comp_override INTEGER",
+        """CREATE TABLE IF NOT EXISTS team_comp_codes (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            member_id TEXT NOT NULL REFERENCES production_members(id) ON DELETE CASCADE,
+            status TEXT DEFAULT 'active',
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(production_id, member_id))""",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS team_comp_code_id TEXT",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS sale_channel TEXT",
         """UPDATE ticket_orders o SET sale_channel = CASE
             WHEN COALESCE(pr.public_sale_at,'') <> ''
@@ -39886,6 +39901,8 @@ def public_ticket_checkout():
              benefit_code['id'] if (benefit_code and grp_discount and benefit_code.get('source') == 'benefit') else None, grp_discount))
         if benefit_code and grp_discount and benefit_code.get('source') == 'promo':
             execute(conn, 'UPDATE ticket_orders SET promo_code_id=%s WHERE id=%s', (benefit_code['id'], order_id))
+        if benefit_code and grp_discount and benefit_code.get('source') == 'team':
+            execute(conn, 'UPDATE ticket_orders SET team_comp_code_id=%s WHERE id=%s', (benefit_code['id'], order_id))
         execute(conn, 'UPDATE ticket_orders SET sale_channel=%s WHERE id=%s',
                 (sale_channel_for(conn, grp['performance_id'], d.get('presale_keys') or {}), order_id))
         for li in grp['line_items']:
@@ -40099,6 +40116,140 @@ def describe_promo_code(p):
     return 'Promo code'
 
 
+# ── Production team comps ─────────────────────────────────────────────────
+def _team_comp_departments(prod):
+    return [x.strip() for x in (prod.get('team_comp_departments') or '').split('|') if x.strip()]
+
+
+def team_comp_allowance(prod, member):
+    """How many comps this team member gets for this show right now. Staff
+    can change the default or a person's number at any time; codes follow
+    the live number."""
+    if member.get('comp_override') is not None:
+        return max(0, int(member['comp_override']))
+    depts = _team_comp_departments(prod)
+    if depts and (member.get('department') or '').strip() not in depts:
+        return 0
+    return max(0, int(prod.get('team_comp_default') or 0))
+
+
+def team_comp_used(conn, code_id):
+    rows = fetchall(conn, "SELECT seats_json FROM ticket_orders WHERE team_comp_code_id=%s AND "
+                    "(status='completed' OR (status='pending' AND created_at > NOW() - INTERVAL '"
+                    + str(TICKET_PENDING_WINDOW_MINUTES) + " minutes'))", (code_id,)) or []
+    return sum(1 for r in rows for li in json.loads(r.get('seats_json') or '[]') if li.get('benefit_discount_cents'))
+
+
+def lookup_team_comp_code(conn, code):
+    c = fetchone(conn, '''SELECT t.*, pr.name AS production_name, pr.share_name, pr.team_comp_default, pr.team_comp_departments,
+            pm.comp_override, pm.department, v.name AS member_name
+        FROM team_comp_codes t JOIN productions pr ON pr.id=t.production_id
+        JOIN production_members pm ON pm.id=t.member_id JOIN volunteers v ON v.id=pm.volunteer_id
+        WHERE UPPER(t.code)=%s''', (code,))
+    if not c:
+        return None, None
+    if c['status'] != 'active':
+        return None, 'That comp code has been turned off.'
+    allowed = team_comp_allowance(c, c)
+    left = allowed - team_comp_used(conn, c['id'])
+    if left <= 0:
+        return None, 'All ' + str(allowed) + ' comps on this code have been used.'
+    show = c.get('share_name') or c.get('production_name')
+    return {'id': c['id'], 'code': c['code'], 'source': 'team', 'kind': 'comp_per_show',
+            'production_id': c['production_id'], 'restrict_to_production': True, 'comp_remaining': left,
+            'label': 'Production team comps for ' + show + ' (' + str(left) + ' left)'}, None
+
+
+@app.route('/api/productions/<pid>/team-comps', methods=['GET', 'PUT'])
+def production_team_comps(pid):
+    err = require_permission('marquee', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        prod = fetchone(conn, 'SELECT id, name, slug, team_comp_default, team_comp_departments FROM productions WHERE id=%s', (pid,))
+        if not prod:
+            return jsonify({'error': 'Show not found'}), 404
+        if request.method == 'PUT':
+            d = request.json or {}
+            if 'default' in d:
+                try: dflt = max(0, int(d.get('default') or 0))
+                except (TypeError, ValueError): dflt = 0
+                execute(conn, 'UPDATE productions SET team_comp_default=%s WHERE id=%s', (dflt, pid))
+            if 'departments' in d:
+                depts = '|'.join(str(x).strip() for x in (d.get('departments') or []) if str(x).strip())
+                execute(conn, 'UPDATE productions SET team_comp_departments=%s WHERE id=%s', (depts, pid))
+            for mid, val in (d.get('overrides') or {}).items():
+                v = None
+                if val not in (None, ''):
+                    try: v = max(0, int(val))
+                    except (TypeError, ValueError): v = None
+                execute(conn, 'UPDATE production_members SET comp_override=%s WHERE id=%s AND production_id=%s', (v, mid, pid))
+            conn.commit()
+            prod = fetchone(conn, 'SELECT id, name, slug, team_comp_default, team_comp_departments FROM productions WHERE id=%s', (pid,))
+        members = fetchall(conn, '''SELECT pm.id, pm.role, pm.department, pm.comp_override, v.name, v.email,
+                t.id AS code_id, t.code, t.status AS code_status
+            FROM production_members pm JOIN volunteers v ON v.id=pm.volunteer_id
+            LEFT JOIN team_comp_codes t ON t.member_id=pm.id AND t.production_id=pm.production_id
+            WHERE pm.production_id=%s ORDER BY pm.department NULLS LAST, v.name''', (pid,)) or []
+        depts_all = sorted(set((m.get('department') or '').strip() for m in members if (m.get('department') or '').strip()))
+        out = []
+        for m in members:
+            allowed = team_comp_allowance(prod, m)
+            used = team_comp_used(conn, m['code_id']) if m.get('code_id') else 0
+            out.append({'member_id': m['id'], 'name': m['name'], 'email': m.get('email') or '', 'role': m.get('role') or '',
+                        'department': m.get('department') or '', 'override': m.get('comp_override'),
+                        'allowed': allowed, 'used': used, 'remaining': max(0, allowed - used),
+                        'code': m.get('code') if m.get('code_status') == 'active' else '', 'code_id': m.get('code_id')})
+        return jsonify({'default': int(prod.get('team_comp_default') or 0), 'departments': _team_comp_departments(prod),
+                        'all_departments': depts_all, 'slug': prod.get('slug'), 'members': out,
+                        'total_allowed': sum(x['allowed'] for x in out), 'total_used': sum(x['used'] for x in out)})
+    finally:
+        conn.close()
+
+
+@app.route('/api/productions/<pid>/team-comps/codes', methods=['POST'])
+def create_team_comp_codes(pid):
+    """Create personal comp codes for the chosen team members (one each;
+    anyone who already has one keeps it)."""
+    err = require_permission('marquee', 'edit')
+    if err: return err
+    ids = (request.json or {}).get('member_ids') or []
+    if not ids:
+        return jsonify({'error': 'Pick who should get a code.'}), 400
+    conn = get_db()
+    try:
+        made = 0
+        for mid in ids:
+            m = fetchone(conn, 'SELECT id FROM production_members WHERE id=%s AND production_id=%s', (mid, pid))
+            if not m or fetchone(conn, 'SELECT 1 AS x FROM team_comp_codes WHERE member_id=%s AND production_id=%s', (mid, pid)):
+                continue
+            for _ in range(10):
+                code = 'HWTC-TEAM-' + ''.join(secrets.choice(_CODE_ALPHABET) for _ in range(6))
+                if not fetchone(conn, 'SELECT 1 AS x FROM team_comp_codes WHERE code=%s', (code,)):
+                    break
+            execute(conn, 'INSERT INTO team_comp_codes (id, code, production_id, member_id) VALUES (%s,%s,%s,%s)',
+                    (str(uuid.uuid4()), code, pid, mid))
+            made += 1
+        conn.commit()
+        return jsonify({'ok': True, 'created': made})
+    finally:
+        conn.close()
+
+
+@app.route('/api/team-comp-codes/<cid>', methods=['DELETE'])
+def delete_team_comp_code(cid):
+    err = require_permission('marquee', 'edit')
+    if err: return err
+    conn = get_db()
+    used = fetchone(conn, 'SELECT 1 AS x FROM ticket_orders WHERE team_comp_code_id=%s LIMIT 1', (cid,))
+    if used:
+        execute(conn, "UPDATE team_comp_codes SET status='off' WHERE id=%s", (cid,))
+    else:
+        execute(conn, 'DELETE FROM team_comp_codes WHERE id=%s', (cid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 def lookup_ticket_code(conn, code):
     """One box, two kinds of code: a donor's personal benefit code, or a
     promo code staff made in Marquee → Promotions. Returns (row, error);
@@ -40107,6 +40258,9 @@ def lookup_ticket_code(conn, code):
     code = (code or '').strip().upper()
     if not code:
         return None, None
+    tc, terr = lookup_team_comp_code(conn, code)
+    if tc or terr:
+        return tc, terr
     if fetchone(conn, 'SELECT 1 AS x FROM benefit_codes WHERE UPPER(code)=%s', (code,)):
         c, err = lookup_ticket_benefit_code(conn, code)
         if c:

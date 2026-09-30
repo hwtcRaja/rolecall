@@ -35061,6 +35061,7 @@ async function renderMarqueeRegistrations(el, progFilter, statusFilter){
 var _mqBoxOfficeProdFilter = ''
 var _mqBoxOfficeQuery = ''
 var _mqBoxOfficeFlaggedOnly = false
+var _mqBoxOfficeChannel = ''
 
 // Ticket-limit flags (set after payment when the same card, internet
 // connection, or email/phone/device looks like it went over a show's
@@ -35108,6 +35109,20 @@ async function renderShowSalesCard(){
       + '<div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,#16728b,#22a6c4)"></div></div>'
       + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px"><strong style="color:var(--text)">'+Math.round(total*100/goal)+'%</strong> of '+m(goal)+(total<goal?' · '+m(goal-total)+' to go':' · goal reached!')+'</div></div>'
   }
+  // pre-sale vs public
+  var ch = d.channels || {}
+  if(ch.presale && ch.presale.orders){
+    var tot = (ch.presale.revenue_cents + ch.public.revenue_cents) || 1
+    var pp = Math.round(ch.presale.revenue_cents*100/tot)
+    html += '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">'
+      + '<div style="flex:1;min-width:180px;background:#f5f3ff;border-radius:10px;padding:10px 12px"><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#6d28d9">Pre-sale</div>'
+      + '<div style="font-size:16px;font-weight:800;color:#5b21b6">'+m(ch.presale.revenue_cents)+'</div><div style="font-size:12px;color:#6d28d9">'+ch.presale.tickets+' tickets · '+ch.presale.orders+' orders · '+pp+'% of sales</div></div>'
+      + '<div style="flex:1;min-width:180px;background:#ecfeff;border-radius:10px;padding:10px 12px"><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.06em;color:#0e7490">Public</div>'
+      + '<div style="font-size:16px;font-weight:800;color:#155e75">'+m(ch.public.revenue_cents)+'</div><div style="font-size:12px;color:#0e7490">'+ch.public.tickets+' tickets · '+ch.public.orders+' orders · '+(100-pp)+'% of sales</div></div>'
+      + '<div style="display:flex;align-items:center"><button class="btn btn-secondary btn-sm" onclick="_mqBoxOfficeChannel=\'presale\';_mqBoxOfficeProdFilter=\''+d.id+'\';renderMarqueeBoxOffice(document.getElementById(\'marquee-tab-boxoffice\'))">View pre-sale orders</button></div>'
+      + '</div>'
+  }
+
   // per performance
   var perfs = d.performances || []
   html += '<div style="font-size:12px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">By performance</div>'
@@ -35207,8 +35222,11 @@ async function renderMarqueeBoxOffice(el){
     + '<option value="">All shows</option>'
     + shows.map(function(s){ return '<option value="'+s.id+'"'+(_mqBoxOfficeProdFilter===s.id?' selected':'')+'>'+escHtml(s.name)+'</option>' }).join('')
     + '</select>'
+    + '<select onchange="_mqBoxOfficeChannel=this.value;renderMarqueeBoxOfficeOrders()" style="width:auto">'
+    + [['','Pre-sale & public'],['presale','Pre-sale only'],['public','Public only']].map(function(o){ return '<option value="'+o[0]+'"'+(_mqBoxOfficeChannel===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('')
+    + '</select>'
     + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;cursor:pointer;margin:0"><input type="checkbox" style="width:auto" '+(_mqBoxOfficeFlaggedOnly?'checked':'')+' onchange="_mqBoxOfficeFlaggedOnly=this.checked;renderMarqueeBoxOfficeOrders()"/>Flagged only</label>'
-    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'mq-boxoffice-search\').value=\'\';_mqBoxOfficeQuery=\'\';_mqBoxOfficeProdFilter=\'\';_mqBoxOfficeFlaggedOnly=false;renderMarqueeBoxOfficeOrders()">Clear</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'mq-boxoffice-search\').value=\'\';_mqBoxOfficeQuery=\'\';_mqBoxOfficeProdFilter=\'\';_mqBoxOfficeFlaggedOnly=false;_mqBoxOfficeChannel=\'\';renderMarqueeBoxOffice(document.getElementById(\'marquee-tab-boxoffice\'))">Clear</button>'
     + '</div></div>'
   html += '<div id="mq-boxoffice-orders-holder">Loading…</div>'
 
@@ -35227,6 +35245,7 @@ async function renderMarqueeBoxOfficeOrders(){
   if(_mqBoxOfficeQuery) params.set('q', _mqBoxOfficeQuery)
   if(_mqBoxOfficeProdFilter) params.set('production_id', _mqBoxOfficeProdFilter)
   if(_mqBoxOfficeFlaggedOnly) params.set('flagged', '1')
+  if(_mqBoxOfficeChannel) params.set('channel', _mqBoxOfficeChannel)
   var orders = await api('/api/marquee/ticket-orders?'+params.toString())
   if(!Array.isArray(orders) || !orders.length){
     holder.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No matching orders.</div>'
@@ -35248,7 +35267,9 @@ async function renderMarqueeBoxOfficeOrders(){
     + orders.map(function(o){
         var when = fmtDate(o.performance_date)+(o.performance_time?' · '+tkFmtTime(o.performance_time):'')
         return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="openTicketOrderDetail(\''+o.id+'\')">'
-          + '<td style="padding:8px">'+escHtml(o.guardian_name||'')+'<div style="color:var(--text-muted);font-size:11px">'+escHtml(o.guardian_email||'')+'</div>'+ticketFlagBadge(o)+'</td>'
+          + '<td style="padding:8px">'+escHtml(o.guardian_name||'')+'<div style="color:var(--text-muted);font-size:11px">'+escHtml(o.guardian_email||'')+'</div>'
+          + (o.sale_channel==='presale'?' <span style="display:inline-block;margin-top:3px;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:700;background:#ede9fe;color:#6d28d9">Pre-sale</span>':'')
+          + ticketFlagBadge(o)+'</td>'
           + '<td style="padding:8px">'+escHtml(o.production_name||'')+'</td>'
           + '<td style="padding:8px">'+escHtml(when)+'</td>'
           + '<td style="padding:8px">'+escHtml((o.seat_labels||[]).join(', ')||o.ticket_count+' ticket(s)')+'</td>'

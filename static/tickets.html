@@ -388,7 +388,6 @@ function renderOnSaleCountdown(prod, sale, badKey){
     + '<div style="font-size:18px;font-weight:800;margin-bottom:18px">'+escH(when)+'</div>'
     + '<div id="onsale-count" style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap"></div>'
     + (badKey ? '<div style="font-size:12.5px;color:#b91c1c;margin-top:16px">That pre-sale link isn\'t valid anymore. Tickets will be available here when the public sale opens.</div>' : '')
-    + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:16px">This page opens ticket sales on its own when the timer runs out.</div>'
     + '</div>'
   function box(n, label){ return '<div style="min-width:74px;background:var(--teal-light);border-radius:12px;padding:12px 10px"><div style="font-size:30px;font-weight:800;color:var(--teal-dark);font-variant-numeric:tabular-nums">'+n+'</div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted)">'+label+'</div></div>' }
   function tick(){

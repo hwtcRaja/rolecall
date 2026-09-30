@@ -2294,6 +2294,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div style="font-size:11px;color:var(--text-hint);margin-top:3px;line-height:1.6">In Slack: <strong>Apps → search "Incoming WebHooks" → Add to Slack</strong>, pick your ticket channel (e.g. #ticket-sales), and copy the Webhook URL here. Leave blank to keep the current one.</div></div>
      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="slack-tickets-enabled" style="width:auto" checked/> Send ticket alerts</label>
      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="slack-tickets-names" style="width:auto" checked/> Include the buyer's name (otherwise it just says "Someone")</label>
+     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="slack-countdown" style="width:auto" checked/> Countdown alerts: post 10 minutes and 5 minutes before a pre-sale or public sale opens, and when it opens</label>
      <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:14px">
       <div style="font-weight:600;font-size:13.5px;margin-bottom:4px">Daily report</div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;line-height:1.6">A morning summary in the same channel: yesterday's sales, totals and goal progress per show, how full each upcoming date is, a sales chart, and a button to open Ticket Sales.</div>
@@ -36272,6 +36273,7 @@ async function loadSlackTicketSettings(){
   document.getElementById('slack-daily-enabled').checked = !!d.daily
   document.getElementById('slack-daily-time').value = d.daily_time || '09:00'
   document.getElementById('slack-daily-chart').checked = d.daily_chart !== false
+  document.getElementById('slack-countdown').checked = d.countdown !== false
 }
 async function sendDailyReportNow(){
   if(!(await saveSlackTicketSettings())) return
@@ -36285,7 +36287,8 @@ async function saveSlackTicketSettings(extra){
     names: document.getElementById('slack-tickets-names').checked,
     daily: document.getElementById('slack-daily-enabled').checked,
     daily_time: document.getElementById('slack-daily-time').value || '09:00',
-    daily_chart: document.getElementById('slack-daily-chart').checked
+    daily_chart: document.getElementById('slack-daily-chart').checked,
+    countdown: document.getElementById('slack-countdown').checked
   }, extra || {})
   var url = (document.getElementById('slack-tickets-webhook').value||'').trim()
   if(url && !('webhook' in body)) body.webhook = url

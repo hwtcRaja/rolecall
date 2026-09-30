@@ -3081,6 +3081,16 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS ix_playbill_orders_sq ON playbill_orders(square_order_id)",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS sale_channel TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS companion_release_days INTEGER DEFAULT 2",
+        """CREATE TABLE IF NOT EXISTS performance_seat_blocks (
+            id TEXT PRIMARY KEY,
+            performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
+            seat_id TEXT NOT NULL,
+            holder_name TEXT NOT NULL,
+            note TEXT DEFAULT '',
+            hold_until TEXT,
+            created_by TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE (performance_id, seat_id))""",
         """UPDATE ticket_orders o SET sale_channel = CASE
             WHEN COALESCE(pr.public_sale_at,'') <> ''
              AND to_char((o.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/New_York', 'YYYY-MM-DD"T"HH24:MI') < pr.public_sale_at
@@ -39744,6 +39754,157 @@ def companion_hold_problem(conn, fid, seat_ids, session_token, accessible_confir
     return None
 
 
+# ── Staff seat holds ("save these seats for someone") ─────────────────────
+# Staff can set seats aside for a specific person on a specific performance
+# (a board member, a cast family, a VIP). Held seats show as unavailable to
+# the public until released, until an optional "hold until" date passes,
+# or until staff book them for that person (comp or at a ticket price).
+def active_seat_blocks(conn, fid):
+    rows = fetchall(conn, '''SELECT * FROM performance_seat_blocks WHERE performance_id=%s
+        AND (hold_until IS NULL OR hold_until >= %s)''', (fid, today_eastern().isoformat())) or []
+    return {r['seat_id']: r for r in rows}
+
+
+@app.route('/api/performances/<fid>/staff-seats', methods=['GET'])
+def staff_performance_seats(fid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        perf = fetchone(conn, '''SELECT pf.*, sm.name AS seat_map_name, sm.stage_x, sm.stage_y, sm.stage_width, sm.stage_depth, sm.stage_rotation
+            FROM performances pf LEFT JOIN seat_maps sm ON sm.id=pf.seat_map_id WHERE pf.id=%s''', (fid,))
+        if not perf or not perf.get('seat_map_id'):
+            return jsonify({'error': 'This performance has no seat map.'}), 400
+        _clear_expired_holds(conn, fid)
+        seats = fetchall(conn, '''SELECT id, seat_label, section, row_name, seat_number, x, y, accessible, companion_for
+            FROM seat_map_seats WHERE seat_map_id=%s AND COALESCE(active,TRUE)=TRUE''', (perf['seat_map_id'],)) or []
+        sold = {r['seat_id']: r for r in fetchall(conn, '''SELECT t.seat_id, o.guardian_name, o.id AS order_id, COALESCE(o.sale_channel,'public') AS sale_channel
+            FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id WHERE t.performance_id=%s AND t.seat_id IS NOT NULL''', (fid,)) or []}
+        buyer_holds = {r['seat_id'] for r in fetchall(conn, 'SELECT seat_id FROM seat_holds WHERE performance_id=%s', (fid,)) or []}
+        blocks = active_seat_blocks(conn, fid)
+        for s in seats:
+            if s['id'] in sold:
+                s['status'] = 'sold'; s['who'] = sold[s['id']]['guardian_name']; s['order_id'] = sold[s['id']]['order_id']
+            elif s['id'] in blocks:
+                b = blocks[s['id']]
+                s['status'] = 'staff_hold'; s['who'] = b['holder_name']; s['note'] = b.get('note') or ''
+                s['hold_until'] = b.get('hold_until'); s['block_id'] = b['id']
+            elif s['id'] in buyer_holds:
+                s['status'] = 'in_cart'
+            else:
+                s['status'] = 'available'
+        types = fetchall(conn, '''SELECT tt.id, tt.name, tt.price_cents FROM ticket_types tt
+            JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id WHERE ptt.performance_id=%s AND tt.active=TRUE
+            ORDER BY tt.price_cents DESC''', (fid,)) or []
+        recent = fetchall(conn, '''SELECT o.id, o.guardian_name, o.seats_json, COALESCE(o.sale_channel,'public') AS sale_channel,
+                EXTRACT(EPOCH FROM (NOW() - COALESCE(o.completed_at, o.created_at)))::int AS ago_s
+            FROM ticket_orders o WHERE o.performance_id=%s AND o.status='completed'
+            ORDER BY COALESCE(o.completed_at, o.created_at) DESC LIMIT 12''', (fid,)) or []
+        for r in recent:
+            try:
+                r['seats'] = [li.get('seat_label') for li in json.loads(r.pop('seats_json') or '[]')]
+            except Exception:
+                r['seats'] = []
+        counts = {}
+        for x in seats:
+            counts[x['status']] = counts.get(x['status'], 0) + 1
+        prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) or {}
+        others = fetchall(conn, '''SELECT id, performance_date, performance_time, name, status FROM performances
+            WHERE production_id=%s AND reserved_seating=TRUE AND seat_map_id IS NOT NULL
+            AND COALESCE(status,'draft') NOT IN ('cancelled') ORDER BY performance_date, performance_time''', (perf['production_id'],)) or []
+        return jsonify({'performance': perf, 'production_name': prod.get('name'), 'seats': seats, 'ticket_types': types,
+                        'recent': recent, 'counts': counts, 'performances': others})
+    finally:
+        conn.close()
+
+
+@app.route('/api/performances/<fid>/seat-blocks', methods=['POST'])
+def create_seat_blocks(fid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    ids = [x for x in (d.get('seat_ids') or []) if x]
+    name = (d.get('holder_name') or '').strip()[:120]
+    if not ids or not name:
+        return jsonify({'error': 'Pick seats and say who they\'re for.'}), 400
+    conn = get_db()
+    try:
+        _clear_expired_holds(conn, fid)
+        taken = fetchall(conn, '''SELECT s.seat_label FROM seat_map_seats s WHERE s.id = ANY(%s) AND (
+                EXISTS (SELECT 1 FROM tickets t WHERE t.performance_id=%s AND t.seat_id=s.id)
+                OR EXISTS (SELECT 1 FROM seat_holds h WHERE h.performance_id=%s AND h.seat_id=s.id))''', (ids, fid, fid)) or []
+        if taken:
+            return jsonify({'error': 'Already sold or in a buyer\'s cart: ' + ', '.join(t['seat_label'] or '?' for t in taken)}), 409
+        until = (d.get('hold_until') or '')[:10] or None
+        for sid in ids:
+            execute(conn, '''INSERT INTO performance_seat_blocks (id, performance_id, seat_id, holder_name, note, hold_until, created_by)
+                VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (performance_id, seat_id) DO UPDATE SET
+                holder_name=EXCLUDED.holder_name, note=EXCLUDED.note, hold_until=EXCLUDED.hold_until''',
+                (uuid.uuid4().hex, fid, sid, name, (d.get('note') or '')[:500], until, session.get('name') or session.get('email') or ''))
+        conn.commit()
+        return jsonify({'ok': True, 'held': len(ids)})
+    finally:
+        conn.close()
+
+
+@app.route('/api/performances/<fid>/seat-blocks/release', methods=['POST'])
+def release_seat_blocks(fid):
+    err = _require_ticketing()
+    if err: return err
+    ids = (request.json or {}).get('seat_ids') or []
+    conn = get_db()
+    execute(conn, 'DELETE FROM performance_seat_blocks WHERE performance_id=%s AND seat_id = ANY(%s)', (fid, ids))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/performances/<fid>/staff-book', methods=['POST'])
+def staff_book_seats(fid):
+    """Turn seats into real tickets for someone (comp or at a ticket type's
+    price, paid outside the website). Sends them their tickets by email if
+    an email is given."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    ids = [x for x in (d.get('seat_ids') or []) if x]
+    name = (d.get('name') or '').strip()[:120]
+    email = (d.get('email') or '').strip().lower()[:200]
+    if not ids or not name:
+        return jsonify({'error': 'Pick seats and enter the person\'s name.'}), 400
+    conn = get_db()
+    try:
+        _clear_expired_holds(conn, fid)
+        rows = fetchall(conn, 'SELECT id, seat_label, section, obstructed_view, view_note FROM seat_map_seats WHERE id = ANY(%s)', (ids,)) or []
+        taken = fetchall(conn, '''SELECT s.seat_label FROM seat_map_seats s WHERE s.id = ANY(%s) AND (
+                EXISTS (SELECT 1 FROM tickets t WHERE t.performance_id=%s AND t.seat_id=s.id)
+                OR EXISTS (SELECT 1 FROM seat_holds h WHERE h.performance_id=%s AND h.seat_id=s.id))''', (ids, fid, fid)) or []
+        if taken:
+            return jsonify({'error': 'Already sold or in a buyer\'s cart: ' + ', '.join(t['seat_label'] or '?' for t in taken)}), 409
+        tt = None
+        if d.get('ticket_type_id') and d.get('ticket_type_id') != 'comp':
+            tt = fetchone(conn, 'SELECT id, name, price_cents FROM ticket_types WHERE id=%s', (d['ticket_type_id'],))
+        if not tt:
+            tt = fetchone(conn, '''SELECT tt.id, tt.name FROM ticket_types tt JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
+                WHERE ptt.performance_id=%s ORDER BY tt.price_cents LIMIT 1''', (fid,)) or {}
+            price = 0
+        else:
+            price = int(tt.get('price_cents') or 0)
+        items = [{'seat_id': r['id'], 'ticket_type_id': tt.get('id'), 'seat_label': r['seat_label'], 'price_cents': price,
+                  'section': r.get('section') or '', 'obstructed_view': bool(r.get('obstructed_view')), 'view_note': r.get('view_note') or ''} for r in rows]
+        oid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO ticket_orders (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json,
+                total_cents, service_fee_cents, status, cart_id, sale_channel, buyer_email_key)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,0,'pending',%s,'box_office',%s)''',
+            (oid, fid, name, email or None, (d.get('phone') or '').strip()[:40] or None, json.dumps(items), price * len(items),
+             uuid.uuid4().hex, ticket_email_key(email) if email else None))
+        execute(conn, 'DELETE FROM performance_seat_blocks WHERE performance_id=%s AND seat_id = ANY(%s)', (fid, ids))
+        conn.commit()
+        _finalize_ticket_order(conn, oid, None, None)
+        return jsonify({'ok': True, 'order_id': oid})
+    finally:
+        conn.close()
+
+
 @app.route('/api/public/performances/<fid>/seat-status', methods=['GET'])
 def public_seat_status(fid):
     """Everything the ticket picker needs: the seat map (with x/y so it can
@@ -39788,6 +39949,10 @@ def public_seat_status(fid):
                 s['status'] = 'mine' if (session_token and held_map[s['id']] == session_token) else 'held'
             else:
                 s['status'] = 'available'
+        _blocks = active_seat_blocks(conn, fid)
+        for s in seats:
+            if s['id'] in _blocks and s['status'] == 'available':
+                s['status'] = 'held'
         comp_states, comp_days, _rel = companion_seat_states(conn, perf, seats, sold_ids, held_map, session_token)
         for s in seats:
             st = comp_states.get(s['id'])
@@ -39866,6 +40031,11 @@ def public_hold_seats(fid):
     _cp = companion_hold_problem(conn, fid, seat_ids, session_token, bool(d.get('accessible_confirmed')))
     if _cp:
         conn.close(); return _cp
+    _blk = active_seat_blocks(conn, fid)
+    _mine = [x for x in seat_ids if x in _blk]
+    if _mine:
+        conn.close()
+        return jsonify({'error': 'Some seats were just taken by another buyer', 'taken': _mine}), 409
 
     lost = []
     for sid in seat_ids:
@@ -40036,11 +40206,17 @@ def public_ticket_checkout():
                     if _states.get(r['id']) != 'open' and r['companion_for'] not in _in_order:
                         conn.close()
                         return jsonify({'error': 'Seat ' + (r['seat_label'] or '') + ' is a companion seat and can only be booked with the wheelchair space next to it.'}), 400
+            _staff_blocks = active_seat_blocks(conn, fid)
             for sel in seat_selections:
                 sid = sel.get('seat_id')
                 seat = seat_rows.get(sid)
                 if not seat:
                     conn.close(); return jsonify({'error': 'A selected seat no longer exists'}), 400
+                if sid in _staff_blocks:
+                    unavailable.append({'performance_id': fid, 'seat_id': sid, 'seat_label': seat['seat_label'],
+                                        'performance_date': str(perf.get('performance_date') or '')[:10],
+                                        'performance_time': perf.get('performance_time') or ''})
+                    continue
                 if held.get(sid) != session_token:
                     # The hold lapsed. If nobody else has the seat, just take it
                     # again instead of failing the whole checkout.

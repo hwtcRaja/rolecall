@@ -1676,6 +1676,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <button class="marquee-tab" data-tab="dashboard" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:var(--surface);cursor:pointer">Dashboard</button>
       <button class="marquee-tab" data-tab="programs" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Programs &amp; Classes</button>
       <button class="marquee-tab" data-tab="boxoffice" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Ticket Sales</button>
+      <button class="marquee-tab" data-tab="playbill" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Program Ad Sales</button>
       <button class="marquee-tab" data-tab="enrollment" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Enrollment</button>
       <button class="marquee-tab" data-tab="registrations" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Registrations</button>
       <button class="marquee-tab" data-tab="orders" style="padding:6px 16px;font-size:13px;font-weight:500;border-radius:8px;border:none;background:transparent;color:var(--text-muted);cursor:pointer">Orders</button>
@@ -1685,6 +1686,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div id="marquee-tab-dashboard"></div>
     <div id="marquee-tab-programs" style="display:none"></div>
     <div id="marquee-tab-boxoffice" style="display:none"></div>
+    <div id="marquee-tab-playbill" style="display:none"></div>
     <div id="marquee-tab-enrollment" style="display:none"></div>
     <div id="marquee-tab-catalog" style="display:none"></div>
     <div id="marquee-tab-orders" style="display:none"></div>
@@ -34280,6 +34282,7 @@ async function renderMarqueeTab(tab, filterValue){
   else if(tab==='programs') await renderMarqueeBreakdownTab(el, 'program')
   else if(tab==='enrollment') await renderMarqueeBreakdownTab(el, 'production')
   else if(tab==='boxoffice') await renderMarqueeBoxOffice(el)
+  else if(tab==='playbill') await renderMarqueePlaybill(el)
   else if(tab==='catalog'){ el.innerHTML = marqueeProgramsSubnav('catalog') + '<div id="mq-catalog-body"></div>'; await renderMarqueeCatalog(document.getElementById('mq-catalog-body')) }
   else if(tab==='registrations') await renderMarqueeRegistrations(el, filterValue)
   else if(tab==='orders') await renderMarqueeOrders(el)
@@ -35081,6 +35084,158 @@ function ticketFlagBadge(o){
   var f = ticketFlagObj(o)
   if(!f) return ''
   return ' <span title="'+escHtml(f.reasons.map(function(r){ return TICKET_FLAG_TEXT[r]||r }).join('; '))+'" style="display:inline-block;margin-top:3px;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:700;background:#ffedd5;color:#9a3412">Possible over-limit buyer</span>'
+}
+
+// ── Marquee → Program Ad Sales: ads, well wishes, cast grams (per production) ──
+var _pbShowId = ''
+var _pbKindFilter = ''
+async function renderMarqueePlaybill(el){
+  var prods = await api('/api/productions')
+  prods = Array.isArray(prods) ? prods.filter(function(p){ return p.status !== 'archived' }) : []
+  if(!prods.length){ el.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">No productions yet.</div>'; return }
+  if(!_pbShowId || !prods.find(function(p){ return p.id===_pbShowId })) _pbShowId = prods[0].id
+  var d = await api('/api/marquee/playbill/'+_pbShowId)
+  if(!d || d.error){ el.innerHTML = '<div class="card" style="padding:20px;color:#b91c1c">'+escHtml((d&&d.error)||'Could not load')+'</div>'; return }
+  window._pbData = d
+  function m(c){ return '$'+((c||0)/100).toFixed(2) }
+  var p = d.production, t = d.totals || {}
+  var link = window.location.origin+'/program-ads/'+(p.slug||p.id)
+  var kindLabel = {ad:'Ad', well_wish:'Well wish', castgram:'Cast gram'}
+  var html = '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">Each production has its own ad sizes, prices, deadline and order page. Pick the production you\'re working on.</div>'
+    + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap"><label style="margin:0;font-size:13px;font-weight:700">Production</label><select onchange="_pbShowId=this.value;renderMarqueePlaybill(document.getElementById(\'marquee-tab-playbill\'))" style="width:auto;min-width:240px">'
+    + prods.map(function(x){ return '<option value="'+x.id+'"'+(x.id===_pbShowId?' selected':'')+'>'+escHtml(x.name)+'</option>' }).join('') + '</select>'
+    + '<span style="font-size:13px;color:var(--text-muted)"><strong style="color:#166534;font-size:15px">'+m(t.paid_cents)+'</strong> from '+(t.paid_count||0)+' paid item'+(t.paid_count===1?'':'s')+' · '+(t.ads||0)+' ads · '+(t.well_wishes||0)+' well wishes · '+(t.castgrams||0)+' cast grams</span></div>'
+
+  // settings
+  html += '<div class="card" style="padding:16px 18px;margin-bottom:16px">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div style="font-weight:700;font-size:14px">Order page</div>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;margin:0;cursor:pointer"><input type="checkbox" id="pb-open" '+(p.playbill_open?'checked':'')+' style="width:auto"/> Taking orders</label>'
+    + '<span style="flex:1"></span><input readonly value="'+escHtml(link)+'" onclick="this.select()" style="width:auto;min-width:260px;font-size:12px"/>'
+    + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+link+'\');toast(\'Link copied\',\'success\')">Copy link</button>'
+    + '<a class="btn btn-secondary btn-sm" href="'+link+'" target="_blank">Open</a></div>'
+    + '<div style="display:grid;grid-template-columns:200px 1fr 1fr;gap:10px">'
+    + '<div class="form-group" style="margin:0"><label>Order deadline</label><input type="date" id="pb-deadline" value="'+escHtml(p.playbill_deadline||'')+'"/><div style="font-size:11px;color:var(--text-muted);margin-top:3px">Orders close at the end of this day.</div></div>'
+    + '<div class="form-group" style="margin:0"><label>Intro on the order page</label><textarea id="pb-intro" rows="3" placeholder="Support the show and put your business in front of every audience member…">'+escHtml(p.playbill_intro||'')+'</textarea></div>'
+    + '<div class="form-group" style="margin:0"><label>Artwork specs</label><textarea id="pb-specs" rows="3" placeholder="300 dpi, CMYK for color, PDF preferred. Keep text 1/4 inch from the edge.">'+escHtml(p.playbill_specs||'')+'</textarea></div>'
+    + '</div><button class="btn btn-primary btn-sm" style="margin-top:10px" onclick="savePlaybillSettings()">Save</button></div>'
+
+  // products
+  html += '<div class="card" style="padding:16px 18px;margin-bottom:16px"><div style="display:flex;align-items:center;margin-bottom:10px;gap:6px;flex-wrap:wrap"><div style="font-weight:700;font-size:14px;flex:1">What you sell for '+escHtml(p.name)+'</div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="copyProgramAdItems()">Copy from another production</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openPlaybillProduct(null,\'ad\')">+ Ad size</button> '
+    + '<button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="openPlaybillProduct(null,\'well_wish\')">+ Well wish</button> '
+    + '<button class="btn btn-secondary btn-sm" style="margin-left:6px" onclick="openPlaybillProduct(null,\'castgram\')">+ Cast gram</button></div>'
+  if(!(d.products||[]).length){
+    html += '<div style="font-size:13px;color:var(--text-muted)">Add the ad sizes and messages you want to offer for this production, with prices. Ads can have separate black & white and color prices, and a limited number available. Or copy the items from another production and adjust them.</div>'
+  } else {
+    html += '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--text-muted);font-size:11.5px"><th style="padding:6px">Type</th><th style="padding:6px">Name</th><th style="padding:6px">Size</th><th style="padding:6px">B&amp;W</th><th style="padding:6px">Color</th><th style="padding:6px">Sold</th><th></th></tr></thead><tbody>'
+      + d.products.map(function(x){
+          return '<tr style="border-top:1px solid var(--border);'+(x.active?'':'opacity:0.5')+'"><td style="padding:6px">'+kindLabel[x.kind]+'</td>'
+            + '<td style="padding:6px;font-weight:600">'+escHtml(x.name)+(x.active?'':' <span style="font-size:10.5px;color:#b91c1c">off</span>')+'</td>'
+            + '<td style="padding:6px">'+escHtml(x.dimensions||'')+'</td>'
+            + '<td style="padding:6px">'+(x.price_bw_cents!=null?m(x.price_bw_cents):'—')+'</td><td style="padding:6px">'+(x.price_color_cents!=null?m(x.price_color_cents):'—')+'</td>'
+            + '<td style="padding:6px">'+(x.sold||0)+(x.quantity_limit!=null?' / '+x.quantity_limit:'')+'</td>'
+            + '<td style="padding:6px;text-align:right"><button class="btn btn-secondary btn-sm" onclick="openPlaybillProduct(\''+x.id+'\')">Edit</button></td></tr>'
+        }).join('') + '</tbody></table>'
+  }
+  html += '</div>'
+
+  // orders
+  var orders = (d.orders||[]).filter(function(o){ return !_pbKindFilter || o.kind===_pbKindFilter })
+  html += '<div class="card" style="padding:16px 18px"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap"><div style="font-weight:700;font-size:14px;flex:1">Orders</div>'
+    + '<select onchange="_pbKindFilter=this.value;renderMarqueePlaybill(document.getElementById(\'marquee-tab-playbill\'))" style="width:auto">'
+    + [['','Everything'],['ad','Ads'],['well_wish','Well wishes'],['castgram','Cast grams']].map(function(o){ return '<option value="'+o[0]+'"'+(_pbKindFilter===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('') + '</select>'
+    + '<a class="btn btn-secondary btn-sm" href="/api/marquee/playbill/'+_pbShowId+'/export">Download CSV</a></div>'
+  if(!orders.length) html += '<div style="font-size:13px;color:var(--text-muted)">No orders for this production yet. Share its order page link to get started.</div>'
+  orders.forEach(function(o){
+    var st = o.status==='paid' ? '<span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:10px;background:#dcfce7;color:#166534">Paid</span>'
+      : o.status==='pending' ? '<span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:10px;background:#fef3c7;color:#92400e">Not paid</span>'
+      : '<span style="font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:10px;background:#f1f5f9;color:#64748b">Cancelled</span>'
+    html += '<div style="border-top:1px solid var(--border);padding:12px 0;display:grid;grid-template-columns:1fr 220px;gap:14px">'
+      + '<div><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><strong>'+escHtml(o.product_name)+'</strong>'+st
+      + '<span style="font-weight:700">'+m(o.price_cents)+'</span></div>'
+      + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:2px">'+escHtml(o.buyer_name||'')+' · '+escHtml(o.buyer_email||'')+(o.buyer_phone?' · '+escHtml(o.buyer_phone):'')+'</div>'
+      + (o.business_name?'<div style="font-size:13px;margin-top:4px"><strong>On the ad:</strong> '+escHtml(o.business_name)+'</div>':'')
+      + (o.recipient?'<div style="font-size:13px;margin-top:4px"><strong>For:</strong> '+escHtml(o.recipient)+'</div>':'')
+      + (o.message?'<div style="font-size:13px;margin-top:4px;white-space:pre-wrap;background:var(--bg);padding:8px 10px;border-radius:8px">'+escHtml(o.message)+'</div>':'')
+      + (o.notes?'<div style="font-size:12.5px;margin-top:4px;color:var(--text-muted)"><strong>Their notes:</strong> '+escHtml(o.notes)+'</div>':'')
+      + (o.artwork_id?'<div style="font-size:12.5px;margin-top:6px">Artwork: <a href="/api/marquee/playbill/artwork/'+o.artwork_id+'?view=1" target="_blank">'+escHtml(o.artwork_filename||'view')+'</a> · <a href="/api/marquee/playbill/artwork/'+o.artwork_id+'">download</a></div>':'')
+      + '</div><div>'
+      + (o.status==='paid'
+          ? '<div class="form-group" style="margin:0 0 6px"><label style="font-size:11px">Proof</label><select onchange="updatePlaybillOrder(\''+o.id+'\',{proof_status:this.value})">'
+            + [['received','Received'],['needs_changes','Needs changes'],['approved','Approved'],['placed','Placed in playbill']].map(function(s){ return '<option value="'+s[0]+'"'+(o.proof_status===s[0]?' selected':'')+'>'+s[1]+'</option>' }).join('') + '</select></div>'
+            + '<textarea rows="2" placeholder="Staff notes" style="font-size:12px" onchange="updatePlaybillOrder(\''+o.id+'\',{staff_notes:this.value})">'+escHtml(o.staff_notes||'')+'</textarea>'
+          : (o.status==='pending' ? '<button class="btn btn-secondary btn-sm" onclick="updatePlaybillOrder(\''+o.id+'\',{status:\'cancelled\'},true)">Cancel</button>' : ''))
+      + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">'+escHtml(String(o.paid_at||o.created_at||'').slice(0,16).replace('T',' '))+'</div>'
+      + '</div></div>'
+  })
+  html += '</div>'
+  el.innerHTML = html
+}
+async function savePlaybillSettings(){
+  var res = await api('/api/marquee/playbill/'+_pbShowId,'PUT',{open: document.getElementById('pb-open').checked,
+    deadline: document.getElementById('pb-deadline').value, intro: document.getElementById('pb-intro').value, specs: document.getElementById('pb-specs').value})
+  if(res && res.error){ toast(res.error,'error'); return }
+  toast('Saved','success'); renderMarqueePlaybill(document.getElementById('marquee-tab-playbill'))
+}
+async function updatePlaybillOrder(id, body, reload){
+  var res = await api('/api/marquee/playbill/orders/'+id,'PUT',body)
+  if(res && res.error){ toast(res.error,'error'); return }
+  toast('Updated','success'); if(reload) renderMarqueePlaybill(document.getElementById('marquee-tab-playbill'))
+}
+function openPlaybillProduct(id, kind){
+  var x = id ? ((window._pbData||{}).products||[]).find(function(p){ return p.id===id }) : {kind: kind, active: true, artwork: kind==='ad'?'required':'none'}
+  if(!x) return
+  var k = x.kind, dollars = function(c){ return c!=null ? (c/100).toFixed(2) : '' }
+  var title = {ad:'Ad size', well_wish:'Well wish', castgram:'Cast gram'}[k]
+  var ph = {ad:'Full page', well_wish:'Well wish', castgram:'Cast gram'}[k]
+  showAdHocModal('pb-product-modal', (id?'Edit ':'New ')+title,
+    '<input type="hidden" id="pbp-kind" value="'+k+'"/>'
+    + '<div class="form-group"><label>Name</label><input id="pbp-name" value="'+escHtml(x.name||'')+'" placeholder="'+ph+'"/></div>'
+    + (k==='ad'
+        ? '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="form-group"><label>Size</label><input id="pbp-dim" value="'+escHtml(x.dimensions||'')+'" placeholder="5 x 8 in"/></div>'
+          + '<div class="form-group"><label>Part of a page</label><select id="pbp-frac">'
+          + [['1','Full page'],['0.5','Half page'],['0.25','Quarter page'],['0.125','Eighth page (business card)']].map(function(o){ return '<option value="'+o[0]+'"'+(String(x.page_fraction||1)===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('') + '</select></div></div>'
+        : '<div class="form-group"><label>Description</label><input id="pbp-desc" value="'+escHtml(x.description||'')+'" placeholder="'+(k==='castgram'?'A personal note delivered backstage':'One line in the well wishes page')+'"/></div>')
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
+    + '<div class="form-group"><label>'+(k==='ad'?'Black & white price ($)':'Price ($)')+'</label><input type="number" min="0" step="0.01" id="pbp-bw" value="'+dollars(x.price_bw_cents)+'"/></div>'
+    + (k==='ad' ? '<div class="form-group"><label>Color price ($)</label><input type="number" min="0" step="0.01" id="pbp-color" value="'+dollars(x.price_color_cents)+'" placeholder="Leave blank if not offered"/></div>' : '<div></div>')
+    + '<div class="form-group"><label>How many available</label><input type="number" min="1" id="pbp-qty" value="'+(x.quantity_limit!=null?x.quantity_limit:'')+'" placeholder="Unlimited"/></div>'
+    + '<div class="form-group"><label>'+(k==='ad'?'Ad text limit (optional)':'Character limit')+'</label><input type="number" min="1" id="pbp-chars" value="'+(x.char_limit!=null?x.char_limit:'')+'" placeholder="'+(k==='ad'?'No text box':'No limit')+'"/></div>'
+    + '</div>'
+    + '<div class="form-group"><label>Artwork upload</label><select id="pbp-art">'
+    + [['required','Required'],['optional','Optional'],['none','No upload']].map(function(o){ return '<option value="'+o[0]+'"'+((x.artwork||'none')===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('') + '</select></div>'
+    + (k==='ad' ? '<div class="form-group"><label>Details shown to buyers (optional)</label><input id="pbp-desc" value="'+escHtml(x.description||'')+'" placeholder="Inside back cover, limited placement"/></div>' : '')
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="pbp-active" '+(x.active?'checked':'')+' style="width:auto"/> Available on the order page</label>'
+    + '<div style="display:flex;gap:8px">'+(id?'<button class="btn btn-secondary" style="color:#b91c1c" onclick="deletePlaybillProduct(\''+id+'\')">Delete</button>':'')
+    + '<span style="flex:1"></span><button class="btn btn-primary" onclick="savePlaybillProduct('+(id?'\''+id+'\'':'null')+')">Save</button></div>')
+}
+async function savePlaybillProduct(id){
+  var v = function(i){ return (document.getElementById(i)||{}).value || '' }
+  var body = {kind: v('pbp-kind'), name: v('pbp-name'), dimensions: v('pbp-dim'), page_fraction: v('pbp-frac'), description: v('pbp-desc'),
+    price_bw: v('pbp-bw'), price_color: v('pbp-color'), quantity_limit: v('pbp-qty'), char_limit: v('pbp-chars'), artwork: v('pbp-art'),
+    active: document.getElementById('pbp-active').checked}
+  var res = await api(id ? '/api/marquee/playbill/products/'+id : '/api/marquee/playbill/'+_pbShowId+'/products', id?'PUT':'POST', body)
+  if(res && res.error){ toast(res.error,'error'); return }
+  closeAdHocModal('pb-product-modal'); toast('Saved','success'); renderMarqueePlaybill(document.getElementById('marquee-tab-playbill'))
+}
+async function deletePlaybillProduct(id){
+  if(!confirm('Delete this item? If anyone has bought it, it will be hidden instead so their order stays intact.')) return
+  await api('/api/marquee/playbill/products/'+id,'DELETE')
+  closeAdHocModal('pb-product-modal'); renderMarqueePlaybill(document.getElementById('marquee-tab-playbill'))
+}
+async function copyProgramAdItems(){
+  var prods = await api('/api/productions'); prods = Array.isArray(prods) ? prods.filter(function(p){ return p.id !== _pbShowId && p.status !== 'archived' }) : []
+  showAdHocModal('pb-copy-modal', 'Copy items from another production',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Copies that production\'s ad sizes, well wishes and cast grams, with their prices and limits, into this one. Nothing on the other production changes, and you can edit the copies after.</div>'
+    + '<div class="form-group"><label>Copy from</label><select id="pb-copy-from">'+prods.map(function(p){ return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>' }).join('')+'</select></div>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="doCopyProgramAdItems()">Copy items</button>')
+}
+async function doCopyProgramAdItems(){
+  var from = (document.getElementById('pb-copy-from')||{}).value; if(!from) return
+  var res = await api('/api/marquee/playbill/'+_pbShowId+'/copy-from/'+from,'POST',{})
+  if(res && res.error){ toast(res.error,'error'); return }
+  closeAdHocModal('pb-copy-modal'); toast('Copied '+(res.copied||0)+' item'+(res.copied===1?'':'s'),'success'); renderMarqueePlaybill(document.getElementById('marquee-tab-playbill'))
 }
 
 // ── Ticket Sales tab: one show's sales at a glance ──
@@ -36079,6 +36234,9 @@ async function openTicketingSettings(pid){
     + '</select>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">What the donation buttons start on at checkout. Buyers can still change it or pick No Thanks. Handy for free shows where you want to nudge a small gift.</div></div>'
     + '<div style="border-top:1px solid var(--border);margin:16px 0"></div>'
+    + '<div class="form-group"><label>Open companion seats to everyone</label>'
+    + '<div style="display:flex;align-items:center;gap:8px"><input type="number" id="tk-companion-days" min="0" value="'+((prod&&prod.companion_release_days!=null)?prod.companion_release_days:2)+'" style="width:80px"/><span style="font-size:13px">days before each performance</span></div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Companion seats (set in the seat map editor) can only be booked with the wheelchair space next to them. If they\'re still open this many days before the show, anyone can book them. Use 0 to keep them saved right up to showtime.</div></div>'
     + '<div class="form-group"><label>Short name for shared links</label>'
     + '<input id="tk-share-name" maxlength="60" value="'+escHtml((prod&&prod.share_name)||'')+'" placeholder="'+escHtml((prod&&prod.name)||'e.g. HSM Jr.')+'"/>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">How the link looks when it\'s texted or posted, e.g. <strong>"'+escHtml(((prod&&(prod.share_name||prod.name))||'HSM Jr.'))+' Tickets"</strong> or <strong>"… Pre-Sale Tickets"</strong> for the pre-sale link, with the show art and dates. Leave blank to use the full show name.</div></div>'
@@ -36161,6 +36319,7 @@ async function saveTicketingSettings(pid, presaleAction){
     public_sale_at: document.getElementById('tk-public-sale')?.value || '',
     share_name: document.getElementById('tk-share-name')?.value || '',
     presale_opens_at: document.getElementById('tk-presale-opens')?.value || '',
+    companion_release_days: document.getElementById('tk-companion-days')?.value ?? '',
     presale: presaleAction || ''
   })
   if(res.error){ toast(res.error,'error'); return }
@@ -36174,6 +36333,7 @@ async function saveTicketingSettings(pid, presaleAction){
     prod.public_sale_at = res.public_sale_at || ''
     prod.share_name = res.share_name || ''
     prod.presale_opens_at = res.presale_opens_at || ''
+    if(res.companion_release_days != null) prod.companion_release_days = res.companion_release_days
     prod.presale_key = res.presale_key || ''
   }
   if(presaleAction){
@@ -36908,7 +37068,9 @@ function edRenderCanvas(){
     var stroke = sel ? '#111' : (s.obstructed_view ? '#f59e0b' : '#fff');
     var strokeWidth = sel ? 0.09 : (s.obstructed_view ? 0.1 : 0.05);
     var dash = (s.obstructed_view && !sel) ? ' stroke-dasharray="0.09,0.07"' : '';
-    var titleTxt = escHtml(s.seat_label||'')+(s.obstructed_view?' — Limited view'+(s.view_note?': '+escHtml(s.view_note):''):'');
+    var titleTxt = escHtml(s.seat_label||'')+(s.obstructed_view?' — Limited view'+(s.view_note?': '+escHtml(s.view_note):''):'')
+      + (s.companion_for ? ' — Companion seat for '+escHtml(((_ed.seats.find(function(x){return x.id===s.companion_for})||{}).seat_label)||'') : '');
+    if(s.companion_for) svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+(seatR+0.12)+'" fill="none" stroke="#6d28d9" stroke-width="0.06" stroke-dasharray="0.08,0.06" style="pointer-events:none"/>';
     svg += '<circle data-id="'+s.id+'" class="ed-seat" cx="'+s.x+'" cy="'+s.y+'" r="'+seatR+'" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+strokeWidth+'"'+dash+' style="cursor:grab"><title>'+titleTxt+'</title></circle>';
     if(s.accessible) svg += wheelchairIconSvg(s.x, s.y, seatR, '#fff');
     if(_ed.showLabels && s.seat_label && !s.accessible) svg += '<text x="'+s.x+'" y="'+(s.y+0.13)+'" font-size="0.26" text-anchor="middle" fill="#fff" style="pointer-events:none">'+escHtml(s.seat_label)+'</text>';
@@ -37290,7 +37452,25 @@ function edRenderSidePanel(){
     + '<div class="form-row"><div class="form-group"><label>Row</label><input type="text" id="ed-f-row" value="'+escHtml(s.row_name||'')+'" maxlength="3"/></div>'
     + '<div class="form-group"><label>Seat #</label><input type="number" id="ed-f-num" value="'+(s.seat_number||'')+'"/></div></div>'
     + '<div class="form-group"><label>Label (shown to buyers)</label><input type="text" id="ed-f-label" value="'+escHtml(s.seat_label||'')+'"/></div>'
-    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="ed-f-access" '+(s.accessible?'checked':'')+' style="width:auto"/> Wheelchair accessible</label>'
+    + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="ed-f-access" '+(s.accessible?'checked':'')+' style="width:auto"/> Wheelchair space</label>'
+    + (function(){
+        if(s.accessible){
+          var mine = _ed.seats.filter(function(x){ return x.companion_for === s.id })
+          return '<div style="font-size:11.5px;color:var(--text-muted);margin:-2px 0 10px">Buyers confirm they need it before booking. To save the seat next to it for an aide, select that seat and pick this space under "Companion seat for".</div>'
+            + (mine.length
+                ? '<div style="background:var(--bg);border-radius:8px;padding:8px 10px;margin-bottom:12px"><div style="font-size:12px;margin-bottom:6px">Companion seat'+(mine.length>1?'s':'')+': <strong>'+mine.map(function(x){ return escHtml(x.seat_label||'') }).join(', ')+'</strong></div>'
+                  + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin:0 0 4px;cursor:pointer"><input type="radio" name="ed-f-compreq" value="0" '+(s.companion_required?'':'checked')+' style="width:auto"/> Optional (a solo guest can book just the space)</label>'
+                  + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;margin:0;cursor:pointer"><input type="radio" name="ed-f-compreq" value="1" '+(s.companion_required?'checked':'')+' style="width:auto"/> Required (always booked together)</label></div>'
+                : '')
+        }
+        var spaces = _ed.seats.filter(function(x){ return x.accessible && x.id !== s.id })
+          .sort(function(a,b){ return String(a.seat_label||'').localeCompare(String(b.seat_label||''), undefined, {numeric:true}) })
+        if(!spaces.length) return ''
+        return '<div class="form-group" style="margin-bottom:12px"><label>Companion seat for</label><select id="ed-f-companion">'
+          + '<option value="">Not a companion seat</option>'
+          + spaces.map(function(x){ return '<option value="'+x.id+'"'+(s.companion_for===x.id?' selected':'')+'>Wheelchair space '+escHtml(x.seat_label||'')+(x.section?' ('+escHtml(x.section)+')':'')+'</option>' }).join('')
+          + '</select><div style="font-size:11px;color:var(--text-muted);margin-top:4px">Only bookable together with that space, until the space sells or the show\'s companion release window opens it to everyone.</div></div>'
+      })()
     + '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="ed-f-obstructed" '+(s.obstructed_view?'checked':'')+' onchange="document.getElementById(\'ed-f-viewnote-wrap\').style.display=this.checked?\'\':\'none\'" style="width:auto"/> Limited/obstructed view</label>'
     + '<div id="ed-f-viewnote-wrap" style="display:'+(s.obstructed_view?'':'none')+';margin-bottom:12px"><div class="form-group"><label>View Note (shown to buyers)</label><input type="text" id="ed-f-viewnote" value="'+escHtml(s.view_note||'')+'" placeholder="Partial view — support pillar"/></div></div>'
     + '<div style="display:flex;gap:8px">'
@@ -37307,12 +37487,20 @@ async function edSaveSeatDetails(sid){
   var accessible = document.getElementById('ed-f-access').checked;
   var obstructed = document.getElementById('ed-f-obstructed').checked;
   var viewNote = obstructed ? document.getElementById('ed-f-viewnote').value.trim() : '';
-  var res = await api('/api/seats/'+sid,'PUT',{section:section, row_name:row, seat_number:num, seat_label:label,
-    accessible:accessible, obstructed_view:obstructed, view_note:viewNote});
+  var compEl = document.getElementById('ed-f-companion');
+  var companion = accessible ? '' : (compEl ? compEl.value : undefined);
+  var body = {section:section, row_name:row, seat_number:num, seat_label:label,
+    accessible:accessible, obstructed_view:obstructed, view_note:viewNote};
+  if(companion !== undefined) body.companion_for = companion;
+  var reqEl = document.querySelector('input[name="ed-f-compreq"]:checked');
+  if(reqEl) body.companion_required = reqEl.value === '1';
+  var res = await api('/api/seats/'+sid,'PUT',body);
   if(res && res.error){ toast(res.error,'error'); return; }
   var s = _ed.seats.find(function(x){return x.id===sid});
   if(s) Object.assign(s, {section:section, row_name:row, seat_number:num, seat_label:label,
     accessible:accessible, obstructed_view:obstructed, view_note:viewNote});
+  if(s && companion !== undefined) s.companion_for = companion || null;
+  if(s && reqEl) s.companion_required = reqEl.value === '1';
   toast('Saved','success');
   edRenderCanvas(); edRenderSidePanel();
 }

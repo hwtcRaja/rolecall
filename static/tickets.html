@@ -541,7 +541,10 @@ function renderPurchaseScreen(){
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.held+'"></span>Held by another buyer</span>'
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.sold+'"></span>Sold</span>'
       + (seats.some(function(s){return s.accessible})
-          ? '<span><svg width="14" height="14" viewBox="-0.5 -0.5 1 1" style="vertical-align:middle;margin-right:5px"><circle cx="0" cy="0" r="0.5" fill="'+SEAT_STATUS_COLORS.available+'"/>'+wheelchairIconSvg(0, 0, 0.5, '#fff')+'</svg>Wheelchair accessible</span>'
+          ? '<span><svg width="14" height="14" viewBox="-0.5 -0.5 1 1" style="vertical-align:middle;margin-right:5px"><circle cx="0" cy="0" r="0.5" fill="'+SEAT_STATUS_COLORS.available+'"/>'+wheelchairIconSvg(0, 0, 0.5, '#fff')+'</svg>Wheelchair space</span>'
+          : '')
+      + (seats.some(function(s){return s.companion_state==='locked'})
+          ? '<span><svg width="16" height="16" viewBox="-0.6 -0.6 1.2 1.2" style="vertical-align:middle;margin-right:5px"><circle cx="0" cy="0" r="0.4" fill="'+SEAT_STATUS_COLORS.available+'"/><circle cx="0" cy="0" r="0.52" fill="none" stroke="'+SEAT_STATUS_COLORS.available+'" stroke-width="0.07" stroke-dasharray="0.1,0.07"/></svg>Companion seat (booked with a wheelchair space)</span>'
           : '')
       + (seats.some(function(s){return s.obstructed_view})
           ? '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.available+';border:2px dashed #f59e0b;box-sizing:border-box"></span>Limited view</span>'
@@ -838,7 +841,12 @@ function renderPickerSVG(){
     // can coexist if someone deliberately picks an obstructed seat) and
     // the wheelchair icon (which stays centered in the dot as always).
     var obstructedStroke = s.obstructed_view ? ' stroke="#f59e0b" stroke-width="0.09" stroke-dasharray="0.09,0.07"' : ' stroke="#fff" stroke-width="0.05"'
-    var seatTitle = escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+(s.accessible?' — Wheelchair accessible':'')+(s.obstructed_view?' — Limited view'+(s.view_note?': '+escH(s.view_note):''):'')
+    var seatTitle = escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+(s.accessible?' — Wheelchair space':'')
+      +(s.companion_state==='locked'?' — Companion seat, booked with the wheelchair space next to it':'')
+      +(s.obstructed_view?' — Limited view'+(s.view_note?': '+escH(s.view_note):''):'')
+    if(s.companion_state==='locked' && !picking && status==='available'){
+      svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+(r+0.1)+'" fill="none" stroke="'+SEAT_STATUS_COLORS.available+'" stroke-width="0.06" stroke-dasharray="0.08,0.06" opacity="0.8"/>'
+    }
     svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+r+'" fill="'+fill+'"'+obstructedStroke+'><title>'+seatTitle+'</title></circle>'
     if(picking){
       svg += '<text x="'+s.x+'" y="'+(s.y+0.16)+'" font-size="0.42" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">✓</text>'
@@ -869,14 +877,100 @@ function wheelchairIconSvg(cx, cy, r, color){
     + '</g>'
 }
 
+// ── Wheelchair spaces and companion seats ──
+// Picking a wheelchair space asks the buyer to confirm they need it and
+// offers its companion seat(s). Companion seats can only be picked along
+// with their space (so they stay free for an aide), until the space sells
+// or the show's release window opens them to everyone.
+function companionsOf(spaceId){
+  return seats.filter(function(s){ return s.companion_for === spaceId })
+}
+function closeAccessModal(){ var m = document.getElementById('access-modal'); if(m) m.remove() }
+function accessModal(inner){
+  closeAccessModal()
+  var o = document.createElement('div')
+  o.id = 'access-modal'
+  o.setAttribute('role','dialog'); o.setAttribute('aria-modal','true'); o.setAttribute('aria-labelledby','access-modal-title')
+  o.style.cssText = 'position:fixed;inset:0;z-index:500;background:rgba(15,23,42,0.55);display:flex;align-items:center;justify-content:center;padding:18px'
+  o.innerHTML = '<div style="background:#fff;border-radius:16px;max-width:460px;width:100%;padding:22px 22px 18px;box-shadow:0 20px 50px rgba(0,0,0,0.25)">'+inner+'</div>'
+  o.addEventListener('click', function(e){ if(e.target === o) closeAccessModal() })
+  document.body.appendChild(o)
+  var f = o.querySelector('input,button'); if(f) f.focus()
+}
+function openAccessibleSpace(space){
+  var comps = companionsOf(space.id).filter(function(c){ return c.status === 'available' || c.status === 'mine' })
+  var required = !!space.companion_required && comps.length > 0
+  var icon = '<svg width="34" height="34" viewBox="-0.5 -0.5 1 1" aria-hidden="true" style="flex-shrink:0"><circle cx="0" cy="0" r="0.5" fill="'+SEAT_STATUS_COLORS.available+'"/>'+wheelchairIconSvg(0,0,0.5,'#fff')+'</svg>'
+  accessModal(
+    '<div style="display:flex;gap:12px;align-items:center;margin-bottom:10px">'+icon+'<div id="access-modal-title" style="font-size:18px;font-weight:800">Wheelchair space '+escH(space.seat_label||'')+'</div></div>'
+    + '<p style="font-size:14px;line-height:1.6;color:var(--text-muted);margin:0 0 14px">This spot is set aside for guests who use a wheelchair or mobility device. Please choose it only if you or someone in your group needs it, so it\'s there for the people who do.</p>'
+    + '<label style="display:flex;gap:10px;align-items:flex-start;font-size:14px;font-weight:600;margin-bottom:14px;cursor:pointer">'
+    + '<input type="checkbox" id="access-confirm" style="width:18px;height:18px;margin-top:1px;accent-color:var(--teal-dark)"/> I need this space for accessibility</label>'
+    + (required
+        ? '<div style="background:var(--teal-light);border-radius:10px;padding:12px 14px;margin-bottom:14px">'
+          + '<div style="font-size:13.5px;font-weight:700;margin-bottom:6px">This space comes with its companion seat</div>'
+          + comps.map(function(c){ return '<label style="display:flex;gap:10px;align-items:center;font-size:14px;margin:4px 0"><input type="checkbox" class="access-comp" value="'+c.id+'" checked disabled style="width:18px;height:18px;accent-color:var(--teal-dark)"/> Companion seat '+escH(c.seat_label||'')+' right next to it</label>' }).join('')
+          + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:6px">The wheelchair space and its companion seat are booked together'+(comps.length>1?'':'')+'.</div></div>'
+      : comps.length
+        ? '<div style="background:var(--teal-light);border-radius:10px;padding:12px 14px;margin-bottom:14px">'
+          + '<div style="font-size:13.5px;font-weight:700;margin-bottom:6px">Coming with a companion or aide?</div>'
+          + comps.map(function(c){ return '<label style="display:flex;gap:10px;align-items:center;font-size:14px;margin:4px 0;cursor:pointer"><input type="checkbox" class="access-comp" value="'+c.id+'" checked style="width:18px;height:18px;accent-color:var(--teal-dark)"/> Add companion seat '+escH(c.seat_label||'')+' right next to it</label>' }).join('')
+          + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:6px">Coming on your own? Just uncheck it.</div></div>'
+        : '')
+    + '<div id="access-err" style="color:#b91c1c;font-size:13px;margin-bottom:8px"></div>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-secondary" style="width:auto" onclick="closeAccessModal()">Cancel</button>'
+    + '<button class="btn btn-primary" style="width:auto" onclick="confirmAccessibleSpace(\''+space.id+'\')">Select this space</button></div>')
+}
+async function confirmAccessibleSpace(spaceId){
+  if(!document.getElementById('access-confirm').checked){ document.getElementById('access-err').textContent = 'Please check the box to confirm you need this space.'; return }
+  var comps = Array.from(document.querySelectorAll('.access-comp:checked')).map(function(b){ return b.value })
+  closeAccessModal()
+  await holdSeatGroup([spaceId].concat(comps), true)
+}
+function openCompanionInfo(seat){
+  var space = seats.find(function(s){ return s.id === seat.companion_for }) || {}
+  var days = (currentPerformance && currentPerformance.companion_release_days) || 0
+  var spaceFree = space.status === 'available'
+  accessModal(
+    '<div id="access-modal-title" style="font-size:18px;font-weight:800;margin-bottom:8px">Seat '+escH(seat.seat_label||'')+' is a companion seat</div>'
+    + '<p style="font-size:14px;line-height:1.6;color:var(--text-muted);margin:0 0 16px">It\'s saved for the aide or companion of the guest using wheelchair space '+escH(space.seat_label||'')+' next to it, so it can only be booked together with that space.'
+    + (days ? ' If it\'s still open '+days+' day'+(days===1?'':'s')+' before the show, anyone can book it.' : '')+'</p>'
+    + '<div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-secondary" style="width:auto" onclick="closeAccessModal()">Pick another seat</button>'
+    + (spaceFree ? '<button class="btn btn-primary" style="width:auto" onclick="closeAccessModal();toggleSeat(\''+space.id+'\')">Book the wheelchair space</button>' : '')
+    + '</div>')
+}
+async function holdSeatGroup(ids, accessibleConfirmed){
+  if(ticketsRemainingForCurrentPerformance() < ids.length){
+    alert('This show limits '+lastProd.max_tickets_per_performance+' ticket(s) per performance per person.')
+    return
+  }
+  var defaultType = ticketTypes[0]
+  ids.forEach(function(id){ selectedSeats[id] = defaultType ? defaultType.id : null })
+  refreshPickerAndCart()
+  var res = await api('/api/public/performances/'+currentPerformance.id+'/hold-seats','POST',
+    {seat_ids: ids, session_token: getSessionToken(), presale_keys: presaleKeysForServer(), accessible_confirmed: !!accessibleConfirmed})
+  if(res.error){
+    ids.forEach(function(id){ delete selectedSeats[id] })
+    refreshPickerAndCart()
+    alert(res.error)
+    return
+  }
+  armHoldExpiry()
+}
+
 async function toggleSeat(seatId){
   var seat = seats.find(function(s){ return s.id===seatId })
   if(!seat) return
   if(Object.prototype.hasOwnProperty.call(selectedSeats, seatId)){
     delete selectedSeats[seatId]
-    await api('/api/public/performances/'+currentPerformance.id+'/release-hold','POST',
+    var rel = await api('/api/public/performances/'+currentPerformance.id+'/release-hold','POST',
       {seat_ids:[seatId], session_token:getSessionToken()})
     seat.status = 'available'
+    // letting go of a wheelchair space lets go of its companion seats too
+    ;((rel && rel.also_released) || []).forEach(function(cid){
+      delete selectedSeats[cid]
+      var c = seats.find(function(x){ return x.id===cid }); if(c){ c.status = 'available' }
+    })
     if(!Object.keys(selectedSeats).length){
       if(holdTimer){ clearTimeout(holdTimer); holdTimer = null }
       stopHoldCountdown()
@@ -892,6 +986,8 @@ async function toggleSeat(seatId){
     alert('This show limits '+lastProd.max_tickets_per_performance+' ticket(s) per performance per person, and you\'ve reached that for this date.')
     return
   }
+  if(seat.accessible){ openAccessibleSpace(seat); return }
+  if(seat.companion_state === 'locked'){ openCompanionInfo(seat); return }
   // Optimistically select, then confirm the hold with the server
   var defaultType = ticketTypes[0]
   selectedSeats[seatId] = defaultType ? defaultType.id : null

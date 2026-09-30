@@ -3007,6 +3007,7 @@ def init_db():
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS promo_code_id TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS public_sale_at TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_key TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS share_name TEXT",
         """UPDATE pending_donations pd SET ticket_cart_id = o.cart_id FROM ticket_orders o
             WHERE pd.ticket_cart_id IS NULL AND pd.square_checkout_id IS NOT NULL
               AND o.square_checkout_id = pd.square_checkout_id AND o.cart_id IS NOT NULL""",
@@ -38511,6 +38512,7 @@ def update_ticketing_settings(pid):
     except (TypeError, ValueError):
         return jsonify({'error': 'Service fee percent and flat amount must be zero or more'}), 400
     public_sale_at = (d.get('public_sale_at') or '').strip()[:16] or None
+    share_name = (d.get('share_name') or '').strip()[:60] or None
     if public_sale_at and not _presale_parse(public_sale_at):
         return jsonify({'error': 'On-sale time isn\'t a valid date/time'}), 400
     try:
@@ -38524,7 +38526,7 @@ def update_ticketing_settings(pid):
         charge_service_fee=%s, service_fee_percent=%s, service_fee_flat_cents=%s,
         default_donation_cents=%s WHERE id=%s''',
         (limit, charge_fee, fee_percent, fee_flat_cents, default_donation, pid))
-    execute(conn, 'UPDATE productions SET public_sale_at=%s WHERE id=%s', (public_sale_at, pid))
+    execute(conn, 'UPDATE productions SET public_sale_at=%s, share_name=%s WHERE id=%s', (public_sale_at, share_name, pid))
     if d.get('presale') == 'new':
         execute(conn, 'UPDATE productions SET presale_key=%s WHERE id=%s', (secrets.token_urlsafe(9), pid))
     elif d.get('presale') == 'off':
@@ -38535,7 +38537,8 @@ def update_ticketing_settings(pid):
     return jsonify({'ok': True, 'max_tickets_per_performance': limit,
         'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents,
         'default_donation_cents': default_donation,
-        'public_sale_at': saved.get('public_sale_at'), 'presale_key': saved.get('presale_key'), 'slug': saved.get('slug')})
+        'public_sale_at': saved.get('public_sale_at'), 'presale_key': saved.get('presale_key'), 'slug': saved.get('slug'),
+        'share_name': share_name})
 
 
 # ── VENUES ──────────────────────────────────────────────────────────────
@@ -40715,7 +40718,73 @@ def move_ticket_seat(tid):
 
 @app.route('/tickets/<slug>')
 def public_tickets_page(slug):
-    return send_from_directory('static', 'tickets.html')
+    """The ticket page, with a proper title/description/image filled in on
+    the server so texted or posted links preview as e.g. "HSM Jr. Pre-Sale
+    Tickets" with the show art (link previews don't run the page's scripts)."""
+    if slug in ('cart', 'confirmation'):
+        return send_from_directory('static', 'tickets.html')
+    from html import escape
+    try:
+        conn = get_db()
+        prod = fetchone(conn, '''SELECT id, name, share_name, description, image_url, ticket_logo_url, public_sale_at, presale_key
+            FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+        dates = fetchall(conn, '''SELECT performance_date FROM performances WHERE production_id=%s
+            AND status IN ('presale','on_sale','sold_out') ORDER BY performance_date''', (prod['id'],)) if prod else []
+        venue = fetchone(conn, '''SELECT v.name FROM performances pf JOIN venues v ON v.id=pf.venue_id
+            WHERE pf.production_id=%s ORDER BY pf.performance_date LIMIT 1''', (prod['id'],)) if prod else None
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'ticket page preview lookup failed: {e}')
+        prod = None
+    with open(os.path.join('static', 'tickets.html'), encoding='utf-8') as f:
+        page = f.read()
+    if not prod:
+        return page
+    show = (prod.get('share_name') or prod.get('name') or 'Tickets').strip()
+    key = request.args.get('presale') or ''
+    is_presale = presale_key_ok(prod, key)
+    opens = _presale_parse(prod.get('public_sale_at'))
+    before_public = bool(opens and now_eastern() < opens)
+    import datetime as _dt
+    def _d(x):
+        try: return _dt.date.fromisoformat(str(x)[:10])
+        except Exception: return None
+    ds = [d for d in (_d(r['performance_date']) for r in dates or []) if d]
+    when = ''
+    if ds:
+        a, b = ds[0], ds[-1]
+        if a == b: when = a.strftime('%b %-d, %Y')
+        elif a.year == b.year and a.month == b.month: when = a.strftime('%b %-d') + '–' + b.strftime('%-d, %Y')
+        else: when = a.strftime('%b %-d') + ' – ' + b.strftime('%b %-d, %Y')
+    where = (venue or {}).get('name') or ''
+    if is_presale:
+        title = show + ' Pre-Sale Tickets'
+        desc = 'Early ticket access' + (' before the public sale on ' + opens.strftime('%b %-d') if before_public else '') + '.'
+    elif before_public:
+        title = show + ' Tickets'
+        desc = 'Tickets go on sale ' + opens.strftime('%A, %b %-d at %-I:%M %p').replace(':00 ', ' ') + '.'
+    else:
+        title = show + ' Tickets'
+        desc = 'Tickets on sale now.'
+    desc = ' · '.join(x for x in [when, where] if x) + (' · ' if (when or where) else '') + desc
+    image = prod.get('image_url') or prod.get('ticket_logo_url') or 'https://rolecall.hwtco.org/static/images/hwtc_logo_teal.png'
+    if image.startswith('/'):
+        image = 'https://rolecall.hwtco.org' + image
+    url = 'https://rolecall.hwtco.org/tickets/' + slug + (('?presale=' + key) if is_presale else '')
+    tags = ('<title>' + escape(title) + ' | Horizon West Theater Company</title>\n'
+            '<meta name="description" content="' + escape(desc) + '"/>\n'
+            '<meta property="og:type" content="website"/>\n'
+            '<meta property="og:site_name" content="Horizon West Theater Company"/>\n'
+            '<meta property="og:title" content="' + escape(title) + '"/>\n'
+            '<meta property="og:description" content="' + escape(desc) + '"/>\n'
+            '<meta property="og:image" content="' + escape(image) + '"/>\n'
+            '<meta property="og:url" content="' + escape(url) + '"/>\n'
+            '<meta name="twitter:card" content="summary_large_image"/>\n'
+            + ('<meta name="robots" content="noindex"/>\n' if is_presale else ''))
+    page = page.replace('<title>Tickets</title>', tags, 1)
+    resp = app.response_class(page, mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 @app.route('/tickets/confirmation')
 def public_tickets_confirmation_page():

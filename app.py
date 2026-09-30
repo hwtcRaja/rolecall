@@ -3027,7 +3027,60 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(production_id, member_id))""",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS team_comp_code_id TEXT",
+        # Playbill ad sales: per-show products (ad sizes, well wishes, cast
+        # grams), orders paid through Square, and uploaded artwork.
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS playbill_open BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS playbill_deadline TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS playbill_intro TEXT DEFAULT ''",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS playbill_specs TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS playbill_products (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL DEFAULT 'ad',
+            name TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            dimensions TEXT DEFAULT '',
+            page_fraction REAL,
+            price_bw_cents INTEGER,
+            price_color_cents INTEGER,
+            quantity_limit INTEGER,
+            char_limit INTEGER,
+            artwork TEXT DEFAULT 'required',
+            active BOOLEAN DEFAULT TRUE,
+            sort_order INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS playbill_artwork (
+            id TEXT PRIMARY KEY,
+            filename TEXT,
+            mime TEXT,
+            size_bytes INTEGER,
+            data BYTEA,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS playbill_orders (
+            id TEXT PRIMARY KEY,
+            cart_id TEXT NOT NULL,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            product_id TEXT REFERENCES playbill_products(id) ON DELETE SET NULL,
+            product_name TEXT,
+            kind TEXT,
+            color_mode TEXT,
+            price_cents INTEGER DEFAULT 0,
+            buyer_name TEXT, buyer_email TEXT, buyer_phone TEXT,
+            business_name TEXT,
+            recipient TEXT,
+            message TEXT,
+            notes TEXT,
+            artwork_id TEXT,
+            status TEXT DEFAULT 'pending',
+            proof_status TEXT DEFAULT 'received',
+            staff_notes TEXT DEFAULT '',
+            square_order_id TEXT, square_checkout_id TEXT,
+            paid_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_playbill_orders_prod ON playbill_orders(production_id, status)",
+        "CREATE INDEX IF NOT EXISTS ix_playbill_orders_sq ON playbill_orders(square_order_id)",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS sale_channel TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS companion_release_days INTEGER DEFAULT 2",
         """UPDATE ticket_orders o SET sale_channel = CASE
             WHEN COALESCE(pr.public_sale_at,'') <> ''
              AND to_char((o.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/New_York', 'YYYY-MM-DD"T"HH24:MI') < pr.public_sale_at
@@ -3172,6 +3225,9 @@ def init_db():
         # with an optional note explaining why (a pillar, a side angle, etc).
         "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS obstructed_view BOOLEAN DEFAULT FALSE",
         "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS view_note TEXT DEFAULT ''",
+        "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS companion_for TEXT",
+        # wheelchair space setting: must it be booked together with its companion seat(s)?
+        "ALTER TABLE seat_map_seats ADD COLUMN IF NOT EXISTS companion_required BOOLEAN DEFAULT FALSE",
         # Section/limited-view info wasn't actually being copied from the
         # seat map onto the finished ticket record at all -- meaning it
         # never showed up anywhere past the live picker: not the cart, not
@@ -26673,6 +26729,13 @@ def square_webhook():
                                 finalize_donation(conn, don['id'])
                             for _cart in set(t.get('cart_id') for t in tords if t.get('cart_id')):
                                 notify_ticket_sale(conn, _cart)
+                            # Playbill ads / well wishes / cast grams
+                            pbs = fetchall(conn, "SELECT DISTINCT cart_id FROM playbill_orders WHERE (square_order_id=%s OR square_checkout_id=%s) AND status='pending'",
+                                (order_id, order_id)) or []
+                            for pb in pbs:
+                                execute(conn, "UPDATE playbill_orders SET status='paid', paid_at=NOW() WHERE cart_id=%s AND status='pending'", (pb['cart_id'],))
+                                conn.commit()
+                                finalize_playbill_cart(conn, pb['cart_id'])
                 conn.close()
             elif status in ('FAILED', 'CANCELED') and order_id:
                 conn = get_db()
@@ -36682,18 +36745,17 @@ def submit_donation():
         'idempotency_key': _ud2.uuid4().hex,
         'order': {
             'location_id': SQUARE_LOCATION_ID,
-            'line_items': [{'name': 'Donation — Horizon West Theater Company',
-                            'quantity': '1',
-                            'base_price_money': {'amount': amount_cents, 'currency': 'USD'}}],
+            'line_items': [square_line(conn, 'donation', 'Donation', 'Donations', amount_cents,
+                                       'Donation — Horizon West Theater Company', (message or '')[:200])],
             'reference_id': pending_id[:40],
+            'metadata': {'rolecall': 'donation'},
         },
         'checkout_options': {'redirect_url': redirect_url, 'ask_for_shipping_address': False},
         'pre_populated_data': {'buyer_email': email},
         'description': f'Donation from {name}' + (f': {message[:100]}' if message else ''),
     }
     try:
-        r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
-            json=payload, headers=square_headers(), timeout=15)
+        r = square_payment_link_with_fallback(payload, conn)
         data = r.json()
         if r.status_code == 200 and data.get('payment_link'):
             lnk = data['payment_link']
@@ -38558,6 +38620,10 @@ def update_ticketing_settings(pid):
     public_sale_at = (d.get('public_sale_at') or '').strip()[:16] or None
     share_name = (d.get('share_name') or '').strip()[:60] or None
     presale_opens_at = (d.get('presale_opens_at') or '').strip()[:16] or None
+    try:
+        companion_days = max(0, int(d.get('companion_release_days'))) if d.get('companion_release_days') not in (None, '') else 2
+    except (TypeError, ValueError):
+        companion_days = 2
     if presale_opens_at and not _presale_parse(presale_opens_at):
         return jsonify({'error': 'Pre-sale open time isn\'t a valid date/time'}), 400
     if presale_opens_at and public_sale_at and presale_opens_at >= public_sale_at:
@@ -38575,8 +38641,8 @@ def update_ticketing_settings(pid):
         charge_service_fee=%s, service_fee_percent=%s, service_fee_flat_cents=%s,
         default_donation_cents=%s WHERE id=%s''',
         (limit, charge_fee, fee_percent, fee_flat_cents, default_donation, pid))
-    execute(conn, 'UPDATE productions SET public_sale_at=%s, share_name=%s, presale_opens_at=%s WHERE id=%s',
-            (public_sale_at, share_name, presale_opens_at, pid))
+    execute(conn, 'UPDATE productions SET public_sale_at=%s, share_name=%s, presale_opens_at=%s, companion_release_days=%s WHERE id=%s',
+            (public_sale_at, share_name, presale_opens_at, companion_days, pid))
     if d.get('presale') == 'new':
         execute(conn, 'UPDATE productions SET presale_key=%s WHERE id=%s', (secrets.token_urlsafe(9), pid))
     elif d.get('presale') == 'off':
@@ -38588,7 +38654,7 @@ def update_ticketing_settings(pid):
         'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents,
         'default_donation_cents': default_donation,
         'public_sale_at': saved.get('public_sale_at'), 'presale_key': saved.get('presale_key'), 'slug': saved.get('slug'),
-        'share_name': share_name, 'presale_opens_at': saved.get('presale_opens_at')})
+        'share_name': share_name, 'presale_opens_at': saved.get('presale_opens_at'), 'companion_release_days': companion_days})
 
 
 # ── VENUES ──────────────────────────────────────────────────────────────
@@ -39084,9 +39150,17 @@ def update_seat(sid):
     for f in ['x', 'y']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append(float(d[f] or 0))
-    for f in ['accessible', 'house_seat', 'active', 'obstructed_view']:
+    for f in ['accessible', 'house_seat', 'active', 'obstructed_view', 'companion_required']:
         if f in d:
             fields.append(f'{f}=%s'); vals.append(bool(d[f]))
+    if 'companion_for' in d:
+        target = (d.get('companion_for') or '').strip() or None
+        if target:
+            me = fetchone(conn, 'SELECT seat_map_id FROM seat_map_seats WHERE id=%s', (sid,)) or {}
+            t = fetchone(conn, 'SELECT seat_map_id, accessible FROM seat_map_seats WHERE id=%s', (target,)) or {}
+            if target == sid or t.get('seat_map_id') != me.get('seat_map_id') or not t.get('accessible'):
+                conn.close(); return jsonify({'error': 'Pick a wheelchair space in this same seat map.'}), 400
+        fields.append('companion_for=%s'); vals.append(target)
     if not fields:
         conn.close(); return jsonify({'error': 'Nothing to update'}), 400
     vals.append(sid)
@@ -39549,6 +39623,99 @@ def public_production_performances(slug):
     return jsonify({'production': prod, 'performances': perfs, 'sale': sale})
 
 
+# ── Wheelchair spaces and companion seats ─────────────────────────────────
+# A seat can be marked as the companion seat for a wheelchair space
+# (seat_map_seats.companion_for = that space's seat id). A companion seat
+# can only be booked together with its space, so it stays free for the
+# person's aide/companion. It opens to everyone once:
+#   - its wheelchair space has been sold (with or without the companion:
+#     a solo guest simply doesn't add it), or
+#   - the performance is within the show's companion release window
+#     (productions.companion_release_days, default 2 days; 0 = never).
+# Booking a wheelchair space asks the buyer to confirm they need it.
+def _companion_release_passed(perf, days):
+    if not days:
+        return False
+    import datetime as _dt
+    try:
+        d = _dt.date.fromisoformat(str(perf.get('performance_date'))[:10])
+        t = (perf.get('performance_time') or '00:00')[:5]
+        start = _dt.datetime.combine(d, _dt.time(int(t[:2]), int(t[3:5])))
+    except Exception:
+        return False
+    return now_eastern() >= start - _dt.timedelta(days=int(days))
+
+
+def companion_seat_states(conn, perf, seats, sold_ids, held_map, session_token):
+    """For each companion seat: 'open' or 'locked' for this viewer, plus
+    'held_for_access' when another buyer is mid-checkout on its space."""
+    days = (fetchone(conn, 'SELECT companion_release_days FROM productions WHERE id=%s', (perf['production_id'],)) or {}).get('companion_release_days')
+    days = 2 if days is None else int(days)
+    released = _companion_release_passed(perf, days)
+    out = {}
+    for s in seats:
+        a = s.get('companion_for')
+        if not a:
+            continue
+        if released or a in sold_ids:
+            out[s['id']] = 'open'
+        elif a in held_map and held_map[a] != session_token:
+            out[s['id']] = 'held_for_access'
+        elif a in held_map and held_map[a] == session_token:
+            out[s['id']] = 'open'          # this buyer has the space
+        else:
+            out[s['id']] = 'locked'
+    return out, days, released
+
+
+def required_companions_missing(conn, fid, space_ids, in_request, session_token):
+    """Companion seats of 'companion required' spaces that are still free
+    (not sold, not held by someone else) but aren't part of this booking."""
+    rows = fetchall(conn, '''SELECT c.id, c.seat_label FROM seat_map_seats c JOIN seat_map_seats sp ON sp.id=c.companion_for
+        WHERE c.companion_for = ANY(%s) AND sp.companion_required=TRUE AND c.active=TRUE''', (space_ids,)) or []
+    if not rows:
+        return []
+    sold = {r['seat_id'] for r in fetchall(conn, 'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,)) or []}
+    held = {r['seat_id']: r['session_token'] for r in fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,)) or []}
+    # held by anyone (another buyer, or already by this buyer) means it
+    # isn't sitting free next to the space, so it isn't required here
+    return [r for r in rows if r['id'] not in in_request and r['id'] not in sold and r['id'] not in held]
+
+
+def companion_hold_problem(conn, fid, seat_ids, session_token, accessible_confirmed):
+    """Error response if these seats can't be held under the wheelchair /
+    companion rules, else None."""
+    perf = fetchone(conn, 'SELECT id, production_id, performance_date, performance_time FROM performances WHERE id=%s', (fid,))
+    rows = fetchall(conn, 'SELECT id, seat_label, accessible, companion_for FROM seat_map_seats WHERE id = ANY(%s)', (seat_ids,)) or []
+    if not perf or not rows:
+        return None
+    if any(r.get('accessible') for r in rows) and not accessible_confirmed:
+        return jsonify({'error': 'Please confirm this wheelchair space is needed for accessibility.', 'needs_access_confirm': True}), 400
+    req = [r['id'] for r in rows if r.get('accessible')]
+    if req:
+        need = required_companions_missing(conn, fid, req, set(seat_ids), session_token)
+        if need:
+            return jsonify({'error': 'This wheelchair space is booked together with its companion seat ('
+                            + ', '.join(n['seat_label'] or '' for n in need) + ').', 'companion_required': True}), 400
+    if not any(r.get('companion_for') for r in rows):
+        return None
+    sold_ids = {r['seat_id'] for r in fetchall(conn, 'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,)) or []}
+    held_map = {r['seat_id']: r['session_token'] for r in fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,)) or []}
+    states, days, _ = companion_seat_states(conn, perf, rows, sold_ids, held_map, session_token)
+    asking = set(seat_ids)
+    for r in rows:
+        st = states.get(r['id'])
+        if st == 'held_for_access':
+            return jsonify({'error': 'Seat ' + (r['seat_label'] or '') + ' is being saved for someone booking the wheelchair space next to it.'}), 409
+        if st == 'locked' and r['companion_for'] not in asking:
+            space = fetchone(conn, 'SELECT seat_label FROM seat_map_seats WHERE id=%s', (r['companion_for'],)) or {}
+            return jsonify({'error': 'Seat ' + (r['seat_label'] or '') + ' is a companion seat for wheelchair space '
+                            + (space.get('seat_label') or '') + '. It can be booked together with that space'
+                            + (', and opens to everyone ' + str(days) + ' day' + ('' if days == 1 else 's') + ' before the show.' if days else '.'),
+                            'companion_locked': True, 'space_id': r['companion_for']}), 400
+    return None
+
+
 @app.route('/api/public/performances/<fid>/seat-status', methods=['GET'])
 def public_seat_status(fid):
     """Everything the ticket picker needs: the seat map (with x/y so it can
@@ -39593,6 +39760,14 @@ def public_seat_status(fid):
                 s['status'] = 'mine' if (session_token and held_map[s['id']] == session_token) else 'held'
             else:
                 s['status'] = 'available'
+        comp_states, comp_days, _rel = companion_seat_states(conn, perf, seats, sold_ids, held_map, session_token)
+        for s in seats:
+            st = comp_states.get(s['id'])
+            if st:
+                s['companion_state'] = st
+                if st == 'held_for_access' and s['status'] == 'available':
+                    s['status'] = 'held'
+        perf['companion_release_days'] = comp_days
     ticket_types = fetchall(conn, '''SELECT tt.* FROM ticket_types tt
         JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
         WHERE ptt.performance_id=%s AND tt.active=TRUE ORDER BY tt.sort_order''', (fid,))
@@ -39660,6 +39835,10 @@ def public_hold_seats(fid):
             conn.close()
             return jsonify({'error': f"This show limits {limit} ticket{'s' if limit != 1 else ''} per performance per person, and you've already selected {len(existing_seat_ids)}."}), 400
 
+    _cp = companion_hold_problem(conn, fid, seat_ids, session_token, bool(d.get('accessible_confirmed')))
+    if _cp:
+        conn.close(); return _cp
+
     lost = []
     for sid in seat_ids:
         row = fetchone(conn, '''INSERT INTO seat_holds (id, performance_id, seat_id, session_token, expires_at)
@@ -39681,19 +39860,30 @@ def public_hold_seats(fid):
     return jsonify({'ok': True, 'expires_in_seconds': 900})
 
 
+def _release_companions_too(conn, fid, seat_ids, session_token):
+    comps = fetchall(conn, '''SELECT id FROM seat_map_seats WHERE companion_for = ANY(%s)''', (seat_ids,)) or []
+    ids = [c['id'] for c in comps]
+    if ids:
+        execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND session_token=%s AND seat_id = ANY(%s)', (fid, session_token, ids))
+    return ids
+
+
 @app.route('/api/public/performances/<fid>/release-hold', methods=['POST'])
 def public_release_hold(fid):
     d = request.json or {}
     seat_ids = d.get('seat_ids') or []
     session_token = (d.get('session_token') or '').strip()
     conn = get_db()
+    also = []
     if seat_ids:
         execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND session_token=%s AND seat_id = ANY(%s)',
             (fid, session_token, seat_ids))
+        # letting go of a wheelchair space lets go of its companion seats too
+        also = _release_companions_too(conn, fid, seat_ids, session_token)
     else:
         execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND session_token=%s', (fid, session_token))
     conn.commit(); conn.close()
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'also_released': also})
 
 
 @app.route('/api/public/ticket-checkout', methods=['POST'])
@@ -39774,6 +39964,24 @@ def public_ticket_checkout():
                 fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))}
             seat_rows = {s['id']: s for s in fetchall(conn,
                 'SELECT * FROM seat_map_seats WHERE id = ANY(%s)', ([sel.get('seat_id') for sel in seat_selections],))}
+            _spaces = [r['id'] for r in seat_rows.values() if r.get('accessible')]
+            if _spaces:
+                _need = required_companions_missing(conn, fid, _spaces, set(seat_rows.keys()), session_token)
+                if _need:
+                    conn.close()
+                    return jsonify({'error': 'The wheelchair space in your order is booked together with its companion seat ('
+                                    + ', '.join(n['seat_label'] or '' for n in _need) + '). Please add it.'}), 400
+            # companion seats need their wheelchair space in the same order
+            # (unless the space is already sold or the release window passed)
+            _comp = [r for r in seat_rows.values() if r.get('companion_for')]
+            if _comp:
+                _sold = {r['seat_id'] for r in fetchall(conn, 'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,)) or []}
+                _states, _days, _rel = companion_seat_states(conn, perf, _comp, _sold, held, session_token)
+                _in_order = set(seat_rows.keys())
+                for r in _comp:
+                    if _states.get(r['id']) != 'open' and r['companion_for'] not in _in_order:
+                        conn.close()
+                        return jsonify({'error': 'Seat ' + (r['seat_label'] or '') + ' is a companion seat and can only be booked with the wheelchair space next to it.'}), 400
             for sel in seat_selections:
                 sid = sel.get('seat_id')
                 seat = seat_rows.get(sid)
@@ -39905,20 +40113,17 @@ def public_ticket_checkout():
             execute(conn, 'UPDATE ticket_orders SET team_comp_code_id=%s WHERE id=%s', (benefit_code['id'], order_id))
         execute(conn, 'UPDATE ticket_orders SET sale_channel=%s WHERE id=%s',
                 (sale_channel_for(conn, grp['performance_id'], d.get('presale_keys') or {}), order_id))
+        _perf = fetchone(conn, 'SELECT performance_date, performance_time FROM performances WHERE id=%s', (grp['performance_id'],)) or {}
+        _when = str(_perf.get('performance_date') or '')[:10] + (' ' + (_perf.get('performance_time') or '')[:5] if _perf.get('performance_time') else '')
         for li in grp['line_items']:
             if li['price_cents'] <= 0:
-                continue   # comped by a donor code; nothing to charge
-            sq_line_items.append({
-                'name': (f"{grp['prod_name']} — {li['seat_label'] or 'Ticket'}" + (' (code ' + benefit_code['code'] + ')' if (li.get('benefit_discount_cents') and benefit_code) else ''))[:191],
-                'quantity': '1',
-                'base_price_money': {'amount': li['price_cents'], 'currency': 'USD'},
-            })
+                continue   # comped by a code; nothing to charge
+            _label = (li['seat_label'] or 'Ticket') + (' (code ' + benefit_code['code'] + ')' if (li.get('benefit_discount_cents') and benefit_code) else '')
+            sq_line_items.append(square_line(conn, 'tickets:' + grp['production_id'], grp['prod_name'] + ' Tickets', 'Tickets',
+                                             li['price_cents'], f"{grp['prod_name']} — {_label}", _when + ' · ' + _label))
         if grp['fee_cents']:
-            sq_line_items.append({
-                'name': (f"{grp['prod_name']} — Service Fee")[:191],
-                'quantity': '1',
-                'base_price_money': {'amount': grp['fee_cents'], 'currency': 'USD'},
-            })
+            sq_line_items.append(square_line(conn, 'ticket_fees', 'Ticket Service Fees', 'Tickets', grp['fee_cents'],
+                                             f"{grp['prod_name']} — Service Fee", grp['prod_name']))
 
     donation_id = None
     if donation_cents > 0:
@@ -39926,11 +40131,8 @@ def public_ticket_checkout():
         execute(conn, '''INSERT INTO pending_donations (id, name, email, amount_cents, message, ticket_cart_id)
             VALUES (%s,%s,%s,%s,%s,%s)''', (donation_id, guardian_name, guardian_email, donation_cents,
             'Added on at ticket checkout', cart_id))
-        sq_line_items.append({
-            'name': 'Donation — Horizon West Theater Company',
-            'quantity': '1',
-            'base_price_money': {'amount': donation_cents, 'currency': 'USD'},
-        })
+        sq_line_items.append(square_line(conn, 'donation', 'Donation', 'Donations', donation_cents,
+                                         'Donation — Horizon West Theater Company', 'Added at ticket checkout'))
         grand_total += donation_cents
     conn.commit()
 
@@ -39944,14 +40146,14 @@ def public_ticket_checkout():
     redirect_url = f'{APP_BASE_URL}/tickets/confirmation?cart={cart_id}'
     payload = {
         'idempotency_key': uuid.uuid4().hex,
-        'order': {'location_id': SQUARE_LOCATION_ID, 'line_items': sq_line_items, 'reference_id': cart_id[:40]},
+        'order': {'location_id': SQUARE_LOCATION_ID, 'line_items': sq_line_items, 'reference_id': cart_id[:40],
+                  'metadata': {'rolecall': 'tickets', 'production': (groups[0]['prod_name'] if len(groups) == 1 else 'multiple')[:255]}},
         'checkout_options': {'redirect_url': redirect_url, 'ask_for_shipping_address': False},
         'pre_populated_data': {'buyer_email': guardian_email},
         'description': (f"Tickets — {groups[0]['prod_name']}" if len(groups) == 1 else "Tickets — multiple performances")[:191],
     }
     try:
-        r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links',
-            json=payload, headers=square_headers(), timeout=15)
+        r = square_payment_link_with_fallback(payload, conn)
         data = r.json()
         if r.status_code == 200 and data.get('payment_link'):
             lnk = data['payment_link']
@@ -40894,6 +41096,496 @@ def slack_daily_report_now():
     if r.status_code >= 300:
         return jsonify({'error': 'Slack said: ' + (r.text or str(r.status_code))[:200]}), 400
     return jsonify({'ok': True})
+
+
+# ── Square catalog categories for online sales ────────────────────────────
+# Ticket, program-ad and donation line items used to be one-off "custom"
+# lines, which Square reports lump together as uncategorized. Each kind of
+# sale now uses a real catalog item (variable price, so RoleCall still sets
+# the amount) inside a category, e.g. "HSM Jr. Tickets" in "Tickets", so
+# Square's sales-by-category and sales-by-item reports group them. Items
+# and categories are created in Square automatically the first time
+# they're needed and remembered in settings. If Square refuses (item
+# deleted, permissions), the sale falls back to a plain custom line so
+# checkout never breaks.
+def _square_category_id(conn, name):
+    key = 'sq_cat:' + name
+    cached = _setting(conn, key)
+    if cached:
+        return cached
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search', headers=square_headers(), timeout=10,
+                          json={'object_types': ['CATEGORY'], 'query': {'exact_query': {'attribute_name': 'name', 'attribute_value': name}}})
+        objs = (r.json().get('objects') or []) if r.status_code == 200 else []
+        cid = objs[0]['id'] if objs else None
+        if not cid:
+            r2 = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object', headers=square_headers(), timeout=10,
+                               json={'idempotency_key': uuid.uuid4().hex,
+                                     'object': {'type': 'CATEGORY', 'id': '#cat', 'category_data': {'name': name}}})
+            cid = (r2.json().get('catalog_object') or {}).get('id') if r2.status_code == 200 else None
+        if cid:
+            _set_setting(conn, key, cid); conn.commit()
+        return cid
+    except Exception as e:
+        app.logger.warning(f'Square category {name} failed: {e}')
+        return None
+
+
+def square_sale_variation(conn, key, item_name, category):
+    """Variation id of a variable-price catalog item for this kind of sale."""
+    if not SQUARE_ACCESS_TOKEN:
+        return None
+    skey = 'sq_var:' + key
+    cached = _setting(conn, skey)
+    if cached:
+        return cached
+    cat = _square_category_id(conn, category)
+    item = {'name': item_name[:255], 'product_type': 'REGULAR',
+            'variations': [{'type': 'ITEM_VARIATION', 'id': '#var',
+                            'item_variation_data': {'name': 'Online', 'pricing_type': 'VARIABLE_PRICING'}}]}
+    if cat:
+        item['categories'] = [{'id': cat}]
+        item['reporting_category'] = {'id': cat}
+    try:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/object', headers=square_headers(), timeout=10,
+                          json={'idempotency_key': uuid.uuid4().hex, 'object': {'type': 'ITEM', 'id': '#item', 'item_data': item}})
+        obj = r.json().get('catalog_object') or {} if r.status_code == 200 else {}
+        var = ((obj.get('item_data') or {}).get('variations') or [{}])[0].get('id')
+        if var:
+            _set_setting(conn, skey, var); conn.commit()
+        else:
+            app.logger.warning(f'Square item create for {item_name} failed: {r.text[:300]}')
+        return var
+    except Exception as e:
+        app.logger.warning(f'Square item create for {item_name} failed: {e}')
+        return None
+
+
+def square_line(conn, key, item_name, category, amount_cents, custom_name, note=''):
+    """A payment-link line item: catalog-backed when possible, else custom."""
+    line = {'quantity': '1', 'base_price_money': {'amount': int(amount_cents), 'currency': 'USD'}, '_custom_name': custom_name[:191]}
+    var = square_sale_variation(conn, key, item_name, category)
+    if var:
+        line['catalog_object_id'] = var
+        if note:
+            line['note'] = note[:500]
+    else:
+        line['name'] = custom_name[:191]
+    return line
+
+
+def square_payment_link_with_fallback(payload, conn=None):
+    """Create the payment link; if Square rejects the catalog items, retry
+    once with plain custom lines so the buyer can still pay."""
+    lines = payload['order']['line_items']
+    clean = [{k: v for k, v in li.items() if k != '_custom_name'} for li in lines]
+    payload['order']['line_items'] = clean
+    r = requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links', json=payload, headers=square_headers(), timeout=15)
+    if r.status_code == 200 or not any('catalog_object_id' in li for li in clean):
+        return r
+    app.logger.warning(f'Payment link with catalog items failed, retrying as custom lines: {r.text[:300]}')
+    if conn is not None:
+        # forget those catalog items so they're recreated next time (e.g. someone deleted them in Square)
+        try:
+            used = [li['catalog_object_id'] for li in clean if li.get('catalog_object_id')]
+            execute(conn, "DELETE FROM settings WHERE key LIKE 'sq_var:%%' AND value = ANY(%s)", (used,))
+            conn.commit()
+        except Exception:
+            try: conn.rollback()
+            except Exception: pass
+    payload['idempotency_key'] = uuid.uuid4().hex
+    payload['order']['line_items'] = [{'name': li.get('_custom_name') or li.get('name') or 'Item', 'quantity': '1',
+                                       'base_price_money': li['base_price_money']} for li in lines]
+    return requests.post(f'{SQUARE_API_BASE}/v2/online-checkout/payment-links', json=payload, headers=square_headers(), timeout=15)
+
+
+# ── Program ad sales (ads, well wishes and cast grams) ──────────────────────────────
+# Public page: /playbill/<slug>. Staff manage products and orders in
+# Marquee → Playbill. Paid through Square like tickets and donations.
+PLAYBILL_KINDS = ('ad', 'well_wish', 'castgram')
+PLAYBILL_ARTWORK_TYPES = {'pdf': 'application/pdf', 'png': 'image/png', 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg'}
+PLAYBILL_ARTWORK_MAX = 15 * 1024 * 1024
+
+
+def _playbill_state(prod):
+    """(open, reason) — closed by staff, or past the deadline (end of day, Eastern)."""
+    if not prod.get('playbill_open'):
+        return False, 'Program ad orders aren\'t open for this show.'
+    dl = (prod.get('playbill_deadline') or '')[:10]
+    if dl and today_eastern().isoformat() > dl:
+        return False, 'The deadline for program ads for this show has passed.'
+    return True, ''
+
+
+def _playbill_sold(conn, product_id):
+    r = fetchone(conn, "SELECT COUNT(*) AS n FROM playbill_orders WHERE product_id=%s AND "
+                 "(status='paid' OR (status='pending' AND created_at > NOW() - INTERVAL '30 minutes'))", (product_id,)) or {}
+    return int(r.get('n') or 0)
+
+
+def _playbill_product_public(conn, p):
+    sold = _playbill_sold(conn, p['id'])
+    left = None if p.get('quantity_limit') is None else max(0, int(p['quantity_limit']) - sold)
+    return {'id': p['id'], 'kind': p['kind'], 'name': p['name'], 'description': p.get('description') or '',
+            'dimensions': p.get('dimensions') or '', 'page_fraction': p.get('page_fraction'),
+            'price_bw_cents': p.get('price_bw_cents'), 'price_color_cents': p.get('price_color_cents'),
+            'char_limit': p.get('char_limit'), 'artwork': p.get('artwork') or 'none', 'remaining': left}
+
+
+@app.route('/program-ads/<slug>')
+@app.route('/playbill/<slug>')
+def public_playbill_page(slug):
+    resp = send_from_directory('static', 'playbill.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/public/playbill/<slug>', methods=['GET'])
+def public_playbill_info(slug):
+    conn = get_db()
+    try:
+        prod = fetchone(conn, '''SELECT id, name, slug, description, image_url, ticket_logo_url, portal_color,
+                playbill_open, playbill_deadline, playbill_intro, playbill_specs FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+        if not prod:
+            return jsonify({'error': 'Show not found'}), 404
+        is_open, why = _playbill_state(prod)
+        products = fetchall(conn, '''SELECT * FROM playbill_products WHERE production_id=%s AND active=TRUE
+            ORDER BY CASE kind WHEN 'ad' THEN 0 WHEN 'well_wish' THEN 1 ELSE 2 END, sort_order, price_bw_cents''', (prod['id'],)) or []
+        return jsonify({'production': {k: prod.get(k) for k in ('id', 'name', 'slug', 'image_url', 'ticket_logo_url', 'portal_color',
+                                                             'playbill_deadline', 'playbill_intro', 'playbill_specs')},
+                        'open': is_open, 'closed_reason': why,
+                        'products': [_playbill_product_public(conn, p) for p in products] if is_open else []})
+    finally:
+        conn.close()
+
+
+@app.route('/api/public/playbill/artwork', methods=['POST'])
+def public_playbill_artwork_upload():
+    f = request.files.get('file')
+    if not f or not f.filename:
+        return jsonify({'error': 'Choose a file to upload.'}), 400
+    ext = f.filename.rsplit('.', 1)[-1].lower() if '.' in f.filename else ''
+    if ext not in PLAYBILL_ARTWORK_TYPES:
+        return jsonify({'error': 'Artwork must be a PDF, PNG or JPG.'}), 400
+    data = f.read(PLAYBILL_ARTWORK_MAX + 1)
+    if len(data) > PLAYBILL_ARTWORK_MAX:
+        return jsonify({'error': 'That file is over 15 MB. Please send a smaller version.'}), 400
+    aid = uuid.uuid4().hex
+    conn = get_db()
+    execute(conn, 'INSERT INTO playbill_artwork (id, filename, mime, size_bytes, data) VALUES (%s,%s,%s,%s,%s)',
+            (aid, f.filename[:200], PLAYBILL_ARTWORK_TYPES[ext], len(data), psycopg2.Binary(data)))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'artwork_id': aid, 'filename': f.filename, 'size_bytes': len(data)})
+
+
+@app.route('/api/public/playbill/<slug>/checkout', methods=['POST'])
+def public_playbill_checkout(slug):
+    d = request.json or {}
+    name = (d.get('name') or '').strip()
+    email = (d.get('email') or '').strip().lower()
+    phone = (d.get('phone') or '').strip()
+    items = d.get('items') or []
+    if not name or '@' not in email:
+        return jsonify({'error': 'Enter your name and email.'}), 400
+    if not items:
+        return jsonify({'error': 'Add something to your order first.'}), 400
+    if not SQUARE_ACCESS_TOKEN or not SQUARE_LOCATION_ID:
+        return jsonify({'error': 'Payments aren\'t set up yet.'}), 500
+    conn = get_db()
+    try:
+        prod = fetchone(conn, 'SELECT id, name, playbill_open, playbill_deadline FROM productions WHERE slug=%s OR id=%s', (slug, slug))
+        if not prod:
+            return jsonify({'error': 'Show not found'}), 404
+        is_open, why = _playbill_state(prod)
+        if not is_open:
+            return jsonify({'error': why}), 400
+        cart_id = uuid.uuid4().hex
+        rows, line_items, want = [], [], {}
+        for it in items:
+            p = fetchone(conn, 'SELECT * FROM playbill_products WHERE id=%s AND production_id=%s AND active=TRUE',
+                         (it.get('product_id'), prod['id']))
+            if not p:
+                return jsonify({'error': 'One of the items is no longer available. Remove it and try again.'}), 400
+            color = 'color' if it.get('color_mode') == 'color' else 'bw'
+            price = p.get('price_color_cents') if color == 'color' else p.get('price_bw_cents')
+            if price is None:  # only one option offered
+                price = p.get('price_bw_cents') if p.get('price_bw_cents') is not None else p.get('price_color_cents')
+                color = 'bw' if p.get('price_bw_cents') is not None else 'color'
+            if price is None or price < 0:
+                return jsonify({'error': p['name'] + ' has no price set yet.'}), 400
+            want[p['id']] = want.get(p['id'], 0) + 1
+            if p.get('quantity_limit') is not None and _playbill_sold(conn, p['id']) + want[p['id']] > int(p['quantity_limit']):
+                return jsonify({'error': p['name'] + ' is sold out (or there aren\'t enough left).'}), 400
+            msg = (it.get('message') or '').strip()
+            if p['kind'] in ('well_wish', 'castgram') and not msg:
+                return jsonify({'error': 'Write your message for ' + p['name'] + '.'}), 400
+            if p.get('char_limit') and len(msg) > int(p['char_limit']):
+                return jsonify({'error': 'Your ' + p['name'] + ' message is over ' + str(p['char_limit']) + ' characters.'}), 400
+            art = (it.get('artwork_id') or '').strip() or None
+            if (p.get('artwork') or 'none') == 'required' and not art:
+                return jsonify({'error': 'Upload your artwork for ' + p['name'] + '.'}), 400
+            if art and not fetchone(conn, 'SELECT 1 AS x FROM playbill_artwork WHERE id=%s', (art,)):
+                art = None
+            if p['kind'] == 'castgram' and not (it.get('recipient') or '').strip():
+                return jsonify({'error': 'Say who your cast gram is for.'}), 400
+            oid = uuid.uuid4().hex
+            label = p['name'] + ((' (' + ('Color' if color == 'color' else 'Black & white') + ')')
+                                  if (p.get('price_bw_cents') is not None and p.get('price_color_cents') is not None) else '')
+            rows.append((oid, cart_id, prod['id'], p['id'], label, p['kind'], color, int(price), name, email, phone,
+                         (it.get('business_name') or '').strip()[:120] or None, (it.get('recipient') or '').strip()[:120] or None,
+                         msg[:2000] or None, (it.get('notes') or '').strip()[:2000] or None, art))
+            line_items.append(square_line(conn, 'program_ads:' + prod['id'], prod['name'] + ' Program Ads', 'Program Ads', int(price),
+                                          prod['name'] + ' program: ' + label,
+                                          label + ((' — ' + (it.get('business_name') or it.get('recipient') or '').strip()) if (it.get('business_name') or it.get('recipient')) else '')))
+        for r in rows:
+            execute(conn, '''INSERT INTO playbill_orders (id, cart_id, production_id, product_id, product_name, kind, color_mode,
+                price_cents, buyer_name, buyer_email, buyer_phone, business_name, recipient, message, notes, artwork_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''', r)
+        conn.commit()
+        total = sum(r[7] for r in rows)
+        if total == 0:
+            execute(conn, "UPDATE playbill_orders SET status='paid', paid_at=NOW() WHERE cart_id=%s", (cart_id,))
+            conn.commit()
+            finalize_playbill_cart(conn, cart_id)
+            return jsonify({'ok': True, 'free': True, 'cart_id': cart_id})
+        payload = {'idempotency_key': uuid.uuid4().hex,
+                   'order': {'location_id': SQUARE_LOCATION_ID, 'line_items': [li for li in line_items if li['base_price_money']['amount'] > 0],
+                             'reference_id': ('ads-' + cart_id)[:40],
+                             'metadata': {'rolecall': 'program_ads', 'production': prod['name'][:255]}},
+                   'checkout_options': {'redirect_url': f'{APP_BASE_URL}/program-ads/confirmation?order={cart_id}', 'ask_for_shipping_address': False},
+                   'pre_populated_data': {'buyer_email': email},
+                   'description': (prod['name'] + ' program ad order from ' + name)[:255]}
+        r = square_payment_link_with_fallback(payload, conn)
+        data = r.json()
+        if r.status_code == 200 and data.get('payment_link'):
+            lnk = data['payment_link']
+            execute(conn, 'UPDATE playbill_orders SET square_order_id=%s, square_checkout_id=%s WHERE cart_id=%s',
+                    (lnk.get('order_id'), lnk.get('id'), cart_id))
+            conn.commit()
+            return jsonify({'ok': True, 'payment_url': lnk.get('url'), 'cart_id': cart_id})
+        app.logger.error(f'Playbill payment link failed: {data}')
+        return jsonify({'error': 'Couldn\'t start the payment. Please try again.'}), 500
+    finally:
+        conn.close()
+
+
+def finalize_playbill_cart(conn, cart_id):
+    """Paid: send the buyer a confirmation and post to Slack (once)."""
+    rows = fetchall(conn, '''SELECT o.*, p.name AS production_name FROM playbill_orders o
+        JOIN productions p ON p.id=o.production_id WHERE o.cart_id=%s AND o.status='paid' ''', (cart_id,)) or []
+    if not rows:
+        return
+    try:
+        items = ''.join('<tr><td style="padding:6px 0">' + (r['product_name'] or '') + (' for ' + r['recipient'] if r.get('recipient') else '')
+                        + '</td><td style="padding:6px 0;text-align:right">$%.2f</td></tr>' % ((r['price_cents'] or 0) / 100.0) for r in rows)
+        body = ('<p>Hi ' + (rows[0]['buyer_name'] or '').split(' ')[0] + ',</p><p>Thank you for supporting <strong>'
+                + rows[0]['production_name'] + '</strong>! Here\'s what you ordered for the show program:</p>'
+                '<table style="width:100%;border-collapse:collapse;font-size:14px">' + items + '</table>'
+                '<p>We\'ll reach out if we have any questions about your artwork or message.</p>')
+        send_email([rows[0]['buyer_email']], 'Your ' + rows[0]['production_name'] + ' program ad order',
+                   build_hwtc_email_html('Program ad order confirmed', body), source='playbill_order')
+    except Exception as e:
+        app.logger.warning(f'Playbill confirmation email failed: {e}')
+    try:
+        url = (_setting(conn, 'slack_ticket_webhook') or '').strip()
+        if url and _setting(conn, 'slack_ticket_enabled', '1') == '1':
+            tot = fetchone(conn, "SELECT COALESCE(SUM(price_cents),0) AS c, COUNT(*) AS n FROM playbill_orders WHERE production_id=%s AND status='paid'",
+                           (rows[0]['production_id'],)) or {}
+            who = rows[0]['buyer_name'] if _setting(conn, 'slack_ticket_names', '1') == '1' else 'Someone'
+            lines = '\n'.join('• ' + (r['product_name'] or '') + (' for ' + r['recipient'] if r.get('recipient') else '')
+                              + (' (' + r['business_name'] + ')' if r.get('business_name') else '') + ' — ' + _money(r['price_cents']) for r in rows)
+            _post_slack(url, {'text': ':newspaper: *' + who + '* ordered program ads for *' + rows[0]['production_name'] + '*\n' + lines
+                              + '\nProgram ads so far: ' + str(tot.get('n') or 0) + ' items · *' + _money(tot.get('c')) + '*'
+                              + '\n<' + APP_BASE_URL.rstrip('/') + '/#marquee/playbill|View program ad orders →>'})
+    except Exception as e:
+        app.logger.warning(f'Playbill Slack post failed: {e}')
+
+
+@app.route('/api/public/playbill/order/<cart_id>', methods=['GET'])
+def public_playbill_order(cart_id):
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT o.product_name, o.recipient, o.price_cents, o.status, o.square_order_id, p.name AS production_name, p.slug
+            FROM playbill_orders o JOIN productions p ON p.id=o.production_id WHERE o.cart_id=%s''', (cart_id,)) or []
+        if not rows:
+            return jsonify({'error': 'Order not found'}), 404
+        # if Square's webhook hasn't landed yet, ask Square directly
+        if rows[0]['status'] == 'pending' and rows[0].get('square_order_id'):
+            try:
+                rr = requests.get(f"{SQUARE_API_BASE}/v2/orders/{rows[0]['square_order_id']}", headers=square_headers(), timeout=10)
+                o = (rr.json() or {}).get('order') or {}
+                if o.get('state') == 'COMPLETED' or any(t.get('type') for t in o.get('tenders') or []):
+                    execute(conn, "UPDATE playbill_orders SET status='paid', paid_at=NOW() WHERE cart_id=%s AND status='pending'", (cart_id,))
+                    conn.commit()
+                    finalize_playbill_cart(conn, cart_id)
+                    for r in rows: r['status'] = 'paid'
+            except Exception as e:
+                app.logger.warning(f'Playbill status check failed: {e}')
+        return jsonify({'production_name': rows[0]['production_name'], 'slug': rows[0]['slug'], 'status': rows[0]['status'],
+                        'items': [{'name': r['product_name'], 'recipient': r['recipient'], 'price_cents': r['price_cents']} for r in rows]})
+    finally:
+        conn.close()
+
+
+# ── staff: Marquee → Playbill ──
+@app.route('/api/marquee/playbill/<pid>', methods=['GET', 'PUT'])
+def marquee_playbill(pid):
+    err = require_permission('marquee', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            d = request.json or {}
+            execute(conn, '''UPDATE productions SET playbill_open=%s, playbill_deadline=%s, playbill_intro=%s, playbill_specs=%s WHERE id=%s''',
+                    (bool(d.get('open')), (d.get('deadline') or '')[:10] or None, (d.get('intro') or '')[:2000], (d.get('specs') or '')[:2000], pid))
+            conn.commit()
+        prod = fetchone(conn, 'SELECT id, name, slug, playbill_open, playbill_deadline, playbill_intro, playbill_specs FROM productions WHERE id=%s', (pid,))
+        if not prod:
+            return jsonify({'error': 'Show not found'}), 404
+        products = fetchall(conn, '''SELECT p.*, (SELECT COUNT(*) FROM playbill_orders o WHERE o.product_id=p.id AND o.status='paid') AS sold
+            FROM playbill_products p WHERE p.production_id=%s
+            ORDER BY CASE p.kind WHEN 'ad' THEN 0 WHEN 'well_wish' THEN 1 ELSE 2 END, p.sort_order, p.price_bw_cents''', (pid,)) or []
+        orders = fetchall(conn, '''SELECT o.*, a.filename AS artwork_filename, a.size_bytes AS artwork_size
+            FROM playbill_orders o LEFT JOIN playbill_artwork a ON a.id=o.artwork_id
+            WHERE o.production_id=%s AND o.status IN ('paid','pending','cancelled')
+              AND NOT (o.status='pending' AND o.created_at < NOW() - INTERVAL '2 days')
+            ORDER BY o.created_at DESC''', (pid,)) or []
+        paid = [o for o in orders if o['status'] == 'paid']
+        return jsonify({'production': prod, 'products': products, 'orders': orders,
+                        'totals': {'paid_cents': sum(o['price_cents'] or 0 for o in paid), 'paid_count': len(paid),
+                                   'ads': sum(1 for o in paid if o['kind'] == 'ad'), 'well_wishes': sum(1 for o in paid if o['kind'] == 'well_wish'),
+                                   'castgrams': sum(1 for o in paid if o['kind'] == 'castgram')}})
+    finally:
+        conn.close()
+
+
+@app.route('/api/marquee/playbill/<pid>/products', methods=['POST'])
+@app.route('/api/marquee/playbill/products/<prid>', methods=['PUT', 'DELETE'])
+def marquee_playbill_product(pid=None, prid=None):
+    err = require_permission('marquee', 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'DELETE':
+            used = fetchone(conn, "SELECT 1 AS x FROM playbill_orders WHERE product_id=%s AND status='paid' LIMIT 1", (prid,))
+            if used:
+                execute(conn, 'UPDATE playbill_products SET active=FALSE WHERE id=%s', (prid,))
+            else:
+                execute(conn, 'DELETE FROM playbill_products WHERE id=%s', (prid,))
+            conn.commit()
+            return jsonify({'ok': True, 'deactivated': bool(used)})
+        d = request.json or {}
+        kind = d.get('kind') if d.get('kind') in PLAYBILL_KINDS else 'ad'
+        def pcents(k):
+            v = d.get(k)
+            if v in (None, ''):
+                return None
+            try: return max(0, int(round(float(v) * 100)))
+            except (TypeError, ValueError): return None
+        def pnum(k):
+            try: return int(d.get(k)) if d.get(k) not in (None, '') else None
+            except (TypeError, ValueError): return None
+        try:
+            frac = float(d.get('page_fraction')) if d.get('page_fraction') not in (None, '') else None
+        except (TypeError, ValueError):
+            frac = None
+        name = (d.get('name') or '').strip()[:120]
+        if not name:
+            return jsonify({'error': 'Give it a name, like "Full page" or "Cast gram".'}), 400
+        bw, color = pcents('price_bw'), pcents('price_color')
+        if bw is None and color is None:
+            return jsonify({'error': 'Set at least one price.'}), 400
+        art = d.get('artwork') if d.get('artwork') in ('required', 'optional', 'none') else ('required' if kind == 'ad' else 'none')
+        vals = (kind, name, (d.get('description') or '')[:500], (d.get('dimensions') or '')[:60], frac, bw, color,
+                pnum('quantity_limit'), pnum('char_limit'), art, bool(d.get('active', True)), pnum('sort_order') or 0)
+        if request.method == 'POST':
+            execute(conn, '''INSERT INTO playbill_products (id, production_id, kind, name, description, dimensions, page_fraction,
+                price_bw_cents, price_color_cents, quantity_limit, char_limit, artwork, active, sort_order)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''', (uuid.uuid4().hex, pid) + vals)
+        else:
+            execute(conn, '''UPDATE playbill_products SET kind=%s, name=%s, description=%s, dimensions=%s, page_fraction=%s,
+                price_bw_cents=%s, price_color_cents=%s, quantity_limit=%s, char_limit=%s, artwork=%s, active=%s, sort_order=%s
+                WHERE id=%s''', vals + (prid,))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/marquee/playbill/<pid>/copy-from/<src>', methods=['POST'])
+def marquee_program_ads_copy(pid, src):
+    """Copy another production's program ad items (sizes, prices, limits)."""
+    err = require_permission('marquee', 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, 'SELECT * FROM playbill_products WHERE production_id=%s AND active=TRUE ORDER BY sort_order', (src,)) or []
+        for r in rows:
+            execute(conn, '''INSERT INTO playbill_products (id, production_id, kind, name, description, dimensions, page_fraction,
+                price_bw_cents, price_color_cents, quantity_limit, char_limit, artwork, active, sort_order)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,%s)''',
+                (uuid.uuid4().hex, pid, r['kind'], r['name'], r.get('description') or '', r.get('dimensions') or '', r.get('page_fraction'),
+                 r.get('price_bw_cents'), r.get('price_color_cents'), r.get('quantity_limit'), r.get('char_limit'), r.get('artwork') or 'none',
+                 r.get('sort_order') or 0))
+        conn.commit()
+        return jsonify({'ok': True, 'copied': len(rows)})
+    finally:
+        conn.close()
+
+
+@app.route('/api/marquee/playbill/orders/<oid>', methods=['PUT'])
+def marquee_playbill_order_update(oid):
+    err = require_permission('marquee', 'edit')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    if d.get('proof_status') in ('received', 'approved', 'needs_changes', 'placed'):
+        execute(conn, 'UPDATE playbill_orders SET proof_status=%s WHERE id=%s', (d['proof_status'], oid))
+    if 'staff_notes' in d:
+        execute(conn, 'UPDATE playbill_orders SET staff_notes=%s WHERE id=%s', ((d.get('staff_notes') or '')[:2000], oid))
+    if d.get('status') == 'cancelled':
+        execute(conn, "UPDATE playbill_orders SET status='cancelled' WHERE id=%s AND status='pending'", (oid,))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/marquee/playbill/artwork/<aid>', methods=['GET'])
+def marquee_playbill_artwork(aid):
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    a = fetchone(conn, 'SELECT filename, mime, data FROM playbill_artwork WHERE id=%s', (aid,))
+    conn.close()
+    if not a:
+        return jsonify({'error': 'Not found'}), 404
+    from flask import Response
+    inline = request.args.get('view') == '1'
+    fn = (a.get('filename') or 'artwork').replace('"', '')
+    return Response(bytes(a['data']), mimetype=a.get('mime') or 'application/octet-stream',
+                    headers={'Content-Disposition': ('inline' if inline else 'attachment') + '; filename="' + fn + '"'})
+
+
+@app.route('/api/marquee/playbill/<pid>/export', methods=['GET'])
+def marquee_playbill_export(pid):
+    err = require_permission('marquee', 'view')
+    if err: return err
+    import csv, io
+    conn = get_db()
+    rows = fetchall(conn, '''SELECT o.*, a.filename AS artwork_filename FROM playbill_orders o
+        LEFT JOIN playbill_artwork a ON a.id=o.artwork_id
+        WHERE o.production_id=%s AND o.status='paid' ORDER BY o.kind, o.product_name, o.created_at''', (pid,)) or []
+    conn.close()
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(['Type', 'Item', 'Color', 'Price', 'Buyer', 'Email', 'Phone', 'Business / signed as', 'For (cast gram)',
+                'Message', 'Notes', 'Artwork file', 'Proof', 'Staff notes', 'Paid'])
+    for r in rows:
+        w.writerow([{'ad': 'Ad', 'well_wish': 'Well wish', 'castgram': 'Cast gram'}.get(r['kind'], r['kind']), r['product_name'],
+                    'Color' if r['color_mode'] == 'color' else 'B&W', '%.2f' % ((r['price_cents'] or 0) / 100.0),
+                    r['buyer_name'], r['buyer_email'], r['buyer_phone'], r['business_name'] or '', r['recipient'] or '',
+                    r['message'] or '', r['notes'] or '', r['artwork_filename'] or '', r['proof_status'], r['staff_notes'] or '',
+                    str(r.get('paid_at') or '')[:16]])
+    from flask import Response
+    return Response(buf.getvalue(), mimetype='text/csv', headers={'Content-Disposition': 'attachment; filename=program-ad-orders.csv'})
 
 
 def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):

@@ -3005,6 +3005,8 @@ def init_db():
             description TEXT DEFAULT '',
             created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS promo_code_id TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS public_sale_at TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_key TEXT",
         """UPDATE pending_donations pd SET ticket_cart_id = o.cart_id FROM ticket_orders o
             WHERE pd.ticket_cart_id IS NULL AND pd.square_checkout_id IS NOT NULL
               AND o.square_checkout_id = pd.square_checkout_id AND o.cart_id IS NOT NULL""",
@@ -38508,6 +38510,9 @@ def update_ticketing_settings(pid):
         if fee_percent < 0 or fee_flat_cents < 0: raise ValueError()
     except (TypeError, ValueError):
         return jsonify({'error': 'Service fee percent and flat amount must be zero or more'}), 400
+    public_sale_at = (d.get('public_sale_at') or '').strip()[:16] or None
+    if public_sale_at and not _presale_parse(public_sale_at):
+        return jsonify({'error': 'On-sale time isn\'t a valid date/time'}), 400
     try:
         default_donation = int(d.get('default_donation_cents') or 0)
     except (TypeError, ValueError):
@@ -38519,11 +38524,18 @@ def update_ticketing_settings(pid):
         charge_service_fee=%s, service_fee_percent=%s, service_fee_flat_cents=%s,
         default_donation_cents=%s WHERE id=%s''',
         (limit, charge_fee, fee_percent, fee_flat_cents, default_donation, pid))
+    execute(conn, 'UPDATE productions SET public_sale_at=%s WHERE id=%s', (public_sale_at, pid))
+    if d.get('presale') == 'new':
+        execute(conn, 'UPDATE productions SET presale_key=%s WHERE id=%s', (secrets.token_urlsafe(9), pid))
+    elif d.get('presale') == 'off':
+        execute(conn, 'UPDATE productions SET presale_key=NULL WHERE id=%s', (pid,))
     conn.commit()
+    saved = fetchone(conn, 'SELECT public_sale_at, presale_key, slug FROM productions WHERE id=%s', (pid,)) or {}
     conn.close()
     return jsonify({'ok': True, 'max_tickets_per_performance': limit,
         'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents,
-        'default_donation_cents': default_donation})
+        'default_donation_cents': default_donation,
+        'public_sale_at': saved.get('public_sale_at'), 'presale_key': saved.get('presale_key'), 'slug': saved.get('slug')})
 
 
 # ── VENUES ──────────────────────────────────────────────────────────────
@@ -39349,6 +39361,48 @@ def _clear_expired_holds(conn, performance_id):
     execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND expires_at < NOW()', (performance_id,))
 
 
+# ── Pre-sale and public on-sale time ──────────────────────────────────────
+# A production can set public_sale_at (Eastern, 'YYYY-MM-DDTHH:MM'). Before
+# then, its ticket page shows a countdown and nothing can be held or bought,
+# except through the private pre-sale link (/tickets/<slug>?presale=<key>).
+def _presale_parse(ts):
+    import datetime as _dt
+    try:
+        return _dt.datetime.fromisoformat((ts or '').strip()[:16])
+    except ValueError:
+        return None
+
+
+def production_sale_state(prod, presale_key=''):
+    """(allowed, info) for a production row with public_sale_at/presale_key."""
+    opens = _presale_parse(prod.get('public_sale_at'))
+    now = now_eastern()
+    info = {'public_sale_at': prod.get('public_sale_at') or None, 'presale': False,
+            'seconds_until_public': None}
+    if not opens or now >= opens:
+        return True, info
+    info['seconds_until_public'] = int((opens - now).total_seconds())
+    key = (presale_key or '').strip()
+    if prod.get('presale_key') and key and hmac.compare_digest(key, prod['presale_key']):
+        info['presale'] = True
+        return True, info
+    return False, info
+
+
+def presale_block_for_performance(conn, performance_id, keys):
+    """None if this performance can be sold now, else an error response.
+    keys: {production_id: presale_key} from the buyer's page."""
+    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key FROM performances pf
+        JOIN productions pr ON pr.id=pf.production_id WHERE pf.id=%s''', (performance_id,))
+    if not p:
+        return None
+    ok, info = production_sale_state(p, (keys or {}).get(p['id']) or '')
+    if ok:
+        return None
+    return jsonify({'error': 'Tickets for this show aren\'t on sale yet.', 'not_on_sale': True,
+                    'seconds_until_public': info['seconds_until_public']}), 403
+
+
 @app.route('/api/public/production/<slug>/performances', methods=['GET'])
 def public_production_performances(slug):
     """Lists on-sale performances for a production's ticket page, so the
@@ -39356,16 +39410,22 @@ def public_production_performances(slug):
     conn = get_db()
     prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url, ticket_logo_url,
         max_tickets_per_performance, default_donation_cents, charge_service_fee, service_fee_percent, service_fee_flat_cents,
-        venue AS venue_text FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+        venue AS venue_text, public_sale_at, presale_key FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
     if not prod:
         conn.close(); return jsonify({'error': 'Production not found'}), 404
+    allowed, sale = production_sale_state(prod, request.args.get('presale') or '')
+    prod.pop('presale_key', None)
+    if not allowed:
+        # Countdown only: no dates or seat maps until the public sale opens
+        conn.close()
+        return jsonify({'production': prod, 'performances': [], 'sale': sale})
     perfs = fetchall(conn, '''SELECT pf.*, v.name AS venue_name, v.address AS venue_address,
         v.city AS venue_city, v.notes AS venue_notes
         FROM performances pf LEFT JOIN venues v ON pf.venue_id=v.id
         WHERE pf.production_id=%s AND pf.status IN ('on_sale','sold_out')
         ORDER BY pf.performance_date, pf.performance_time''', (prod['id'],))
     conn.close()
-    return jsonify({'production': prod, 'performances': perfs})
+    return jsonify({'production': prod, 'performances': perfs, 'sale': sale})
 
 
 @app.route('/api/public/performances/<fid>/seat-status', methods=['GET'])
@@ -39448,6 +39508,9 @@ def public_hold_seats(fid):
     perf = fetchone(conn, 'SELECT id, production_id FROM performances WHERE id=%s', (fid,))
     if not perf:
         conn.close(); return jsonify({'error': 'Performance not found'}), 404
+    _blocked = presale_block_for_performance(conn, fid, d.get('presale_keys') or {})
+    if _blocked:
+        conn.close(); return _blocked
     _clear_expired_holds(conn, fid)
     sold_ids = {r['seat_id'] for r in fetchall(conn,
         'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,))}
@@ -39542,6 +39605,14 @@ def public_ticket_checkout():
     device_id = (d.get('device_id') or '').strip()[:64]
     buyer_ip = _request_client_ip()[:64]
     cart = d.get('cart') or []
+    _pconn = get_db()
+    try:
+        for _entry in cart:
+            _blocked = presale_block_for_performance(_pconn, (_entry or {}).get('performance_id'), d.get('presale_keys') or {})
+            if _blocked:
+                return _blocked
+    finally:
+        _pconn.close()
     donation_cents = d.get('donation_cents') or 0
     try:
         donation_cents = int(donation_cents)

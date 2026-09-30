@@ -3008,6 +3008,7 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS public_sale_at TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_key TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS share_name TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_opens_at TEXT",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS slack_notified_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sales_goal_cents INTEGER",
         """UPDATE pending_donations pd SET ticket_cart_id = o.cart_id FROM ticket_orders o
@@ -38529,6 +38530,11 @@ def update_ticketing_settings(pid):
         return jsonify({'error': 'Service fee percent and flat amount must be zero or more'}), 400
     public_sale_at = (d.get('public_sale_at') or '').strip()[:16] or None
     share_name = (d.get('share_name') or '').strip()[:60] or None
+    presale_opens_at = (d.get('presale_opens_at') or '').strip()[:16] or None
+    if presale_opens_at and not _presale_parse(presale_opens_at):
+        return jsonify({'error': 'Pre-sale open time isn\'t a valid date/time'}), 400
+    if presale_opens_at and public_sale_at and presale_opens_at >= public_sale_at:
+        return jsonify({'error': 'The pre-sale needs to open before the public on-sale time.'}), 400
     if public_sale_at and not _presale_parse(public_sale_at):
         return jsonify({'error': 'On-sale time isn\'t a valid date/time'}), 400
     try:
@@ -38542,19 +38548,20 @@ def update_ticketing_settings(pid):
         charge_service_fee=%s, service_fee_percent=%s, service_fee_flat_cents=%s,
         default_donation_cents=%s WHERE id=%s''',
         (limit, charge_fee, fee_percent, fee_flat_cents, default_donation, pid))
-    execute(conn, 'UPDATE productions SET public_sale_at=%s, share_name=%s WHERE id=%s', (public_sale_at, share_name, pid))
+    execute(conn, 'UPDATE productions SET public_sale_at=%s, share_name=%s, presale_opens_at=%s WHERE id=%s',
+            (public_sale_at, share_name, presale_opens_at, pid))
     if d.get('presale') == 'new':
         execute(conn, 'UPDATE productions SET presale_key=%s WHERE id=%s', (secrets.token_urlsafe(9), pid))
     elif d.get('presale') == 'off':
         execute(conn, 'UPDATE productions SET presale_key=NULL WHERE id=%s', (pid,))
     conn.commit()
-    saved = fetchone(conn, 'SELECT public_sale_at, presale_key, slug FROM productions WHERE id=%s', (pid,)) or {}
+    saved = fetchone(conn, 'SELECT public_sale_at, presale_key, slug, presale_opens_at FROM productions WHERE id=%s', (pid,)) or {}
     conn.close()
     return jsonify({'ok': True, 'max_tickets_per_performance': limit,
         'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents,
         'default_donation_cents': default_donation,
         'public_sale_at': saved.get('public_sale_at'), 'presale_key': saved.get('presale_key'), 'slug': saved.get('slug'),
-        'share_name': share_name})
+        'share_name': share_name, 'presale_opens_at': saved.get('presale_opens_at')})
 
 
 # ── VENUES ──────────────────────────────────────────────────────────────
@@ -39399,14 +39406,28 @@ def _presale_parse(ts):
 def production_sale_state(prod, presale_key=''):
     """(allowed, info) for a production row with public_sale_at/presale_key."""
     opens = _presale_parse(prod.get('public_sale_at'))
+    pre_opens = _presale_parse(prod.get('presale_opens_at'))
     now = now_eastern()
     info = {'public_sale_at': prod.get('public_sale_at') or None, 'presale': False,
-            'seconds_until_public': None}
+            'seconds_until_public': None, 'presale_opens_at': prod.get('presale_opens_at') or None,
+            'seconds_until_presale': None, 'presale_link': False}
+    key = (presale_key or '').strip()
+    key_ok = bool(prod.get('presale_key') and key and hmac.compare_digest(key, prod['presale_key']))
     if not opens or now >= opens:
+        # public sale is open (or has no set time): the pre-sale window only
+        # matters for Pre-Sale performances, handled by the caller
+        if key_ok:
+            info['presale_link'] = True
+            if pre_opens and now < pre_opens:
+                info['seconds_until_presale'] = int((pre_opens - now).total_seconds())
         return True, info
     info['seconds_until_public'] = int((opens - now).total_seconds())
-    key = (presale_key or '').strip()
-    if prod.get('presale_key') and key and hmac.compare_digest(key, prod['presale_key']):
+    if key_ok:
+        info['presale_link'] = True
+        if pre_opens and now < pre_opens:
+            # pre-sale link used before the pre-sale opens: count down to it
+            info['seconds_until_presale'] = int((pre_opens - now).total_seconds())
+            return False, info
         info['presale'] = True
         return True, info
     return False, info
@@ -39434,16 +39455,23 @@ def presale_block_for_performance(conn, performance_id, keys):
     """None if this performance can be sold now, else an error response.
     keys: {production_id: presale_key} from the buyer's page."""
     open_presale_performances_if_due(conn)
-    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pf.status AS perf_status FROM performances pf
+    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pr.presale_opens_at, pf.status AS perf_status FROM performances pf
         JOIN productions pr ON pr.id=pf.production_id WHERE pf.id=%s''', (performance_id,))
     if not p:
         return None
     key = (keys or {}).get(p['id']) or ''
     if p.get('perf_status') == 'presale' and not presale_key_ok(p, key):
         return jsonify({'error': 'This performance is only available through the pre-sale link right now.', 'not_on_sale': True}), 403
+    _po = _presale_parse(p.get('presale_opens_at'))
+    if p.get('perf_status') == 'presale' and _po and now_eastern() < _po:
+        return jsonify({'error': 'The pre-sale hasn\'t opened yet.', 'not_on_sale': True,
+                        'seconds_until_presale': int((_po - now_eastern()).total_seconds())}), 403
     ok, info = production_sale_state(p, key)
     if ok:
         return None
+    if info.get('seconds_until_presale'):
+        return jsonify({'error': 'The pre-sale hasn\'t opened yet.', 'not_on_sale': True,
+                        'seconds_until_presale': info['seconds_until_presale']}), 403
     return jsonify({'error': 'Tickets for this show aren\'t on sale yet.', 'not_on_sale': True,
                     'seconds_until_public': info['seconds_until_public']}), 403
 
@@ -39455,7 +39483,7 @@ def public_production_performances(slug):
     conn = get_db()
     prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url, ticket_logo_url,
         max_tickets_per_performance, default_donation_cents, charge_service_fee, service_fee_percent, service_fee_flat_cents,
-        venue AS venue_text, public_sale_at, presale_key FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+        venue AS venue_text, public_sale_at, presale_key, presale_opens_at FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
     if not prod:
         conn.close(); return jsonify({'error': 'Production not found'}), 404
     open_presale_performances_if_due(conn, prod['id'])
@@ -39472,7 +39500,7 @@ def public_production_performances(slug):
         FROM performances pf LEFT JOIN venues v ON pf.venue_id=v.id
         WHERE pf.production_id=%s AND pf.status IN %s
         ORDER BY pf.performance_date, pf.performance_time''',
-        (prod['id'], ('presale', 'on_sale', 'sold_out') if has_key else ('on_sale', 'sold_out')))
+        (prod['id'], ('presale', 'on_sale', 'sold_out') if (has_key and not sale.get('seconds_until_presale')) else ('on_sale', 'sold_out')))
     if has_key and any(p.get('status') == 'presale' for p in perfs):
         sale['presale'] = True
     conn.close()
@@ -41081,8 +41109,8 @@ def public_tickets_page(slug):
     from html import escape
     try:
         conn = get_db()
-        prod = fetchone(conn, '''SELECT id, name, share_name, description, image_url, ticket_logo_url, public_sale_at, presale_key
-            FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+        prod = fetchone(conn, '''SELECT id, name, share_name, description, image_url, ticket_logo_url, public_sale_at, presale_key,
+                presale_opens_at FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
         dates = fetchall(conn, '''SELECT performance_date FROM performances WHERE production_id=%s
             AND status IN ('presale','on_sale','sold_out') ORDER BY performance_date''', (prod['id'],)) if prod else []
         venue = fetchone(conn, '''SELECT v.name FROM performances pf JOIN venues v ON v.id=pf.venue_id
@@ -41112,7 +41140,11 @@ def public_tickets_page(slug):
         elif a.year == b.year and a.month == b.month: when = a.strftime('%b %-d') + '–' + b.strftime('%-d, %Y')
         else: when = a.strftime('%b %-d') + ' – ' + b.strftime('%b %-d, %Y')
     where = (venue or {}).get('name') or ''
-    if is_presale:
+    pre_opens = _presale_parse(prod.get('presale_opens_at'))
+    if is_presale and pre_opens and now_eastern() < pre_opens:
+        title = show + ' Pre-Sale Tickets'
+        desc = 'Pre-sale opens ' + pre_opens.strftime('%A, %b %-d at %-I:%M %p').replace(':00 ', ' ') + '.'
+    elif is_presale:
         title = show + ' Pre-Sale Tickets'
         desc = 'Early ticket access' + (' before the public sale on ' + opens.strftime('%b %-d') if before_public else '') + '.'
     elif before_public:

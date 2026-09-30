@@ -35836,6 +35836,7 @@ async function openTicketingSettings(pid){
   var feePct = prod && prod.service_fee_percent != null ? prod.service_fee_percent : 3.0
   var feeFlat = prod && prod.service_fee_flat_cents != null ? prod.service_fee_flat_cents : 30
   var donDefault = prod ? (parseInt(prod.default_donation_cents, 10) || 0) : 0
+  var presaleUrl = (prod && prod.presale_key && prod.slug) ? window.location.origin+'/tickets/'+prod.slug+'?presale='+prod.presale_key : ''
   showAdHocModal('ticketing-settings-modal', 'Ticketing Settings',
     '<div class="form-group"><label>Max Tickets Per Performance (per buyer)</label>'
     + '<input type="number" id="tk-max-per-perf" min="1" step="1" value="'+escHtml(String(current))+'" placeholder="No limit"/>'
@@ -35857,10 +35858,22 @@ async function openTicketingSettings(pid){
         return '<option value="'+o[0]+'"'+(donDefault===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('')
     + '</select>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">What the donation buttons start on at checkout. Buyers can still change it or pick No Thanks. Handy for free shows where you want to nudge a small gift.</div></div>'
+    + '<div style="border-top:1px solid var(--border);margin:16px 0"></div>'
+    + '<div class="form-group"><label>Public on-sale</label>'
+    + '<input type="datetime-local" id="tk-public-sale" value="'+escHtml((prod&&prod.public_sale_at)||'')+'"/>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Before this time the ticket page shows a countdown and nobody can buy, except through the pre-sale link below. Leave blank to sell as soon as performances are on sale. Eastern time.</div></div>'
+    + '<div class="form-group"><label>Private pre-sale link</label>'
+    + (presaleUrl
+        ? '<div style="display:flex;gap:6px;align-items:center"><input readonly value="'+escHtml(presaleUrl)+'" style="font-size:12px" onclick="this.select()"/>'
+          + '<button type="button" class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+presaleUrl+'\');toast(\'Pre-sale link copied\',\'success\')">Copy</button></div>'
+          + '<div style="display:flex;gap:10px;margin-top:6px;font-size:12px"><a href="#" onclick="saveTicketingSettings(\''+pid+'\',\'new\');return false">Make a new link</a><span style="color:var(--text-muted)">(the old one stops working)</span>'
+          + '<a href="#" style="color:#b91c1c;margin-left:auto" onclick="saveTicketingSettings(\''+pid+'\',\'off\');return false">Turn off pre-sale</a></div>'
+        : '<button type="button" class="btn btn-secondary btn-sm" onclick="saveTicketingSettings(\''+pid+'\',\'new\')">Create pre-sale link</button>')
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Anyone with this link can buy before the public on-sale time (cast families, donors, members). Share it privately. After the public on-sale time it works like the normal page.</div></div>'
     + '<button class="btn btn-primary" style="width:100%" onclick="saveTicketingSettings(\''+pid+'\')">Save</button>')
 }
 
-async function saveTicketingSettings(pid){
+async function saveTicketingSettings(pid, presaleAction){
   var raw = (document.getElementById('tk-max-per-perf')?.value || '').trim()
   var limit = raw === '' ? null : parseInt(raw, 10)
   if(raw !== '' && (!Number.isInteger(limit) || limit < 1)){ toast('Enter a whole number of 1 or more, or leave it blank','error'); return }
@@ -35872,7 +35885,9 @@ async function saveTicketingSettings(pid){
   var res = await api('/api/productions/'+pid+'/ticketing-settings', 'PUT', {
     max_tickets_per_performance: limit, charge_service_fee: feeOn,
     service_fee_percent: feePct, service_fee_flat_cents: feeFlat,
-    default_donation_cents: donDefault
+    default_donation_cents: donDefault,
+    public_sale_at: document.getElementById('tk-public-sale')?.value || '',
+    presale: presaleAction || ''
   })
   if(res.error){ toast(res.error,'error'); return }
   var prod = allProductions.find(function(p){ return p.id===pid })
@@ -35882,6 +35897,14 @@ async function saveTicketingSettings(pid){
     prod.service_fee_percent = feePct
     prod.service_fee_flat_cents = feeFlat
     prod.default_donation_cents = donDefault
+    prod.public_sale_at = res.public_sale_at || ''
+    prod.presale_key = res.presale_key || ''
+  }
+  if(presaleAction){
+    // stay in the dialog so the new link can be copied right away
+    toast(presaleAction==='new' ? 'Pre-sale link ready' : 'Pre-sale turned off', 'success')
+    openTicketingSettings(pid)
+    return
   }
   toast('Saved!','success')
   closeAdHocModal('ticketing-settings-modal')

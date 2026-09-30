@@ -330,15 +330,26 @@ async function init(){
     document.getElementById('app').innerHTML = '<div class="error-box">No production specified.</div>'
     return
   }
-  var data = await api('/api/public/production/'+encodeURIComponent(slug)+'/performances')
+  // Private pre-sale link: ?presale=KEY. Remembered on this device so the
+  // buyer can move between dates, the cart and checkout without losing it.
+  var urlKey = new URLSearchParams(window.location.search).get('presale') || ''
+  if(urlKey) presaleKeySave('slug:'+slug, urlKey)
+  var myKey = urlKey || presaleKeyGet('slug:'+slug)
+  var data = await api('/api/public/production/'+encodeURIComponent(slug)+'/performances'+(myKey?'?presale='+encodeURIComponent(myKey):''))
   if(data.error){
     document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
     return
   }
   var prod = data.production
-  setHero(prod.name, prod.portal_color, prod.ticket_logo_url, 'Tickets', prod.image_url)
+  var sale = data.sale || {}
+  if(myKey && sale.presale) presaleKeySave(prod.id, myKey)
+  setHero(prod.name, prod.portal_color, prod.ticket_logo_url, sale.presale ? 'Pre-Sale Tickets' : 'Tickets', prod.image_url)
   var perfs = data.performances || []
-  lastProd = prod; lastPerfs = perfs
+  lastProd = prod; lastPerfs = perfs; lastSale = sale
+  if(sale.seconds_until_public && !sale.presale){
+    renderOnSaleCountdown(prod, sale, !!myKey)
+    return
+  }
   if(!perfs.length){
     document.getElementById('app').innerHTML = renderAboutSection(prod.description)
       + '<div class="card">Tickets aren\'t on sale for this production yet — check back soon.</div>'
@@ -348,6 +359,52 @@ async function init(){
     return loadPerformance(perfs[0].id)
   }
   renderPerformancePicker(prod, perfs)
+}
+
+// ── Pre-sale keys + the "on sale soon" countdown ──
+var lastSale = {}
+function presaleKeysAll(){ try{ return JSON.parse(localStorage.getItem('hwtc_presale_keys')||'{}') }catch(e){ return {} } }
+function presaleKeyGet(k){ return presaleKeysAll()[k] || '' }
+function presaleKeySave(k, v){ try{ var all = presaleKeysAll(); all[k] = v; localStorage.setItem('hwtc_presale_keys', JSON.stringify(all)) }catch(e){} }
+function presaleKeysForServer(){
+  // {production_id: key} for every pre-sale this device has unlocked
+  var all = presaleKeysAll(), out = {}
+  Object.keys(all).forEach(function(k){ if(k.indexOf('slug:') !== 0) out[k] = all[k] })
+  return out
+}
+var _countdownTimer = null
+function renderOnSaleCountdown(prod, sale, badKey){
+  var target = Date.now() + (sale.seconds_until_public||0)*1000
+  var when = ''
+  try{
+    var p = String(sale.public_sale_at||'').split('T'), d = p[0], t = p[1]||'00:00'
+    var dt = new Date(d+'T12:00:00'), hh = +t.split(':')[0], mm = t.split(':')[1]
+    when = dt.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})+' at '+((hh%12)||12)+(mm!=='00'?':'+mm:'')+' '+(hh>=12?'PM':'AM')
+  }catch(e){}
+  document.getElementById('app').innerHTML = renderAboutSection(prod.description)
+    + '<div class="card" style="text-align:center;padding:28px 22px">'
+    + '<div style="font-size:12px;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Tickets on sale</div>'
+    + '<div style="font-size:18px;font-weight:800;margin-bottom:18px">'+escH(when)+'</div>'
+    + '<div id="onsale-count" style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap"></div>'
+    + (badKey ? '<div style="font-size:12.5px;color:#b91c1c;margin-top:16px">That pre-sale link isn\'t valid anymore. Tickets will be available here when the public sale opens.</div>' : '')
+    + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:16px">This page opens ticket sales on its own when the timer runs out.</div>'
+    + '</div>'
+  function box(n, label){ return '<div style="min-width:74px;background:var(--teal-light);border-radius:12px;padding:12px 10px"><div style="font-size:30px;font-weight:800;color:var(--teal-dark);font-variant-numeric:tabular-nums">'+n+'</div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted)">'+label+'</div></div>' }
+  function tick(){
+    var left = Math.max(0, Math.floor((target - Date.now())/1000))
+    var el = document.getElementById('onsale-count')
+    if(!el){ clearInterval(_countdownTimer); return }
+    var d = Math.floor(left/86400), h = Math.floor(left%86400/3600), m = Math.floor(left%3600/60), sec = left%60
+    el.innerHTML = (d ? box(d, d===1?'Day':'Days') : '') + box(String(h).padStart(2,'0'),'Hours') + box(String(m).padStart(2,'0'),'Minutes') + box(String(sec).padStart(2,'0'),'Seconds')
+    if(left <= 0){ clearInterval(_countdownTimer); setTimeout(function(){ window.location.reload() }, 1500) }
+  }
+  clearInterval(_countdownTimer); tick(); _countdownTimer = setInterval(tick, 1000)
+}
+function presaleBannerHTML(){
+  var sale = lastSale || {}
+  if(!sale.presale) return ''
+  var d = Math.ceil((sale.seconds_until_public||0)/86400)
+  return '<div class="card" style="background:var(--teal-light);border-color:var(--teal);padding:12px 16px;font-size:13.5px"><strong>Pre-sale access.</strong> You\'re getting tickets before the public'+(sale.seconds_until_public?', which opens '+(d<=1?'within a day':'in '+d+' days'):'')+'. Please don\'t share this link.</div>'
 }
 
 async function goBackToPerformances(){
@@ -384,6 +441,7 @@ function fmtPerfDate(d, t){
 }
 
 function renderPerformancePicker(prod, perfs){
+  setTimeout(function(){ var a = document.getElementById('app'); if(a && presaleBannerHTML() && a.innerHTML.indexOf('Pre-sale access.') < 0) a.insertAdjacentHTML('afterbegin', presaleBannerHTML()) }, 0)
   document.getElementById('app').innerHTML =
     renderAboutSection(prod.description)
     + '<div class="card"><div class="section-title">Select Your Date</div>'
@@ -423,7 +481,7 @@ async function loadPerformance(fid){
   // Same banner as the date picker; which performance you're buying for
   // is shown in the first card below instead of swapping the header.
   setHero(currentPerformance.production_name, currentPerformance.portal_color,
-    currentPerformance.ticket_logo_url || (lastProd && lastProd.ticket_logo_url), 'Tickets',
+    currentPerformance.ticket_logo_url || (lastProd && lastProd.ticket_logo_url), (lastSale && lastSale.presale) ? 'Pre-Sale Tickets' : 'Tickets',
     currentPerformance.production_image_url || (lastProd && lastProd.image_url))
   renderPurchaseScreen()
 }
@@ -431,6 +489,7 @@ async function loadPerformance(fid){
 function renderPurchaseScreen(){
   var reserved = currentPerformance.reserved_seating
   var html = ''
+  html += presaleBannerHTML()
   html += '<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 22px">'
     + '<div><div style="font-size:11.5px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:3px">Your Performance</div>'
     + '<div style="font-weight:800;font-size:16px">'+escH(fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time))+'</div>'
@@ -741,7 +800,7 @@ async function toggleSeat(seatId){
   selectedSeats[seatId] = defaultType ? defaultType.id : null
   refreshPickerAndCart()
   var res = await api('/api/public/performances/'+currentPerformance.id+'/hold-seats','POST',
-    {seat_ids:[seatId], session_token:getSessionToken()})
+    {seat_ids:[seatId], session_token:getSessionToken(), presale_keys: presaleKeysForServer()})
   if(res.error){
     delete selectedSeats[seatId]
     seat.status = 'held'
@@ -1073,6 +1132,7 @@ async function doCheckout(){
   var res = await api('/api/public/ticket-checkout','POST',{
     session_token: getSessionToken(), guardian_name: name, guardian_email: email, guardian_phone: phone,
     device_id: getDeviceId(), cart: cart, donation_cents: selectedDonationCents,
+    presale_keys: presaleKeysForServer(),
     promo_code: appliedDonorCode ? appliedDonorCode.code : ''
   })
   if(res.error){

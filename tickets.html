@@ -1,0 +1,1376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1"/>
+<title>Tickets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* HWTC brand blue (#16728b). --teal-dark is the main brand color used
+     for buttons/links; --teal is a lighter step for hovers and borders. */
+  --show-accent:#16728b;
+  --teal:#2a8fab; --teal-dark:#16728b; --teal-light:#e3f1f5;
+  --bg:#f7f7f5; --surface:#ffffff; --border:#e5e5e0; --border-md:#d4d4cc;
+  --text:#1f2937; --text-muted:#6b7280; --text-hint:#9ca3af;
+  --green:#16a34a; --green-light:#dcfce7;
+  --amber:#d97706; --amber-light:#fef3c7;
+  --red:#dc2626; --red-light:#fee2e2;
+  --radius:12px; --radius-lg:18px;
+  --shadow-md:0 4px 16px rgba(0,0,0,0.06);
+  --shadow-lg:0 16px 48px rgba(0,0,0,0.14);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+.wrap{max-width:900px;margin:0 auto;padding:0 18px 70px}
+
+/* Site header: HWTC's own identity, fixed teal, the same on every show's
+   page — never driven by --show-accent. This is what should say "you're
+   on an HWTC site" before you ever see which show it is. */
+.site-header{background:var(--surface);border-bottom:1px solid var(--border);padding:10px 28px;position:sticky;top:0;z-index:100;box-shadow:0 1px 8px rgba(0,0,0,0.04)}
+/* Three columns so the logo stays truly centered even when the cart
+   badge shows up on the right. */
+.site-header-inner{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px;min-height:56px}
+.site-header .brand{grid-column:2;display:flex;align-items:center;gap:10px}
+.site-header #cart-badge{grid-column:3;justify-self:end}
+.site-header img{height:60px;width:auto;display:block}
+@media(max-width:520px){.site-header{padding:8px 16px} .site-header img{height:46px}}
+/* The logo already spells out the company name — the text is only a
+   fallback for when the image can't load. */
+.site-header .brand-text{display:none;font-size:14.5px;font-weight:700;color:var(--teal-dark);letter-spacing:0.1px}
+.site-header.no-logo .brand-text{display:inline}
+
+/* Hero: the ONE place a show's own color/art takes over. */
+.hero{background:var(--show-accent);color:#fff;padding:44px 20px 40px;position:relative;overflow:hidden}
+.hero::after{content:'';position:absolute;inset:0;background:radial-gradient(circle at 85% -20%,rgba(255,255,255,0.16),transparent 55%);pointer-events:none}
+/* z-index keeps the title ABOVE the ::after shading — without it the
+   overlay painted on top of the text and made it look washed out. */
+.hero-inner{max-width:900px;margin:0 auto;position:relative;z-index:1}
+.hero h1{margin:0 0 6px;font-family:'Playfair Display',Georgia,serif;font-weight:800;font-size:34px;letter-spacing:0.2px;line-height:1.15;color:#fff}
+.hero .sub{font-size:13px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:rgba(255,255,255,0.85)}
+
+/* Show banner: the art fills the band; the title sits on a dark fade along
+   the bottom, lined up with the page content below it. */
+.hero-poster{display:flex;align-items:flex-end;min-height:clamp(220px,26vw,340px);padding:0 20px 58px;background-size:cover;background-position:center 30%}
+.hero-poster .hero-inner{width:100%}
+.hero-poster::after{background:linear-gradient(180deg,rgba(0,0,0,0) 35%,rgba(0,0,0,0.35) 65%,rgba(0,0,0,0.72) 100%)}
+.hero-poster h1{font-size:40px;text-shadow:0 2px 18px rgba(0,0,0,0.45)}
+.hero-poster .sub{text-shadow:0 1px 8px rgba(0,0,0,0.5)}
+@media(max-width:520px){.hero-poster{min-height:200px;padding:0 18px 50px} .hero h1,.hero-poster h1{font-size:26px}}
+
+/* Show title art (its own upload, separate from the banner photo). On wide
+   screens it floats centered in the open space left of the page column;
+   on narrower screens it sits above the title instead. */
+.hero-logo{position:absolute;z-index:1;top:0;bottom:30px;left:0;width:calc((100% - 900px) / 2);display:flex;align-items:center;justify-content:center;padding:24px;pointer-events:none}
+.hero-logo img{max-width:100%;max-height:100%;object-fit:contain;filter:drop-shadow(0 6px 18px rgba(0,0,0,0.35))}
+.hero-inner .hero-logo-inline{display:none}
+@media(max-width:1340px){
+  .hero-logo{display:none}
+  .hero-inner .hero-logo-inline{display:block;max-height:120px;max-width:min(320px,70%);object-fit:contain;margin-bottom:14px;filter:drop-shadow(0 6px 18px rgba(0,0,0,0.35))}
+  .hero-poster{min-height:clamp(260px,34vw,360px)}
+}
+@media(max-width:520px){.hero-inner .hero-logo-inline{max-height:90px}}
+
+.wrap{padding-top:26px}
+/* With a banner, the first card tucks up over its bottom edge instead of
+   leaving a strip of empty page between them. */
+body.has-poster .wrap{position:relative;z-index:2;margin-top:-30px;padding-top:0}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:22px;margin-bottom:16px;box-shadow:var(--shadow-md)}
+.venue-card{background:var(--teal-light);border-color:transparent}
+
+/* Every interactive/action element below uses HWTC teal, consistently,
+   regardless of which show's page this is — matching how a real venue's
+   own site keeps its buttons in its own brand color no matter what's
+   playing. Only the hero changes per show. */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:13px 22px;border-radius:var(--radius);border:none;font-size:14.5px;font-weight:700;cursor:pointer;font-family:inherit;transition:transform 0.08s ease,box-shadow 0.15s ease}
+.btn-primary{background:var(--teal-dark);color:#fff;box-shadow:0 4px 14px rgba(22,114,139,0.32)}
+.btn-primary:not(:disabled):hover{background:#125f74}
+.btn-primary:not(:disabled):hover{transform:translateY(-1px)}
+.btn-primary:disabled{opacity:0.4;cursor:not-allowed;box-shadow:none}
+.btn-secondary{background:var(--bg);color:var(--text);border:1.5px solid var(--border-md)}
+.perf-option{display:flex;justify-content:space-between;align-items:center;padding:18px 20px;border:1.5px solid var(--border);border-radius:var(--radius);margin-bottom:10px;transition:border-color 0.12s ease,box-shadow 0.12s ease}
+.perf-option:hover{border-color:var(--teal);box-shadow:var(--shadow-md)}
+.perf-option.selected{border-color:var(--teal-dark);background:var(--teal-light)}
+.perf-option .btn-primary{padding:10px 20px;font-size:13.5px;flex-shrink:0}
+input,select{font-family:inherit;font-size:14.5px;padding:11px 13px;border:1.5px solid var(--border-md);border-radius:var(--radius);width:100%;box-sizing:border-box}
+input:focus,select:focus{outline:none;border-color:var(--teal-dark)}
+label{font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);display:block;margin-bottom:6px}
+.form-group{margin-bottom:14px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:520px){.form-row{grid-template-columns:1fr}}
+.seat-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12.5px;color:var(--text-muted);margin-top:12px}
+.legend-dot{width:12px;height:12px;border-radius:50%;display:inline-block;margin-right:5px;vertical-align:middle;box-shadow:0 0 0 2px rgba(255,255,255,0.6) inset}
+.hold-countdown{background:var(--amber-light);color:#92400e;font-size:13px;font-weight:600;padding:9px 12px;border-radius:var(--radius);margin-bottom:14px;text-align:center}
+.hold-countdown-urgent{background:var(--red-light);color:#991b1b}
+.hold-countdown span{font-variant-numeric:tabular-nums;font-weight:800}
+.cart-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--border);font-size:14.5px}
+.cart-row:last-child{border-bottom:none}
+.total-row{display:flex;justify-content:space-between;font-family:'Playfair Display',Georgia,serif;font-size:20px;font-weight:800;padding-top:14px;margin-top:8px;border-top:2px solid var(--border)}
+.loading{text-align:center;padding:70px 20px;color:var(--text-muted)}
+.error-box{background:var(--red-light);color:#991b1b;padding:14px 16px;border-radius:var(--radius);font-size:14px}
+.qty-stepper{display:flex;align-items:center;gap:10px}
+.qty-btn{width:34px;height:34px;border-radius:50%;border:1.5px solid var(--border-md);background:var(--surface);font-size:17px;font-weight:700;cursor:pointer;transition:border-color 0.1s ease}
+.qty-btn:hover{border-color:var(--teal-dark)}
+.confirm-code{font-family:monospace;font-size:16px;font-weight:700;background:var(--teal-light);color:var(--teal-dark);padding:7px 14px;border-radius:8px;display:inline-block;letter-spacing:0.5px}
+.section-title{font-family:'Playfair Display',Georgia,serif;font-weight:700;font-size:17px;margin-bottom:10px}
+</style>
+</head>
+<body>
+
+<div class="site-header">
+  <div class="site-header-inner">
+    <div class="brand">
+      <img src="/static/images/hwtc_logo_teal.png" alt="Horizon West Theater Company" onerror="this.style.display='none';this.closest('.site-header').classList.add('no-logo')"/>
+      <span class="brand-text">Horizon West Theater Company</span>
+    </div>
+    <a href="/tickets/cart" id="cart-badge" style="display:none;font-size:13.5px;font-weight:700;color:var(--teal-dark);text-decoration:none;background:var(--teal-light);padding:6px 12px;border-radius:20px"></a>
+  </div>
+</div>
+<div id="hero-slot"></div>
+<div class="wrap" id="app">
+  <div class="loading">Loading…</div>
+</div>
+
+<script>
+var API = ''
+var sessionToken = null
+var currentPerformance = null
+var seats = []
+var ticketTypes = []
+var selectedSeats = {}   // seat_id -> ticket_type_id
+var showSeatLabels = false
+var gaQuantities = {}    // ticket_type_id -> quantity
+var stageInfo = null
+var mapShapes = []
+// Pan/zoom state for the buyer's seat picker, persisted across re-renders
+// (a seat click replaces the SVG's innerHTML, so without this every click
+// would silently reset back to fully zoomed out).
+var pickerZoom = 1
+var pickerViewCenter = null
+var pickerViewBase = null
+var holdTimer = null
+var holdExpiresAt = null
+var holdCountdownInterval = null
+
+function escH(s){ var d=document.createElement('div'); d.textContent=s==null?'':String(s); return d.innerHTML }
+function fmtMoney(c){ return '$'+((c||0)/100).toFixed(2) }
+
+// --- Multi-performance cart (localStorage, same idea as the classes/
+// programs cart) ---------------------------------------------------------
+// Each entry is one performance's selections. Adding a SECOND performance
+// doesn't touch the first's server-side seat holds at all -- those keep
+// running on their own 15-minute clock exactly as if the buyer had never
+// left that page; the cart is just this browser's memory of what to
+// submit together at checkout.
+function ticketCartGet(){ try{ return JSON.parse(localStorage.getItem('hwtc_ticket_cart')||'[]') }catch(e){ return [] } }
+function ticketCartSave(items){ localStorage.setItem('hwtc_ticket_cart', JSON.stringify(items)) }
+function ticketCartCount(){ return ticketCartGet().reduce(function(sum,item){ return sum + item.line_items.length }, 0) }
+
+// How many more tickets can be added for the CURRENT performance right
+// now, accounting for anything already sitting in the cart for it plus
+// whatever's currently selected live on the picker. Infinity when the
+// show has no limit set.
+function ticketsRemainingForCurrentPerformance(){
+  if(!lastProd || lastProd.max_tickets_per_performance == null) return Infinity
+  var limit = lastProd.max_tickets_per_performance
+  var inCart = ticketCartGet().find(function(item){ return item.performance_id === currentPerformance.id })
+  var alreadyInCart = inCart ? inCart.line_items.length : 0
+  var currentlySelected = currentPerformance.reserved_seating ? Object.keys(selectedSeats).length
+    : Object.values(gaQuantities).reduce(function(s,q){ return s+q }, 0)
+  return limit - alreadyInCart - currentlySelected
+}
+
+function updateCartBadge(){
+  var badge = document.getElementById('cart-badge')
+  if(!badge) return
+  var count = ticketCartCount()
+  if(count>0){ badge.style.display=''; badge.textContent=' Cart ('+count+')' }
+  else badge.style.display='none'
+}
+
+function addCurrentSelectionToCart(){
+  var lineItems = currentPerformanceLineItems()
+  if(!lineItems.length){ return }
+  var cart = ticketCartGet().filter(function(item){ return item.performance_id !== currentPerformance.id })
+  cart.push({
+    performance_id: currentPerformance.id,
+    production_name: lastProd ? lastProd.name : '',
+    performance_label: fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time),
+    venue_name: currentPerformance.venue_name || '',
+    reserved_seating: !!currentPerformance.reserved_seating,
+    session_token: getSessionToken(),
+    line_items: lineItems,
+    charge_service_fee: lastProd ? !!lastProd.charge_service_fee : false,
+    service_fee_percent: lastProd ? lastProd.service_fee_percent : 0,
+    service_fee_flat_cents: lastProd ? lastProd.service_fee_flat_cents : 0,
+    default_donation_cents: defaultDonationForCurrentShow()
+  })
+  ticketCartSave(cart)
+  // The holds behind these selections stay exactly as they were — only
+  // the LOCAL "what am I actively picking right now" state resets, so
+  // whichever show's page this is doesn't look like it still has an
+  // in-progress selection once it's been moved into the cart.
+  selectedSeats = {}; gaQuantities = {}
+  updateCartBadge()
+  renderPurchaseScreen()
+}
+
+// Turns the current picker's live selection into the same {seat_id,
+// ticket_type_id} / {ticket_type_id, quantity} shape the checkout
+// endpoint expects, whether this performance is reserved or GA.
+function currentPerformanceLineItems(){
+  if(currentPerformance.reserved_seating){
+    return Object.keys(selectedSeats).map(function(sid){
+      var seat = seats.find(function(s){ return s.id===sid })
+      var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
+      return {seat_id: sid, ticket_type_id: selectedSeats[sid], seat_label: seat?seat.seat_label:'', price_cents: tt?tt.price_cents:0}
+    })
+  }
+  var items = []
+  ticketTypes.forEach(function(tt){
+    var qty = gaQuantities[tt.id]||0
+    if(qty>0) items.push({ticket_type_id: tt.id, quantity: qty, seat_label: tt.name, price_cents: tt.price_cents})
+  })
+  return items
+}
+// Long-lived per-browser id (unlike the per-tab session token), so the
+// per-performance limit also counts earlier orders from this device.
+function getDeviceId(){
+  try{
+    var id = localStorage.getItem('hwtc_ticket_device')
+    if(!id){
+      id = 'dv_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,12)
+      localStorage.setItem('hwtc_ticket_device', id)
+    }
+    return id
+  }catch(e){ return '' }
+}
+
+function getSessionToken(){
+  if(sessionToken) return sessionToken
+  try{
+    sessionToken = sessionStorage.getItem('ticket_session_token')
+    if(!sessionToken){
+      sessionToken = 'tk_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10)
+      sessionStorage.setItem('ticket_session_token', sessionToken)
+    }
+  } catch(e){
+    sessionToken = 'tk_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10)
+  }
+  return sessionToken
+}
+
+async function api(path, method, body){
+  var opts = {method: method||'GET', headers:{'Content-Type':'application/json'}}
+  if(body) opts.body = JSON.stringify(body)
+  var res = await fetch(API+path, opts)
+  var data = null
+  try{ data = await res.json() }catch(e){}
+  if(!res.ok && data && !data.error) data.error = 'Something went wrong — please try again.'
+  return data || {error:'Something went wrong — please try again.'}
+}
+
+function setHero(name, color, logo, sub, imageUrl){
+  document.documentElement.style.setProperty('--show-accent', color || '#16728b')
+  var isPoster = !!imageUrl
+  document.body.classList.toggle('has-poster', isPoster)
+  var style = isPoster ? ' style="background-image:url(\''+imageUrl.replace(/'/g,"%27")+'\')"' : ''
+  // No small floating logo icon here — HWTC's own identity already lives
+  // in the site header above; duplicating a tiny badge inside the hero
+  // just read as a stray app icon rather than real show art.
+  var logoSafe = logo ? String(logo).replace(/"/g,'&quot;') : ''
+  document.getElementById('hero-slot').innerHTML =
+    '<div class="hero'+(isPoster?' hero-poster':'')+'"'+style+'>'
+    + (logoSafe ? '<div class="hero-logo"><img src="'+logoSafe+'" alt="" onerror="this.parentNode.style.display=\'none\'"/></div>' : '')
+    + '<div class="hero-inner">'
+    + (logoSafe ? '<img class="hero-logo-inline" src="'+logoSafe+'" alt="" onerror="this.style.display=\'none\'"/>' : '')
+    + '<h1>'+escH(name||'Tickets')+'</h1>'+(sub?'<div class="sub">'+escH(sub)+'</div>':'')
+    + '</div></div>'
+}
+
+function renderAboutSection(description){
+  if(!description) return ''
+  return '<div class="card"><div class="section-title">About This Show</div>'
+    + '<div style="font-size:14.5px;line-height:1.6;color:var(--text)">'+escH(description).replace(/\n/g,'<br>')+'</div></div>'
+}
+
+function renderVenueSection(perf){
+  if(!perf || !perf.venue_name) return ''
+  var fullAddress = [perf.venue_address, perf.venue_city].filter(Boolean).join(', ')
+  var mapsLink = fullAddress
+    ? '<a href="https://maps.google.com/?q='+encodeURIComponent(perf.venue_name+' '+fullAddress)+'" target="_blank" rel="noopener" style="font-size:12.5px;font-weight:700;color:var(--teal-dark);text-decoration:none">Get Directions →</a>'
+    : ''
+  return '<div class="card venue-card"><div class="section-title" style="font-size:15px">Venue</div>'
+    + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap">'
+    + '<div><div style="font-weight:700;font-size:14.5px">'+escH(perf.venue_name)+'</div>'
+    + (fullAddress?'<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(fullAddress)+'</div>':'')
+    + '</div>'
+    + mapsLink
+    + '</div>'
+    + (perf.venue_notes?'<div style="font-size:13px;color:var(--text);margin-top:12px;padding-top:12px;border-top:1px solid rgba(0,0,0,0.08);white-space:pre-wrap">'+escH(perf.venue_notes)+'</div>':'')
+    + '</div>'
+}
+
+var lastProd = null
+var lastPerfs = []
+
+async function init(){
+  var path = window.location.pathname
+  updateCartBadge()
+  if(path === '/tickets/confirmation'){
+    var params = new URLSearchParams(window.location.search)
+    return renderConfirmation(params.get('cart'))
+  }
+  if(path === '/tickets/cart'){
+    return renderCartPage()
+  }
+  var slug = path.replace(/^\/tickets\//,'').replace(/\/$/,'')
+  if(!slug){
+    document.getElementById('app').innerHTML = '<div class="error-box">No production specified.</div>'
+    return
+  }
+  // Private pre-sale link: ?presale=KEY. Only the link itself unlocks the
+  // pre-sale view; opening the normal link (even on a device that used the
+  // pre-sale link before) shows the normal page. The key is still kept for
+  // this device's cart/checkout, which may happen on a different page.
+  var urlKey = new URLSearchParams(window.location.search).get('presale') || ''
+  var myKey = urlKey
+  var data = await api('/api/public/production/'+encodeURIComponent(slug)+'/performances'+(myKey?'?presale='+encodeURIComponent(myKey):''))
+  if(data.error){
+    document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
+    return
+  }
+  var prod = data.production
+  var sale = data.sale || {}
+  if(myKey && sale.presale) presaleKeySave(prod.id, myKey)
+  setHero(prod.name, prod.portal_color, prod.ticket_logo_url, sale.presale ? 'Pre-Sale Tickets' : 'Tickets', prod.image_url)
+  var perfs = data.performances || []
+  lastProd = prod; lastPerfs = perfs; lastSale = sale
+  if(sale.seconds_until_public && !sale.presale){
+    renderOnSaleCountdown(prod, sale, !!myKey)
+    return
+  }
+  if(!perfs.length){
+    document.getElementById('app').innerHTML = renderAboutSection(prod.description)
+      + '<div class="card">Tickets aren\'t on sale for this production yet — check back soon.</div>'
+    return
+  }
+  if(perfs.length === 1){
+    return loadPerformance(perfs[0].id)
+  }
+  renderPerformancePicker(prod, perfs)
+}
+
+// ── Pre-sale keys + the "on sale soon" countdown ──
+var lastSale = {}
+function presaleKeysAll(){ try{ return JSON.parse(localStorage.getItem('hwtc_presale_keys')||'{}') }catch(e){ return {} } }
+function presaleKeyGet(k){ return presaleKeysAll()[k] || '' }
+function presaleKeySave(k, v){ try{ var all = presaleKeysAll(); all[k] = v; localStorage.setItem('hwtc_presale_keys', JSON.stringify(all)) }catch(e){} }
+function presaleKeysForServer(){
+  // {production_id: key} for every pre-sale this device has unlocked
+  var all = presaleKeysAll(), out = {}
+  Object.keys(all).forEach(function(k){ if(k.indexOf('slug:') !== 0) out[k] = all[k] })
+  return out
+}
+var _countdownTimer = null
+function renderOnSaleCountdown(prod, sale, badKey){
+  var target = Date.now() + (sale.seconds_until_public||0)*1000
+  var when = ''
+  try{
+    var p = String(sale.public_sale_at||'').split('T'), d = p[0], t = p[1]||'00:00'
+    var dt = new Date(d+'T12:00:00'), hh = +t.split(':')[0], mm = t.split(':')[1]
+    when = dt.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})+' at '+((hh%12)||12)+(mm!=='00'?':'+mm:'')+' '+(hh>=12?'PM':'AM')
+  }catch(e){}
+  document.getElementById('app').innerHTML = renderAboutSection(prod.description)
+    + '<div class="card" style="text-align:center;padding:28px 22px">'
+    + '<div style="font-size:12px;font-weight:800;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Tickets on sale</div>'
+    + '<div style="font-size:18px;font-weight:800;margin-bottom:18px">'+escH(when)+'</div>'
+    + '<div id="onsale-count" style="display:flex;justify-content:center;gap:10px;flex-wrap:wrap"></div>'
+    + (badKey ? '<div style="font-size:12.5px;color:#b91c1c;margin-top:16px">That pre-sale link isn\'t valid anymore. Tickets will be available here when the public sale opens.</div>' : '')
+    + '</div>'
+  function box(n, label){ return '<div style="min-width:74px;background:var(--teal-light);border-radius:12px;padding:12px 10px"><div style="font-size:30px;font-weight:800;color:var(--teal-dark);font-variant-numeric:tabular-nums">'+n+'</div><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-muted)">'+label+'</div></div>' }
+  function tick(){
+    var left = Math.max(0, Math.floor((target - Date.now())/1000))
+    var el = document.getElementById('onsale-count')
+    if(!el){ clearInterval(_countdownTimer); return }
+    var d = Math.floor(left/86400), h = Math.floor(left%86400/3600), m = Math.floor(left%3600/60), sec = left%60
+    el.innerHTML = (d ? box(d, d===1?'Day':'Days') : '') + box(String(h).padStart(2,'0'),'Hours') + box(String(m).padStart(2,'0'),'Minutes') + box(String(sec).padStart(2,'0'),'Seconds')
+    if(left <= 0){ clearInterval(_countdownTimer); setTimeout(function(){ window.location.reload() }, 1500) }
+  }
+  clearInterval(_countdownTimer); tick(); _countdownTimer = setInterval(tick, 1000)
+}
+function presaleBannerHTML(){
+  var sale = lastSale || {}
+  if(!sale.presale) return ''
+  var d = Math.ceil((sale.seconds_until_public||0)/86400)
+  return '<div class="card" style="background:var(--teal-light);border-color:var(--teal);padding:12px 16px;font-size:13.5px"><strong>Pre-sale access.</strong> You\'re getting tickets before the public'+(sale.seconds_until_public?', which opens '+(d<=1?'within a day':'in '+d+' days'):'')+'. Please don\'t share this link.</div>'
+}
+
+async function goBackToPerformances(){
+  // Release whatever's currently held so a seat doesn't sit locked for
+  // someone who's actually just backing out to look at other dates.
+  if(currentPerformance && Object.keys(selectedSeats).length){
+    await api('/api/public/performances/'+currentPerformance.id+'/release-hold','POST',
+      {seat_ids: Object.keys(selectedSeats), session_token: getSessionToken()})
+  }
+  if(holdTimer){ clearTimeout(holdTimer); holdTimer = null }
+  stopHoldCountdown()
+  selectedSeats = {}; gaQuantities = {}
+  setHero(lastProd.name, lastProd.portal_color, lastProd.ticket_logo_url, 'Tickets', lastProd.image_url)
+  renderPerformancePicker(lastProd, lastPerfs)
+}
+
+function fmtPerfDate(d, t){
+  if(!d) return ''
+  var dt
+  try{
+    var _d = new Date(d+'T12:00:00'), _n = _d.getDate()
+    var _suf = (_n % 100 >= 11 && _n % 100 <= 13) ? 'th' : ({1:'st',2:'nd',3:'rd'}[_n % 10] || 'th')
+    dt = _d.toLocaleDateString('en-US',{weekday:'long'}) + ', ' + _d.toLocaleDateString('en-US',{month:'long'}) + ' ' + _n + _suf + ', ' + _d.getFullYear()
+    if(isNaN(_n)) dt = d
+  }catch(e){ dt = d }
+  if(t){
+    try{
+      var p = t.split(':'), h = parseInt(p[0]), m = p[1], ap = h>=12?'PM':'AM'
+      h = h%12||12
+      dt += ' at '+h+(m&&m!=='00'?':'+m:'')+' '+ap
+    }catch(e){}
+  }
+  return dt
+}
+
+function renderPerformancePicker(prod, perfs){
+  setTimeout(function(){ var a = document.getElementById('app'); if(a && presaleBannerHTML() && a.innerHTML.indexOf('Pre-sale access.') < 0) a.insertAdjacentHTML('afterbegin', presaleBannerHTML()) }, 0)
+  document.getElementById('app').innerHTML =
+    renderAboutSection(prod.description)
+    + '<div class="card"><div class="section-title">Select Your Date</div>'
+    + perfs.map(function(p){
+        var full = p.status === 'sold_out'
+        return '<div class="perf-option" style="'+(full?'opacity:0.6':'')+'">'
+          + '<div><div style="font-weight:800;font-size:16px">'+escH(fmtPerfDate(p.performance_date, p.performance_time))+'</div>'
+          + '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(p.venue_name||'')+'</div></div>'
+          + (full?'<span style="font-size:12px;font-weight:700;color:var(--red)">SOLD OUT</span>':'<button class="btn btn-primary" onclick="loadPerformance(\''+p.id+'\')">Select</button>')
+          + '</div>'
+      }).join('')
+    + '</div>'
+}
+
+async function loadPerformance(fid){
+  document.getElementById('app').innerHTML = '<div class="loading">Loading seats…</div>'
+  selectedSeats = {}; gaQuantities = {}
+  pickerZoom = 1; pickerViewCenter = null; pickerViewBase = null
+  var data = await api('/api/public/performances/'+fid+'/seat-status?session_token='+encodeURIComponent(getSessionToken()))
+  if(data.error){
+    document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
+    return
+  }
+  currentPerformance = data.performance
+  seats = data.seats || []
+  ticketTypes = data.ticket_types || []
+  stageInfo = data.stage || null
+  mapShapes = data.shapes || []
+  // Restore any seats already held under this session (e.g. a page refresh
+  // mid-checkout) into the cart, defaulting to the first ticket type — so
+  // the picker and the cart agree on what's actually selected.
+  seats.forEach(function(s){
+    if(s.status==='mine' && !selectedSeats[s.id]){
+      selectedSeats[s.id] = ticketTypes[0] ? ticketTypes[0].id : null
+    }
+  })
+  // Same banner as the date picker; which performance you're buying for
+  // is shown in the first card below instead of swapping the header.
+  setHero(currentPerformance.production_name, currentPerformance.portal_color,
+    currentPerformance.ticket_logo_url || (lastProd && lastProd.ticket_logo_url), (lastSale && lastSale.presale) ? 'Pre-Sale Tickets' : 'Tickets',
+    currentPerformance.production_image_url || (lastProd && lastProd.image_url))
+  renderPurchaseScreen()
+}
+
+function renderPurchaseScreen(){
+  var reserved = currentPerformance.reserved_seating
+  var html = ''
+  html += presaleBannerHTML()
+  html += '<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 22px">'
+    + '<div><div style="font-size:11.5px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:3px">Your Performance</div>'
+    + '<div style="font-weight:800;font-size:16px">'+escH(fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time))+'</div>'
+    + (currentPerformance.venue_name ? '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(currentPerformance.venue_name)+'</div>' : '')
+    + '</div>'
+    + (lastPerfs.length > 1 ? '<button class="btn btn-secondary" style="padding:10px 16px;font-size:13.5px" onclick="goBackToPerformances()">← Change date</button>' : '')
+    + '</div>'
+  if(lastPerfs.length > 1){
+    // (back button lives in the performance card above)
+  } else if(lastProd){
+    // Only one date on sale means renderPerformancePicker (where the
+    // synopsis normally lives) never ran — show it here instead so it's
+    // not missing entirely.
+    html += renderAboutSection(lastProd.description)
+  }
+  html += '<div class="card">'
+  if(reserved && !ticketTypes.length){
+    // No point letting anyone pick a seat that has nothing valid to charge
+    // for it — that's a support headache waiting to happen, not a sale.
+    html += '<div class="section-title">Pick your seats</div>'
+    html += '<div class="error-box">Ticket pricing isn\'t set up for this performance yet — please check back soon, or contact us if you\'d like to reserve now.</div>'
+    html += '</div>'
+    html += '<div class="card" id="cart-card"></div>'
+    document.getElementById('app').innerHTML = html
+    return
+  }
+  if(reserved){
+    html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:2px">'
+      + '<div class="section-title" style="margin-bottom:0">Pick your seats</div>'
+      + '<label style="display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--text-muted);cursor:pointer"><input type="checkbox" id="show-seat-labels-toggle" '+(showSeatLabels?'checked':'')+' onchange="showSeatLabels=this.checked;refreshPickerAndCart()" style="width:auto"/> Show seat numbers</label>'
+      + '</div>'
+    html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Tap an available seat to select it. Selected seats are held for you for 15 minutes.</div>'
+    html += '<div id="seat-map-holder">'+renderPickerSVG()+'</div>'
+    html += '<div style="display:flex;gap:6px;justify-content:center;margin:8px 0 4px">'
+      + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomBy(0.8)" aria-label="Zoom out">−</button>'
+      + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomReset()">Reset View</button>'
+      + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomBy(1.25)" aria-label="Zoom in">+</button>'
+      + '<span id="picker-zoom-hint" style="font-size:11.5px;color:var(--text-muted);visibility:hidden">Drag to move around</span>'
+      + '</div>'
+    html += '<div class="seat-legend">'
+      + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.available+'"></span>Available</span>'
+      + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.mine+'"></span>Selected</span>'
+      + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.held+'"></span>Held by another buyer</span>'
+      + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.sold+'"></span>Sold</span>'
+      + (seats.some(function(s){return s.accessible})
+          ? '<span><svg width="14" height="14" viewBox="-0.5 -0.5 1 1" style="vertical-align:middle;margin-right:5px"><circle cx="0" cy="0" r="0.5" fill="'+SEAT_STATUS_COLORS.available+'"/>'+wheelchairIconSvg(0, 0, 0.5, '#fff')+'</svg>Wheelchair accessible</span>'
+          : '')
+      + (seats.some(function(s){return s.obstructed_view})
+          ? '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.available+';border:2px dashed #f59e0b;box-sizing:border-box"></span>Limited view</span>'
+          : '')
+      + '</div>'
+  } else {
+    html += '<div class="section-title">Select your tickets</div>'
+    html += ticketTypes.map(function(tt){
+      var qty = gaQuantities[tt.id] || 0
+      return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">'
+        + '<div><div style="font-weight:700">'+escH(tt.name)+'</div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">'+fmtMoney(tt.price_cents)+(tt.description?' · '+escH(tt.description):'')+'</div></div>'
+        + '<div class="qty-stepper">'
+        + '<button class="qty-btn" onclick="changeGaQty(\''+tt.id+'\',-1)">−</button>'
+        + '<span style="min-width:20px;text-align:center;font-weight:700">'+qty+'</span>'
+        + '<button class="qty-btn" onclick="changeGaQty(\''+tt.id+'\',1)">+</button>'
+        + '</div></div>'
+    }).join('')
+  }
+  html += '</div>'
+
+  html += '<div class="card" id="cart-card">'+renderCart()+'</div>'
+
+  html += renderVenueSection(currentPerformance)
+
+  html += renderDonationSection()
+
+  html += '<div class="card">'
+    + '<div class="section-title">Your info</div>'
+    + '<div class="form-group"><label>Name *</label><input type="text" id="tk-name"/></div>'
+    + '<div class="form-row">'
+    + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
+    + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
+    + '</div>'
+    + renderDonorCodeSection()
+    + '<div id="checkout-error"></div>'
+    + '<button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="checkout-btn" onclick="doCheckout()" disabled>Checkout</button>'
+    + '<button class="btn btn-secondary" style="width:100%" id="add-to-cart-btn" onclick="addCurrentSelectionToCart()" disabled> Add to Cart</button>'
+    + '<div style="font-size:12px;color:var(--text-muted);text-align:center;margin-top:6px">Buying tickets to more than one show? Add each to your cart, then check out together.</div>'
+    + '</div>'
+
+  document.getElementById('app').innerHTML = html
+  updateCheckoutButtonState()
+  wirePickerZoomEvents()
+}
+
+// --- Zoom + pan for the buyer's seat picker -----------------------------
+// Manipulates the existing <svg>'s viewBox attribute directly rather than
+// regenerating the SVG on every wheel tick or touchmove (seats are already
+// in SVG user-space, so moving the viewBox moves the whole picture, and
+// replacing the <svg> mid-gesture would break the gesture).
+// Zooming keeps the point under the cursor / between the fingers in place;
+// once zoomed in, dragging (mouse, or one finger) moves around the map.
+// The view is kept inside the map's bounds so it can't drift off into
+// empty space. A drag never counts as tapping a seat.
+var _pickerMouse = null, _pickerDragged = false
+function clampPickerCenter(){
+  var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
+  var minCx = pickerViewBase.cx - pickerViewBase.w/2 + vw/2, maxCx = pickerViewBase.cx + pickerViewBase.w/2 - vw/2
+  var minCy = pickerViewBase.cy - pickerViewBase.h/2 + vh/2, maxCy = pickerViewBase.cy + pickerViewBase.h/2 - vh/2
+  pickerViewCenter.x = Math.min(maxCx, Math.max(minCx, pickerViewCenter.x))
+  pickerViewCenter.y = Math.min(maxCy, Math.max(minCy, pickerViewCenter.y))
+}
+function applyPickerViewBox(svg){
+  clampPickerCenter()
+  var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
+  var vx = pickerViewCenter.x - vw/2, vy = pickerViewCenter.y - vh/2
+  svg.setAttribute('viewBox', vx+' '+vy+' '+vw+' '+vh)
+  // one finger scrolls the page at full view, and pans the map when zoomed
+  svg.style.touchAction = pickerZoom > 1.001 ? 'none' : 'pan-x pan-y'
+  svg.style.cursor = pickerZoom > 1.001 ? 'grab' : ''
+  var hint = document.getElementById('picker-zoom-hint')
+  if(hint) hint.style.visibility = pickerZoom > 1.001 ? 'visible' : 'hidden'
+}
+// SVG units per screen pixel for the current view ("meet" letterboxing)
+function pickerUnitsPerPx(svg){
+  var r = svg.getBoundingClientRect()
+  var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
+  return Math.max(vw/(r.width||1), vh/(r.height||1))
+}
+function pickerScreenToSvg(svg, clientX, clientY){
+  var r = svg.getBoundingClientRect(), k = pickerUnitsPerPx(svg)
+  return {x: pickerViewCenter.x + (clientX - (r.left + r.width/2))*k,
+          y: pickerViewCenter.y + (clientY - (r.top + r.height/2))*k}
+}
+function pickerZoomAt(svg, newZoom, clientX, clientY){
+  newZoom = Math.max(1, Math.min(6, newZoom))
+  if(clientX == null){ pickerZoom = newZoom; applyPickerViewBox(svg); return }
+  var before = pickerScreenToSvg(svg, clientX, clientY)
+  pickerZoom = newZoom
+  var after = pickerScreenToSvg(svg, clientX, clientY)
+  pickerViewCenter.x += before.x - after.x
+  pickerViewCenter.y += before.y - after.y
+  applyPickerViewBox(svg)
+}
+
+function pickerZoomBy(factor){
+  if(!pickerViewBase) return
+  var svg = document.getElementById('picker-svg')
+  if(svg) pickerZoomAt(svg, pickerZoom*factor)
+}
+
+function pickerZoomReset(){
+  if(!pickerViewBase) return
+  pickerZoom = 1
+  pickerViewCenter = {x: pickerViewBase.cx, y: pickerViewBase.cy}
+  var svg = document.getElementById('picker-svg')
+  if(svg) applyPickerViewBox(svg)
+}
+
+function pickerTouchDistance(touches){
+  var dx = touches[0].clientX - touches[1].clientX
+  var dy = touches[0].clientY - touches[1].clientY
+  return Math.sqrt(dx*dx+dy*dy)
+}
+
+function wirePickerZoomEvents(){
+  var svg = document.getElementById('picker-svg')
+  if(!svg || svg._zoomWired) return
+  svg._zoomWired = true
+  applyPickerViewBox(svg)
+  var DRAG_PX = 6
+
+  svg.addEventListener('wheel', function(evt){
+    evt.preventDefault()
+    pickerZoomAt(svg, pickerZoom*(evt.deltaY < 0 ? 1.12 : 0.89), evt.clientX, evt.clientY)
+  }, {passive:false})
+
+  // mouse / pen drag (move/up listen on the window so a drag that leaves
+  // the map still ends cleanly; registered once, since the map redraws)
+  svg.addEventListener('pointerdown', function(evt){
+    if(evt.pointerType === 'touch' || pickerZoom <= 1.001) return
+    _pickerMouse = {x: evt.clientX, y: evt.clientY, cx: pickerViewCenter.x, cy: pickerViewCenter.y}
+    _pickerDragged = false
+  })
+  if(!window._pickerPanWired){
+    window._pickerPanWired = true
+    window.addEventListener('pointermove', function(evt){
+      var m = _pickerMouse, sv = document.getElementById('picker-svg')
+      if(!m || !sv) return
+      var dx = evt.clientX - m.x, dy = evt.clientY - m.y
+      if(!_pickerDragged && Math.abs(dx) + Math.abs(dy) < 6) return
+      _pickerDragged = true
+      sv.style.cursor = 'grabbing'
+      var k = pickerUnitsPerPx(sv)
+      pickerViewCenter.x = m.cx - dx*k
+      pickerViewCenter.y = m.cy - dy*k
+      applyPickerViewBox(sv)
+    })
+    window.addEventListener('pointerup', function(){
+      if(!_pickerMouse) return
+      _pickerMouse = null
+      var sv = document.getElementById('picker-svg'); if(sv) applyPickerViewBox(sv)
+    })
+  }
+
+  // touch: one finger drags (when zoomed), two fingers pinch + move
+  var t1 = null, pinch = null
+  svg.addEventListener('touchstart', function(evt){
+    if(evt.touches.length === 2){
+      var mx = (evt.touches[0].clientX + evt.touches[1].clientX)/2, my = (evt.touches[0].clientY + evt.touches[1].clientY)/2
+      pinch = {dist: pickerTouchDistance(evt.touches), zoom: pickerZoom, mx: mx, my: my, anchor: pickerScreenToSvg(svg, mx, my)}
+      t1 = null; _pickerDragged = true
+    } else if(evt.touches.length === 1){
+      t1 = {x: evt.touches[0].clientX, y: evt.touches[0].clientY, cx: pickerViewCenter.x, cy: pickerViewCenter.y}
+      _pickerDragged = false
+    }
+  }, {passive:true})
+  svg.addEventListener('touchmove', function(evt){
+    if(evt.touches.length === 2 && pinch){
+      evt.preventDefault()
+      var mx = (evt.touches[0].clientX + evt.touches[1].clientX)/2, my = (evt.touches[0].clientY + evt.touches[1].clientY)/2
+      pickerZoom = Math.max(1, Math.min(6, pinch.zoom * (pickerTouchDistance(evt.touches)/pinch.dist)))
+      // keep the spot that started between the fingers under the fingers
+      var now = pickerScreenToSvg(svg, mx, my)
+      pickerViewCenter.x += pinch.anchor.x - now.x
+      pickerViewCenter.y += pinch.anchor.y - now.y
+      applyPickerViewBox(svg)
+    } else if(evt.touches.length === 1 && t1 && pickerZoom > 1.001){
+      var dx = evt.touches[0].clientX - t1.x, dy = evt.touches[0].clientY - t1.y
+      if(!_pickerDragged && Math.abs(dx) + Math.abs(dy) < DRAG_PX) return
+      evt.preventDefault()
+      _pickerDragged = true
+      var k = pickerUnitsPerPx(svg)
+      pickerViewCenter.x = t1.cx - dx*k
+      pickerViewCenter.y = t1.cy - dy*k
+      applyPickerViewBox(svg)
+    }
+  }, {passive:false})
+  function endTouch(evt){
+    if(!evt.touches || evt.touches.length < 2) pinch = null
+    if(!evt.touches || evt.touches.length === 0) t1 = null
+  }
+  svg.addEventListener('touchend', endTouch)
+  svg.addEventListener('touchcancel', endTouch)
+
+  // a drag that ends on a seat must not select it
+  svg.addEventListener('click', function(evt){
+    if(_pickerDragged){ evt.stopPropagation(); evt.preventDefault(); _pickerDragged = false }
+  }, true)
+}
+
+var SEAT_STATUS_COLORS = {available:'#16728b', mine:'#0a3a48', held:'#d97706', sold:'#d1d5db'}
+
+function renderPickerSVG(){
+  if(!seats.length) return '<div style="color:var(--text-muted);padding:20px;text-align:center">No seat map configured for this performance yet.</div>'
+  var pad = 1.2
+  var xs = seats.map(function(s){return s.x}), ys = seats.map(function(s){return s.y})
+  if(stageInfo){ xs = xs.concat([stageInfo.x-stageInfo.width/2, stageInfo.x+stageInfo.width/2]); ys = ys.concat([stageInfo.y-stageInfo.depth/2, stageInfo.y+stageInfo.depth/2]) }
+  mapShapes.forEach(function(sh){ xs.push(sh.x-sh.width/2, sh.x+sh.width/2); ys.push(sh.y-sh.height/2, sh.y+sh.height/2) })
+  var minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad
+  var minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad
+  // The natural (zoom=1) bounds only get computed once per performance —
+  // everyday re-renders (a seat click, etc.) reuse whatever's already
+  // there so panning/zooming a buyer's already done doesn't silently
+  // reset back to fully zoomed out on their very next tap.
+  if(!pickerViewBase){
+    pickerViewBase = {w: maxX-minX, h: maxY-minY, cx: minX+(maxX-minX)/2, cy: minY+(maxY-minY)/2}
+    pickerViewCenter = {x: pickerViewBase.cx, y: pickerViewBase.cy}
+  }
+  var vw = pickerViewBase.w/pickerZoom, vh = pickerViewBase.h/pickerZoom
+  var vx = pickerViewCenter.x - vw/2, vy = pickerViewCenter.y - vh/2
+  var seatR = 0.4
+  var svg = '<svg id="picker-svg" viewBox="'+vx+' '+vy+' '+vw+' '+vh+'" style="width:100%;height:auto;max-height:70vh;background:var(--bg);border-radius:8px;border:1px solid var(--border);touch-action:pan-x pan-y;user-select:none;-webkit-user-select:none" preserveAspectRatio="xMidYMid meet">'
+  if(stageInfo){
+    svg += '<g transform="translate('+stageInfo.x+','+stageInfo.y+') rotate('+stageInfo.rotation+')">'
+      + '<rect x="'+(-stageInfo.width/2)+'" y="'+(-stageInfo.depth/2)+'" width="'+stageInfo.width+'" height="'+stageInfo.depth+'" rx="0.15" fill="#334155"/>'
+      + '<text x="0" y="0.15" font-size="0.6" text-anchor="middle" fill="#fff" font-weight="700">STAGE</text></g>'
+  } else {
+    svg += '<text x="'+(vx+vw/2)+'" y="'+(vy+vh-0.2)+'" font-size="0.9" text-anchor="middle" fill="var(--text-hint)" font-weight="700">STAGE</text>'
+  }
+  // Free-standing labeled shapes staff added in the seat map editor
+  // ("Backstage", "Wings Left", etc.) — purely visual orientation
+  // context, not clickable, drawn before the seats so seats stay on top.
+  mapShapes.forEach(function(sh){
+    svg += '<g transform="translate('+sh.x+','+sh.y+') rotate('+sh.rotation+')">'
+      + '<rect x="'+(-sh.width/2)+'" y="'+(-sh.height/2)+'" width="'+sh.width+'" height="'+sh.height+'" rx="0.1" fill="'+sh.fill_color+'" opacity="0.85"/>'
+      + (sh.label ? '<text x="0" y="0.13" font-size="0.32" text-anchor="middle" fill="#fff" font-weight="700">'+escH(sh.label)+'</text>' : '')
+      + '</g>'
+  })
+  // Row-end labels: one letter/number just past each physical end of
+  // every row, grouped by section+row (so the same row letter in two
+  // different sections is never conflated as one row). Uses whichever
+  // two seats in the row sit farthest apart, so it works for angled rows
+  // just as well as straight horizontal/vertical ones. Always shown —
+  // unlike the per-seat numbers, two labels per row isn't real clutter.
+  var rowGroups = {}
+  seats.forEach(function(s){
+    if(!s.row_name) return
+    var key = (s.section||'')+'\u0001'+s.row_name
+    ;(rowGroups[key] = rowGroups[key] || []).push(s)
+  })
+  var rowLabelSvg = ''
+  Object.keys(rowGroups).forEach(function(key){
+    var rowSeats = rowGroups[key]
+    var rowName = rowSeats[0].row_name
+    var endpoints
+    if(rowSeats.length < 2){
+      endpoints = [{x:rowSeats[0].x, y:rowSeats[0].y}]
+    } else {
+      var maxDist = -1, a = rowSeats[0], b = rowSeats[0]
+      for(var i=0;i<rowSeats.length;i++){
+        for(var j=i+1;j<rowSeats.length;j++){
+          var dx0 = rowSeats[i].x-rowSeats[j].x, dy0 = rowSeats[i].y-rowSeats[j].y, d = dx0*dx0+dy0*dy0
+          if(d > maxDist){ maxDist = d; a = rowSeats[i]; b = rowSeats[j] }
+        }
+      }
+      var dx = b.x-a.x, dy = b.y-a.y, len = Math.sqrt(dx*dx+dy*dy) || 1
+      var ux = dx/len, uy = dy/len, off = 0.65
+      endpoints = [{x:a.x-ux*off, y:a.y-uy*off}, {x:b.x+ux*off, y:b.y+uy*off}]
+    }
+    endpoints.forEach(function(pt){
+      rowLabelSvg += '<text x="'+pt.x+'" y="'+(pt.y+0.15)+'" font-size="0.36" font-weight="700" text-anchor="middle" fill="var(--text-hint)" style="pointer-events:none">'+escH(rowName)+'</text>'
+    })
+  })
+  seats.forEach(function(s){
+    // Property PRESENCE, not truthiness — a seat picked while no ticket
+    // type was available yet stores null (see toggleSeat), and !!null is
+    // false, which used to make a genuinely-selected seat silently render
+    // as if nothing had been picked at all (no color change, no checkmark).
+    var picking = Object.prototype.hasOwnProperty.call(selectedSeats, s.id)
+    var status = picking ? 'mine' : (s.status==='mine' ? 'mine' : s.status)
+    var fill = SEAT_STATUS_COLORS[status] || SEAT_STATUS_COLORS.available
+    var clickable = (status === 'available' || status === 'mine')
+    var r = picking ? seatR*1.25 : seatR
+    svg += '<g'+(clickable?' style="cursor:pointer" onclick="toggleSeat(\''+s.id+'\')"':' style="cursor:not-allowed"')+'>'
+    if(picking){
+      // A bright ring around anything you've actually picked, so your
+      // selection is obvious at a glance among dozens of other dots.
+      svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+(r+0.13)+'" fill="none" stroke="#facc15" stroke-width="0.11"/>'
+    }
+    // A dashed amber ring on a limited/obstructed-view seat, distinct from
+    // both the yellow "picking" ring (a separate outer ring, so the two
+    // can coexist if someone deliberately picks an obstructed seat) and
+    // the wheelchair icon (which stays centered in the dot as always).
+    var obstructedStroke = s.obstructed_view ? ' stroke="#f59e0b" stroke-width="0.09" stroke-dasharray="0.09,0.07"' : ' stroke="#fff" stroke-width="0.05"'
+    var seatTitle = escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+(s.accessible?' — Wheelchair accessible':'')+(s.obstructed_view?' — Limited view'+(s.view_note?': '+escH(s.view_note):''):'')
+    svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+r+'" fill="'+fill+'"'+obstructedStroke+'><title>'+seatTitle+'</title></circle>'
+    if(picking){
+      svg += '<text x="'+s.x+'" y="'+(s.y+0.16)+'" font-size="0.42" text-anchor="middle" fill="#fff" font-weight="700" style="pointer-events:none">✓</text>'
+    } else if(s.accessible){
+      svg += wheelchairIconSvg(s.x, s.y, r, status==='sold' ? '#6b7280' : '#fff')
+    } else if(showSeatLabels && s.seat_label){
+      var labelColor = status==='sold' ? '#6b7280' : '#fff'
+      svg += '<text x="'+s.x+'" y="'+(s.y+0.14)+'" font-size="0.3" text-anchor="middle" fill="'+labelColor+'" style="pointer-events:none">'+escH(s.seat_label)+'</text>'
+    }
+    svg += '</g>'
+  })
+  svg += rowLabelSvg
+  svg += '</svg>'
+  return svg
+}
+
+// International Symbol of Access, drawn as SVG (emoji don't render reliably
+// inside the seat dots). Centered on (cx,cy), sized to fit inside a seat of radius r.
+function wheelchairIconSvg(cx, cy, r, color){
+  var size = r * 1.55, k = size / 24
+  var tx = cx - size/2, ty = cy - size/2
+  var c = color || '#fff'
+  return '<g transform="translate('+tx+','+ty+') scale('+k+')" style="pointer-events:none" aria-hidden="true">'
+    + '<circle cx="12.5" cy="3.2" r="2.3" fill="'+c+'"/>'
+    + '<path d="M12 7.2 V14 H17.2 L19.6 20.2" fill="none" stroke="'+c+'" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"/>'
+    + '<path d="M12 10.3 H16.4" fill="none" stroke="'+c+'" stroke-width="2.1" stroke-linecap="round"/>'
+    + '<path d="M9.2 10.9 A6.1 6.1 0 1 0 16.6 18.4" fill="none" stroke="'+c+'" stroke-width="2.1" stroke-linecap="round"/>'
+    + '</g>'
+}
+
+async function toggleSeat(seatId){
+  var seat = seats.find(function(s){ return s.id===seatId })
+  if(!seat) return
+  if(Object.prototype.hasOwnProperty.call(selectedSeats, seatId)){
+    delete selectedSeats[seatId]
+    await api('/api/public/performances/'+currentPerformance.id+'/release-hold','POST',
+      {seat_ids:[seatId], session_token:getSessionToken()})
+    seat.status = 'available'
+    if(!Object.keys(selectedSeats).length){
+      if(holdTimer){ clearTimeout(holdTimer); holdTimer = null }
+      stopHoldCountdown()
+    }
+    refreshPickerAndCart()
+    return
+  }
+  // Soft client-side heads-up before even trying to hold the seat — the
+  // real, unbypassable enforcement happens server-side at checkout
+  // (see the per-performance limit check there); this just avoids
+  // someone getting all the way to checkout before finding out.
+  if(ticketsRemainingForCurrentPerformance() <= 0){
+    alert('This show limits '+lastProd.max_tickets_per_performance+' ticket(s) per performance per person, and you\'ve reached that for this date.')
+    return
+  }
+  // Optimistically select, then confirm the hold with the server
+  var defaultType = ticketTypes[0]
+  selectedSeats[seatId] = defaultType ? defaultType.id : null
+  refreshPickerAndCart()
+  var res = await api('/api/public/performances/'+currentPerformance.id+'/hold-seats','POST',
+    {seat_ids:[seatId], session_token:getSessionToken(), presale_keys: presaleKeysForServer()})
+  if(res.error){
+    delete selectedSeats[seatId]
+    seat.status = 'held'
+    refreshPickerAndCart()
+    alert(res.error)
+    return
+  }
+  armHoldExpiry()
+}
+
+function armHoldExpiry(){
+  // Every successful hold-seats call (each seat picked) restarts this to a
+  // fresh 15 minutes from right now — same as the server does per seat —
+  // so the displayed countdown always matches "when will my hold really
+  // lapse if I don't touch anything else."
+  if(holdTimer) clearTimeout(holdTimer)
+  holdExpiresAt = Date.now() + 15*60*1000
+  holdTimer = setTimeout(function(){
+    stopHoldCountdown()
+    alert('Your seat hold has expired. Please reselect your seats.')
+    loadPerformance(currentPerformance.id)
+  }, 15*60*1000)
+  startHoldCountdown()
+}
+
+function startHoldCountdown(){
+  if(holdCountdownInterval) clearInterval(holdCountdownInterval)
+  tickHoldCountdown()
+  holdCountdownInterval = setInterval(tickHoldCountdown, 1000)
+}
+
+function stopHoldCountdown(){
+  if(holdCountdownInterval){ clearInterval(holdCountdownInterval); holdCountdownInterval = null }
+  holdExpiresAt = null
+}
+
+function tickHoldCountdown(){
+  var el = document.getElementById('hold-countdown-time')
+  if(!el || !holdExpiresAt){ return }
+  var remainingMs = holdExpiresAt - Date.now()
+  if(remainingMs <= 0){ el.textContent = '0:00'; return }
+  var totalSeconds = Math.ceil(remainingMs/1000)
+  var m = Math.floor(totalSeconds/60), s = totalSeconds%60
+  el.textContent = m+':'+(s<10?'0':'')+s
+  var wrap = document.getElementById('hold-countdown')
+  if(wrap) wrap.classList.toggle('hold-countdown-urgent', totalSeconds<=60)
+}
+
+function renderHoldCountdown(){
+  if(!holdExpiresAt) return ''
+  return '<div id="hold-countdown" class="hold-countdown">'
+    + ' Your seats are held for <span id="hold-countdown-time">15:00</span></div>'
+}
+
+function changeGaQty(ticketTypeId, delta){
+  var tt = ticketTypes.find(function(t){ return t.id===ticketTypeId })
+  var cur = gaQuantities[ticketTypeId] || 0
+  if(delta > 0 && ticketsRemainingForCurrentPerformance() <= 0){
+    alert('This show limits '+lastProd.max_tickets_per_performance+' ticket(s) per performance per person, and you\'ve reached that for this date.')
+    return
+  }
+  var next = Math.max(0, cur+delta)
+  if(tt && tt.quantity_limit) next = Math.min(next, tt.quantity_limit)
+  gaQuantities[ticketTypeId] = next
+  renderPurchaseScreen()
+}
+
+function seatTicketTypeSelect(seatId){
+  var current = selectedSeats[seatId]
+  return '<select onchange="selectedSeats[\''+seatId+'\']=this.value;refreshCartOnly()" style="width:auto;padding:4px 8px;font-size:12px">'
+    + ticketTypes.map(function(tt){ return '<option value="'+tt.id+'"'+(tt.id===current?' selected':'')+'>'+escH(tt.name)+' — '+fmtMoney(tt.price_cents)+'</option>' }).join('')
+    + '</select>'
+}
+
+function computeTotalCents(){
+  var total = 0
+  if(currentPerformance.reserved_seating){
+    Object.keys(selectedSeats).forEach(function(sid){
+      var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
+      total += tt ? tt.price_cents : 0
+    })
+  } else {
+    ticketTypes.forEach(function(tt){ total += (gaQuantities[tt.id]||0) * tt.price_cents })
+  }
+  return total
+}
+
+function currentPerformanceFeeCents(){
+  if(!lastProd) return 0
+  return computeFeeCents(computeTotalCents(), lastProd.charge_service_fee, lastProd.service_fee_percent, lastProd.service_fee_flat_cents)
+}
+
+function renderCart(){
+  var rows = ''
+  var count = 0
+  if(currentPerformance.reserved_seating){
+    Object.keys(selectedSeats).forEach(function(sid){
+      var seat = seats.find(function(s){ return s.id===sid })
+      var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
+      count++
+      rows += '<div class="cart-row"><span>'+escH(seat?seat.seat_label:'')+(ticketTypes.length>1?' — '+seatTicketTypeSelect(sid):' '+escH(tt?tt.name:'')) +'</span><span>'+fmtMoney(tt?tt.price_cents:0)+'</span></div>'
+      if(seat && seat.accessible){
+        rows += '<div style="font-size:12px;color:#16728b;margin:-4px 0 6px;padding-left:2px">Wheelchair accessible space</div>'
+      }
+      if(seat && seat.obstructed_view){
+        rows += '<div style="font-size:12px;color:#b45309;margin:-4px 0 6px;padding-left:2px"> Limited view'+(seat.view_note?': '+escH(seat.view_note):'')+'</div>'
+      }
+    })
+  } else {
+    ticketTypes.forEach(function(tt){
+      var qty = gaQuantities[tt.id]||0
+      if(qty>0){ count += qty; rows += '<div class="cart-row"><span>'+qty+' × '+escH(tt.name)+'</span><span>'+fmtMoney(qty*tt.price_cents)+'</span></div>' }
+    })
+  }
+  if(!count) return '<div style="color:var(--text-muted);font-size:13px">No tickets selected yet.</div>'
+  var feeCents = currentPerformanceFeeCents()
+  var feeRow = feeCents ? '<div class="cart-row"><span>Service Fee</span><span>'+fmtMoney(feeCents)+'</span></div>' : ''
+  return renderHoldCountdown() + rows + feeRow + '<div class="total-row"><span>Total</span><span>'+fmtMoney(computeTotalCents()+feeCents)+'</span></div>'
+}
+
+function refreshPickerAndCart(){
+  var holder = document.getElementById('seat-map-holder')
+  if(holder) holder.innerHTML = renderPickerSVG()
+  refreshCartOnly()
+  wirePickerZoomEvents()
+}
+function refreshCartOnly(){
+  var cartCard = document.getElementById('cart-card')
+  if(cartCard) cartCard.innerHTML = renderCart()
+  updateCheckoutButtonState()
+}
+
+function updateCheckoutButtonState(){
+  var btn = document.getElementById('checkout-btn')
+  var cartBtn = document.getElementById('add-to-cart-btn')
+  if(!btn) return
+  // currentPerformance is null on the standalone cart page (/tickets/cart
+  // is a fresh page load with no performance loaded), so this has to work
+  // whether or not there's anything actively selected on THIS page.
+  var hasLiveItems = currentPerformance ? (currentPerformance.reserved_seating
+    ? Object.keys(selectedSeats).length>0
+    : Object.values(gaQuantities).some(function(q){ return q>0 })) : false
+  var cartCount = ticketCartCount()
+  var liveTotal = hasLiveItems ? (computeTotalCents() + currentPerformanceFeeCents()) : 0
+  var grand = Math.max(0, liveTotal + cartTotalCents() - donorCodeSavings()) + selectedDonationCents
+  btn.disabled = !hasLiveItems && !cartCount && !selectedDonationCents
+  if(hasLiveItems && cartCount){
+    btn.textContent = 'Checkout Everything — '+fmtMoney(grand)
+  } else if(hasLiveItems || cartCount){
+    btn.textContent = (cartCount && !hasLiveItems ? 'Checkout Cart — ' : 'Checkout — ')+fmtMoney(grand)
+  } else {
+    btn.textContent = 'Select tickets to continue'
+  }
+  if(cartBtn) cartBtn.disabled = !hasLiveItems
+}
+
+// --- Optional donation add-on, rides along in the same checkout -------
+var selectedDonationCents = 0
+var donationCustomActive = false
+var donationTouched = false   // once the buyer picks anything, stop applying the show's default
+var DONATION_PRESETS = [500, 1000, 1500, 2000]
+
+// Each show can pre-select a donation amount (set in Ticketing Settings),
+// e.g. $5 for a free show. On the cart page, the highest default among
+// the shows in the cart wins.
+function defaultDonationForCurrentShow(){
+  var v = (lastProd && lastProd.default_donation_cents) || (currentPerformance && currentPerformance.default_donation_cents) || 0
+  return parseInt(v, 10) || 0
+}
+function defaultDonationCents(onCartPage){
+  if(!onCartPage && currentPerformance) return defaultDonationForCurrentShow()
+  return ticketCartGet().reduce(function(m, item){ return Math.max(m, parseInt(item.default_donation_cents, 10) || 0) }, 0)
+}
+
+function renderDonationSection(onCartPage){
+  if(!donationTouched){ selectedDonationCents = defaultDonationCents(onCartPage); donationCustomActive = false }
+  return '<div class="card"><div id="donation-card">'+donationCardInnerHTML()+'</div></div>'
+}
+
+function donationCardInnerHTML(){
+  return '<div class="section-title" style="font-size:15px"> Add a Donation to HWTC?</div>'
+    + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Every gift helps us keep bringing theater to our community.</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">'
+    + DONATION_PRESETS.map(function(amt){
+        var active = !donationCustomActive && selectedDonationCents===amt
+        return '<button type="button" class="btn '+(active?'btn-primary':'btn-secondary')+' btn-sm" onclick="selectDonationPreset('+amt+')">$'+(amt/100)+'</button>'
+      }).join('')
+    + '<button type="button" class="btn '+(donationCustomActive?'btn-primary':'btn-secondary')+' btn-sm" onclick="selectDonationCustom()">Other</button>'
+    + '<button type="button" class="btn '+(!donationCustomActive && !selectedDonationCents?'btn-primary':'btn-secondary')+' btn-sm" onclick="selectDonationPreset(0)">No Thanks</button>'
+    + '</div>'
+    + (donationCustomActive
+       ? '<input type="number" id="donation-custom-input" min="1" step="1" placeholder="Amount in $" value="'+(selectedDonationCents?(selectedDonationCents/100):'')+'" oninput="onDonationCustomChange()" style="max-width:200px"/>'
+       : '')
+}
+
+function refreshDonationCard(){
+  var el = document.getElementById('donation-card')
+  if(el) el.innerHTML = donationCardInnerHTML()
+  updateCheckoutButtonState()
+}
+
+function selectDonationPreset(cents){
+  donationTouched = true
+  donationCustomActive = false
+  selectedDonationCents = cents
+  refreshDonationCard()
+}
+
+function selectDonationCustom(){
+  donationTouched = true
+  donationCustomActive = true
+  refreshDonationCard()
+  var input = document.getElementById('donation-custom-input')
+  if(input) input.focus()
+}
+
+function onDonationCustomChange(){
+  var val = parseFloat(document.getElementById('donation-custom-input')?.value || '0')
+  selectedDonationCents = (isNaN(val) || val < 0) ? 0 : Math.round(val * 100)
+  updateCheckoutButtonState()
+}
+
+// Matches the backend's exact rounding (round(subtotal * pct/100) + flat)
+// so what's shown here never surprises the buyer once Square actually
+// charges them.
+function computeFeeCents(subtotalCents, feeOn, feePercent, feeFlatCents){
+  if(!feeOn) return 0
+  return Math.round(subtotalCents * (feePercent||0) / 100) + (feeFlatCents||0)
+}
+
+function cartTotalCents(){
+  return ticketCartGet().reduce(function(sum,item){
+    var subtotal = item.line_items.reduce(function(s,li){ return s + (li.price_cents||0) }, 0)
+    var fee = computeFeeCents(subtotal, item.charge_service_fee, item.service_fee_percent, item.service_fee_flat_cents)
+    return sum + subtotal + fee
+  }, 0)
+}
+
+// Converts one cart item's stored line_items back into the {seat_id,
+// ticket_type_id} / {ticket_type_id, quantity} shape the checkout
+// endpoint's "cart" array expects.
+function lineItemsToSeatsPayload(lineItems){
+  return lineItems.map(function(li){
+    return li.seat_id ? {seat_id: li.seat_id, ticket_type_id: li.ticket_type_id}
+                       : {ticket_type_id: li.ticket_type_id, quantity: li.quantity}
+  })
+}
+
+// Everything about to be paid for: whatever's already sitting in the
+// persisted cart, PLUS whatever's currently selected live on this page
+// (if anything) that hasn't been explicitly added to the cart yet — so
+// clicking "Checkout" on a show's own page still works exactly like it
+// always did when there's nothing else in the cart, and transparently
+// includes other shows' tickets too when there are.
+// ── Donor benefit codes (2-for-1, % off, comps) ──
+var appliedDonorCode = null   // {code, label, savings_cents, sig}
+function renderDonorCodeSection(){
+  var a = appliedDonorCode
+  return '<div class="form-group" style="margin-bottom:12px"><label>Promo or donor code</label>'
+    + '<div style="display:flex;gap:8px">'
+    + '<input type="text" id="tk-donor-code" placeholder="Enter code" value="'+escH(a?a.code:'')+'" style="text-transform:uppercase;flex:1"'+(a?' disabled':'')+'/>'
+    + (a ? '<button type="button" class="btn btn-secondary" style="width:auto;padding:10px 14px" onclick="removeDonorCode()">Remove</button>'
+         : '<button type="button" class="btn btn-secondary" style="width:auto;padding:10px 14px" onclick="applyDonorCode()">Apply</button>')
+    + '</div><div id="tk-donor-code-msg" style="font-size:12.5px;margin-top:6px;'+(a?'color:var(--teal-dark);font-weight:700':'')+'">'
+    + (a ? escH(a.label)+' · you save '+fmtMoney(a.savings_cents) : '') + '</div></div>'
+}
+function _cartSig(){ return JSON.stringify(buildFullCartPayload()) }
+async function applyDonorCode(silent){
+  var input = document.getElementById('tk-donor-code')
+  var code = ((appliedDonorCode && appliedDonorCode.code) || (input ? input.value : '') || '').trim().toUpperCase()
+  var msg = document.getElementById('tk-donor-code-msg')
+  if(!code){ if(msg && !silent) msg.textContent = 'Enter your code.'; return }
+  var cart = buildFullCartPayload()
+  var res = await api('/api/public/ticket-promo/preview','POST',{code: code, cart: cart})
+  if(res && res.valid){
+    appliedDonorCode = {code: res.code, label: res.label, savings_cents: res.savings_cents||0, sig: JSON.stringify(cart)}
+  } else {
+    appliedDonorCode = null
+    if(msg){ msg.style.color = '#b91c1c'; msg.textContent = (res && res.error) || 'That code didn\'t work.' }
+    updateCheckoutButtonState()
+    return
+  }
+  refreshDonorCodeSection()
+  updateCheckoutButtonState()
+}
+function removeDonorCode(){ appliedDonorCode = null; refreshDonorCodeSection(); updateCheckoutButtonState() }
+function refreshDonorCodeSection(){
+  var input = document.getElementById('tk-donor-code')
+  var holder = input ? input.closest('.form-group') : null
+  if(holder) holder.outerHTML = renderDonorCodeSection()
+}
+// Re-check the code whenever the tickets in play change
+var _donorCodeRecheckTimer = null
+function donorCodeSavings(){
+  if(!appliedDonorCode) return 0
+  if(appliedDonorCode.sig !== _cartSig()){
+    clearTimeout(_donorCodeRecheckTimer)
+    _donorCodeRecheckTimer = setTimeout(function(){ applyDonorCode(true) }, 300)
+  }
+  return appliedDonorCode.savings_cents || 0
+}
+
+function buildFullCartPayload(){
+  var cart = ticketCartGet().map(function(item){
+    return {performance_id: item.performance_id, seats: lineItemsToSeatsPayload(item.line_items)}
+  })
+  if(currentPerformance){
+    var liveItems = currentPerformanceLineItems()
+    if(liveItems.length) cart.push({performance_id: currentPerformance.id, seats: lineItemsToSeatsPayload(liveItems)})
+  }
+  return cart
+}
+
+async function doCheckout(){
+  var name = (document.getElementById('tk-name').value||'').trim()
+  var email = (document.getElementById('tk-email').value||'').trim()
+  var phone = (document.getElementById('tk-phone').value||'').trim()
+  var errEl = document.getElementById('checkout-error')
+  errEl.innerHTML = ''
+  if(!name || !email){ errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">Name and email are required.</div>'; return }
+  var phoneDigits = phone.replace(/\D/g,'').replace(/^1(?=\d{10}$)/,'')
+  if(phoneDigits.length !== 10){ errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">Please enter a 10-digit phone number.</div>'; return }
+
+  var cart = buildFullCartPayload()
+  if(!cart.length){ errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">No tickets selected.</div>'; return }
+
+  var btn = document.getElementById('checkout-btn')
+  btn.disabled = true; btn.textContent = 'Processing…'
+  var res = await api('/api/public/ticket-checkout','POST',{
+    session_token: getSessionToken(), guardian_name: name, guardian_email: email, guardian_phone: phone,
+    device_id: getDeviceId(), cart: cart, donation_cents: selectedDonationCents,
+    presale_keys: presaleKeysForServer(),
+    promo_code: appliedDonorCode ? appliedDonorCode.code : ''
+  })
+  if(res.error){
+    if(res.promo_error){ appliedDonorCode = null; refreshDonorCodeSection() }
+    errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">'+escH(res.error)+'</div>'
+    btn.disabled = false; updateCheckoutButtonState()
+    return
+  }
+  // Only clear the persisted cart once the order(s) are actually created
+  // — an error above means nothing was charged, so leave it intact.
+  ticketCartSave([])
+  appliedDonorCode = null
+  selectedDonationCents = 0; donationCustomActive = false; donationTouched = false
+  if(res.type === 'payment_required' && res.payment_url){
+    window.location.href = res.payment_url
+    return
+  }
+  window.location.href = '/tickets/confirmation?cart='+res.cart_id
+}
+
+function renderCartPage(){
+  setHero('Your Cart', null, null, 'Review everything before checking out')
+  var cart = ticketCartGet()
+  // The cart can span more than one show, so there's no single "back to
+  // that show's page" destination that always makes sense — just return
+  // wherever the person actually came from.
+  var backBtn = '<button class="btn btn-secondary" style="margin-bottom:14px" onclick="history.back()">← Back</button>'
+  if(!cart.length){
+    document.getElementById('app').innerHTML = backBtn
+      + '<div class="card"><div class="empty-state" style="text-align:center;padding:20px 0"><div style="font-size:32px;margin-bottom:8px"></div>Your cart is empty.</div></div>'
+    return
+  }
+  var grandTotal = 0
+  var html = backBtn + '<div class="card"><div class="section-title">'+cart.length+' Performance'+(cart.length===1?'':'s')+' in Your Cart</div>'
+  html += cart.map(function(item, idx){
+    var subtotal = item.line_items.reduce(function(s,li){ return s+(li.price_cents||0) }, 0)
+    var fee = computeFeeCents(subtotal, item.charge_service_fee, item.service_fee_percent, item.service_fee_flat_cents)
+    grandTotal += subtotal + fee
+    return '<div style="border:1px solid var(--border);border-radius:var(--radius);padding:14px 16px;margin-bottom:10px">'
+      + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:8px">'
+      + '<div><div style="font-weight:700;font-size:14.5px">'+escH(item.production_name)+'</div>'
+      + '<div style="font-size:12.5px;color:var(--text-muted)">'+escH(item.performance_label)+(item.venue_name?' · '+escH(item.venue_name):'')+'</div></div>'
+      + '<button onclick="removeCartItem('+idx+')" style="background:none;border:none;cursor:pointer;font-size:11.5px;color:var(--text-muted);text-decoration:underline;white-space:nowrap">Remove</button>'
+      + '</div>'
+      + item.line_items.map(function(li){
+          return '<div class="cart-row" style="padding:5px 0;font-size:13.5px"><span>'+escH(li.seat_label||'Ticket')+'</span><span>'+fmtMoney(li.price_cents)+'</span></div>'
+        }).join('')
+      + (fee ? '<div class="cart-row" style="padding:5px 0;font-size:13.5px"><span>Service Fee</span><span>'+fmtMoney(fee)+'</span></div>' : '')
+      + '<div style="text-align:right;font-weight:700;font-size:13.5px;margin-top:4px">'+fmtMoney(subtotal+fee)+'</div>'
+      + '</div>'
+  }).join('')
+  html += '<div class="total-row"><span>Cart Total</span><span>'+fmtMoney(grandTotal)+'</span></div>'
+  html += '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">Have a promo or donor code? Enter it below; the savings show on the checkout button.</div>'
+  html += '</div>'
+
+  html += renderDonationSection(true)
+
+  html += '<div class="card">'
+    + '<div class="section-title">Your info</div>'
+    + '<div class="form-group"><label>Name *</label><input type="text" id="tk-name"/></div>'
+    + '<div class="form-row">'
+    + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
+    + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
+    + '</div>'
+    + renderDonorCodeSection()
+    + '<div id="checkout-error"></div>'
+    + '<button class="btn btn-primary" style="width:100%" id="checkout-btn" onclick="doCheckout()">Checkout</button>'
+    + '</div>'
+  document.getElementById('app').innerHTML = html
+  updateCheckoutButtonState()
+}
+
+async function removeCartItem(idx){
+  var cart = ticketCartGet()
+  var item = cart[idx]
+  if(!item) return
+  cart.splice(idx, 1)
+  ticketCartSave(cart)
+  // Actually release the seats too, not just forget about them locally —
+  // otherwise they'd sit held (and unavailable to anyone else) for the
+  // rest of the 15-minute window for no reason.
+  if(item.reserved_seating){
+    var seatIds = item.line_items.map(function(li){ return li.seat_id }).filter(Boolean)
+    if(seatIds.length){
+      await api('/api/public/performances/'+item.performance_id+'/release-hold','POST',
+        {seat_ids: seatIds, session_token: item.session_token})
+    }
+  }
+  updateCartBadge()
+  renderCartPage()
+}
+
+async function renderConfirmation(cartId){
+  if(!cartId){
+    document.getElementById('app').innerHTML = '<div class="error-box">No order specified.</div>'
+    return
+  }
+  document.getElementById('app').innerHTML = '<div class="loading">Loading your order…</div>'
+  var data = await api('/api/public/ticket-cart/'+cartId)
+  if(data.error){
+    document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
+    return
+  }
+  var entries = data.orders || []
+  var donation = data.donation || null
+  var anyPending = entries.some(function(e){ return e.order.status !== 'completed' }) || (donation && donation.status !== 'completed')
+  var grandTotal = entries.reduce(function(s,e){ return s + (e.order.total_cents||0) + (e.order.service_fee_cents||0) }, 0)
+    + (donation ? donation.amount_cents : 0)
+  var guardianEmail = entries.length ? entries[0].order.guardian_email : ''
+  // A cart spanning more than one show has no single show color to use,
+  // so this always uses the plain HWTC hero rather than any one
+  // production's branding — it's a receipt for the whole purchase now.
+  setHero(entries.length===1 ? entries[0].production_name : 'Your Tickets', null, null, 'Order Confirmation')
+
+  var html = '<div class="card">'
+  if(anyPending){
+    html += '<div style="font-weight:700;font-size:16px;margin-bottom:6px">Finishing up your order…</div>'
+    html += '<div style="color:var(--text-muted);font-size:14px">If you just paid, this should update in a few seconds. Feel free to refresh.</div>'
+    html += '<button class="btn btn-secondary" style="margin-top:14px" onclick="renderConfirmation(\''+cartId+'\')">Refresh</button>'
+  } else {
+    html += '<div class="section-title" style="font-size:22px;margin-bottom:4px"> You\'re all set!</div>'
+    html += entries.map(function(e){
+      var perf = e.performance
+      return '<div style="margin-bottom:18px">'
+        + '<div style="font-weight:700;font-size:14.5px">'+escH(e.production_name)+'</div>'
+        + '<div style="color:var(--text-muted);font-size:13px;margin-bottom:8px">'+escH(fmtPerfDate(perf?perf.performance_date:'', perf?perf.performance_time:''))+'</div>'
+        + e.tickets.map(function(t){
+            return '<div class="cart-row"><span>'+escH(t.seat_label||'Ticket')+(t.section?' — '+escH(t.section):'')+'</span><span class="confirm-code">'+escH(t.confirmation_code||'')+'</span></div>'
+              + (t.obstructed_view ? '<div style="font-size:12px;color:#b45309;margin:-4px 0 6px"> Limited view'+(t.view_note?': '+escH(t.view_note):'')+'</div>' : '')
+          }).join('')
+        + (e.order.service_fee_cents ? '<div class="cart-row"><span>Service Fee</span><span>'+fmtMoney(e.order.service_fee_cents)+'</span></div>' : '')
+        + '</div>'
+    }).join('')
+    if(donation){
+      html += '<div class="cart-row" style="border-top:1px solid var(--border);padding-top:10px"><span> Donation to HWTC</span><span>'+fmtMoney(donation.amount_cents)+'</span></div>'
+    }
+    html += '<div class="total-row"><span>Total Paid</span><span>'+fmtMoney(grandTotal)+'</span></div>'
+    if(donation){
+      html += '<div style="font-size:13px;color:var(--teal-dark);margin-top:10px;font-weight:600">Thank you for your generous donation — it truly makes a difference!</div>'
+    }
+    html += '<div style="font-size:13px;color:var(--text-muted);margin-top:14px">A confirmation has been sent to '+escH(guardianEmail||'')+'. Bring this confirmation (or your email) to the show.</div>'
+  }
+  html += '</div>'
+  document.getElementById('app').innerHTML = html
+}
+
+init()
+</script>
+</body>
+</html>

@@ -350,13 +350,14 @@ async function init(){
   setHero(prod.name, prod.portal_color, prod.ticket_logo_url, sale.presale ? 'Pre-Sale Tickets' : 'Tickets', prod.image_url)
   var perfs = data.performances || []
   lastProd = prod; lastPerfs = perfs; lastSale = sale
-  if(sale.presale_link && sale.seconds_until_presale && !perfs.length){
+  if(sale.preview){
+    // staff preview: never show a countdown, even though one is still set
+  } else if(sale.presale_link && sale.seconds_until_presale && !perfs.length){
     // pre-sale link opened early: count down to the pre-sale itself
     setHero(prod.name, prod.portal_color, prod.ticket_logo_url, 'Pre-Sale Tickets', prod.image_url)
     renderOnSaleCountdown(prod, {seconds_until_public: sale.seconds_until_presale, public_sale_at: sale.presale_opens_at}, false, 'Pre-sale opens')
     return
-  }
-  if(sale.seconds_until_public && !sale.presale){
+  } else if(sale.seconds_until_public && !sale.presale){
     renderOnSaleCountdown(prod, sale, !!myKey && !sale.presale_link)
     return
   }

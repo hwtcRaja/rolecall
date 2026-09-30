@@ -3009,6 +3009,7 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_key TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS share_name TEXT",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS slack_notified_at TIMESTAMP",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sales_goal_cents INTEGER",
         """UPDATE pending_donations pd SET ticket_cart_id = o.cart_id FROM ticket_orders o
             WHERE pd.ticket_cart_id IS NULL AND pd.square_checkout_id IS NOT NULL
               AND o.square_checkout_id = pd.square_checkout_id AND o.cart_id IS NOT NULL""",
@@ -30676,6 +30677,18 @@ def _start_oncall_scheduler():
                 app.logger.warning(f'Daily hours store sync error: {e}')
         scheduler.add_job(_daily_hours_store_sync, CronTrigger(hour=2, minute=10), id='daily_hours_store_sync',
                           max_instances=1, coalesce=True)
+        def _daily_ticket_report_tick():
+            try:
+                c = get_db()
+                on = _setting(c, 'slack_daily_enabled', '0') == '1'
+                at = _setting(c, 'slack_daily_time', '09:00') or '09:00'
+                c.close()
+                if on and now_eastern().strftime('%H:%M') == at[:5]:
+                    post_daily_ticket_report()
+            except Exception as e:
+                app.logger.warning(f'Daily ticket report error: {e}')
+        scheduler.add_job(_daily_ticket_report_tick, CronTrigger(minute='*'), id='daily_ticket_report',
+                          max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.add_job(sad_auto_open_due_lotteries, CronTrigger(minute='*'), id='sad_auto_open',
                           max_instances=1, coalesce=True, misfire_grace_time=30)
         try:
@@ -40407,12 +40420,15 @@ def notify_ticket_sale(conn, cart_id):
         for pid in sorted(set(o['production_id'] for o in orders)):
             g, n, dn = ticket_sale_totals(conn, pid)
             nm = next((o.get('share_name') or o.get('production_name')) for o in orders if o['production_id'] == pid)
+            goal = (fetchone(conn, 'SELECT sales_goal_cents FROM productions WHERE id=%s', (pid,)) or {}).get('sales_goal_cents')
             totals.append('*' + nm + '* so far: ' + '{:,}'.format(n) + ' tickets · ' + _money(g) + ' tickets'
-                          + (' + ' + _money(dn) + ' donations' if dn else '') + ' = *' + _money(g + dn) + '*')
+                          + (' + ' + _money(dn) + ' donations' if dn else '') + ' = *' + _money(g + dn) + '*'
+                          + ((' · ' + str(int(round((g + dn) * 100.0 / goal))) + '% of ' + _money(goal) + ' goal') if goal else ''))
         g, n, dn = ticket_sale_totals(conn)
         totals.append('All shows: ' + '{:,}'.format(n) + ' tickets · ' + _money(g) + (' + ' + _money(dn) + ' donations' if dn else '')
                       + ' = *' + _money(g + dn) + '*')
-        text = head + '\n' + '\n'.join(lines) + '\n' + money + '\n\n' + '\n'.join(totals)
+        text = (head + '\n' + '\n'.join(lines) + '\n' + money + '\n\n' + '\n'.join(totals)
+                + '\n<' + APP_BASE_URL.rstrip('/') + '/#marquee/boxoffice|View ticket sales →>')
         _post_slack(url, {'text': text})
     except Exception as e:
         app.logger.warning(f'Ticket Slack alert failed: {e}')
@@ -40435,11 +40451,22 @@ def slack_ticket_settings():
                 _set_setting(conn, 'slack_ticket_webhook', url)
             _set_setting(conn, 'slack_ticket_enabled', '1' if d.get('enabled', True) else '0')
             _set_setting(conn, 'slack_ticket_names', '1' if d.get('names', True) else '0')
+            if 'daily' in d:
+                _set_setting(conn, 'slack_daily_enabled', '1' if d.get('daily') else '0')
+            if d.get('daily_time'):
+                t = str(d['daily_time'])[:5]
+                if len(t) == 5 and t[2] == ':' and t[:2].isdigit() and t[3:].isdigit():
+                    _set_setting(conn, 'slack_daily_time', t)
+            if 'daily_chart' in d:
+                _set_setting(conn, 'slack_daily_chart', '1' if d.get('daily_chart') else '0')
             conn.commit()
         url = _setting(conn, 'slack_ticket_webhook') or ''
         return jsonify({'configured': bool(url), 'webhook_hint': (url[:34] + '…' + url[-4:]) if url else '',
                         'enabled': _setting(conn, 'slack_ticket_enabled', '1') == '1',
-                        'names': _setting(conn, 'slack_ticket_names', '1') == '1'})
+                        'names': _setting(conn, 'slack_ticket_names', '1') == '1',
+                        'daily': _setting(conn, 'slack_daily_enabled', '0') == '1',
+                        'daily_time': _setting(conn, 'slack_daily_time', '09:00') or '09:00',
+                        'daily_chart': _setting(conn, 'slack_daily_chart', '1') == '1'})
     finally:
         conn.close()
 
@@ -40464,6 +40491,188 @@ def slack_ticket_test():
             return jsonify({'error': 'Slack said: ' + (r.text or str(r.status_code))[:200]}), 400
     except Exception as e:
         return jsonify({'error': 'Couldn\'t reach Slack: ' + str(e)[:150]}), 400
+    return jsonify({'ok': True})
+
+
+# ── Show sales: capacity per performance, sales pace, and goal ────────────
+def show_sales_snapshot(conn, pid):
+    prod = fetchone(conn, 'SELECT id, name, share_name, sales_goal_cents FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        return None
+    perfs = fetchall(conn, '''SELECT pf.id, pf.name, pf.performance_date, pf.performance_time, pf.status,
+            pf.reserved_seating, pf.ga_capacity, sm.capacity AS seat_map_capacity
+        FROM performances pf LEFT JOIN seat_maps sm ON sm.id=pf.seat_map_id
+        WHERE pf.production_id=%s AND COALESCE(pf.status,'draft') NOT IN ('draft','cancelled')
+        ORDER BY pf.performance_date, pf.performance_time''', (pid,)) or []
+    orders = fetchall(conn, '''SELECT o.performance_id, o.total_cents, o.seats_json, COALESCE(o.completed_at, o.created_at) AS paid_at
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        WHERE pf.production_id=%s AND o.status='completed' ''', (pid,)) or []
+    sold, rev = {}, {}
+    days = {}
+    for o in orders:
+        n = _order_ticket_count(o)
+        sold[o['performance_id']] = sold.get(o['performance_id'], 0) + n
+        rev[o['performance_id']] = rev.get(o['performance_id'], 0) + int(o.get('total_cents') or 0)
+        d = _eastern_date(o.get('paid_at'))
+        if d:
+            k = d.isoformat()
+            days.setdefault(k, {'date': k, 'tickets': 0, 'revenue_cents': 0})
+            days[k]['tickets'] += n
+            days[k]['revenue_cents'] += int(o.get('total_cents') or 0)
+    out_perfs = []
+    for p in perfs:
+        cap = (p.get('seat_map_capacity') if p.get('reserved_seating') else p.get('ga_capacity')) or p.get('seat_map_capacity') or p.get('ga_capacity') or 0
+        out_perfs.append({'id': p['id'], 'name': p.get('name') or '', 'date': str(p['performance_date'])[:10],
+                          'time': p.get('performance_time') or '', 'status': p.get('status'),
+                          'capacity': int(cap or 0), 'sold': sold.get(p['id'], 0), 'revenue_cents': rev.get(p['id'], 0)})
+    # continuous daily series from the first sale to today
+    series = []
+    if days:
+        import datetime as _dt
+        start = min(_dt.date.fromisoformat(k) for k in days)
+        end = today_eastern()
+        cur, running = start, 0
+        while cur <= end:
+            k = cur.isoformat()
+            dd = days.get(k, {'date': k, 'tickets': 0, 'revenue_cents': 0})
+            running += dd['tickets']
+            series.append(dict(dd, cumulative_tickets=running))
+            cur += _dt.timedelta(days=1)
+    _dt_total, don_by_show, _ = ticket_checkout_donations(conn)
+    gross = sum(p['revenue_cents'] for p in out_perfs)
+    return {'id': prod['id'], 'name': prod['name'], 'short_name': prod.get('share_name') or prod['name'],
+            'goal_cents': prod.get('sales_goal_cents'), 'gross_cents': gross,
+            'donation_cents': don_by_show.get(pid, 0),
+            'tickets': sum(p['sold'] for p in out_perfs), 'capacity': sum(p['capacity'] for p in out_perfs),
+            'performances': out_perfs, 'daily': series}
+
+
+@app.route('/api/marquee/show-sales/<pid>', methods=['GET'])
+def marquee_show_sales(pid):
+    err = require_permission('marquee', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        snap = show_sales_snapshot(conn, pid)
+    finally:
+        conn.close()
+    if not snap:
+        return jsonify({'error': 'Show not found'}), 404
+    return jsonify(snap)
+
+
+@app.route('/api/productions/<pid>/sales-goal', methods=['PUT'])
+def set_sales_goal(pid):
+    err = require_permission('marquee', 'edit')
+    if err: return err
+    raw = (request.json or {}).get('goal')
+    try:
+        cents = int(round(float(raw) * 100)) if raw not in (None, '') else None
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Enter a dollar amount'}), 400
+    if cents is not None and cents <= 0:
+        cents = None
+    conn = get_db()
+    execute(conn, 'UPDATE productions SET sales_goal_cents=%s WHERE id=%s', (cents, pid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'goal_cents': cents})
+
+
+# ── Daily Slack ticket report ─────────────────────────────────────────────
+def _text_bar(frac, width=12):
+    frac = max(0.0, min(1.0, frac or 0))
+    full = int(round(frac * width))
+    return '█' * full + '░' * (width - full)
+
+
+def build_daily_ticket_report(conn):
+    """Slack Block Kit message: one section per show with upcoming
+    performances (yesterday's sales, totals + goal, fill per date), a sales
+    pace chart image, and a button to the Ticket Sales tab."""
+    import datetime as _dt, urllib.parse as _up
+    today = today_eastern()
+    yday = (today - _dt.timedelta(days=1)).isoformat()
+    shows = fetchall(conn, '''SELECT DISTINCT pr.id FROM productions pr JOIN performances pf ON pf.production_id=pr.id
+        WHERE pf.performance_date >= %s AND pf.status IN ('presale','on_sale','sold_out')''', (today.isoformat(),)) or []
+    blocks = [{'type': 'header', 'text': {'type': 'plain_text', 'text': '🎭 Daily Ticket Report · ' + today.strftime('%a, %b %-d')}}]
+    include_chart = _setting(conn, 'slack_daily_chart', '1') == '1'
+    if not shows:
+        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': 'No shows with upcoming performances on sale right now.'}})
+    for s in shows:
+        snap = show_sales_snapshot(conn, s['id'])
+        if not snap:
+            continue
+        yd = next((d for d in snap['daily'] if d['date'] == yday), {'tickets': 0, 'revenue_cents': 0})
+        total = snap['gross_cents'] + snap['donation_cents']
+        lines = ['*' + snap['short_name'] + '*',
+                 'Yesterday: *' + str(yd['tickets']) + '* ticket' + ('' if yd['tickets'] == 1 else 's') + ' · ' + _money(yd['revenue_cents']),
+                 'So far: *' + '{:,}'.format(snap['tickets']) + '* tickets · ' + _money(snap['gross_cents'])
+                 + (' + ' + _money(snap['donation_cents']) + ' donations' if snap['donation_cents'] else '') + ' = *' + _money(total) + '*']
+        if snap.get('goal_cents'):
+            frac = total / float(snap['goal_cents'])
+            lines.append('Goal: `' + _text_bar(frac) + '` ' + str(int(round(frac * 100))) + '% of ' + _money(snap['goal_cents']))
+        perf_lines = []
+        for p in snap['performances']:
+            if p['date'] < today.isoformat():
+                continue
+            try:
+                lab = _dt.date.fromisoformat(p['date']).strftime('%a %-m/%-d')
+            except Exception:
+                lab = p['date']
+            t = (p['time'] or '')[:5]
+            if t:
+                h, m = int(t[:2]), t[3:5]
+                lab += ' ' + str((h % 12) or 12) + (':' + m if m != '00' else '') + ('p' if h >= 12 else 'a')
+            if p['capacity']:
+                frac = p['sold'] / float(p['capacity'])
+                perf_lines.append('`' + lab.ljust(15) + ' ' + _text_bar(frac, 10) + '` ' + str(p['sold']) + '/' + str(p['capacity'])
+                                  + ' (' + str(int(round(frac * 100))) + '%)' + (' · pre-sale' if p['status'] == 'presale' else ''))
+            else:
+                perf_lines.append('`' + lab.ljust(15) + '` ' + str(p['sold']) + ' sold')
+        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': '\n'.join(lines + ([''] + perf_lines if perf_lines else []))}})
+        recent = snap['daily'][-14:]
+        if include_chart and recent and any(d['tickets'] for d in recent):
+            cfg = {'type': 'bar', 'data': {'labels': [_dt.date.fromisoformat(d['date']).strftime('%-m/%-d') for d in recent],
+                   'datasets': [{'label': 'Tickets sold', 'data': [d['tickets'] for d in recent], 'backgroundColor': '#16728b'}]},
+                   'options': {'plugins': {'legend': {'display': False},
+                               'title': {'display': True, 'text': snap['short_name'] + ' · tickets per day (last 14 days)'}},
+                               'scales': {'y': {'beginAtZero': True, 'ticks': {'precision': 0}}}}}
+            url = 'https://quickchart.io/chart?w=600&h=260&bkg=white&v=4&c=' + _up.quote(json.dumps(cfg, separators=(',', ':')))
+            blocks.append({'type': 'image', 'image_url': url, 'alt_text': snap['short_name'] + ' daily ticket sales'})
+        blocks.append({'type': 'divider'})
+    g, n, dn = ticket_sale_totals(conn)
+    blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*All shows:* ' + '{:,}'.format(n) + ' tickets · '
+                   + _money(g) + (' + ' + _money(dn) + ' donations' if dn else '') + ' = *' + _money(g + dn) + '*'}})
+    blocks.append({'type': 'actions', 'elements': [{'type': 'button', 'text': {'type': 'plain_text', 'text': 'Open Ticket Sales'},
+                   'url': APP_BASE_URL.rstrip('/') + '/#marquee/boxoffice'}]})
+    return {'text': 'Daily Ticket Report', 'blocks': blocks}
+
+
+def post_daily_ticket_report(force=False):
+    conn = get_db()
+    try:
+        url = (_setting(conn, 'slack_ticket_webhook') or '').strip()
+        if not url or (not force and _setting(conn, 'slack_daily_enabled', '0') != '1'):
+            return None
+        payload = build_daily_ticket_report(conn)
+    finally:
+        conn.close()
+    r = requests.post(url, json=payload, timeout=15)
+    return r
+
+
+@app.route('/api/settings/slack-tickets/daily-now', methods=['POST'])
+def slack_daily_report_now():
+    err = require_permission('settings', 'edit')
+    if err: return err
+    try:
+        r = post_daily_ticket_report(force=True)
+    except Exception as e:
+        return jsonify({'error': 'Couldn\'t build or send the report: ' + str(e)[:200]}), 400
+    if r is None:
+        return jsonify({'error': 'Save a webhook URL first.'}), 400
+    if r.status_code >= 300:
+        return jsonify({'error': 'Slack said: ' + (r.text or str(r.status_code))[:200]}), 400
     return jsonify({'ok': True})
 
 

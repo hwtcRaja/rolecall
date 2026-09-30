@@ -3533,7 +3533,8 @@ SECTION_ROUTE_PERMS = {
     # Donor Benefits page (eligibility, codes, outreach lists)
     **{fn: (['donor_benefits', 'donors'], ['donor_benefits', 'donors']) for fn in (
         'donor_benefit_settings_api', 'set_benefit_uses_allowed', 'set_benefit_code_settings',
-        'generate_benefit_codes', 'void_benefit_code', 'donors_for_benefit', 'delete_benefit_use')},
+        'generate_benefit_codes', 'void_benefit_code', 'donors_for_benefit', 'delete_benefit_use',
+        'reset_benefit_usage')},
     'get_all_donor_benefits': (['donor_benefits', 'donor_tiers', 'donors'], ['donor_tiers']),
     # editing the benefits themselves belongs to Tiers & Benefits
     **{fn: (['donor_tiers', 'donors'], ['donor_tiers', 'donors']) for fn in (
@@ -19891,8 +19892,9 @@ def set_benefit_code_settings(bid):
 
 @app.route('/api/donor-benefits/<bid>/generate-codes', methods=['POST'])
 def generate_benefit_codes(bid):
-    """Give every donor who can still use this benefit their own code
-    (skips anyone who already has an active one). Comp codes need a show."""
+    """Create codes for the donors picked (donor_ids), skipping anyone who
+    can't use the benefit right now or already has an active code. Comp
+    codes need a show."""
     err = require_auth()
     if err: return err
     d = request.json or {}
@@ -19911,6 +19913,9 @@ def generate_benefit_codes(bid):
         donors = fetchall(conn, '''SELECT dn.* FROM donors dn JOIN donor_tiers t ON t.id=dn.tier_id
             WHERE COALESCE(dn.status,'active')='active' AND t.min_amount >= %s''', (b['tier_min'],)) or []
         only = set(d.get('donor_ids') or [])
+        if not only:
+            # codes are made per donor on purpose, so unused codes don't pile up
+            return jsonify({'error': 'Pick which donors should get a code.'}), 400
         made = existing = skipped = 0
         for dn in donors:
             if only and dn['id'] not in only:
@@ -19930,6 +19935,48 @@ def generate_benefit_codes(bid):
             else: made += 1
         conn.commit()
         return jsonify({'ok': True, 'created': made, 'already_had': existing, 'skipped': skipped})
+    finally:
+        conn.close()
+
+
+@app.route('/api/donor-benefits/<bid>/reset-usage', methods=['POST'])
+def reset_benefit_usage(bid):
+    """Wipe a benefit's usage history, for everyone or one donor (donor_id),
+    so it can be used again, e.g. after testing. With delete_codes, their
+    codes are removed too. Ticket orders themselves are kept; they just
+    stop counting against the code."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    donor_id = d.get('donor_id') or None
+    conn = get_db()
+    try:
+        where, params = 'benefit_id=%s', [bid]
+        if donor_id:
+            where += ' AND donor_id=%s'; params.append(donor_id)
+        codes = fetchall(conn, 'SELECT id, cart_discount_code_id FROM benefit_codes WHERE ' + where, tuple(params)) or []
+        code_ids = [c['id'] for c in codes]
+        cart_ids = [c['cart_discount_code_id'] for c in codes if c.get('cart_discount_code_id')]
+        usage = fetchone(conn, 'SELECT COUNT(*) AS n FROM donor_benefit_usage WHERE ' + where, tuple(params)) or {}
+        execute(conn, 'DELETE FROM donor_benefit_usage WHERE ' + where, tuple(params))
+        if code_ids:
+            execute(conn, 'DELETE FROM benefit_code_redemptions WHERE code_id = ANY(%s)', (code_ids,))
+            execute(conn, 'UPDATE ticket_orders SET benefit_code_id=NULL WHERE benefit_code_id = ANY(%s)', (code_ids,))
+        if cart_ids:
+            execute(conn, 'UPDATE cart_discount_codes SET uses=0 WHERE id = ANY(%s)', (cart_ids,))
+        removed_codes = 0
+        if d.get('delete_codes') and code_ids:
+            if cart_ids:
+                execute(conn, 'DELETE FROM cart_discount_codes WHERE id = ANY(%s)', (cart_ids,))
+            execute(conn, 'DELETE FROM benefit_codes WHERE id = ANY(%s)', (code_ids,))
+            removed_codes = len(code_ids)
+        elif code_ids:
+            # reactivate codes that had been turned off, so testing starts clean
+            execute(conn, "UPDATE benefit_codes SET status='active' WHERE id = ANY(%s)", (code_ids,))
+            if cart_ids:
+                execute(conn, 'UPDATE cart_discount_codes SET active=TRUE WHERE id = ANY(%s)', (cart_ids,))
+        conn.commit()
+        return jsonify({'ok': True, 'uses_cleared': int(usage.get('n') or 0), 'codes_deleted': removed_codes})
     finally:
         conn.close()
 

@@ -1000,9 +1000,9 @@ function lineItemsToSeatsPayload(lineItems){
 var appliedDonorCode = null   // {code, label, savings_cents, sig}
 function renderDonorCodeSection(){
   var a = appliedDonorCode
-  return '<div class="form-group" style="margin-bottom:12px"><label>Donor code</label>'
+  return '<div class="form-group" style="margin-bottom:12px"><label>Promo or donor code</label>'
     + '<div style="display:flex;gap:8px">'
-    + '<input type="text" id="tk-donor-code" placeholder="HWTC-…" value="'+escH(a?a.code:'')+'" style="text-transform:uppercase;flex:1"'+(a?' disabled':'')+'/>'
+    + '<input type="text" id="tk-donor-code" placeholder="Enter code" value="'+escH(a?a.code:'')+'" style="text-transform:uppercase;flex:1"'+(a?' disabled':'')+'/>'
     + (a ? '<button type="button" class="btn btn-secondary" style="width:auto;padding:10px 14px" onclick="removeDonorCode()">Remove</button>'
          : '<button type="button" class="btn btn-secondary" style="width:auto;padding:10px 14px" onclick="applyDonorCode()">Apply</button>')
     + '</div><div id="tk-donor-code-msg" style="font-size:12.5px;margin-top:6px;'+(a?'color:var(--teal-dark);font-weight:700':'')+'">'
@@ -1125,7 +1125,7 @@ function renderCartPage(){
       + '</div>'
   }).join('')
   html += '<div class="total-row"><span>Cart Total</span><span>'+fmtMoney(grandTotal)+'</span></div>'
-  html += '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">Have a donor code? Enter it below; the savings show on the checkout button.</div>'
+  html += '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">Have a promo or donor code? Enter it below; the savings show on the checkout button.</div>'
   html += '</div>'
 
   html += renderDonationSection(true)

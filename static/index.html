@@ -34291,13 +34291,13 @@ function renderMarqueeDashboardSummary(el, data){
           .concat([(P.enrolled||0)+' enrolled · '+(P.count||0)+' program'+(P.count===1?'':'s')]),
         '#f0fdf4', '#166534', 'programs')
     + card('Ticket Sales', m(T.gross_cents),
-        [(T.tickets||0)+' ticket'+(T.tickets===1?'':'s')+' · '+(T.orders||0)+' order'+(T.orders===1?'':'s')].concat(T.fee_cents ? [m(T.fee_cents)+' of that is service fees'] : []),
+        [(T.tickets||0)+' ticket'+(T.tickets===1?'':'s')+' · '+(T.orders||0)+' order'+(T.orders===1?'':'s')].concat(T.fee_cents ? [m(T.fee_cents)+' of that is service fees'] : []).concat(T.donation_cents ? ['<strong>+ '+m(T.donation_cents)+' donated at checkout</strong>'] : []),
         '#eff6ff', '#1e40af', 'boxoffice')
     + card('Enrollment', m(E.gross_cents),
         [(E.enrolled||0)+' enrolled · Rising Stars &amp; Teen Show'],
         '#f5f3ff', '#5b21b6', 'enrollment')
     + card('Total', m(tot.gross_cents),
-        tot.instructor_cost_cents ? ['− '+m(tot.instructor_cost_cents)+' instructors', '<strong>'+m(tot.net_cents)+' net</strong>'] : ['Programs + tickets + enrollment'],
+        tot.instructor_cost_cents ? ['− '+m(tot.instructor_cost_cents)+' instructors', '<strong>'+m(tot.net_cents)+' net</strong>'] : ['Programs + tickets + enrollment'+(T.donation_cents?' + checkout donations':'')],
         '#0f172a', '#ffffff', '')
     + '</div>'
   var dons = data.donations || {}
@@ -34364,12 +34364,12 @@ function renderMarqueeDashboardSummary(el, data){
   // ── Ticket Sales ──
   var shows = data.ticket_shows || []
   html += '<div class="card" style="margin-bottom:16px;overflow:hidden">'
-    + sectionHead('Ticket Sales', m(T.gross_cents), 'boxoffice', '<span style="font-size:12px;color:var(--text-muted)">'+(T.tickets||0)+' tickets</span>')
+    + sectionHead('Ticket Sales', m(T.gross_cents), 'boxoffice', '<span style="font-size:12px;color:var(--text-muted)">'+(T.tickets||0)+' tickets</span>'+(T.donation_cents?'<span style="font-size:12.5px;font-weight:700;color:#9d174d">+ '+m(T.donation_cents)+' donated at checkout</span>':''))
   if(!shows.length) html += empty(isActive ? 'No shows with upcoming performances.' : 'No tickets were sold during these dates.')
   shows.forEach(function(sh){
     html += '<div style="padding:10px 20px;border-top:1px solid var(--border)">'
       + '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:200px;font-weight:700;font-size:13.5px">'+escHtml(sh.name)+'</div>'
-      + '<div style="font-size:12px;color:var(--text-muted)">'+sh.tickets+' ticket'+(sh.tickets===1?'':'s')+(sh.fee_cents?' · '+m(sh.fee_cents)+' fees':'')+'</div>'
+      + '<div style="font-size:12px;color:var(--text-muted)">'+sh.tickets+' ticket'+(sh.tickets===1?'':'s')+(sh.fee_cents?' · '+m(sh.fee_cents)+' fees':'')+(sh.donation_cents?' · <strong style="color:#9d174d">+ '+m(sh.donation_cents)+' donated</strong>':'')+'</div>'
       + '<div style="min-width:110px;text-align:right;font-weight:700;font-size:13px">'+m(sh.gross_cents)+'</div></div>'
       + ((sh.performances||[]).length ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'
           + sh.performances.map(function(pf){
@@ -34934,6 +34934,7 @@ async function renderMarqueeBoxOffice(el){
 
   html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:8px">'
     + '<div style="background:#f0fdf4;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#166534">'+fmtMoney(data.ticket_revenue)+'</div><div style="font-size:11px;font-weight:600;color:#166534;margin-top:2px">Ticket Revenue</div></div>'
+    + '<div style="background:#fdf2f8;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#9d174d">'+fmtMoney(data.donation_revenue)+'</div><div style="font-size:11px;font-weight:600;color:#9d174d;margin-top:2px">Donations at Checkout</div></div>'
     + '<div style="background:#e0f2fe;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#145466">'+(data.tickets_sold||0)+'</div><div style="font-size:11px;font-weight:600;color:#145466;margin-top:2px">Tickets Sold</div></div>'
     + '<div style="background:#fffbeb;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#92400e">'+fmtMoney(data.fee_revenue)+'</div><div style="font-size:11px;font-weight:600;color:#92400e;margin-top:2px">Service Fees Collected</div></div>'
     + '<div style="background:#ede9fe;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#6d28d9">'+(data.upcoming_performances||0)+'</div><div style="font-size:11px;font-weight:600;color:#6d28d9;margin-top:2px">Upcoming Performances</div></div>'
@@ -34950,6 +34951,7 @@ async function renderMarqueeBoxOffice(el){
             + '<div style="font-size:11.5px;color:var(--text-muted)">'+s.tickets_sold+' ticket'+(s.tickets_sold===1?'':'s')+' sold · '+s.active_performances+' upcoming performance'+(s.active_performances===1?'':'s')+'</div></div>'
             + '<div style="display:flex;align-items:center;gap:10px">'
             + '<span style="font-weight:700;font-size:13.5px">'+fmtMoney(s.revenue)+'</span>'
+            + (s.donations ? '<span style="font-size:12px;font-weight:700;color:#9d174d" title="Donations added at checkout with this show\'s tickets">+ '+fmtMoney(s.donations)+' donated</span>' : '')
             + '<button class="btn btn-secondary btn-sm" onclick="_mqBoxOfficeProdFilter=\''+s.id+'\';renderMarqueeBoxOfficeOrders()">View Orders</button>'
             + '</div></div>'
         }).join('')
@@ -35010,7 +35012,7 @@ async function renderMarqueeBoxOfficeOrders(){
           + '<td style="padding:8px">'+escHtml(o.production_name||'')+'</td>'
           + '<td style="padding:8px">'+escHtml(when)+'</td>'
           + '<td style="padding:8px">'+escHtml((o.seat_labels||[]).join(', ')||o.ticket_count+' ticket(s)')+'</td>'
-          + '<td style="padding:8px;font-weight:700">'+fmtMoney(o.total_cents)+'</td>'
+          + '<td style="padding:8px;font-weight:700">'+fmtMoney(o.total_cents)+(o.donation_cents?'<div style="font-size:10.5px;font-weight:700;color:#9d174d">+ '+fmtMoney(o.donation_cents)+' donation</div>':'')+'</td>'
           + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;'+(statusMap[o.status]||'')+'">'+escHtml(o.status||'')+'</span></td>'
           + '<td style="padding:8px;color:var(--text-muted)">'+fmtDate(o.created_at)+'</td>'
           + '</tr>'
@@ -35272,11 +35274,73 @@ async function renderMarqueePrograms(el){
   })
 }
 
+function tpcKindChanged(){
+  var k = (document.getElementById('tpc-kind')||{}).value
+  var lab = document.getElementById('tpc-value-label'), v = document.getElementById('tpc-value')
+  document.querySelectorAll('.tpc-v').forEach(function(x){ x.style.display = k==='bogo' ? 'none' : '' })
+  document.querySelectorAll('.tpc-b').forEach(function(x){ x.style.display = k==='bogo' ? '' : 'none' })
+  if(lab) lab.textContent = k==='amount' ? 'Dollars off' : k==='comp' ? 'Free tickets' : 'Percent off'
+  if(v) v.placeholder = k==='amount' ? '5.00' : k==='comp' ? '2' : '10'
+}
+async function createTicketPromo(){
+  var g = function(id){ return (document.getElementById(id)||{}).value || '' }
+  var res = await api('/api/marquee/ticket-promo-codes','POST',{
+    code: g('tpc-code'), kind: g('tpc-kind'), value: g('tpc-value'), max_tickets: g('tpc-maxt'),
+    production_id: g('tpc-prod'), max_uses: g('tpc-uses'), starts_on: g('tpc-start'), ends_on: g('tpc-end'), description: g('tpc-desc')
+  })
+  if(res && res.error){ toast(res.error,'error'); return }
+  toast('Ticket code added','success'); renderMarqueeTab('discounts')
+}
+async function toggleTicketPromo(id, on){
+  await api('/api/marquee/ticket-promo-codes/'+id,'PUT',{active: on}); renderMarqueeTab('discounts')
+}
+async function deleteTicketPromo(id){
+  if(!confirm('Delete this code? If it has been used it will be turned off instead, so order history stays intact.')) return
+  await api('/api/marquee/ticket-promo-codes/'+id,'DELETE'); renderMarqueeTab('discounts')
+}
+
 async function renderMarqueeDiscounts(el){
   var progs = allPrograms.filter(function(p){ return p.registration_status !== 'draft' })
-  var cartCodes = await api('/api/marquee/cart-discount-codes')
+  var [cartCodes, ticketCodes, prodList] = await Promise.all([
+    api('/api/marquee/cart-discount-codes'), api('/api/marquee/ticket-promo-codes'), api('/api/productions')])
+  prodList = Array.isArray(prodList) ? prodList.filter(function(p){ return p.status !== 'archived' }) : []
 
   var html = ''
+
+  // ── Ticket promo codes (the ticket page's "Promo or donor code" box) ──
+  html += '<div class="card" style="margin-bottom:16px">'
+    + '<div class="card-header" style="padding:14px 20px"><div style="font-size:14px;font-weight:700;color:#0d3d4d">Ticket Promo Codes</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:2px">Codes buyers type at ticket checkout. Donor benefit codes go in the same box and are made from Donors → Benefit Tracker.</div></div>'
+    + '<div style="padding:16px 20px">'
+    + ((Array.isArray(ticketCodes) && ticketCodes.length)
+        ? ticketCodes.map(function(c){
+            var when = (c.starts_on||c.ends_on) ? ' · '+(c.starts_on||'…')+' to '+(c.ends_on||'…') : ''
+            var uses = (c.uses||0)+(c.max_uses?'/'+c.max_uses:'')+' use'+((c.uses||0)===1&&!c.max_uses?'':'s')
+            return '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">'
+              + '<div><code style="background:var(--bg);padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700">'+escHtml(c.code)+'</code>'
+              + ' <span style="font-size:12px;color:var(--text-muted)">'+escHtml(c.label)+' · '+escHtml(uses)+escHtml(when)
+              + (c.discount_given?' · $'+(c.discount_given/100).toFixed(2)+' off so far':'')+'</span>'
+              + (c.description?' <span style="font-size:12px;color:var(--text-muted)">— '+escHtml(c.description)+'</span>':'')
+              + (!c.active?' <span style="font-size:10.5px;font-weight:700;color:#991b1b">OFF</span>':'')+'</div>'
+              + '<div style="display:flex;gap:4px;flex-shrink:0">'
+              + '<button class="btn btn-sm" style="padding:2px 10px;font-size:11px;background:'+(c.active?'#fee2e2':'#dcfce7')+';color:'+(c.active?'#991b1b':'#166534')+'" onclick="toggleTicketPromo(\''+c.id+'\','+(!c.active)+')">'+(c.active?'Turn off':'Turn on')+'</button>'
+              + '<button style="background:none;border:none;cursor:pointer;font-size:12px;color:var(--text-muted)" title="Delete" onclick="deleteTicketPromo(\''+c.id+'\')">Delete</button>'
+              + '</div></div>'
+          }).join('')
+        : '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">No ticket promo codes yet.</div>')
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:14px;align-items:end">'
+    + '<div class="form-group" style="margin:0"><label>Code</label><input id="tpc-code" placeholder="OPENINGNIGHT" style="text-transform:uppercase"/></div>'
+    + '<div class="form-group" style="margin:0"><label>Type</label><select id="tpc-kind" onchange="tpcKindChanged()"><option value="percent">% off</option><option value="amount">$ off order</option><option value="bogo">2-for-1</option><option value="comp">Free tickets</option></select></div>'
+    + '<div class="form-group tpc-v" style="margin:0"><label id="tpc-value-label">Percent off</label><input id="tpc-value" type="number" min="1" placeholder="10"/></div>'
+    + '<div class="form-group tpc-b" style="margin:0;display:none"><label>Up to tickets</label><input id="tpc-maxt" type="number" min="2" value="4"/></div>'
+    + '<div class="form-group" style="margin:0"><label>Show (optional)</label><select id="tpc-prod"><option value="">Any show</option>'
+    + prodList.map(function(p){ return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>' }).join('') + '</select></div>'
+    + '<div class="form-group" style="margin:0"><label>Max uses</label><input id="tpc-uses" type="number" min="1" placeholder="Unlimited"/></div>'
+    + '<div class="form-group" style="margin:0"><label>Starts</label><input id="tpc-start" type="date"/></div>'
+    + '<div class="form-group" style="margin:0"><label>Ends</label><input id="tpc-end" type="date"/></div>'
+    + '<div class="form-group" style="margin:0;grid-column:1/-1"><label>Note (staff only)</label><input id="tpc-desc" placeholder="e.g. Cast family preview night"/></div>'
+    + '<button class="btn btn-primary btn-sm" onclick="createTicketPromo()">Add Ticket Code</button>'
+    + '</div></div></div>'
 
   // ── Cart-wide codes ──
   html += '<div class="card" style="margin-bottom:16px">'

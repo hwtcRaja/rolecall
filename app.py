@@ -39884,8 +39884,32 @@ def public_hold_seats(fid):
         conn.rollback()
         conn.close()
         return jsonify({'error': 'Some seats were just taken by another buyer', 'taken': lost}), 409
+    # One clock for the whole cart: picking a seat gives every seat this
+    # buyer is holding (any date) a fresh 15 minutes, so seats picked first
+    # don't quietly lapse while they're still choosing.
+    execute(conn, "UPDATE seat_holds SET expires_at = NOW() + INTERVAL '15 minutes' WHERE session_token=%s AND expires_at >= NOW()",
+            (session_token,))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'expires_in_seconds': 900})
+
+
+@app.route('/api/public/holds/status', methods=['POST'])
+def public_hold_status():
+    """Which seats this buyer still holds (by performance) and how long
+    until they lapse, for the cart's countdown."""
+    token = ((request.json or {}).get('session_token') or '').strip()
+    if not token:
+        return jsonify({'held': {}, 'expires_in_seconds': None})
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT performance_id, seat_id, EXTRACT(EPOCH FROM (expires_at - NOW()))::int AS left_s
+            FROM seat_holds WHERE session_token=%s AND expires_at >= NOW()''', (token,)) or []
+    finally:
+        conn.close()
+    held = {}
+    for r in rows:
+        held.setdefault(r['performance_id'], []).append(r['seat_id'])
+    return jsonify({'held': held, 'expires_in_seconds': min((r['left_s'] for r in rows), default=None)})
 
 
 def _release_companions_too(conn, fid, seat_ids, session_token):
@@ -39971,6 +39995,7 @@ def public_ticket_checkout():
     groups = []  # each: {performance_id, prod_name, limit, line_items, fee_cents}
     requested_by_perf = {}  # performance_id -> tickets requested in THIS submission, summed across any duplicate cart entries for the same performance
 
+    unavailable = []
     for entry in cart:
         fid = entry.get('performance_id')
         seat_selections = entry.get('seats') or []
@@ -40017,7 +40042,23 @@ def public_ticket_checkout():
                 if not seat:
                     conn.close(); return jsonify({'error': 'A selected seat no longer exists'}), 400
                 if held.get(sid) != session_token:
-                    conn.close(); return jsonify({'error': f"Your hold on seat {seat['seat_label']} expired — please reselect."}), 409
+                    # The hold lapsed. If nobody else has the seat, just take it
+                    # again instead of failing the whole checkout.
+                    got = None
+                    if sid not in held:
+                        got = fetchone(conn, '''INSERT INTO seat_holds (id, performance_id, seat_id, session_token, expires_at)
+                            SELECT %s,%s,%s,%s, NOW() + INTERVAL '15 minutes'
+                            WHERE NOT EXISTS (SELECT 1 FROM tickets WHERE performance_id=%s AND seat_id=%s)
+                            ON CONFLICT (performance_id, seat_id) DO UPDATE SET
+                                session_token=EXCLUDED.session_token, expires_at=EXCLUDED.expires_at, id=EXCLUDED.id
+                            WHERE seat_holds.session_token=EXCLUDED.session_token OR seat_holds.expires_at < NOW()
+                            RETURNING session_token''', (str(uuid.uuid4()), fid, sid, session_token, fid, sid))
+                        conn.commit()
+                    if not got or got.get('session_token') != session_token:
+                        unavailable.append({'performance_id': fid, 'seat_id': sid, 'seat_label': seat['seat_label'],
+                                            'performance_date': str(perf.get('performance_date') or '')[:10],
+                                            'performance_time': perf.get('performance_time') or ''})
+                        continue
                 tt = ticket_type_rows.get(sel.get('ticket_type_id'))
                 if not tt:
                     # Never silently price a reserved seat at $0 because its
@@ -40052,6 +40093,12 @@ def public_ticket_checkout():
             'charge_service_fee': (prod or {}).get('charge_service_fee'),
             'service_fee_percent': (prod or {}).get('service_fee_percent'),
             'service_fee_flat_cents': (prod or {}).get('service_fee_flat_cents')})
+
+    if unavailable:
+        # Tell the page exactly which seats (and which dates) to drop, so the
+        # buyer keeps everything else and can check out right away.
+        conn.close()
+        return jsonify({'error': 'Some seats in your cart were taken by someone else.', 'unavailable': unavailable}), 409
 
     # A buyer who backs out of Square's payment page and checks out again
     # shouldn't be blocked by their own abandoned checkout. Retire their
@@ -40181,6 +40228,12 @@ def public_ticket_checkout():
         'pre_populated_data': {'buyer_email': guardian_email},
         'description': (f"Tickets — {groups[0]['prod_name']}" if len(groups) == 1 else "Tickets — multiple performances")[:191],
     }
+    # Keep the seats while they're on Square's payment page
+    try:
+        execute(conn, "UPDATE seat_holds SET expires_at = NOW() + INTERVAL '30 minutes' WHERE session_token=%s", (session_token,))
+        conn.commit()
+    except Exception:
+        conn.rollback()
     try:
         r = square_payment_link_with_fallback(payload, conn)
         data = r.json()

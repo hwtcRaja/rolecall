@@ -35644,6 +35644,7 @@ function auditLine(created_at, created_by_name, updated_at, updated_by_name){
         <div class="form-group"><label>Status</label>
           <select id="tk-perf-status">
             <option value="draft">Draft</option>
+            <option value="presale">Pre-Sale (pre-sale link only)</option>
             <option value="on_sale">On Sale</option>
             <option value="sold_out">Sold Out</option>
             <option value="closed">Closed</option>
@@ -35731,6 +35732,7 @@ function tkMoney(cents){ return '$' + ((cents||0)/100).toFixed(2); }
 function tkStatusBadge(s){
   var map = {
     draft:      ['Draft',     '#6b7280', 'rgba(107,114,128,0.12)'],
+    presale:    ['Pre-Sale',  '#6d28d9', 'rgba(109,40,217,0.12)'],
     on_sale:    ['On Sale',   '#047857', 'rgba(4,120,87,0.12)'],
     sold_out:   ['Sold Out',  '#b45309', 'rgba(180,83,9,0.12)'],
     closed:     ['Closed',    '#374151', 'rgba(55,65,81,0.12)'],
@@ -35815,7 +35817,11 @@ async function loadTicketsTab(pid){
       +       '<button class="btn btn-secondary btn-sm" onclick="ticketPerfModal(\''+pid+'\',\''+p.id+'\')">Edit</button>'
       +       (p.status==='on_sale'
                 ? '<button class="btn btn-secondary btn-sm" onclick="tkSetStatus(\''+p.id+'\',\'closed\',\''+pid+'\')">Close Sales</button>'
-                : '<button class="btn btn-primary btn-sm" onclick="tkSetStatus(\''+p.id+'\',\'on_sale\',\''+pid+'\')">Open Sales</button>')
+                : p.status==='presale'
+                  ? '<button class="btn btn-primary btn-sm" onclick="tkSetStatus(\''+p.id+'\',\'on_sale\',\''+pid+'\')">Open to Public</button>'
+                    + '<button class="btn btn-secondary btn-sm" onclick="tkSetStatus(\''+p.id+'\',\'closed\',\''+pid+'\')">Close Sales</button>'
+                  : '<button class="btn btn-secondary btn-sm" style="color:#6d28d9;border-color:#c4b5fd" onclick="tkSetStatus(\''+p.id+'\',\'presale\',\''+pid+'\')">Open Pre-Sale</button>'
+                    + '<button class="btn btn-primary btn-sm" onclick="tkSetStatus(\''+p.id+'\',\'on_sale\',\''+pid+'\')">Open Sales</button>')
       +       '<button class="btn btn-secondary btn-sm" style="color:var(--red,#b91c1c)" onclick="tkDeletePerf(\''+p.id+'\',\''+pid+'\')">Delete</button>'
       +     '</div>'
       +   '</div>'
@@ -35869,7 +35875,8 @@ async function openTicketingSettings(pid){
           + '<div style="display:flex;gap:10px;margin-top:6px;font-size:12px"><a href="#" onclick="saveTicketingSettings(\''+pid+'\',\'new\');return false">Make a new link</a><span style="color:var(--text-muted)">(the old one stops working)</span>'
           + '<a href="#" style="color:#b91c1c;margin-left:auto" onclick="saveTicketingSettings(\''+pid+'\',\'off\');return false">Turn off pre-sale</a></div>'
         : '<button type="button" class="btn btn-secondary btn-sm" onclick="saveTicketingSettings(\''+pid+'\',\'new\')">Create pre-sale link</button>')
-    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Anyone with this link can buy before the public on-sale time (cast families, donors, members). Share it privately. After the public on-sale time it works like the normal page.</div></div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Anyone with this link can buy before the public on-sale time (cast families, donors, members). Share it privately. After the public on-sale time it works like the normal page.</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.6"><strong>Performance statuses:</strong> <span style="color:#6d28d9;font-weight:700">Pre-Sale</span> performances can only be bought through this link, and switch to On Sale by themselves at the Public on-sale time. <span style="color:#047857;font-weight:700">On Sale</span> performances are open to everyone (after the on-sale time, if one is set).</div></div>'
     + '<button class="btn btn-primary" style="width:100%" onclick="saveTicketingSettings(\''+pid+'\')">Save</button>')
 }
 

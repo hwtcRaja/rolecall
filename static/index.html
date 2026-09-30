@@ -2292,6 +2292,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div style="font-size:11px;color:var(--text-hint);margin-top:3px;line-height:1.6">In Slack: <strong>Apps → search "Incoming WebHooks" → Add to Slack</strong>, pick your ticket channel (e.g. #ticket-sales), and copy the Webhook URL here. Leave blank to keep the current one.</div></div>
      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="slack-tickets-enabled" style="width:auto" checked/> Send ticket alerts</label>
      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="slack-tickets-names" style="width:auto" checked/> Include the buyer's name (otherwise it just says "Someone")</label>
+     <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:14px">
+      <div style="font-weight:600;font-size:13.5px;margin-bottom:4px">Daily report</div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;line-height:1.6">A morning summary in the same channel: yesterday's sales, totals and goal progress per show, how full each upcoming date is, a sales chart, and a button to open Ticket Sales.</div>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="slack-daily-enabled" style="width:auto"/> Post a daily report at <input type="time" id="slack-daily-time" value="09:00" style="width:auto;padding:3px 6px;margin-left:4px"/></label>
+      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="slack-daily-chart" style="width:auto" checked/> Include a sales chart image <span style="font-size:11px;color:var(--text-hint)">(drawn by quickchart.io from ticket counts only, no names)</span></label>
+      <button class="btn btn-secondary btn-sm" onclick="sendDailyReportNow()">Send today's report now</button>
+     </div>
      <div style="display:flex;gap:8px">
       <button class="btn btn-primary btn-sm" onclick="saveSlackTicketSettings()">Save</button>
       <button class="btn btn-secondary btn-sm" onclick="testSlackTicketSettings()">Send test message</button>
@@ -4488,8 +4495,14 @@ async function loginSuccess(user){
  // notifications) should actually land there instead of always dumping
  // everyone on the dashboard regardless of what URL they followed.
  var hashPage = (window.location.hash || '').replace('#','').trim()
+ var hashSub = ''
+ if(hashPage.indexOf('/') > 0){ hashSub = hashPage.split('/')[1]; hashPage = hashPage.split('/')[0] }
   if(hashPage && document.getElementById('page-'+hashPage)){
   navTo(hashPage)
+  if(hashPage === 'marquee' && hashSub){
+   // e.g. #marquee/boxoffice from a Slack alert
+   setTimeout(function(){ var b = document.querySelector('.marquee-tab[data-tab="'+hashSub+'"]'); if(b) b.click() }, 150)
+  }
  } else if(user.role==='instructor'){
   navTo('instructor-dashboard', document.getElementById('nav-instructor-dashboard'))
  } else if(user.role==='director'){
@@ -35069,6 +35082,80 @@ function ticketFlagBadge(o){
   return ' <span title="'+escHtml(f.reasons.map(function(r){ return TICKET_FLAG_TEXT[r]||r }).join('; '))+'" style="display:inline-block;margin-top:3px;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:700;background:#ffedd5;color:#9a3412">Possible over-limit buyer</span>'
 }
 
+// ── Ticket Sales tab: one show's sales at a glance ──
+var _mqShowSalesId = ''
+async function renderShowSalesCard(){
+  var holder = document.getElementById('mq-show-sales'); if(!holder) return
+  if(!_mqShowSalesId){ holder.innerHTML = ''; return }
+  holder.innerHTML = '<div style="padding:10px;color:var(--text-muted);font-size:13px">Loading…</div>'
+  var d = await api('/api/marquee/show-sales/'+_mqShowSalesId)
+  if(!d || d.error){ holder.innerHTML = '<div style="color:#b91c1c;font-size:13px">'+escHtml((d&&d.error)||'Could not load')+'</div>'; return }
+  function m(c){ return '$'+((c||0)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) }
+  var total = (d.gross_cents||0) + (d.donation_cents||0)
+  var html = ''
+  // goal
+  var goal = d.goal_cents
+  html += '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px">'
+    + '<div style="font-size:22px;font-weight:800;color:#166534">'+m(total)+'</div>'
+    + '<div style="font-size:12.5px;color:var(--text-muted)">'+m(d.gross_cents)+' tickets'+(d.donation_cents?' + '+m(d.donation_cents)+' donations':'')+' · '+(d.tickets||0)+(d.capacity?' of '+d.capacity:'')+' seats sold</div>'
+    + '<span style="flex:1"></span>'
+    + '<label style="font-size:12px;font-weight:600;color:var(--text-muted);margin:0">Sales goal $</label>'
+    + '<input id="mq-goal" type="number" min="0" step="50" value="'+(goal?(goal/100):'')+'" placeholder="none" style="width:110px;padding:5px 8px;font-size:13px"/>'
+    + '<button class="btn btn-secondary btn-sm" onclick="saveShowSalesGoal()">Save</button></div>'
+  if(goal){
+    var pct = Math.min(100, Math.round(total*100/goal))
+    html += '<div style="margin-bottom:18px"><div style="height:14px;background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden">'
+      + '<div style="height:100%;width:'+pct+'%;background:linear-gradient(90deg,#16728b,#22a6c4)"></div></div>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px"><strong style="color:var(--text)">'+Math.round(total*100/goal)+'%</strong> of '+m(goal)+(total<goal?' · '+m(goal-total)+' to go':' · goal reached!')+'</div></div>'
+  }
+  // per performance
+  var perfs = d.performances || []
+  html += '<div style="font-size:12px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">By performance</div>'
+  if(!perfs.length) html += '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">No performances on sale yet.</div>'
+  perfs.forEach(function(p){
+    var pct = p.capacity ? Math.round(p.sold*100/p.capacity) : 0
+    var col = pct >= 90 ? '#b91c1c' : pct >= 60 ? '#16728b' : '#22a6c4'
+    var past = p.date < new Date().toISOString().slice(0,10)
+    html += '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;'+(past?'opacity:0.55':'')+'">'
+      + '<div style="width:170px;font-size:12.5px;font-weight:600">'+escHtml(tkFmtDate(p.date))+(p.time?' · '+escHtml(tkFmtTime(p.time)):'')
+      + (p.status==='presale'?' <span style="font-size:10px;font-weight:700;color:#6d28d9">PRE-SALE</span>':'')+'</div>'
+      + '<div style="flex:1;height:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden">'+(p.capacity?'<div style="height:100%;width:'+Math.min(100,pct)+'%;background:'+col+'"></div>':'')+'</div>'
+      + '<div style="width:120px;text-align:right;font-size:12.5px"><strong>'+p.sold+'</strong>'+(p.capacity?' / '+p.capacity+' ('+pct+'%)':' sold')+'</div>'
+      + '<div style="width:90px;text-align:right;font-size:12px;color:var(--text-muted)">'+m(p.revenue_cents)+'</div></div>'
+  })
+  // pace chart (inline SVG): bars = tickets per day, line = running total
+  var days = d.daily || []
+  html += '<div style="font-size:12px;font-weight:800;letter-spacing:0.06em;text-transform:uppercase;color:var(--text-muted);margin:16px 0 6px">Sales pace</div>'
+  if(!days.length){
+    html += '<div style="font-size:13px;color:var(--text-muted)">No sales yet.</div>'
+  } else {
+    var W = 720, H = 180, pad = 28, n = days.length
+    var maxDay = Math.max.apply(null, days.map(function(x){ return x.tickets })) || 1
+    var maxCum = days[n-1].cumulative_tickets || 1
+    var bw = (W - pad*2) / n
+    var svg = '<svg viewBox="0 0 '+W+' '+(H+24)+'" style="width:100%;height:auto;display:block">'
+    days.forEach(function(x, i){
+      var h = (x.tickets/maxDay) * (H - pad)
+      svg += '<rect x="'+(pad + i*bw + bw*0.15)+'" y="'+(H - h)+'" width="'+Math.max(1, bw*0.7)+'" height="'+h+'" rx="2" fill="#16728b" opacity="0.8"><title>'+x.date+': '+x.tickets+' tickets, '+m(x.revenue_cents)+'</title></rect>'
+    })
+    var pts = days.map(function(x, i){ return (pad + i*bw + bw/2).toFixed(1)+','+(H - (x.cumulative_tickets/maxCum)*(H - pad)).toFixed(1) }).join(' ')
+    svg += '<polyline points="'+pts+'" fill="none" stroke="#f4b740" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>'
+    svg += '<line x1="'+pad+'" y1="'+H+'" x2="'+(W-pad)+'" y2="'+H+'" stroke="var(--border)"/>'
+    var step = Math.max(1, Math.ceil(n/8))
+    days.forEach(function(x, i){ if(i % step === 0 || i === n-1){ var dt = new Date(x.date+'T12:00:00'); svg += '<text x="'+(pad + i*bw + bw/2)+'" y="'+(H+16)+'" font-size="11" text-anchor="middle" fill="#6b7280">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</text>' } })
+    svg += '<text x="'+(W-pad)+'" y="14" font-size="11" text-anchor="end" fill="#b7791f">'+maxCum+' total</text>'
+    svg += '</svg>'
+    html += svg + '<div style="font-size:11.5px;color:var(--text-muted)">Bars: tickets sold each day · Gold line: running total</div>'
+  }
+  holder.innerHTML = html
+}
+async function saveShowSalesGoal(){
+  var v = (document.getElementById('mq-goal')||{}).value || ''
+  var res = await api('/api/productions/'+_mqShowSalesId+'/sales-goal','PUT',{goal: v})
+  if(res && res.error){ toast(res.error,'error'); return }
+  toast(v ? 'Goal saved' : 'Goal cleared','success'); renderShowSalesCard()
+}
+
 async function renderMarqueeBoxOffice(el){
   var data = await api('/api/marquee/box-office')
   if(!data || data.error){ el.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load box office data.</div>'; return }
@@ -35103,6 +35190,15 @@ async function renderMarqueeBoxOffice(el){
     html += '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted);margin-bottom:20px">No shows with ticketing set up yet.</div>'
   }
 
+  if(shows.length){
+    if(!_mqShowSalesId || !shows.find(function(x){ return x.id===_mqShowSalesId })) _mqShowSalesId = shows[0].id
+    html += '<div class="card" style="padding:16px 18px;margin-bottom:20px">'
+      + '<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap"><div style="font-weight:700;font-size:14px">Show Sales</div>'
+      + '<select onchange="_mqShowSalesId=this.value;renderShowSalesCard()" style="width:auto">'
+      + shows.map(function(s){ return '<option value="'+s.id+'"'+(s.id===_mqShowSalesId?' selected':'')+'>'+escHtml(s.name)+'</option>' }).join('')
+      + '</select></div><div id="mq-show-sales"></div></div>'
+  }
+
   html += '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:10px">'
     + '<div style="font-weight:700;font-size:14px">Ticket Orders</div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
@@ -35118,6 +35214,7 @@ async function renderMarqueeBoxOffice(el){
 
   el.innerHTML = html
   renderMarqueeBoxOfficeOrders()
+  renderShowSalesCard()
 }
 
 async function renderMarqueeBoxOfficeOrders(){
@@ -35916,11 +36013,23 @@ async function loadSlackTicketSettings(){
     : '<span style="color:var(--text-muted)">Not connected yet.</span>'
   document.getElementById('slack-tickets-enabled').checked = !!d.enabled
   document.getElementById('slack-tickets-names').checked = !!d.names
+  document.getElementById('slack-daily-enabled').checked = !!d.daily
+  document.getElementById('slack-daily-time').value = d.daily_time || '09:00'
+  document.getElementById('slack-daily-chart').checked = d.daily_chart !== false
+}
+async function sendDailyReportNow(){
+  if(!(await saveSlackTicketSettings())) return
+  var res = await api('/api/settings/slack-tickets/daily-now','POST',{})
+  if(res && res.error){ toast(res.error,'error'); return }
+  toast('Daily report posted to Slack','success')
 }
 async function saveSlackTicketSettings(extra){
   var body = Object.assign({
     enabled: document.getElementById('slack-tickets-enabled').checked,
-    names: document.getElementById('slack-tickets-names').checked
+    names: document.getElementById('slack-tickets-names').checked,
+    daily: document.getElementById('slack-daily-enabled').checked,
+    daily_time: document.getElementById('slack-daily-time').value || '09:00',
+    daily_chart: document.getElementById('slack-daily-chart').checked
   }, extra || {})
   var url = (document.getElementById('slack-tickets-webhook').value||'').trim()
   if(url && !('webhook' in body)) body.webhook = url

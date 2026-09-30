@@ -35424,6 +35424,7 @@ async function renderMarqueeBoxOfficeOrders(){
         return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="openTicketOrderDetail(\''+o.id+'\')">'
           + '<td style="padding:8px">'+escHtml(o.guardian_name||'')+'<div style="color:var(--text-muted);font-size:11px">'+escHtml(o.guardian_email||'')+'</div>'
           + (o.sale_channel==='presale'?' <span style="display:inline-block;margin-top:3px;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:700;background:#ede9fe;color:#6d28d9">Pre-sale</span>':'')
+          + (o.sale_channel==='test'?' <span style="display:inline-block;margin-top:3px;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:700;background:#fef3c7;color:#92400e">Test</span>':'')
           + ticketFlagBadge(o)+'</td>'
           + '<td style="padding:8px">'+escHtml(o.production_name||'')+'</td>'
           + '<td style="padding:8px">'+escHtml(when)+'</td>'
@@ -36077,6 +36078,7 @@ async function loadTicketsTab(pid){
     + '<div id="seat-holds-panel-'+pid+'" style="display:none;margin-bottom:16px"></div>'
     + (ticketUrl
         ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 14px;background:var(--teal-light,#e0f2fe);border-radius:var(--radius);font-size:13px">'
+          + '<a class="btn btn-secondary btn-sm" href="'+ticketUrl+'?preview=1" target="_blank" title="Try the whole flow before sales open, including Draft and Pre-Sale performances. Only works while you\'re logged in.">Preview as a buyer</a>'
           + '<span style="flex:1">Public ticket page: <a href="'+ticketUrl+'" target="_blank" style="color:var(--teal-dark);font-weight:700">'+ticketUrl+'</a>'
           + ' <span style="color:var(--text-muted)">— only performances marked "On Sale" below show up here.</span></span>'
           + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(location.origin+\''+ticketUrl+'\');toast(\'Link copied!\',\'success\')">Copy Link</button>'
@@ -36530,7 +36532,9 @@ async function openTicketOrderDetail(oid){
           + '</div>'
         : '<div style="display:flex;gap:8px;margin-top:18px">'
           + '<button class="btn btn-secondary" style="flex:1" onclick="openRefundRequestFromOrder(\''+oid+'\')"> Request Refund</button>'
-          + '</div>')
+          + (order.sale_channel==='test' ? '<button class="btn btn-secondary" style="flex:1;color:#b91c1c" onclick="deleteTestTicketOrder(\''+oid+'\')">Delete test order</button>' : '')
+          + '</div>'
+          + (order.sale_channel==='test' ? '<div style="font-size:12px;color:var(--text-muted);margin-top:8px">Placed in staff preview. Deleting it frees the seats. If a real card was charged, refund it in Square too.</div>' : ''))
   showAdHocModal('order-detail-modal', 'Order Details', body)
 }
 
@@ -36539,6 +36543,12 @@ function _refreshTicketOrderViews(){
   closeAdHocModal('order-detail-modal')
   if(document.getElementById('mq-boxoffice-search') && typeof renderMarqueeBoxOfficeOrders === 'function') renderMarqueeBoxOfficeOrders()
   Object.keys(_ticketOrdersOpen||{}).forEach(function(pid){ if(_ticketOrdersOpen[pid] && typeof searchTicketOrders === 'function') searchTicketOrders(pid) })
+}
+async function deleteTestTicketOrder(oid){
+  if(!confirm('Delete this test order and free its seats?')) return
+  var res = await api('/api/ticket-orders/'+oid+'/delete-test','POST',{})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Test order deleted','success'); _refreshTicketOrderViews()
 }
 async function markTicketOrderPaid(oid){
   if(!confirm('Record this order as paid (cash, check, etc.)? Tickets will be issued and the buyer will get their confirmation email.')) return

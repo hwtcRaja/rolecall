@@ -336,7 +336,10 @@ async function init(){
   // this device's cart/checkout, which may happen on a different page.
   var urlKey = new URLSearchParams(window.location.search).get('presale') || ''
   var myKey = urlKey
-  var data = await api('/api/public/production/'+encodeURIComponent(slug)+'/performances'+(myKey?'?presale='+encodeURIComponent(myKey):''))
+  var _q = []
+  if(myKey) _q.push('presale='+encodeURIComponent(myKey))
+  if(TICKET_PREVIEW) _q.push('preview=1')
+  var data = await api('/api/public/production/'+encodeURIComponent(slug)+'/performances'+(_q.length?'?'+_q.join('&'):''))
   if(data.error){
     document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
     return
@@ -366,6 +369,23 @@ async function init(){
     return loadPerformance(perfs[0].id)
   }
   renderPerformancePicker(prod, perfs)
+}
+
+// ── Staff preview (?preview=1): skips countdowns, shows Draft/Pre-Sale ──
+// Only works for someone logged into RoleCall with ticketing access; the
+// server ignores it for everyone else. Remembered for this browser tab so
+// the cart and checkout stay in preview; ?preview=0 turns it off.
+var TICKET_PREVIEW = (function(){
+  try{
+    var q = new URLSearchParams(window.location.search).get('preview')
+    if(q === '1') sessionStorage.setItem('hwtc_ticket_preview', '1')
+    if(q === '0') sessionStorage.removeItem('hwtc_ticket_preview')
+    return sessionStorage.getItem('hwtc_ticket_preview') === '1'
+  }catch(e){ return false }
+})()
+function previewBannerHTML(){
+  if(!(lastSale && lastSale.preview)) return ''
+  return '<div class="card" style="background:#fef3c7;border-color:#f59e0b;padding:12px 16px;font-size:13.5px"><strong>Staff preview.</strong> You\'re seeing this page as it will work once sales open, including Draft and Pre-Sale performances. Orders you place here are tagged <strong>Test</strong> in Box Office, where you can delete them. Real card payments still go through Square, so use a 100%-off promo code to test without being charged. <a href="?preview=0">Exit preview</a></div>'
 }
 
 // ── Pre-sale keys + the "on sale soon" countdown ──
@@ -448,6 +468,7 @@ function fmtPerfDate(d, t){
 
 function renderPerformancePicker(prod, perfs){
   setTimeout(function(){ var a = document.getElementById('app'); if(a && presaleBannerHTML() && a.innerHTML.indexOf('Pre-sale access.') < 0) a.insertAdjacentHTML('afterbegin', presaleBannerHTML()) }, 0)
+  setTimeout(function(){ var a = document.getElementById('app'); if(a && previewBannerHTML() && a.innerHTML.indexOf('Staff preview.') < 0) a.insertAdjacentHTML('afterbegin', previewBannerHTML()) }, 0)
   document.getElementById('app').innerHTML =
     renderAboutSection(prod.description)
     + '<div class="card"><div class="section-title">Select Your Date</div>'
@@ -495,7 +516,7 @@ async function loadPerformance(fid){
 function renderPurchaseScreen(){
   var reserved = currentPerformance.reserved_seating
   var html = ''
-  html += presaleBannerHTML()
+  html += previewBannerHTML() + presaleBannerHTML()
   html += '<div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:16px 22px">'
     + '<div><div style="font-size:11.5px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;color:var(--text-muted);margin-bottom:3px">Your Performance</div>'
     + '<div style="font-weight:800;font-size:16px">'+escH(fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time))+'</div>'
@@ -948,7 +969,7 @@ async function holdSeatGroup(ids, accessibleConfirmed){
   ids.forEach(function(id){ selectedSeats[id] = defaultType ? defaultType.id : null })
   refreshPickerAndCart()
   var res = await api('/api/public/performances/'+currentPerformance.id+'/hold-seats','POST',
-    {seat_ids: ids, session_token: getSessionToken(), presale_keys: presaleKeysForServer(), accessible_confirmed: !!accessibleConfirmed})
+    {seat_ids: ids, session_token: getSessionToken(), presale_keys: presaleKeysForServer(), accessible_confirmed: !!accessibleConfirmed, preview: TICKET_PREVIEW})
   if(res.error){
     ids.forEach(function(id){ delete selectedSeats[id] })
     refreshPickerAndCart()
@@ -993,7 +1014,7 @@ async function toggleSeat(seatId){
   selectedSeats[seatId] = defaultType ? defaultType.id : null
   refreshPickerAndCart()
   var res = await api('/api/public/performances/'+currentPerformance.id+'/hold-seats','POST',
-    {seat_ids:[seatId], session_token:getSessionToken(), presale_keys: presaleKeysForServer()})
+    {seat_ids:[seatId], session_token:getSessionToken(), presale_keys: presaleKeysForServer(), preview: TICKET_PREVIEW})
   if(res.error){
     delete selectedSeats[seatId]
     seat.status = 'held'
@@ -1326,6 +1347,7 @@ async function doCheckout(){
     session_token: getSessionToken(), guardian_name: name, guardian_email: email, guardian_phone: phone,
     device_id: getDeviceId(), cart: cart, donation_cents: selectedDonationCents,
     presale_keys: presaleKeysForServer(),
+    preview: TICKET_PREVIEW,
     promo_code: appliedDonorCode ? appliedDonorCode.code : ''
   })
   if(res.error){

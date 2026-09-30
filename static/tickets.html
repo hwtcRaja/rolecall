@@ -248,13 +248,16 @@ function getDeviceId(){
 }
 
 function getSessionToken(){
+  // Kept in localStorage (not per-tab) because the cart is: a buyer who
+  // reloads, opens a second tab, or comes back later must still be the
+  // "owner" of the seats in their cart, or every one of them looks taken.
   if(sessionToken) return sessionToken
   try{
-    sessionToken = sessionStorage.getItem('ticket_session_token')
+    sessionToken = localStorage.getItem('ticket_session_token') || sessionStorage.getItem('ticket_session_token')
     if(!sessionToken){
       sessionToken = 'tk_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10)
-      sessionStorage.setItem('ticket_session_token', sessionToken)
     }
+    localStorage.setItem('ticket_session_token', sessionToken)
   } catch(e){
     sessionToken = 'tk_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,10)
   }
@@ -555,7 +558,7 @@ function renderPurchaseScreen(){
       + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomBy(0.8)" aria-label="Zoom out">−</button>'
       + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomReset()">Reset View</button>'
       + '<button type="button" class="btn btn-secondary btn-sm" onclick="pickerZoomBy(1.25)" aria-label="Zoom in">+</button>'
-      + '<span id="picker-zoom-hint" style="font-size:11.5px;color:var(--text-muted);visibility:hidden">Drag to move around</span>'
+      + '<span id="picker-zoom-hint" style="font-size:11.5px;color:var(--text-muted);visibility:hidden">Drag to move around · Reset View to see everything</span>'
       + '</div>'
     html += '<div class="seat-legend">'
       + '<span><span class="legend-dot" style="background:'+SEAT_STATUS_COLORS.available+'"></span>Available</span>'
@@ -688,9 +691,12 @@ function wirePickerZoomEvents(){
   if(!svg || svg._zoomWired) return
   svg._zoomWired = true
   applyPickerViewBox(svg)
-  var DRAG_PX = 6
+  var DRAG_PX = 12   // a finger wobble while tapping a seat isn't a drag
 
   svg.addEventListener('wheel', function(evt){
+    // Plain scrolling scrolls the page as usual. Zoom only on a trackpad
+    // pinch (browsers send it as ctrl+wheel) or Ctrl/⌘ + scroll.
+    if(!(evt.ctrlKey || evt.metaKey)) return
     evt.preventDefault()
     pickerZoomAt(svg, pickerZoom*(evt.deltaY < 0 ? 1.12 : 0.89), evt.clientX, evt.clientY)
   }, {passive:false})
@@ -708,7 +714,7 @@ function wirePickerZoomEvents(){
       var m = _pickerMouse, sv = document.getElementById('picker-svg')
       if(!m || !sv) return
       var dx = evt.clientX - m.x, dy = evt.clientY - m.y
-      if(!_pickerDragged && Math.abs(dx) + Math.abs(dy) < 6) return
+      if(!_pickerDragged && Math.abs(dx) + Math.abs(dy) < 12) return
       _pickerDragged = true
       sv.style.cursor = 'grabbing'
       var k = pickerUnitsPerPx(sv)
@@ -1026,6 +1032,30 @@ async function toggleSeat(seatId){
   armHoldExpiry()
 }
 
+// When the 15 minutes run out we don't throw the buyer's picks away: we
+// quietly try to hold the same seats again. Only seats someone else took
+// in the meantime come out, and we say which ones.
+async function onHoldClockRanOut(){
+  stopHoldCountdown()
+  if(!currentPerformance) return
+  var ids = Object.keys(selectedSeats)
+  if(!ids.length) return
+  var lost = []
+  for(var i=0;i<ids.length;i++){
+    var r = await api('/api/public/performances/'+currentPerformance.id+'/hold-seats','POST',
+      {seat_ids: [ids[i]], session_token: getSessionToken(), presale_keys: presaleKeysForServer(), accessible_confirmed: true, preview: TICKET_PREVIEW})
+    if(r && r.error){
+      var seat = seats.find(function(x){ return x.id === ids[i] }) || {}
+      lost.push({performance_id: currentPerformance.id, seat_id: ids[i], seat_label: seat.seat_label || ''})
+    }
+  }
+  if(lost.length){
+    renderCheckoutAfterRemoval(removeUnavailableSeats(lost))
+  } else {
+    armHoldExpiry()
+  }
+}
+
 function armHoldExpiry(){
   // Every successful hold-seats call (each seat picked) restarts this to a
   // fresh 15 minutes from right now — same as the server does per seat —
@@ -1033,11 +1063,7 @@ function armHoldExpiry(){
   // lapse if I don't touch anything else."
   if(holdTimer) clearTimeout(holdTimer)
   holdExpiresAt = Date.now() + 15*60*1000
-  holdTimer = setTimeout(function(){
-    stopHoldCountdown()
-    alert('Your seat hold has expired. Please reselect your seats.')
-    loadPerformance(currentPerformance.id)
-  }, 15*60*1000)
+  holdTimer = setTimeout(function(){ onHoldClockRanOut() }, 15*60*1000)
   startHoldCountdown()
 }
 
@@ -1353,6 +1379,11 @@ async function doCheckout(){
   })
   if(res.error){
     if(res.promo_error){ appliedDonorCode = null; refreshDonorCodeSection() }
+    if(res.unavailable && res.unavailable.length){
+      var msg = removeUnavailableSeats(res.unavailable)
+      renderCheckoutAfterRemoval(msg)
+      return
+    }
     errEl.innerHTML = '<div class="error-box" style="margin-bottom:10px">'+escH(res.error)+'</div>'
     btn.disabled = false; updateCheckoutButtonState()
     return
@@ -1367,6 +1398,85 @@ async function doCheckout(){
     return
   }
   window.location.href = '/tickets/confirmation?cart='+res.cart_id
+}
+
+// Seats someone else got first: take only those out of the cart (and the
+// live selection), keep everything else, and say exactly what changed.
+function removeUnavailableSeats(list){
+  var gone = {}
+  list.forEach(function(u){ gone[u.performance_id+'|'+u.seat_id] = u })
+  var cart = ticketCartGet(), byDate = {}
+  cart.forEach(function(item){
+    item.line_items = item.line_items.filter(function(li){
+      var u = li.seat_id && gone[item.performance_id+'|'+li.seat_id]
+      if(u){ (byDate[item.performance_label] = byDate[item.performance_label] || []).push(li.seat_label || u.seat_label) }
+      return !u
+    })
+  })
+  ticketCartSave(cart.filter(function(item){ return item.line_items.length }))
+  if(currentPerformance){
+    list.forEach(function(u){
+      if(u.performance_id === currentPerformance.id && Object.prototype.hasOwnProperty.call(selectedSeats, u.seat_id)){
+        delete selectedSeats[u.seat_id]
+        ;(byDate[fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time)] = byDate[fmtPerfDate(currentPerformance.performance_date, currentPerformance.performance_time)] || []).push(u.seat_label)
+      }
+    })
+  }
+  updateCartBadge()
+  var parts = Object.keys(byDate).map(function(k){ return '<strong>'+escH(k)+'</strong>: '+byDate[k].map(escH).join(', ') })
+  return 'Sorry, someone else just got '+(list.length===1?'this seat':'these seats')+', so we took '+(list.length===1?'it':'them')+' out of your cart: '
+    + parts.join('; ')+'. Everything else is still here and held for you.'
+}
+function renderCheckoutAfterRemoval(msg){
+  var left = ticketCartGet().length + (currentPerformance ? Object.keys(selectedSeats).length : 0)
+  if(window.location.pathname === '/tickets/cart' || !currentPerformance) renderCartPage()
+  else renderPurchaseScreen()
+  var box = document.getElementById('checkout-error')
+  var note = '<div class="error-box" style="margin-bottom:10px;background:#fff7ed;border-color:#fdba74;color:#7c2d12">'+msg
+    + (left ? ' You can check out now.' : ' Please pick new seats.')+'</div>'
+  if(box) box.innerHTML = note
+  else { var a = document.getElementById('app'); if(a) a.insertAdjacentHTML('afterbegin', note) }
+  try{ (box || document.getElementById('app')).scrollIntoView({behavior:'smooth', block:'center'}) }catch(e){}
+}
+
+// Cart page: one countdown for everything held, and a quiet re-hold of any
+// seats whose hold ran out (if they're still free, the buyer never notices).
+var _cartHoldTimer = null
+async function refreshCartHolds(){
+  var cart = ticketCartGet()
+  var reserved = cart.filter(function(it){ return it.reserved_seating })
+  if(!reserved.length) return
+  var st = await api('/api/public/holds/status','POST',{session_token: getSessionToken()})
+  var held = (st && st.held) || {}
+  var lapsed = []
+  for(var i=0;i<reserved.length;i++){
+    var it = reserved[i]
+    var mine = held[it.performance_id] || []
+    var missing = it.line_items.map(function(li){ return li.seat_id }).filter(function(id){ return id && mine.indexOf(id) < 0 })
+    if(missing.length){
+      var r = await api('/api/public/performances/'+it.performance_id+'/hold-seats','POST',
+        {seat_ids: missing, session_token: getSessionToken(), presale_keys: presaleKeysForServer(), accessible_confirmed: true, preview: TICKET_PREVIEW})
+      if(r && r.error){
+        // hold them one by one so only the truly taken ones drop out
+        for(var j=0;j<missing.length;j++){
+          var r1 = await api('/api/public/performances/'+it.performance_id+'/hold-seats','POST',
+            {seat_ids: [missing[j]], session_token: getSessionToken(), presale_keys: presaleKeysForServer(), accessible_confirmed: true, preview: TICKET_PREVIEW})
+          if(r1 && r1.error){
+            var li = it.line_items.find(function(x){ return x.seat_id === missing[j] }) || {}
+            lapsed.push({performance_id: it.performance_id, seat_id: missing[j], seat_label: li.seat_label || ''})
+          }
+        }
+      }
+    }
+  }
+  if(lapsed.length){
+    renderCheckoutAfterRemoval(removeUnavailableSeats(lapsed))
+  }
+  var st2 = await api('/api/public/holds/status','POST',{session_token: getSessionToken()})
+  if(st2 && st2.expires_in_seconds){
+    holdExpiresAt = Date.now() + st2.expires_in_seconds*1000
+    startHoldCountdown()
+  }
 }
 
 function renderCartPage(){
@@ -1401,6 +1511,9 @@ function renderCartPage(){
       + '</div>'
   }).join('')
   html += '<div class="total-row"><span>Cart Total</span><span>'+fmtMoney(grandTotal)+'</span></div>'
+  if(cart.some(function(it){ return it.reserved_seating })){
+    html += '<div style="font-size:13px;margin-top:8px;padding:8px 12px;background:var(--teal-light);border-radius:8px">Your seats are held for <strong id="hold-countdown-time">15:00</strong>. Picking another seat restarts the clock for all of them.</div>'
+  }
   html += '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">Have a promo or donor code? Enter it below; the savings show on the checkout button.</div>'
   html += '</div>'
 
@@ -1419,6 +1532,8 @@ function renderCartPage(){
     + '</div>'
   document.getElementById('app').innerHTML = html
   updateCheckoutButtonState()
+  if(!window._cartHoldsChecked){ window._cartHoldsChecked = true; refreshCartHolds().finally(function(){ window._cartHoldsChecked = false }) }
+  else if(holdExpiresAt) tickHoldCountdown()
 }
 
 async function removeCartItem(idx){

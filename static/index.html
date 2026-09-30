@@ -500,6 +500,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('donors',this)"><span class="nav-icon" id="ni-donors"></span>All Donors</div>
         <div class="nav-item" onclick="navTo('donor-campaigns',this)"><span class="nav-icon" id="ni-donor-campaigns"></span>Campaigns</div>
         <div class="nav-item" onclick="navTo('donor-tiers',this)"><span class="nav-icon" id="ni-donor-tiers"></span>Tiers &amp; Benefits</div>
+        <div class="nav-item" onclick="navTo('donor-benefits',this)"><span class="nav-icon" id="ni-donor-benefits"></span>Donor Benefits</div>
         <div class="nav-item" onclick="navTo('donor-templates',this)"><span class="nav-icon" id="ni-donor-templates"></span>Email Templates</div>
         <!-- ADMIN -->
         <div class="nav-section">Admin</div>
@@ -1474,6 +1475,12 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </section>
 
  <!-- DONOR TIERS PAGE -->
+ <section class="page" id="page-donor-benefits">
+ <div class="page-header"><div><div class="page-title">Donor Benefits</div>
+ <div class="page-subtitle">Who can use each benefit, who's used it, and their personal codes for 2-for-1s, discounts and comps.</div></div></div>
+ <div class="page-body"><div id="donor-benefits-body"></div></div>
+ </section>
+
  <section class="page" id="page-donor-tiers">
  <div class="page-header">
  <div><div class="page-title"> Tiers &amp; Benefits</div><div class="page-subtitle">Configure giving levels and their benefits</div></div>
@@ -1506,7 +1513,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn btn-secondary btn-sm" onclick="openDonorImportModal()">Import CSV</button>
  <button class="btn btn-secondary btn-sm" onclick="openDonorCampaignsModal()">Campaigns</button>
  <button class="btn btn-secondary btn-sm" onclick="openDonorTiersModal()"> Tiers &amp; Benefits</button>
- <button class="btn btn-secondary btn-sm" onclick="openBenefitTracker()">Benefit Tracker</button>
+ <button class="btn btn-secondary btn-sm" onclick="navTo('donor-benefits')">Donor Benefits</button>
  <button class="btn btn-primary" onclick="openAddDonorModal()">+ Add Donor</button>
  </div>
  </div>
@@ -2855,6 +2862,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <input type="text" id="ni-input-donor-tiers" placeholder="star" value=""
  style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
  oninput="previewNavIcon('donor-tiers',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-donor-benefits">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Donor Benefits</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-donor-benefits" placeholder="ticket-percent" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('donor-benefits',this.value)"/>
  </div>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
@@ -4572,6 +4589,7 @@ const NAV_PERM_MAP = {
  'donor-detail': 'donors',
  'donor-campaigns': 'donor_campaigns',
  'donor-tiers': 'donor_tiers',
+ 'donor-benefits': 'donor_benefits',
  'donor-templates': 'donor_templates',
  'oncall': 'oncall',
  'hours-store': 'hours_store',
@@ -4597,6 +4615,7 @@ const PERM_LEGACY_FALLBACK = {
  'donor_campaigns': 'donors',
  'donor_tiers': 'donors',
  'donor_templates': 'donors',
+ 'donor_benefits': 'donors',
 }
 
 function resolvePermLevel(section){
@@ -4757,6 +4776,7 @@ function navTo(page,el){
  if(page==='donors') loadDonorsPage()
  if(page==='donor-campaigns') loadCampaignsPage()
  if(page==='donor-tiers') loadTiersPage()
+ if(page==='donor-benefits') loadDonorBenefitsPage()
  if(page==='donor-templates') loadTemplatesPage()
  if(page==='marquee') loadMarqueePage()
  if(page==='refund-requests') loadRefundRequestsPage()
@@ -10708,7 +10728,7 @@ const NAV_ICON_DEFAULTS = {
  events:'', marquee:'', 'refund-requests':'', productions:'', youth:'', 'youth-programs-page':'',
  'rising-stars-page':'', 'portal-admin':'', 'youth-signin':'', carpools:'',
  'event-logs':'', notifications:'', settings:'', reports:'',
- donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-templates':'',
+ donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-benefits':'', 'donor-templates':'',
   board:'', directors:'', 'my-time':'', 'space-requests':'', surveys:'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
   oncall:'', 'hours-store':'', responsibility:'', licensing:'', talent:'', inbox:'',
@@ -15919,31 +15939,38 @@ var _btStatus = 'unused'
 var _btProductionId = ''
 var _btProductions = null
 var BT_TYPES = [['manual','Tracked by hand (no code)'],['bogo_tickets','2-for-1 tickets'],['pct_ticket_order','% off a ticket order'],['pct_class','% off a class'],['comp_per_show','Comp tickets per show']]
-async function openBenefitTracker(){
+// ── Donor Benefits page: eligibility, donor codes, and who to contact ──
+async function openBenefitTracker(){ navTo('donor-benefits') }
+
+async function loadDonorBenefitsPage(){
+ const root = document.getElementById('donor-benefits-body'); if(!root) return
+ root.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
  const [benefits, settings] = await Promise.all([api('/api/donor-benefits'), api('/api/donor-benefit-settings')])
- const list = Array.isArray(benefits) ? benefits.filter(b=>b.is_trackable) : []
- if(!_btBenefitId && list.length) _btBenefitId = list[0].id
- showAdHocModal('benefit-tracker-modal', 'Benefit Tracker',
-  '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">'
-  + '<div style="font-weight:700;font-size:13px;margin-bottom:6px">Eligibility rules</div>'
-  + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">'
-  + '<div class="form-group" style="margin:0"><label>Window after reaching a tier (days)</label><input type="number" id="bt-window" min="1" value="'+(settings.window_days||365)+'" style="width:120px"/></div>'
-  + '<div class="form-group" style="margin:0"><label>Grace: everyone eligible until</label><input type="date" id="bt-grace" value="'+escHtml(settings.grace_until||'')+'"/></div>'
-  + '<div class="form-group" style="margin:0;flex:1;min-width:180px"><label>Grace note</label><input id="bt-grace-note" value="'+escHtml(settings.grace_note||'')+'" placeholder="Catch-up while we start tracking"/></div>'
+ if(!Array.isArray(benefits)){ root.innerHTML = '<div class="card" style="padding:20px;color:var(--red-600)">'+escHtml((benefits&&benefits.error)||'Could not load benefits')+'</div>'; return }
+ const list = benefits.filter(b=>b.is_trackable)
+ if(!_btBenefitId || !list.find(b=>b.id===_btBenefitId)) _btBenefitId = list.length ? list[0].id : ''
+ const step = (n, t) => '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="width:24px;height:24px;border-radius:50%;background:var(--teal);color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center">'+n+'</span><span style="font-size:14px;font-weight:800">'+t+'</span></div>'
+ root.innerHTML =
+  (list.length
+   ? '<div class="card" style="padding:16px 18px;margin-bottom:14px">'
+     + step(1, 'Pick a benefit')
+     + '<select id="bt-benefit" onchange="_btBenefitId=this.value;_btProductionId=\'\';loadBenefitTrackerList()" style="max-width:420px">'
+     + list.map(b=>'<option value="'+b.id+'"'+(b.id===_btBenefitId?' selected':'')+'>'+escHtml(b.name)+' ('+escHtml(b.tier_name)+' and up)</option>').join('')
+     + '</select></div>'
+     + '<div id="bt-list"><div class="loading"><div class="spinner"></div>Loading…</div></div>'
+   : '<div class="card" style="padding:24px;text-align:center;color:var(--text-muted)">No trackable benefits yet. Add benefits under <a href="#" onclick="navTo(\'donor-tiers\');return false">Tiers &amp; Benefits</a> and mark them trackable.</div>')
+  + '<details class="card" style="padding:14px 18px;margin-top:14px"'+(settings && settings.grace_until?' open':'')+'>'
+  + '<summary style="cursor:pointer;font-size:14px;font-weight:800">Eligibility rules'+(settings && settings.grace_until?' <span style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;padding:2px 8px;border-radius:10px;margin-left:6px">Grace until '+escHtml(settings.grace_until)+'</span>':'')+'</summary>'
+  + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:12px">'
+  + '<div class="form-group" style="margin:0"><label>Window after reaching a tier (days)</label><input type="number" id="bt-window" min="1" value="'+((settings&&settings.window_days)||365)+'" style="width:120px"/></div>'
+  + '<div class="form-group" style="margin:0"><label>Grace: everyone eligible until</label><input type="date" id="bt-grace" value="'+escHtml((settings&&settings.grace_until)||'')+'"/></div>'
+  + '<div class="form-group" style="margin:0;flex:1;min-width:200px"><label>Grace note</label><input id="bt-grace-note" value="'+escHtml((settings&&settings.grace_note)||'')+'" placeholder="Catch-up while we start tracking"/></div>'
   + '<button class="btn btn-secondary btn-sm" onclick="saveBenefitSettings()">Save rules</button></div>'
-  + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">A donor can use benefits for the window after the donation that reached their tier. The grace date lets everyone with a tier use benefits until then (leave blank to turn it off). Individual donors can be extended from their profile.</div>'
-  + '</div>'
-  + (list.length
-     ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
-       + '<select id="bt-benefit" onchange="_btBenefitId=this.value;loadBenefitTrackerList()" style="width:auto;min-width:240px">'
-       + list.map(b=>'<option value="'+b.id+'"'+(b.id===_btBenefitId?' selected':'')+'>'+escHtml(b.name)+' ('+escHtml(b.tier_name)+'+)</option>').join('')
-       + '</select>'
-       + ['unused','used','expired','all'].map(k=>'<span class="bt-pill" data-k="'+k+'" onclick="_btStatus=\''+k+'\';loadBenefitTrackerList()" style="padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid var(--border)">'+({unused:'Can still use',used:'Used',expired:'Window ended',all:'All'})[k]+'</span>').join('')
-       + '</div><div id="bt-list">Loading…</div>'
-     : '<div style="color:var(--text-muted);font-size:13px">No trackable benefits yet. Add them under Tiers &amp; Benefits.</div>'))
- var _btBox = document.querySelector('#benefit-tracker-modal > div'); if(_btBox) _btBox.style.maxWidth = '920px'
+  + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:8px">Donors can use benefits for this window after the donation that reached their tier. The grace date lets everyone with a tier use benefits until then; leave it blank to turn it off. Individual donors can be extended from their profile.</div>'
+  + '</details>'
  if(list.length) loadBenefitTrackerList()
 }
+
 async function saveBenefitSettings(){
  const res = await api('/api/donor-benefit-settings','PUT',{
   window_days: parseInt(document.getElementById('bt-window').value||'365',10)||365,
@@ -15951,92 +15978,88 @@ async function saveBenefitSettings(){
   grace_note: document.getElementById('bt-grace-note').value||''
  })
  if(res.error){ toast(res.error,'error'); return }
- toast('Rules saved','success'); loadBenefitTrackerList()
+ toast('Rules saved','success'); loadDonorBenefitsPage()
 }
+
 async function loadBenefitTrackerList(){
  const holder = document.getElementById('bt-list'); if(!holder) return
- document.querySelectorAll('.bt-pill').forEach(p=>{
-  const on = p.dataset.k===_btStatus
-  p.style.background = on ? 'var(--teal)' : 'transparent'; p.style.color = on ? '#fff' : 'var(--text-muted)'; p.style.borderColor = on ? 'var(--teal)' : 'var(--border)'
- })
- holder.innerHTML = 'Loading…'
+ holder.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
  if(_btProductions === null){ const ps = await api('/api/productions'); _btProductions = Array.isArray(ps) ? ps.filter(p=>p.status!=='archived') : [] }
- const data = await api('/api/donor-benefits/'+_btBenefitId+'/donors?status='+_btStatus+(_btProductionId?'&production_id='+encodeURIComponent(_btProductionId):''))
- if(!data || data.error){ holder.innerHTML = '<div style="color:#b91c1c">'+escHtml((data&&data.error)||'Could not load')+'</div>'; return }
- const rows = data.donors || []
- const fmt = d => d ? new Date(String(d).slice(0,10)+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'
- const emails = rows.map(r=>r.email).filter(Boolean)
- const stateStyle = {unused:'background:#dcfce7;color:#166534', used:'background:#e0f2fe;color:#075985', expired:'background:#f1f5f9;color:#64748b'}
- const stateLabel = {unused:'Can use', used:'Used', expired:'Window ended'}
+ // load everyone once; the status pills filter here so the counts stay right
+ const data = await api('/api/donor-benefits/'+_btBenefitId+'/donors?status=all'+(_btProductionId?'&production_id='+encodeURIComponent(_btProductionId):''))
+ if(!data || data.error){ holder.innerHTML = '<div class="card" style="padding:16px;color:#b91c1c">'+escHtml((data&&data.error)||'Could not load')+'</div>'; return }
+ const all = data.donors || []
+ const counts = {unused: all.filter(r=>r.state==='unused').length, used: all.filter(r=>r.state==='used').length, expired: all.filter(r=>r.state==='expired').length, all: all.length}
+ const canUse = all.filter(r=>r.state==='unused')
+ const withCode = canUse.filter(r=>r.code).length
+ const rows = _btStatus==='all' ? all : all.filter(r=>r.state===_btStatus)
  const bt = data.benefit.benefit_type || 'manual'
- const codePanel = '<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:10px 12px;margin-bottom:10px">'
+ const fmt = d => d ? new Date(String(d).slice(0,10)+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : '—'
+ const step = (n, t) => '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><span style="width:24px;height:24px;border-radius:50%;background:var(--teal);color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center">'+n+'</span><span style="font-size:14px;font-weight:800">'+t+'</span></div>'
+
+ // ── Step 2: donor codes ──
+ let codes = '<div class="card" style="padding:16px 18px;margin-bottom:14px;border:1.5px solid var(--teal-100,#ccfbf1)">'
+  + step(2, 'Donor codes')
   + '<div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">'
-  + '<div class="form-group" style="margin:0"><label>Benefit type</label><select id="bt-type" onchange="btTypeChanged()" style="width:auto">'
+  + '<div class="form-group" style="margin:0"><label>What this benefit does</label><select id="bt-type" onchange="btTypeChanged()" style="width:auto">'
   + BT_TYPES.map(t=>'<option value="'+t[0]+'"'+(t[0]===bt?' selected':'')+'>'+t[1]+'</option>').join('') + '</select></div>'
   + '<div class="form-group bt-opt" data-for="pct_ticket_order pct_class" style="margin:0"><label>Percent off</label><input type="number" id="bt-pct" min="1" max="100" value="'+(data.benefit.code_percent||(bt==='pct_class'?30:10))+'" style="width:80px"/></div>'
   + '<div class="form-group bt-opt" data-for="bogo_tickets" style="margin:0"><label>Max tickets</label><input type="number" id="bt-maxt" min="2" value="'+(data.benefit.code_max_tickets||4)+'" style="width:80px"/></div>'
   + '<div class="form-group bt-opt" data-for="pct_class" style="margin:0"><label>Up to people</label><input type="number" id="bt-maxp" min="1" value="'+(data.benefit.code_max_people||2)+'" style="width:80px"/></div>'
   + '<div class="form-group bt-opt" data-for="comp_per_show" style="margin:0"><label>Comps per show</label><input type="number" id="bt-comp" min="1" value="'+(data.benefit.code_comp_tickets||15)+'" style="width:80px"/></div>'
-  + '<button class="btn btn-secondary btn-sm" onclick="saveBenefitCodeSettings()">Save type</button>'
+  + '<button class="btn btn-secondary btn-sm" onclick="saveBenefitCodeSettings()">Save</button>'
   + '</div>'
-  + (bt==='comp_per_show' ? '<div class="form-group" style="margin:10px 0 0"><label>Show (comp codes are per show)</label><select id="bt-prod" onchange="_btProductionId=this.value;loadBenefitTrackerList()" style="width:auto;min-width:240px"><option value="">Pick a show…</option>'
-      + (_btProductions||[]).map(p=>'<option value="'+p.id+'"'+(p.id===_btProductionId?' selected':'')+'>'+escHtml(p.name)+'</option>').join('') + '</select></div>' : '')
-  + (bt!=='manual' ? '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="generateBenefitCodes()">Generate codes for everyone who can use it</button>'
-      + '<span style="font-size:11.5px;color:var(--text-muted)">Each donor gets their own code. It only works during their benefit window and marks the benefit used when redeemed. Codes show in the list and the CSV.</span></div>' : '')
-  + '</div>'
- holder.innerHTML = codePanel +
-  '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'
-  + '<span style="font-size:12.5px;color:var(--text-muted)">'+rows.length+' donor'+(rows.length===1?'':'s')+' · '+emails.length+' with email · allowed '
-  + '<input type="number" min="1" id="bt-uses" value="'+(data.benefit.uses_allowed||1)+'" style="width:56px;padding:3px 6px;font-size:12px"/> use(s) per window '
-  + '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="saveBenefitUsesAllowed()">Set</button></span>'
+ if(bt === 'manual'){
+  codes += '<div style="font-size:12.5px;color:var(--text-muted);margin-top:10px">This benefit is tracked by hand, so it has no codes. To give donors codes, choose what it does above (2-for-1 tickets, % off tickets, % off a class, or comp tickets) and click Save.</div>'
+ } else {
+  if(bt === 'comp_per_show'){
+   codes += '<div class="form-group" style="margin:12px 0 0"><label>Which show? (comp codes are per show)</label><select id="bt-prod" onchange="_btProductionId=this.value;loadBenefitTrackerList()" style="width:auto;min-width:260px"><option value="">Pick a show…</option>'
+    + (_btProductions||[]).map(p=>'<option value="'+p.id+'"'+(p.id===_btProductionId?' selected':'')+'>'+escHtml(p.name)+'</option>').join('') + '</select></div>'
+  }
+  const needs = canUse.length - withCode
+  const blocked = bt === 'comp_per_show' && !_btProductionId
+  codes += '<div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:14px;padding:12px 14px;background:var(--bg);border-radius:var(--radius)">'
+   + '<div style="font-size:13px"><strong>'+canUse.length+'</strong> donor'+(canUse.length===1?'':'s')+' can use this now · <strong>'+withCode+'</strong> have a code'+(needs>0?' · <strong style="color:var(--teal-dark)">'+needs+' need one</strong>':'')+'</div>'
+   + '<span style="flex:1"></span>'
+   + (blocked ? '<span style="font-size:12px;color:#b45309;font-weight:700">Pick a show first</span>'
+      : '<button class="btn btn-primary" onclick="generateBenefitCodes()"'+(needs>0?'':' disabled')+'>'+(needs>0?'Create '+needs+' code'+(needs===1?'':'s'):'Everyone has a code')+'</button>')
+   + '</div>'
+   + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:8px">Each donor gets their own code (e.g. HWTC-2FOR1-K7Q3). It only works during their benefit window and marks the benefit used when it\'s redeemed. Buyers enter it in the "Promo or donor code" box at checkout'+(bt==='pct_class'?' (or the discount code box on class registration)':'')+'. Codes appear in the list below and in the CSV.</div>'
+ }
+ codes += '</div>'
+
+ // ── Step 3: donors ──
+ let people = '<div class="card" style="padding:16px 18px">'
+  + step(3, 'Donors with this benefit')
+  + '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">'
+  + ['unused','used','expired','all'].map(k=>{ const on = k===_btStatus; return '<span onclick="_btStatus=\''+k+'\';loadBenefitTrackerList()" style="padding:6px 12px;border-radius:20px;font-size:12px;font-weight:700;cursor:pointer;border:1.5px solid '+(on?'var(--teal)':'var(--border)')+';background:'+(on?'var(--teal)':'transparent')+';color:'+(on?'#fff':'var(--text-muted)')+'">'+({unused:'Can still use',used:'Used',expired:'Window ended',all:'All'})[k]+' ('+counts[k]+')</span>' }).join('')
   + '<span style="flex:1"></span>'
-  + '<button class="btn btn-secondary btn-sm" onclick="copyBenefitEmails()" '+(emails.length?'':'disabled')+'>Copy emails</button>'
+  + '<button class="btn btn-secondary btn-sm" onclick="copyBenefitEmails()">Copy emails</button>'
   + '<a class="btn btn-secondary btn-sm" href="/api/donor-benefits/'+_btBenefitId+'/donors?status='+_btStatus+'&format=csv'+(_btProductionId?'&production_id='+encodeURIComponent(_btProductionId):'')+'">Download CSV</a>'
   + '</div>'
-  + (rows.length ? '<div style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
-    + '<thead><tr style="background:var(--bg);text-align:left"><th style="padding:8px">Donor</th><th style="padding:8px">Tier</th><th style="padding:8px">Eligible until</th><th style="padding:8px">Status</th><th style="padding:8px">Code</th><th style="padding:8px"></th></tr></thead><tbody>'
-    + rows.map(r=>'<tr style="border-top:1px solid var(--border)">'
-      + '<td style="padding:8px"><div style="font-weight:600;cursor:pointer" onclick="closeAdHocModal(\'benefit-tracker-modal\');openDonorDetail(\''+r.donor_id+'\')">'+escHtml(r.name)+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.email||'no email')+'</div></td>'
-      + '<td style="padding:8px">'+escHtml(r.tier_name||'')+'</td>'
-      + '<td style="padding:8px" title="'+escHtml(r.eligible_reason||'')+'">'+fmt(r.eligible_until)+'</td>'
-      + '<td style="padding:8px"><span style="font-size:10.5px;padding:2px 8px;border-radius:10px;font-weight:700;'+stateStyle[r.state]+'">'+stateLabel[r.state]+'</span><div style="font-size:10.5px;color:var(--text-muted);margin-top:2px">'+r.used+' of '+r.allowed+' used'+(r.last_used_at?' · '+fmt(r.last_used_at):'')+'</div></td>'
-      + '<td style="padding:8px;font-family:monospace;font-size:12px">'+(r.code?'<span style="cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(\''+r.code+'\');toast(\'Copied\',\'success\')">'+escHtml(r.code)+'</span>':'<span style="color:var(--text-hint)">—</span>')+'</td>'
-      + '<td style="padding:8px;text-align:right">'+(r.state!=='expired'?'<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openRecordBenefitUse(\''+r.donor_id+'\',\''+_btBenefitId+'\',\''+escHtml(data.benefit.name).replace(/\'/g,"\\\'")+' — '+escHtml(r.name).replace(/\'/g,"\\\'")+'\', loadBenefitTrackerList)">Mark used</button>':'')+'</td>'
-      + '</tr>').join('')
-    + '</tbody></table></div>'
-    : '<div style="padding:16px;color:var(--text-muted);font-size:13px">Nobody in this list.</div>')
- window._btEmails = emails
+  + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Allowed '
+  + '<input type="number" min="1" id="bt-uses" value="'+(data.benefit.uses_allowed||1)+'" style="width:56px;padding:3px 6px;font-size:12px"/> use(s) per eligibility window '
+  + '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="saveBenefitUsesAllowed()">Set</button></div>'
+ const stateStyle = {unused:'background:#dcfce7;color:#166534', used:'background:#e0f2fe;color:#075985', expired:'background:#f1f5f9;color:#64748b'}
+ const stateLabel = {unused:'Can use', used:'Used', expired:'Window ended'}
+ people += rows.length ? '<div style="max-height:60vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+  + '<thead><tr style="background:var(--bg);text-align:left;position:sticky;top:0"><th style="padding:8px">Donor</th><th style="padding:8px">Tier</th><th style="padding:8px">Eligible until</th><th style="padding:8px">Status</th><th style="padding:8px">Code</th><th style="padding:8px"></th></tr></thead><tbody>'
+  + rows.map(r=>'<tr style="border-top:1px solid var(--border)">'
+    + '<td style="padding:8px"><div style="font-weight:600;cursor:pointer" onclick="openDonorDetail(\''+r.donor_id+'\')">'+escHtml(r.name)+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml(r.email||'no email')+'</div></td>'
+    + '<td style="padding:8px">'+escHtml(r.tier_name||'')+'</td>'
+    + '<td style="padding:8px" title="'+escHtml(r.eligible_reason||'')+'">'+fmt(r.eligible_until)+'</td>'
+    + '<td style="padding:8px"><span style="font-size:10.5px;padding:2px 8px;border-radius:10px;font-weight:700;'+stateStyle[r.state]+'">'+stateLabel[r.state]+'</span><div style="font-size:10.5px;color:var(--text-muted);margin-top:2px">'+r.used+' of '+r.allowed+' used'+(r.last_used_at?' · '+fmt(r.last_used_at):'')+'</div></td>'
+    + '<td style="padding:8px;font-family:monospace;font-size:12px">'+(r.code?'<span style="cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(\''+r.code+'\');toast(\'Copied\',\'success\')">'+escHtml(r.code)+'</span>':'<span style="color:var(--text-hint)">—</span>')+'</td>'
+    + '<td style="padding:8px;text-align:right">'+(r.state!=='expired'?'<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="openRecordBenefitUse(\''+r.donor_id+'\',\''+_btBenefitId+'\',\''+escHtml(data.benefit.name).replace(/'/g,"\\'")+' — '+escHtml(r.name).replace(/'/g,"\\'")+'\', loadBenefitTrackerList)">Mark used</button>':'')+'</td>'
+    + '</tr>').join('') + '</tbody></table></div>'
+  : '<div style="padding:16px;color:var(--text-muted);font-size:13px">Nobody in this list.</div>'
+ people += '</div>'
+
+ holder.innerHTML = codes + people
+ window._btEmails = rows.map(r=>r.email).filter(Boolean)
  btTypeChanged()
 }
-function btTypeChanged(){
- const t = (document.getElementById('bt-type')||{}).value || 'manual'
- document.querySelectorAll('.bt-opt').forEach(el=>{ el.style.display = el.dataset.for.split(' ').indexOf(t) >= 0 ? '' : 'none' })
-}
-async function saveBenefitCodeSettings(){
- const v = id => (document.getElementById(id)||{}).value || ''
- const res = await api('/api/donor-benefits/'+_btBenefitId+'/code-settings','PUT',{
-  benefit_type: v('bt-type'), code_percent: v('bt-pct'), code_max_tickets: v('bt-maxt'),
-  code_max_people: v('bt-maxp'), code_comp_tickets: v('bt-comp')
- })
- if(res.error){ toast(res.error,'error'); return }
- toast('Benefit type saved','success'); loadBenefitTrackerList()
-}
-async function generateBenefitCodes(){
- const t = (document.getElementById('bt-type')||{}).value
- if(t==='comp_per_show' && !_btProductionId){ toast('Pick the show first','error'); return }
- if(!confirm('Create a code for every donor who can still use this benefit? Donors who already have one keep it.')) return
- const res = await api('/api/donor-benefits/'+_btBenefitId+'/generate-codes','POST',{production_id: _btProductionId||null})
- if(res.error){ toast(res.error,'error'); return }
- toast(res.created+' new code'+(res.created===1?'':'s')+(res.already_had?' · '+res.already_had+' already had one':''),'success')
- loadBenefitTrackerList()
-}
-async function voidBenefitCode(cid, donorId){
- if(!confirm('Turn off this code? It will stop working immediately.')) return
- const res = await api('/api/benefit-codes/'+cid+'/void','POST',{})
- if(res.error){ toast(res.error,'error'); return }
- toast('Code turned off','success')
- const donor = await api('/api/donors/'+donorId+'/detail'); if(!donor.error) renderDonorDetailPage(donor)
-}
+
 function copyBenefitEmails(){
  const list = (window._btEmails||[]).join(', ')
  navigator.clipboard.writeText(list).then(()=>toast('Copied '+(window._btEmails||[]).length+' emails','success'))
@@ -18683,6 +18706,7 @@ const PERM_SECTIONS = [
  {key:'donors', label:'Donors & Sponsors', desc:'Donor records, donations, benefit tracker'},
  {key:'donor_campaigns', label:'  ↳ Campaigns', desc:'Create and edit fundraising campaigns', parent:'donors'},
  {key:'donor_tiers', label:'  ↳ Tiers & Benefits', desc:'Giving tiers and their benefits', parent:'donors'},
+ {key:'donor_benefits', label:'  ↳ Donor Benefits', desc:'Benefit eligibility, marking benefits used, creating donor codes, outreach lists', parent:'donors'},
  {key:'donor_templates', label:'  ↳ Donor Email Templates', desc:'Thank-you and donor email templates', parent:'donors'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
  {key:'refund_requests', label:'Refund Requests', desc:'Review, approve, and process refund requests — actually charges back to Square'},

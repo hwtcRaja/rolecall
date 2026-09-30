@@ -1905,6 +1905,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div style="margin-bottom:16px">
     <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;color:var(--text-muted);padding:0 8px;margin-bottom:4px">Integrations</div>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('twilio',this)">Phone &amp; Twilio</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('slack',this)">Slack alerts</button>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('lobby',this)">Lobby TV</button>
    </div>
 
@@ -1919,21 +1920,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div id="settings-panel-general" class="settings-panel" style="">
     <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">General</div>
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Notifications and alert settings</div>
-    <div class="settings-section" style="margin-bottom:16px" id="slack-tickets-section">
-     <div style="font-weight:600;font-size:14px;margin-bottom:4px">Slack Ticket Alerts</div>
-     <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6">Post to a Slack channel every time someone buys tickets: who, which show and date, any donation, plus running totals for that show and all shows.</div>
-     <div id="slack-tickets-status" style="font-size:12.5px;margin-bottom:10px"></div>
-     <div class="form-group"><label>Slack webhook URL</label>
-      <input type="password" id="slack-tickets-webhook" placeholder="https://hooks.slack.com/services/…" autocomplete="off"/>
-      <div style="font-size:11px;color:var(--text-hint);margin-top:3px;line-height:1.6">In Slack: <strong>Apps → search "Incoming WebHooks" → Add to Slack</strong>, pick your ticket channel (e.g. #ticket-sales), and copy the Webhook URL here. Leave blank to keep the current one.</div></div>
-     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="slack-tickets-enabled" style="width:auto" checked/> Send ticket alerts</label>
-     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="slack-tickets-names" style="width:auto" checked/> Include the buyer's name (otherwise it just says "Someone")</label>
-     <div style="display:flex;gap:8px">
-      <button class="btn btn-primary btn-sm" onclick="saveSlackTicketSettings()">Save</button>
-      <button class="btn btn-secondary btn-sm" onclick="testSlackTicketSettings()">Send test message</button>
-      <button class="btn btn-secondary btn-sm" style="color:#b91c1c;margin-left:auto" onclick="clearSlackTicketWebhook()">Disconnect</button>
-     </div>
-    </div>
     <div class="settings-section" style="margin-bottom:16px">
  <div style="font-weight:600;font-size:14px;margin-bottom:16px">Notification Alerts</div><div style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Configure Resend for automated reports and alerts. Get a free API key at <a href="https://resend.com" target="_blank" style="color:var(--teal-600)">resend.com</a>.</div>
  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
@@ -2292,6 +2278,26 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div id="email-templates-settings-list" style="margin-bottom:16px"></div>
  <button class="btn btn-primary btn-sm" onclick="openSaveTemplateModal()">+ New Template</button>
  </div>
+   </div>
+
+   <div id="settings-panel-slack" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Slack alerts</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Send updates from RoleCall into your Slack channels</div>
+    <div class="settings-section" style="margin-bottom:16px" id="slack-tickets-section">
+     <div style="font-weight:600;font-size:14px;margin-bottom:4px">Slack Ticket Alerts</div>
+     <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6">Post to a Slack channel every time someone buys tickets: who, which show and date, any donation, plus running totals for that show and all shows.</div>
+     <div id="slack-tickets-status" style="font-size:12.5px;margin-bottom:10px"></div>
+     <div class="form-group"><label>Slack webhook URL</label>
+      <input type="password" id="slack-tickets-webhook" placeholder="https://hooks.slack.com/services/…" autocomplete="off"/>
+      <div style="font-size:11px;color:var(--text-hint);margin-top:3px;line-height:1.6">In Slack: <strong>Apps → search "Incoming WebHooks" → Add to Slack</strong>, pick your ticket channel (e.g. #ticket-sales), and copy the Webhook URL here. Leave blank to keep the current one.</div></div>
+     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="slack-tickets-enabled" style="width:auto" checked/> Send ticket alerts</label>
+     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="slack-tickets-names" style="width:auto" checked/> Include the buyer's name (otherwise it just says "Someone")</label>
+     <div style="display:flex;gap:8px">
+      <button class="btn btn-primary btn-sm" onclick="saveSlackTicketSettings()">Save</button>
+      <button class="btn btn-secondary btn-sm" onclick="testSlackTicketSettings()">Send test message</button>
+      <button class="btn btn-secondary btn-sm" style="color:#b91c1c;margin-left:auto" onclick="clearSlackTicketWebhook()">Disconnect</button>
+     </div>
+    </div>
    </div>
 
    <div id="settings-panel-twilio" class="settings-panel" style="display:none;">
@@ -11908,6 +11914,7 @@ function switchSettingsPanel(id, btn){
  if(btn) btn.classList.add('active')
  if(id==='email'||id==='general') loadEmailSettings()
  if(id==='twilio') loadTwilioSettings()
+ if(id==='slack') loadSlackTicketSettings()
  if(id==='lobby'){ loadLobbyTheme(); loadLobbyImages() }
  if(id==='nav-icons') loadNavIconSettings()
 }

@@ -3009,6 +3009,16 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_key TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS share_name TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_opens_at TEXT",
+        # Which door an order came through: 'presale' (the private link) or
+        # 'public'. Older orders are backfilled: bought before the show's
+        # public on-sale time means it came through the pre-sale.
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS sale_channel TEXT",
+        """UPDATE ticket_orders o SET sale_channel = CASE
+            WHEN COALESCE(pr.public_sale_at,'') <> ''
+             AND to_char((o.created_at AT TIME ZONE 'UTC') AT TIME ZONE 'America/New_York', 'YYYY-MM-DD"T"HH24:MI') < pr.public_sale_at
+            THEN 'presale' ELSE 'public' END
+            FROM performances pf JOIN productions pr ON pr.id=pf.production_id
+            WHERE o.performance_id=pf.id AND o.sale_channel IS NULL""",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS slack_notified_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS sales_goal_cents INTEGER",
         """UPDATE pending_donations pd SET ticket_cart_id = o.cart_id FROM ticket_orders o
@@ -36826,6 +36836,8 @@ def marquee_ticket_orders():
     params = []
     if request.args.get('flagged'):
         where.append("COALESCE(t.limit_flag,'') <> ''")
+    if request.args.get('channel') in ('presale', 'public'):
+        where.append('COALESCE(t.sale_channel,%s)=%s'); params += ['public', request.args.get('channel')]
     if production_id:
         where.append('pf.production_id=%s')
         params.append(production_id)
@@ -39451,6 +39463,21 @@ def open_presale_performances_if_due(conn, production_id=None):
     conn.commit()
 
 
+def sale_channel_for(conn, performance_id, keys):
+    """'presale' if this purchase is happening through the pre-sale (a
+    Pre-Sale performance, or before the public on-sale time with a valid
+    link); otherwise 'public'."""
+    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pr.presale_opens_at, pf.status AS perf_status
+        FROM performances pf JOIN productions pr ON pr.id=pf.production_id WHERE pf.id=%s''', (performance_id,))
+    if not p:
+        return 'public'
+    key = (keys or {}).get(p['id']) or ''
+    if p.get('perf_status') == 'presale' and presale_key_ok(p, key):
+        return 'presale'
+    ok, info = production_sale_state(p, key)
+    return 'presale' if (ok and info.get('presale')) else 'public'
+
+
 def presale_block_for_performance(conn, performance_id, keys):
     """None if this performance can be sold now, else an error response.
     keys: {production_id: presale_key} from the buyer's page."""
@@ -39859,6 +39886,8 @@ def public_ticket_checkout():
              benefit_code['id'] if (benefit_code and grp_discount and benefit_code.get('source') == 'benefit') else None, grp_discount))
         if benefit_code and grp_discount and benefit_code.get('source') == 'promo':
             execute(conn, 'UPDATE ticket_orders SET promo_code_id=%s WHERE id=%s', (benefit_code['id'], order_id))
+        execute(conn, 'UPDATE ticket_orders SET sale_channel=%s WHERE id=%s',
+                (sale_channel_for(conn, grp['performance_id'], d.get('presale_keys') or {}), order_id))
         for li in grp['line_items']:
             if li['price_cents'] <= 0:
                 continue   # comped by a donor code; nothing to charge
@@ -40441,6 +40470,7 @@ def notify_ticket_sale(conn, cart_id):
                 dt += ' · ' + str((h % 12) or 12) + (':' + m if m != '00' else '') + (' PM' if h >= 12 else ' AM')
             show = o.get('share_name') or o.get('production_name')
             lines.append('• *' + str(n) + ' ticket' + ('' if n == 1 else 's') + '* for ' + show + ' — ' + dt
+                         + (' _(pre-sale)_' if o.get('sale_channel') == 'presale' else '')
                          + (' _(code, ' + _money(o.get('discount_cents')) + ' off)_' if o.get('discount_cents') else ''))
         head = ':admission_tickets: *' + buyer + '* just bought tickets'
         money = 'Paid *' + _money(paid) + '*' + (' + *' + _money(donation) + '* donation :heart:' if donation else '')
@@ -40532,13 +40562,17 @@ def show_sales_snapshot(conn, pid):
         FROM performances pf LEFT JOIN seat_maps sm ON sm.id=pf.seat_map_id
         WHERE pf.production_id=%s AND COALESCE(pf.status,'draft') NOT IN ('draft','cancelled')
         ORDER BY pf.performance_date, pf.performance_time''', (pid,)) or []
-    orders = fetchall(conn, '''SELECT o.performance_id, o.total_cents, o.seats_json, COALESCE(o.completed_at, o.created_at) AS paid_at
+    orders = fetchall(conn, '''SELECT o.performance_id, o.total_cents, o.seats_json, COALESCE(o.completed_at, o.created_at) AS paid_at,
+            COALESCE(o.sale_channel,'public') AS sale_channel
         FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
         WHERE pf.production_id=%s AND o.status='completed' ''', (pid,)) or []
     sold, rev = {}, {}
     days = {}
+    channels = {'presale': {'orders': 0, 'tickets': 0, 'revenue_cents': 0}, 'public': {'orders': 0, 'tickets': 0, 'revenue_cents': 0}}
     for o in orders:
         n = _order_ticket_count(o)
+        ch = channels['presale' if o.get('sale_channel') == 'presale' else 'public']
+        ch['orders'] += 1; ch['tickets'] += n; ch['revenue_cents'] += int(o.get('total_cents') or 0)
         sold[o['performance_id']] = sold.get(o['performance_id'], 0) + n
         rev[o['performance_id']] = rev.get(o['performance_id'], 0) + int(o.get('total_cents') or 0)
         d = _eastern_date(o.get('paid_at'))
@@ -40572,7 +40606,7 @@ def show_sales_snapshot(conn, pid):
             'goal_cents': prod.get('sales_goal_cents'), 'gross_cents': gross,
             'donation_cents': don_by_show.get(pid, 0),
             'tickets': sum(p['sold'] for p in out_perfs), 'capacity': sum(p['capacity'] for p in out_perfs),
-            'performances': out_perfs, 'daily': series}
+            'performances': out_perfs, 'daily': series, 'channels': channels}
 
 
 @app.route('/api/marquee/show-sales/<pid>', methods=['GET'])
@@ -40636,6 +40670,10 @@ def build_daily_ticket_report(conn):
                  'Yesterday: *' + str(yd['tickets']) + '* ticket' + ('' if yd['tickets'] == 1 else 's') + ' · ' + _money(yd['revenue_cents']),
                  'So far: *' + '{:,}'.format(snap['tickets']) + '* tickets · ' + _money(snap['gross_cents'])
                  + (' + ' + _money(snap['donation_cents']) + ' donations' if snap['donation_cents'] else '') + ' = *' + _money(total) + '*']
+        ch = snap.get('channels') or {}
+        if (ch.get('presale') or {}).get('tickets'):
+            lines.append('Pre-sale: ' + str(ch['presale']['tickets']) + ' tickets · ' + _money(ch['presale']['revenue_cents'])
+                         + '  |  Public: ' + str(ch['public']['tickets']) + ' tickets · ' + _money(ch['public']['revenue_cents']))
         if snap.get('goal_cents'):
             frac = total / float(snap['goal_cents'])
             lines.append('Goal: `' + _text_bar(frac) + '` ' + str(int(round(frac * 100))) + '% of ' + _money(snap['goal_cents']))

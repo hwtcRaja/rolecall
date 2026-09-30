@@ -2986,6 +2986,28 @@ def init_db():
             grace_until TEXT,
             grace_note TEXT DEFAULT '')""",
         "INSERT INTO donor_benefit_settings (id) VALUES (1) ON CONFLICT (id) DO NOTHING",
+        # Donations added at ticket checkout remember which checkout they rode
+        # along with, so Marquee can show them with that show's ticket sales.
+        "ALTER TABLE pending_donations ADD COLUMN IF NOT EXISTS ticket_cart_id TEXT",
+        # Staff-made ticket promo codes (Marquee → Promotions). Donor benefit
+        # codes live in benefit_codes; both are typed into the same box.
+        """CREATE TABLE IF NOT EXISTS ticket_promo_codes (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE,
+            kind TEXT NOT NULL DEFAULT 'percent',
+            value INTEGER NOT NULL DEFAULT 0,
+            max_tickets INTEGER,
+            production_id TEXT REFERENCES productions(id) ON DELETE CASCADE,
+            max_uses INTEGER,
+            starts_on TEXT,
+            ends_on TEXT,
+            active BOOLEAN DEFAULT TRUE,
+            description TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS promo_code_id TEXT",
+        """UPDATE pending_donations pd SET ticket_cart_id = o.cart_id FROM ticket_orders o
+            WHERE pd.ticket_cart_id IS NULL AND pd.square_checkout_id IS NOT NULL
+              AND o.square_checkout_id = pd.square_checkout_id AND o.cart_id IS NOT NULL""",
         # Per-production access for staff users who shouldn't see every show
         """CREATE TABLE IF NOT EXISTS user_production_access (
             user_id TEXT NOT NULL,
@@ -36380,12 +36402,78 @@ def upload_program_cover(pid):
 
 # ── Cart discount code admin routes ─────────────────────────────────────────
 
+@app.route('/api/marquee/ticket-promo-codes', methods=['GET', 'POST'])
+def ticket_promo_codes_api():
+    err = require_permission('marquee', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            d = request.json or {}
+            code = ''.join(ch for ch in (d.get('code') or '').strip().upper() if ch.isalnum() or ch in '-_')
+            kind = d.get('kind') or 'percent'
+            if not code:
+                return jsonify({'error': 'Enter a code'}), 400
+            if kind not in PROMO_KIND_TO_ENGINE:
+                return jsonify({'error': 'Unknown code type'}), 400
+            try:
+                value = int(d.get('value') or 0)
+            except (TypeError, ValueError):
+                value = 0
+            if kind == 'amount':
+                try: value = int(round(float(d.get('value') or 0) * 100))
+                except (TypeError, ValueError): value = 0
+            if kind in ('percent', 'amount', 'comp') and value <= 0:
+                return jsonify({'error': 'Enter an amount'}), 400
+            if kind == 'percent' and value > 100:
+                return jsonify({'error': 'Percent can\'t be over 100'}), 400
+            if fetchone(conn, 'SELECT 1 AS x FROM ticket_promo_codes WHERE UPPER(code)=%s', (code,)) or \
+               fetchone(conn, 'SELECT 1 AS x FROM benefit_codes WHERE UPPER(code)=%s', (code,)):
+                return jsonify({'error': 'That code is already in use'}), 400
+            def _int(k):
+                try: return int(d.get(k)) if d.get(k) not in (None, '') else None
+                except (TypeError, ValueError): return None
+            execute(conn, '''INSERT INTO ticket_promo_codes (id, code, kind, value, max_tickets, production_id, max_uses,
+                    starts_on, ends_on, description) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (str(uuid.uuid4()), code, kind, value, _int('max_tickets') if kind == 'bogo' else None,
+                 d.get('production_id') or None, _int('max_uses'), (d.get('starts_on') or '')[:10] or None,
+                 (d.get('ends_on') or '')[:10] or None, (d.get('description') or '')[:200]))
+            conn.commit()
+        rows = fetchall(conn, '''SELECT t.*, p.name AS production_name,
+                (SELECT COUNT(DISTINCT o.cart_id) FROM ticket_orders o WHERE o.promo_code_id=t.id AND o.status='completed') AS uses,
+                (SELECT COALESCE(SUM(o.discount_cents),0) FROM ticket_orders o WHERE o.promo_code_id=t.id AND o.status='completed') AS discount_given
+            FROM ticket_promo_codes t LEFT JOIN productions p ON p.id=t.production_id ORDER BY t.created_at DESC''') or []
+        for r in rows:
+            r['label'] = describe_promo_code(r)
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+@app.route('/api/marquee/ticket-promo-codes/<cid>', methods=['PUT', 'DELETE'])
+def ticket_promo_code_edit(cid):
+    err = require_permission('marquee', 'edit')
+    if err: return err
+    conn = get_db()
+    if request.method == 'DELETE':
+        used = fetchone(conn, 'SELECT 1 AS x FROM ticket_orders WHERE promo_code_id=%s LIMIT 1', (cid,))
+        if used:
+            execute(conn, 'UPDATE ticket_promo_codes SET active=FALSE WHERE id=%s', (cid,))
+        else:
+            execute(conn, 'DELETE FROM ticket_promo_codes WHERE id=%s', (cid,))
+    else:
+        execute(conn, 'UPDATE ticket_promo_codes SET active=%s WHERE id=%s', (bool((request.json or {}).get('active')), cid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True})
+
+
 @app.route('/api/marquee/cart-discount-codes', methods=['GET'])
 def get_cart_discount_codes():
     err = require_permission('marquee', 'view')
     if err: return err
     conn = get_db()
-    codes = fetchall(conn, 'SELECT * FROM cart_discount_codes ORDER BY created_at DESC')
+    # donor class codes are managed from the Benefit Tracker, not here
+    codes = fetchall(conn, 'SELECT * FROM cart_discount_codes WHERE benefit_code_id IS NULL ORDER BY created_at DESC')
     conn.close()
     return jsonify(codes or [])
 
@@ -36563,6 +36651,52 @@ def finalize_donation(conn, donation_id):
 
 # ── Marquee admin routes ─────────────────────────────────────────────────────
 
+def ticket_checkout_donations(conn, start=None, end=None, production_ids=None):
+    """Completed donations added on at ticket checkout, attributed to shows.
+    A checkout covering more than one show splits its donation between them
+    in proportion to what was spent on each. Optional start/end (dates,
+    end exclusive) filter by when the order was paid.
+    Returns (total_cents, {production_id: cents}, {cart_id: cents})."""
+    dons = fetchall(conn, '''SELECT ticket_cart_id, amount_cents FROM pending_donations
+        WHERE status='completed' AND ticket_cart_id IS NOT NULL''') or []
+    if not dons:
+        return 0, {}, {}
+    carts = [d['ticket_cart_id'] for d in dons]
+    orders = fetchall(conn, '''SELECT o.cart_id, o.total_cents, o.service_fee_cents, pf.production_id,
+            COALESCE(o.completed_at, o.created_at) AS paid_at
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        WHERE o.status='completed' AND o.cart_id = ANY(%s)''', (carts,)) or []
+    by_cart = {}
+    for o in orders:
+        by_cart.setdefault(o['cart_id'], []).append(o)
+    total, per_show, per_cart = 0, {}, {}
+    for d in dons:
+        rows = by_cart.get(d['ticket_cart_id']) or []
+        if not rows:
+            continue
+        if start and end:
+            when = _eastern_date(rows[0].get('paid_at'))
+            if not when or not (start <= when < end):
+                continue
+        amt = int(d.get('amount_cents') or 0)
+        spend = {}
+        for r in rows:
+            spend[r['production_id']] = spend.get(r['production_id'], 0) + int(r.get('total_cents') or 0) + int(r.get('service_fee_cents') or 0)
+        keys = [k for k in spend if production_ids is None or k in production_ids]
+        if not keys:
+            continue
+        whole = sum(spend.values()) or 1
+        given = 0
+        for i, k in enumerate(sorted(spend, key=lambda x: -spend[x])):
+            share = amt - given if i == len(spend) - 1 else round(amt * spend[k] / whole) if whole else 0
+            given += share
+            if k in keys:
+                per_show[k] = per_show.get(k, 0) + share
+                total += share
+        per_cart[d['ticket_cart_id']] = amt
+    return total, per_show, per_cart
+
+
 @app.route('/api/marquee/box-office', methods=['GET'])
 def marquee_box_office():
     """Ticket sales metrics for Marquee's Box Office tab -- a genuinely
@@ -36593,10 +36727,14 @@ def marquee_box_office():
         GROUP BY p.id, p.name
         HAVING COUNT(pf.id) > 0
         ORDER BY revenue DESC''') or []
+    don_total, don_by_show, _ = ticket_checkout_donations(conn)
+    for sh in by_show:
+        sh['donations'] = don_by_show.get(sh['id'], 0)
     conn.close()
     return jsonify({
         'ticket_revenue': totals.get('ticket_revenue', 0),
         'fee_revenue': totals.get('fee_revenue', 0),
+        'donation_revenue': don_total,
         'tickets_sold': totals.get('tickets_sold', 0),
         'upcoming_performances': upcoming_count,
         'shows': by_show,
@@ -36637,6 +36775,13 @@ def marquee_ticket_orders():
         by_order = {}
         for t in tix:
             by_order.setdefault(t['ticket_order_id'], []).append(t['seat_label'])
+        # show a checkout's add-on donation once, on one of its orders
+        _dt, _ds, don_by_cart = ticket_checkout_donations(conn)
+        _seen_carts = set()
+        for o in orders:
+            if o.get('cart_id') in don_by_cart and o['cart_id'] not in _seen_carts:
+                o['donation_cents'] = don_by_cart[o['cart_id']]
+                _seen_carts.add(o['cart_id'])
         for o in orders:
             o['seat_labels'] = by_order.get(o['id'], [])
             if not o['seat_labels']:
@@ -37133,8 +37278,18 @@ def marquee_summary():
                                'performance_time': o.get('performance_time')})
             pr['tickets'] += n
             pr['gross_cents'] += int(o.get('total_cents') or 0)
+        # donations added at ticket checkout, credited to the show(s) bought
+        _dtot, don_by_show, _dc = ticket_checkout_donations(conn, start, end,
+                                                            None if start else set(shows.keys()))
+        for pid, cents in don_by_show.items():
+            if pid in shows or start:
+                if pid not in shows:
+                    nm = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (pid,)) or {}
+                    show_for(pid, nm.get('name') or 'Show')
+                shows[pid]['donation_cents'] = shows[pid].get('donation_cents', 0) + cents
         ticket_shows = []
         for sh in shows.values():
+            sh.setdefault('donation_cents', 0)
             sh['performances'] = sorted(sh['performances'].values(), key=lambda x: (x['date'], x['time']))
             ticket_shows.append(sh)
         ticket_shows.sort(key=lambda x: (-x['gross_cents'], x['name']))
@@ -37169,6 +37324,7 @@ def marquee_summary():
         },
         'tickets': {
             'gross_cents': total(ticket_shows, 'gross_cents'), 'fee_cents': total(ticket_shows, 'fee_cents'),
+            'donation_cents': total(ticket_shows, 'donation_cents'),
             'tickets': total(ticket_shows, 'tickets'), 'orders': total(ticket_shows, 'orders'),
             'count': len(ticket_shows),
         },
@@ -37179,7 +37335,8 @@ def marquee_summary():
             'enrolled': total(enrollment, 'enrolled'), 'count': len(enrollment),
         },
     }
-    gross_all = buckets['programs']['gross_cents'] + buckets['tickets']['gross_cents'] + buckets['enrollment']['gross_cents']
+    gross_all = (buckets['programs']['gross_cents'] + buckets['tickets']['gross_cents']
+                 + buckets['tickets']['donation_cents'] + buckets['enrollment']['gross_cents'])
     return jsonify({
         'period': period,
         'start': start.isoformat() if start else None,
@@ -39449,7 +39606,7 @@ def public_ticket_checkout():
     benefit_code = None
     promo_code = (d.get('promo_code') or '').strip()
     if promo_code:
-        benefit_code, perr = lookup_ticket_benefit_code(conn, promo_code)
+        benefit_code, perr = lookup_ticket_code(conn, promo_code)
         if not perr:
             _disc, perr = apply_benefit_code_to_groups(benefit_code, groups)
         if perr:
@@ -39497,12 +39654,14 @@ def public_ticket_checkout():
             (order_id, grp['performance_id'], guardian_name, guardian_email, guardian_phone,
              json.dumps(grp['line_items']), total_cents, grp['fee_cents'], cart_id,
              email_key, phone_key, device_id or None, buyer_ip or None,
-             benefit_code['id'] if (benefit_code and grp_discount) else None, grp_discount))
+             benefit_code['id'] if (benefit_code and grp_discount and benefit_code.get('source') == 'benefit') else None, grp_discount))
+        if benefit_code and grp_discount and benefit_code.get('source') == 'promo':
+            execute(conn, 'UPDATE ticket_orders SET promo_code_id=%s WHERE id=%s', (benefit_code['id'], order_id))
         for li in grp['line_items']:
             if li['price_cents'] <= 0:
                 continue   # comped by a donor code; nothing to charge
             sq_line_items.append({
-                'name': (f"{grp['prod_name']} — {li['seat_label'] or 'Ticket'}" + (' (donor code)' if li.get('benefit_discount_cents') else ''))[:191],
+                'name': (f"{grp['prod_name']} — {li['seat_label'] or 'Ticket'}" + (' (code ' + benefit_code['code'] + ')' if (li.get('benefit_discount_cents') and benefit_code) else ''))[:191],
                 'quantity': '1',
                 'base_price_money': {'amount': li['price_cents'], 'currency': 'USD'},
             })
@@ -39516,9 +39675,9 @@ def public_ticket_checkout():
     donation_id = None
     if donation_cents > 0:
         donation_id = str(uuid.uuid4())
-        execute(conn, '''INSERT INTO pending_donations (id, name, email, amount_cents, message)
-            VALUES (%s,%s,%s,%s,%s)''', (donation_id, guardian_name, guardian_email, donation_cents,
-            'Added on at ticket checkout'))
+        execute(conn, '''INSERT INTO pending_donations (id, name, email, amount_cents, message, ticket_cart_id)
+            VALUES (%s,%s,%s,%s,%s,%s)''', (donation_id, guardian_name, guardian_email, donation_cents,
+            'Added on at ticket checkout', cart_id))
         sq_line_items.append({
             'name': 'Donation — Horizon West Theater Company',
             'quantity': '1',
@@ -39691,6 +39850,64 @@ def lookup_ticket_benefit_code(conn, code):
     return c, None
 
 
+PROMO_KIND_TO_ENGINE = {'percent': 'pct_ticket_order', 'amount': 'amount_off', 'bogo': 'bogo_tickets', 'comp': 'comp_per_show'}
+
+
+def describe_promo_code(p):
+    k = p.get('kind')
+    show = (' on ' + p['production_name']) if p.get('production_name') else ''
+    if k == 'percent':
+        return '%d%% off tickets%s' % (p.get('value') or 0, show)
+    if k == 'amount':
+        return '$%.2f off tickets%s' % ((p.get('value') or 0) / 100.0, show)
+    if k == 'bogo':
+        return '2-for-1 tickets (up to %d)%s' % (p.get('max_tickets') or 4, show)
+    if k == 'comp':
+        return '%d free ticket%s%s' % (p.get('value') or 0, '' if (p.get('value') or 0) == 1 else 's', show)
+    return 'Promo code'
+
+
+def lookup_ticket_code(conn, code):
+    """One box, two kinds of code: a donor's personal benefit code, or a
+    promo code staff made in Marquee → Promotions. Returns (row, error);
+    row['source'] is 'benefit' or 'promo' and row['kind'] is the discount
+    engine's kind."""
+    code = (code or '').strip().upper()
+    if not code:
+        return None, None
+    if fetchone(conn, 'SELECT 1 AS x FROM benefit_codes WHERE UPPER(code)=%s', (code,)):
+        c, err = lookup_ticket_benefit_code(conn, code)
+        if c:
+            c['source'] = 'benefit'
+            c['label'] = describe_benefit_code(c)
+        return c, err
+    p = fetchone(conn, '''SELECT t.*, pr.name AS production_name FROM ticket_promo_codes t
+        LEFT JOIN productions pr ON pr.id=t.production_id WHERE UPPER(t.code)=%s''', (code,))
+    if not p:
+        return None, 'That code wasn\'t found. Check for typos.'
+    today = today_eastern().isoformat()
+    if not p.get('active'):
+        return None, 'That code is no longer active.'
+    if p.get('starts_on') and today < p['starts_on'][:10]:
+        return None, 'That code isn\'t active yet.'
+    if p.get('ends_on') and today > p['ends_on'][:10]:
+        return None, 'That code has expired.'
+    if p.get('max_uses'):
+        used = len(fetchall(conn, "SELECT DISTINCT cart_id FROM ticket_orders WHERE promo_code_id=%s AND "
+                            "(status='completed' OR (status='pending' AND created_at > NOW() - INTERVAL '"
+                            + str(TICKET_PENDING_WINDOW_MINUTES) + " minutes'))", (p['id'],)) or [])
+        if used >= int(p['max_uses']):
+            return None, 'That code has reached its limit.'
+    row = {'id': p['id'], 'code': p['code'], 'source': 'promo', 'kind': PROMO_KIND_TO_ENGINE.get(p['kind'], 'pct_ticket_order'),
+           'percent': p['value'] if p['kind'] == 'percent' else None,
+           'amount_cents': p['value'] if p['kind'] == 'amount' else None,
+           'max_tickets': p.get('max_tickets') or 4,
+           'comp_remaining': p['value'] if p['kind'] == 'comp' else None,
+           'production_id': p.get('production_id'), 'restrict_to_production': bool(p.get('production_id')),
+           'label': describe_promo_code(p)}
+    return row, None
+
+
 def apply_benefit_code_to_groups(code_row, groups):
     """Discount ticket groups in place. Each group: {production_id,
     line_items[{price_cents,...}], charge_service_fee, service_fee_percent,
@@ -39698,6 +39915,11 @@ def apply_benefit_code_to_groups(code_row, groups):
     or (0, error message) if nothing in the cart qualifies."""
     kind = code_row['kind']
     total = 0
+    all_groups = groups
+    if code_row.get('restrict_to_production'):
+        groups = [g for g in groups if g.get('production_id') == code_row.get('production_id')]
+        if not groups:
+            return 0, 'This code is for a different show.'
 
     def discount(li, cents):
         cents = max(0, min(int(cents), int(li['price_cents'])))
@@ -39712,6 +39934,15 @@ def apply_benefit_code_to_groups(code_row, groups):
         for g in groups:
             for li in g['line_items']:
                 total += discount(li, round(li['price_cents'] * pct / 100.0))
+    elif kind == 'amount_off':
+        left = int(code_row.get('amount_cents') or 0)
+        items = sorted([li for g in groups for li in g['line_items']], key=lambda li: -li['price_cents'])
+        for li in items:
+            if left <= 0:
+                break
+            got = discount(li, min(left, li['price_cents']))
+            total += got
+            left -= got
     elif kind == 'bogo_tickets':
         # one show: the group with the most tickets (ties: first). Free the
         # cheaper ticket of each pair, up to max_tickets tickets.
@@ -39736,7 +39967,7 @@ def apply_benefit_code_to_groups(code_row, groups):
                 remaining -= 1
         if not matched:
             return 0, 'This comp code is for a different show.'
-    for g in groups:
+    for g in all_groups:
         sub = sum(li['price_cents'] for li in g['line_items'])
         if g.get('charge_service_fee') and sub > 0:
             g['fee_cents'] = round(sub * float(g.get('service_fee_percent') or 0) / 100) + int(g.get('service_fee_flat_cents') or 0)
@@ -39780,7 +40011,7 @@ def public_ticket_promo_preview():
     d = request.json or {}
     conn = get_db()
     try:
-        c, err = lookup_ticket_benefit_code(conn, d.get('code'))
+        c, err = lookup_ticket_code(conn, d.get('code'))
         if err or not c:
             return jsonify({'valid': False, 'error': err or 'Enter a code'})
         groups = []
@@ -39808,7 +40039,7 @@ def public_ticket_promo_preview():
         if err:
             return jsonify({'valid': False, 'error': err})
         after = sum(sum(li['price_cents'] for li in g['line_items']) + g['fee_cents'] for g in groups)
-        return jsonify({'valid': True, 'code': c['code'], 'label': describe_benefit_code(c),
+        return jsonify({'valid': True, 'code': c['code'], 'label': c.get('label') or 'Code applied',
                         'savings_cents': before - after})
     finally:
         conn.close()

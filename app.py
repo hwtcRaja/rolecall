@@ -3008,6 +3008,7 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS public_sale_at TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_key TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS share_name TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS slack_notified_at TIMESTAMP",
         """UPDATE pending_donations pd SET ticket_cart_id = o.cart_id FROM ticket_orders o
             WHERE pd.ticket_cart_id IS NULL AND pd.square_checkout_id IS NOT NULL
               AND o.square_checkout_id = pd.square_checkout_id AND o.cart_id IS NOT NULL""",
@@ -26643,6 +26644,8 @@ def square_webhook():
                                 (order_id, order_id))
                             if don:
                                 finalize_donation(conn, don['id'])
+                            for _cart in set(t.get('cart_id') for t in tords if t.get('cart_id')):
+                                notify_ticket_sale(conn, _cart)
                 conn.close()
             elif status in ('FAILED', 'CANCELED') and order_id:
                 conn = get_db()
@@ -39847,6 +39850,7 @@ def public_ticket_checkout():
     if grand_total == 0:
         for oid in order_ids:
             _finalize_ticket_order(conn, oid, None, None)
+        notify_ticket_sale(conn, cart_id)
         conn.close()
         return jsonify({'ok': True, 'type': 'confirmed_free', 'cart_id': cart_id})
 
@@ -40322,6 +40326,147 @@ def flag_ticket_order_if_over_limit(conn, order_id):
         conn.commit()
 
 
+# ── Slack ticket alerts ───────────────────────────────────────────────────
+# Posts to a Slack channel (via an Incoming Webhook URL set in Settings →
+# General) each time a ticket checkout is paid: who bought what, any
+# donation, and running totals for that show and for all shows. One post per
+# checkout (a checkout can cover several performances).
+def _setting(conn, key, default=''):
+    r = fetchone(conn, 'SELECT value FROM settings WHERE key=%s', (key,))
+    return (r or {}).get('value') if r and r.get('value') is not None else default
+
+
+def _set_setting(conn, key, value):
+    execute(conn, '''INSERT INTO settings (key, value) VALUES (%s,%s)
+        ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value''', (key, value))
+
+
+def _money(c):
+    return '${:,.2f}'.format((c or 0) / 100.0)
+
+
+def _post_slack(url, payload):
+    import threading
+    def go():
+        try:
+            requests.post(url, json=payload, timeout=10)
+        except Exception as e:
+            app.logger.warning(f'Slack post failed: {e}')
+    threading.Thread(target=go, daemon=True).start()
+
+
+def ticket_sale_totals(conn, production_id=None):
+    where = "o.status='completed'" + (' AND pf.production_id=%s' if production_id else '')
+    row = fetchone(conn, '''SELECT COALESCE(SUM(o.total_cents),0) AS gross,
+            COALESCE(SUM(jsonb_array_length(COALESCE(NULLIF(o.seats_json,''),'[]')::jsonb)),0) AS tickets
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id WHERE ''' + where,
+        (production_id,) if production_id else ()) or {}
+    don_total, don_by_show, _ = ticket_checkout_donations(conn)
+    dons = don_by_show.get(production_id, 0) if production_id else don_total
+    return int(row.get('gross') or 0), int(row.get('tickets') or 0), int(dons or 0)
+
+
+def notify_ticket_sale(conn, cart_id):
+    """Send the Slack alert for one paid checkout (once)."""
+    try:
+        url = (_setting(conn, 'slack_ticket_webhook') or '').strip()
+        if not url or _setting(conn, 'slack_ticket_enabled', '1') != '1' or not cart_id:
+            return
+        orders = fetchall(conn, '''SELECT o.*, pf.performance_date, pf.performance_time, pf.production_id,
+                p.name AS production_name, p.share_name
+            FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id JOIN productions p ON p.id=pf.production_id
+            WHERE o.cart_id=%s AND o.status='completed' ORDER BY pf.performance_date''', (cart_id,)) or []
+        if not orders or any(o.get('slack_notified_at') for o in orders):
+            return
+        execute(conn, 'UPDATE ticket_orders SET slack_notified_at=NOW() WHERE cart_id=%s', (cart_id,))
+        conn.commit()
+        don = fetchone(conn, "SELECT amount_cents FROM pending_donations WHERE ticket_cart_id=%s AND status='completed'", (cart_id,)) or {}
+        donation = int(don.get('amount_cents') or 0)
+        show_names = _setting(conn, 'slack_ticket_names', '1') == '1'
+        buyer = (orders[0].get('guardian_name') or 'Someone').strip() if show_names else 'Someone'
+        lines = []
+        paid = 0
+        for o in orders:
+            n = _order_ticket_count(o)
+            paid += int(o.get('total_cents') or 0)
+            try:
+                import datetime as _dt
+                dt = _dt.date.fromisoformat(str(o['performance_date'])[:10]).strftime('%a %b %-d')
+            except Exception:
+                dt = str(o.get('performance_date') or '')
+            t = (o.get('performance_time') or '')[:5]
+            if t:
+                h, m = int(t[:2]), t[3:5]
+                dt += ' · ' + str((h % 12) or 12) + (':' + m if m != '00' else '') + (' PM' if h >= 12 else ' AM')
+            show = o.get('share_name') or o.get('production_name')
+            lines.append('• *' + str(n) + ' ticket' + ('' if n == 1 else 's') + '* for ' + show + ' — ' + dt
+                         + (' _(code, ' + _money(o.get('discount_cents')) + ' off)_' if o.get('discount_cents') else ''))
+        head = ':admission_tickets: *' + buyer + '* just bought tickets'
+        money = 'Paid *' + _money(paid) + '*' + (' + *' + _money(donation) + '* donation :heart:' if donation else '')
+        totals = []
+        for pid in sorted(set(o['production_id'] for o in orders)):
+            g, n, dn = ticket_sale_totals(conn, pid)
+            nm = next((o.get('share_name') or o.get('production_name')) for o in orders if o['production_id'] == pid)
+            totals.append('*' + nm + '* so far: ' + '{:,}'.format(n) + ' tickets · ' + _money(g) + ' tickets'
+                          + (' + ' + _money(dn) + ' donations' if dn else '') + ' = *' + _money(g + dn) + '*')
+        g, n, dn = ticket_sale_totals(conn)
+        totals.append('All shows: ' + '{:,}'.format(n) + ' tickets · ' + _money(g) + (' + ' + _money(dn) + ' donations' if dn else '')
+                      + ' = *' + _money(g + dn) + '*')
+        text = head + '\n' + '\n'.join(lines) + '\n' + money + '\n\n' + '\n'.join(totals)
+        _post_slack(url, {'text': text})
+    except Exception as e:
+        app.logger.warning(f'Ticket Slack alert failed: {e}')
+        try: conn.rollback()
+        except Exception: pass
+
+
+@app.route('/api/settings/slack-tickets', methods=['GET', 'PUT'])
+def slack_ticket_settings():
+    err = require_permission('settings', 'edit' if request.method == 'PUT' else 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            d = request.json or {}
+            if 'webhook' in d:
+                url = (d.get('webhook') or '').strip()
+                if url and not url.startswith('https://hooks.slack.com/'):
+                    return jsonify({'error': 'That doesn\'t look like a Slack webhook URL (it should start with https://hooks.slack.com/).'}), 400
+                _set_setting(conn, 'slack_ticket_webhook', url)
+            _set_setting(conn, 'slack_ticket_enabled', '1' if d.get('enabled', True) else '0')
+            _set_setting(conn, 'slack_ticket_names', '1' if d.get('names', True) else '0')
+            conn.commit()
+        url = _setting(conn, 'slack_ticket_webhook') or ''
+        return jsonify({'configured': bool(url), 'webhook_hint': (url[:34] + '…' + url[-4:]) if url else '',
+                        'enabled': _setting(conn, 'slack_ticket_enabled', '1') == '1',
+                        'names': _setting(conn, 'slack_ticket_names', '1') == '1'})
+    finally:
+        conn.close()
+
+
+@app.route('/api/settings/slack-tickets/test', methods=['POST'])
+def slack_ticket_test():
+    err = require_permission('settings', 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        url = (_setting(conn, 'slack_ticket_webhook') or '').strip()
+        if not url:
+            return jsonify({'error': 'Save a webhook URL first.'}), 400
+        g, n, dn = ticket_sale_totals(conn)
+    finally:
+        conn.close()
+    try:
+        r = requests.post(url, json={'text': ':white_check_mark: RoleCall ticket alerts are connected.\nAll shows so far: '
+                          + '{:,}'.format(n) + ' tickets · ' + _money(g) + (' + ' + _money(dn) + ' donations' if dn else '')
+                          + ' = *' + _money(g + dn) + '*'}, timeout=10)
+        if r.status_code >= 300:
+            return jsonify({'error': 'Slack said: ' + (r.text or str(r.status_code))[:200]}), 400
+    except Exception as e:
+        return jsonify({'error': 'Couldn\'t reach Slack: ' + str(e)[:150]}), 400
+    return jsonify({'ok': True})
+
+
 def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
     """Turns a paid (or free) order into real tickets, releases the seat
     holds that produced them, and marks the order completed."""
@@ -40637,6 +40782,7 @@ def mark_ticket_order_paid(oid):
         execute(conn, "UPDATE ticket_orders SET status='pending' WHERE id=%s", (oid,))
         conn.commit()
         _finalize_ticket_order(conn, oid, None, None)
+        notify_ticket_sale(conn, order.get('cart_id'))
         return jsonify({'ok': True})
     finally:
         conn.close()

@@ -36080,6 +36080,8 @@ async function loadTicketsTab(pid){
     + '<div id="seat-holds-panel-'+pid+'" style="display:none;margin-bottom:16px"></div>'
     + (ticketUrl
         ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 14px;background:var(--teal-light,#e0f2fe);border-radius:var(--radius);font-size:13px">'
+          + '<button class="btn btn-secondary btn-sm" onclick="openEmailTicketsModal(\''+pid+'\')" title="Send the tickets email to people who already bought">Email Tickets</button>'
+          + '<a class="btn btn-secondary btn-sm" href="/tickets/scan" target="_blank" title="Scan ticket QR codes at the door">Door Scanner</a>'
           + '<a class="btn btn-secondary btn-sm" href="'+ticketUrl+'?preview=1" target="_blank" title="Try the whole flow before sales open, including Draft and Pre-Sale performances. Only works while you\'re logged in.">Preview as a buyer</a>'
           + '<span style="flex:1">Public ticket page: <a href="'+ticketUrl+'" target="_blank" style="color:var(--teal-dark);font-weight:700">'+ticketUrl+'</a>'
           + ' <span style="color:var(--text-muted)">— only performances marked "On Sale" below show up here.</span></span>'
@@ -36472,6 +36474,13 @@ async function openTicketingSettings(pid){
     + '</select>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">What the donation buttons start on at checkout. Buyers can still change it or pick No Thanks. Handy for free shows where you want to nudge a small gift.</div></div>'
     + '<div style="border-top:1px solid var(--border);margin:16px 0"></div>'
+    + '<div class="form-group" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px">'
+    + '<label style="display:flex;align-items:center;gap:8px;margin:0 0 6px;cursor:pointer"><input type="checkbox" id="tk-kbyg-on" '+((prod&&prod.kbyg_enabled===false)?'':'checked')+' style="width:auto"/> Send a "Know before you go" email</label>'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px"><input type="number" id="tk-kbyg-hours" min="1" max="240" value="'+((prod&&prod.kbyg_hours_before)||24)+'" style="width:80px"/> hours before each performance</div>'
+    + '<textarea id="tk-kbyg-text" rows="4" placeholder="Parking, which entrance to use, run time, concessions, photo/video policy, accessibility drop-off…">'+escHtml((prod&&prod.kbyg_text)||'')+'</textarea>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px;line-height:1.6">Both the ticket email (sent right after purchase) and this reminder include their QR codes, the date and time, doors open (the performance\'s doors time, or 30 minutes before), the venue address with directions, and a calendar file. This text is added as "Know before you go."</div>'
+    + '<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn btn-secondary btn-sm" onclick="sendKbygTest(\''+pid+'\',\'confirmation\')">Email me a sample ticket email</button>'
+    + '<button type="button" class="btn btn-secondary btn-sm" onclick="sendKbygTest(\''+pid+'\',\'reminder\')">Email me a sample reminder</button></div></div>'
     + '<div class="form-group"><label>Open companion seats to everyone</label>'
     + '<div style="display:flex;align-items:center;gap:8px"><input type="number" id="tk-companion-days" min="0" value="'+((prod&&prod.companion_release_days!=null)?prod.companion_release_days:2)+'" style="width:80px"/><span style="font-size:13px">days before each performance</span></div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Companion seats (set in the seat map editor) can only be booked with the wheelchair space next to them. If they\'re still open this many days before the show, anyone can book them. Use 0 to keep them saved right up to showtime.</div></div>'
@@ -36543,6 +36552,61 @@ async function clearSlackTicketWebhook(){
   saveSlackTicketSettings({webhook: ''})
 }
 
+// ── Email tickets to people who already bought ──
+async function openEmailTicketsModal(pid){
+  var perfs = await api('/api/productions/'+pid+'/performances')
+  perfs = Array.isArray(perfs) ? perfs.filter(function(p){ return p.status !== 'cancelled' && p.performance_date >= new Date().toISOString().slice(0,10) }) : []
+  window._etPid = pid
+  showAdHocModal('email-tickets-modal', 'Email tickets to buyers',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6">Sends the full tickets email (QR codes, date, doors, venue and directions, calendar file) to people who already bought for upcoming performances. Test orders are skipped.</div>'
+    + '<div class="form-group"><label>Which performances</label><select id="et-perf" onchange="previewEmailTickets()"><option value="">All upcoming performances</option>'
+    + perfs.map(function(p){ return '<option value="'+p.id+'">'+escHtml(tkFmtDate(p.performance_date))+(p.performance_time?' · '+escHtml(tkFmtTime(p.performance_time)):'')+'</option>' }).join('') + '</select></div>'
+    + '<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;margin-bottom:6px;cursor:pointer"><input type="radio" name="et-who" value="unsent" checked onchange="previewEmailTickets()" style="width:auto;margin-top:2px"/> Only buyers who haven\'t received the new tickets email yet <span style="color:var(--text-muted)">(recommended)</span></label>'
+    + '<label style="display:flex;gap:8px;align-items:flex-start;font-size:13px;margin-bottom:12px;cursor:pointer"><input type="radio" name="et-who" value="all" onchange="previewEmailTickets()" style="width:auto;margin-top:2px"/> Everyone, including people who already got it</label>'
+    + '<div id="et-count" style="font-size:14px;font-weight:700;margin-bottom:14px">Counting…</div>'
+    + '<div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:6px">Send a test first</div>'
+    + '<div style="display:flex;gap:8px"><input id="et-test-to" type="email" value="'+escHtml((currentUser&&currentUser.email)||'')+'" placeholder="you@hwtco.org" style="flex:1"/>'
+    + '<button class="btn btn-secondary btn-sm" onclick="sendEmailTicketsTest()">Send test</button></div>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:5px">Uses the newest real order for this show so you see real QR codes and seats. The buyer isn\'t emailed.</div></div>'
+    + '<button class="btn btn-primary" style="width:100%" id="et-send" onclick="sendEmailTickets()" disabled>Send</button>')
+  previewEmailTickets()
+}
+function _etBody(extra){
+  return Object.assign({performance_id: (document.getElementById('et-perf')||{}).value || null,
+    only_unsent: ((document.querySelector('input[name="et-who"]:checked')||{}).value || 'unsent') === 'unsent'}, extra || {})
+}
+async function previewEmailTickets(){
+  var el = document.getElementById('et-count'), btn = document.getElementById('et-send')
+  var res = await api('/api/productions/'+_etPid+'/send-ticket-emails','POST', _etBody({dry_run: true}))
+  if(res.error){ el.textContent = res.error; return }
+  el.innerHTML = res.count ? res.count+' order'+(res.count===1?'':'s')+' will get their tickets email.' : '<span style="color:var(--text-muted)">Nobody to send to with these options.</span>'
+  btn.disabled = !res.count
+  btn.textContent = res.count ? 'Send to '+res.count+' buyer'+(res.count===1?'':'s') : 'Send'
+}
+async function sendEmailTicketsTest(){
+  var to = (document.getElementById('et-test-to').value||'').trim()
+  if(!to){ toast('Enter an email for the test','error'); return }
+  var res = await api('/api/productions/'+_etPid+'/kbyg-test','POST',{kind:'confirmation', to: to})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Test sent to '+res.sent_to,'success')
+}
+async function sendEmailTickets(){
+  var btn = document.getElementById('et-send')
+  if(!confirm(btn.textContent+'? This sends real emails.')) return
+  btn.disabled = true; btn.textContent = 'Starting…'
+  var res = await api('/api/productions/'+_etPid+'/send-ticket-emails','POST', _etBody())
+  if(res.error){ toast(res.error,'error'); btn.disabled = false; return }
+  closeAdHocModal('email-tickets-modal')
+  toast('Sending tickets to '+res.count+' buyer'+(res.count===1?'':'s')+' in the background'+(res.minutes?' (about '+res.minutes+' min)':'')+'. You can keep working.','success')
+}
+
+async function sendKbygTest(pid, kind){
+  var res = await api('/api/productions/'+pid+'/kbyg-test','POST',{kind: kind})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Sample sent to '+res.sent_to+' (uses the newest order for this show; save first to include your latest text)','success')
+}
+
 async function saveTicketingSettings(pid, presaleAction){
   var raw = (document.getElementById('tk-max-per-perf')?.value || '').trim()
   var limit = raw === '' ? null : parseInt(raw, 10)
@@ -36560,6 +36624,9 @@ async function saveTicketingSettings(pid, presaleAction){
     share_name: document.getElementById('tk-share-name')?.value || '',
     presale_opens_at: document.getElementById('tk-presale-opens')?.value || '',
     companion_release_days: document.getElementById('tk-companion-days')?.value ?? '',
+    kbyg_enabled: !!document.getElementById('tk-kbyg-on')?.checked,
+    kbyg_hours_before: document.getElementById('tk-kbyg-hours')?.value || '',
+    kbyg_text: document.getElementById('tk-kbyg-text')?.value || '',
     presale: presaleAction || ''
   })
   if(res.error){ toast(res.error,'error'); return }
@@ -36574,6 +36641,7 @@ async function saveTicketingSettings(pid, presaleAction){
     prod.share_name = res.share_name || ''
     prod.presale_opens_at = res.presale_opens_at || ''
     if(res.companion_release_days != null) prod.companion_release_days = res.companion_release_days
+    prod.kbyg_enabled = res.kbyg_enabled; prod.kbyg_hours_before = res.kbyg_hours_before; prod.kbyg_text = res.kbyg_text
     prod.presale_key = res.presale_key || ''
   }
   if(presaleAction){
@@ -36768,7 +36836,10 @@ async function openTicketOrderDetail(oid){
           + (order.status!=='cancelled' ? '<button class="btn btn-secondary" style="flex:1" onclick="cancelTicketOrder(\''+oid+'\')">Cancel Order</button>' : '')
           + '<button class="btn btn-secondary" style="flex:1;color:#b91c1c" onclick="deleteTicketOrder(\''+oid+'\')">Delete</button>'
           + '</div>'
-        : '<div style="display:flex;gap:8px;margin-top:18px">'
+        : (order.tickets_url ? '<div style="display:flex;gap:8px;margin-top:18px;flex-wrap:wrap">'
+            + '<a class="btn btn-secondary" style="flex:1;text-align:center" href="'+order.tickets_url+'" target="_blank">View their tickets</a>'
+            + '<button class="btn btn-secondary" style="flex:1" onclick="resendTickets(\''+oid+'\',\''+escHtml(order.guardian_email||'').replace(/'/g,"\\'")+'\')">Resend tickets email</button></div>' : '')
+          + '<div style="display:flex;gap:8px;margin-top:8px">'
           + '<button class="btn btn-secondary" style="flex:1" onclick="openRefundRequestFromOrder(\''+oid+'\')"> Request Refund</button>'
           + (order.sale_channel==='test' ? '<button class="btn btn-secondary" style="flex:1;color:#b91c1c" onclick="deleteTestTicketOrder(\''+oid+'\')">Delete test order</button>' : '')
           + '</div>'
@@ -36781,6 +36852,13 @@ function _refreshTicketOrderViews(){
   closeAdHocModal('order-detail-modal')
   if(document.getElementById('mq-boxoffice-search') && typeof renderMarqueeBoxOfficeOrders === 'function') renderMarqueeBoxOfficeOrders()
   Object.keys(_ticketOrdersOpen||{}).forEach(function(pid){ if(_ticketOrdersOpen[pid] && typeof searchTicketOrders === 'function') searchTicketOrders(pid) })
+}
+async function resendTickets(oid, email){
+  var to = prompt('Send their tickets to:', email || '')
+  if(to === null) return
+  var res = await api('/api/ticket-orders/'+oid+'/resend','POST',{email: to.trim()})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Tickets sent to '+(to.trim()||email),'success')
 }
 async function deleteTestTicketOrder(oid){
   if(!confirm('Delete this test order and free its seats?')) return

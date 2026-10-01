@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1"/>
+<meta name="robots" content="noindex"/>
+<title>Door Check-In · HWTC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:#0b2a33;color:#fff;min-height:100vh}
+.bar{height:5px;background:linear-gradient(90deg,#16728b,#22a6c4,#f4b740)}
+.top{padding:14px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.top h1{font-size:17px;font-weight:800;flex:1}
+select,input,button{font-family:inherit;font-size:16px}
+select{background:#123c48;color:#fff;border:1.5px solid rgba(255,255,255,.2);border-radius:10px;padding:10px 12px;max-width:100%}
+.wrap{max-width:520px;margin:0 auto;padding:0 18px 40px}
+.count{display:flex;align-items:baseline;gap:8px;margin:4px 0 14px}
+.count b{font-size:34px;font-weight:800}
+.count span{color:rgba(255,255,255,.7);font-size:14px}
+.prog{height:8px;border-radius:6px;background:rgba(255,255,255,.12);overflow:hidden;margin-bottom:16px}
+.prog div{height:100%;background:#22c55e;transition:width .3s}
+.cam{position:relative;background:#000;border-radius:16px;overflow:hidden;aspect-ratio:1/1}
+.cam video,.cam canvas{width:100%;height:100%;object-fit:cover;display:block}
+.cam .frame{position:absolute;inset:16%;border:3px solid rgba(244,183,64,.8);border-radius:16px;pointer-events:none}
+.cam .msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:rgba(255,255,255,.7);font-size:14px}
+.box{margin-top:16px;background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:14px}
+.box label{display:block;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:rgba(255,255,255,.6);margin-bottom:8px}
+.box input{width:100%;padding:12px 14px;border-radius:10px;border:1.5px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff}
+.btn{border:none;border-radius:10px;padding:12px 16px;font-weight:700;cursor:pointer}
+.btn-p{background:#22a6c4;color:#06222a}
+.btn-s{background:rgba(255,255,255,.12);color:#fff}
+.row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid rgba(255,255,255,.1)}
+.row .grow{flex:1;min-width:0}
+.seat{display:inline-flex;align-items:center;gap:6px;margin:4px 6px 0 0;padding:6px 10px;border-radius:8px;font-weight:700;font-size:14px;cursor:pointer;border:none;font-family:inherit}
+.seat.in{background:#16a34a;color:#fff}.seat.out{background:rgba(255,255,255,.14);color:#fff}
+.result{position:fixed;inset:0;z-index:50;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:26px}
+.result.ok{background:rgba(22,163,74,.97)}.result.warn{background:rgba(217,119,6,.97)}.result.bad{background:rgba(220,38,38,.97)}
+.result .big{font-size:56px;font-weight:800;margin-bottom:6px}
+.result .who{font-size:24px;font-weight:800}
+.result .sub{font-size:17px;opacity:.95;margin-top:6px;max-width:420px;line-height:1.4}
+.result .party{margin-top:16px}
+.result .tap{margin-top:22px;font-size:13px;opacity:.85}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="bar"></div>
+<div class="top"><h1>Door Check-In</h1><select id="perf" onchange="choosePerf(this.value)"></select></div>
+<div class="wrap" id="app"><div style="padding:30px 0;color:rgba(255,255,255,.7)">Loading…</div></div>
+<div id="result" class="result" style="display:none" onclick="hideResult()"></div>
+
+<script>
+var PERF = '', stream = null, scanning = false, lastCode = '', lastAt = 0, paused = false
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+async function api(path, method, body){
+  var r = await fetch(path, {method: method||'GET', credentials:'same-origin', headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined})
+  var d = null; try{ d = await r.json() }catch(e){}
+  if(r.status === 401 || r.status === 403) return {authError: true, error: (d && d.error) || 'Please log in to RoleCall first.'}
+  return d || {error: 'Something went wrong.'}
+}
+function fmtPerf(p){
+  var dt = new Date(String(p.performance_date).slice(0,10)+'T12:00:00')
+  var t = (p.performance_time||'').slice(0,5), tt = ''
+  if(t){ var h = +t.slice(0,2), m = t.slice(3,5); tt = ' '+((h%12)||12)+(m!=='00'?':'+m:'')+(h>=12?' PM':' AM') }
+  return (p.is_today?'Today · ':'')+dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+tt+' · '+p.production_name
+}
+async function boot(){
+  var perfs = await api('/api/door/performances')
+  if(perfs.authError){ document.getElementById('app').innerHTML = '<div class="box">'+esc(perfs.error)+' <a href="/" style="color:#7dd3fc">Log in</a>, then come back to this page.</div>'; return }
+  var sel = document.getElementById('perf')
+  if(!Array.isArray(perfs) || !perfs.length){ sel.style.display='none'; document.getElementById('app').innerHTML = '<div class="box">No performances in the next few weeks.</div>'; return }
+  var saved = ''; try{ saved = localStorage.getItem('hwtc_door_perf') || '' }catch(e){}
+  var pick = perfs.find(function(p){ return p.id===saved }) || perfs.find(function(p){ return p.is_today }) || perfs[0]
+  sel.innerHTML = perfs.map(function(p){ return '<option value="'+p.id+'"'+(p.id===pick.id?' selected':'')+'>'+esc(fmtPerf(p))+'</option>' }).join('')
+  choosePerf(pick.id)
+}
+function choosePerf(id){
+  PERF = id; try{ localStorage.setItem('hwtc_door_perf', id) }catch(e){}
+  document.getElementById('app').innerHTML =
+    '<div class="count"><b id="cnt-in">0</b><span id="cnt-of">checked in</span></div><div class="prog"><div id="cnt-bar" style="width:0%"></div></div>'
+    + '<div class="cam"><video id="v" playsinline muted></video><canvas id="c" style="display:none"></canvas><div class="frame"></div><div class="msg" id="cam-msg">Starting camera…</div></div>'
+    + '<div class="box"><label for="q">Look up by name, email, phone, seat or code</label>'
+    + '<div style="display:flex;gap:8px"><input id="q" placeholder="e.g. Smith or A12" onkeydown="if(event.key===\'Enter\')lookup()"/><button class="btn btn-p" onclick="lookup()">Find</button></div>'
+    + '<div id="found"></div></div>'
+  refreshCounts()
+  startCamera()
+}
+async function refreshCounts(c){
+  if(!c){ var d = await api('/api/door/lookup?performance_id='+encodeURIComponent(PERF)+'&q=__none__'); c = d.counts }
+  if(!c) return
+  document.getElementById('cnt-in').textContent = c.checked_in
+  document.getElementById('cnt-of').textContent = 'of '+c.sold+' checked in'
+  document.getElementById('cnt-bar').style.width = (c.sold ? Math.round(c.checked_in*100/c.sold) : 0)+'%'
+}
+async function startCamera(){
+  try{
+    if(stream) stream.getTracks().forEach(function(t){ t.stop() })
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false})
+    var v = document.getElementById('v'); v.srcObject = stream; await v.play()
+    document.getElementById('cam-msg').style.display = 'none'
+    scanning = true; requestAnimationFrame(loop)
+  }catch(e){ var m = document.getElementById('cam-msg'); if(m) m.textContent = 'Camera unavailable. Use the lookup below.' }
+}
+function loop(){
+  if(!scanning) return
+  var v = document.getElementById('v'), c = document.getElementById('c')
+  if(v && c && v.readyState === v.HAVE_ENOUGH_DATA && !paused){
+    c.width = v.videoWidth; c.height = v.videoHeight
+    var ctx = c.getContext('2d'); ctx.drawImage(v, 0, 0, c.width, c.height)
+    var code = jsQR(ctx.getImageData(0,0,c.width,c.height).data, c.width, c.height)
+    if(code && code.data){
+      var now = Date.now()
+      if(code.data !== lastCode || now - lastAt > 4000){ lastCode = code.data; lastAt = now; scan(code.data) }
+    }
+  }
+  requestAnimationFrame(loop)
+}
+function beep(ok){
+  try{
+    var a = new (window.AudioContext||window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain()
+    o.frequency.value = ok ? 880 : 220; g.gain.value = 0.08; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + (ok?0.12:0.35))
+  }catch(e){}
+  try{ if(navigator.vibrate) navigator.vibrate(ok ? 60 : [80,60,80]) }catch(e){}
+}
+async function scan(code){
+  paused = true
+  var r = await api('/api/door/scan','POST',{performance_id: PERF, code: code})
+  showResult(r)
+}
+function partyHTML(r){
+  if(!r.party || r.party.length < 2) return ''
+  var left = r.party.filter(function(p){ return !p.checked_in }).length
+  return '<div class="party"><div style="font-size:14px;margin-bottom:6px">Their party ('+r.party.length+' tickets'+(left?', '+left+' not in yet':'')+'). Tap a seat to check it in:</div>'
+    + r.party.map(function(p){ return '<button class="seat '+(p.checked_in?'in':'out')+'" onclick="event.stopPropagation();toggleTicket(\''+p.id+'\','+p.checked_in+')">'+(p.checked_in?'✓ ':'')+esc(p.seat_label||'Ticket')+'</button>' }).join('')
+    + (left ? '<div style="margin-top:10px"><button class="btn btn-s" onclick="event.stopPropagation();checkInAll()">Check in the whole party</button></div>' : '') + '</div>'
+}
+var LAST = null
+function showResult(r){
+  LAST = r
+  var el = document.getElementById('result')
+  var cls = r.result==='ok' ? 'ok' : (r.result==='already' || r.result==='wrong_show') ? 'warn' : 'bad'
+  var big = r.result==='ok' ? '✓' : r.result==='already' ? 'Already in' : r.result==='wrong_show' ? 'Wrong date' : '✕'
+  beep(r.result==='ok')
+  el.className = 'result '+cls
+  el.innerHTML = '<div class="big">'+big+'</div>'
+    + (r.name ? '<div class="who">'+esc(r.name)+'</div>' : '')
+    + (r.seat_label ? '<div class="sub" style="font-size:22px;font-weight:800">'+esc(r.seat_label)+(r.section?' · '+esc(r.section):'')+'</div>' : '')
+    + '<div class="sub">'+esc(r.message || r.error || '')+'</div>'
+    + partyHTML(r)
+    + '<div class="tap">Tap anywhere to scan the next ticket</div>'
+  el.style.display = 'flex'
+  if(r.counts) refreshCounts(r.counts)
+  clearTimeout(window._resTimer)
+  if(r.result==='ok' && !(r.party && r.party.some(function(p){ return !p.checked_in }))) window._resTimer = setTimeout(hideResult, 2200)
+}
+function hideResult(){ document.getElementById('result').style.display = 'none'; paused = false }
+async function toggleTicket(id, isIn){
+  var r = await api('/api/door/checkin-ticket','POST',{ticket_id: id, undo: !!isIn})
+  if(r.error){ alert(r.error); return }
+  LAST.party = r.party; showResult(Object.assign({}, LAST, {counts: r.counts}))
+}
+async function checkInAll(){
+  var todo = (LAST.party||[]).filter(function(p){ return !p.checked_in })
+  var r = null
+  for(var i=0;i<todo.length;i++){ r = await api('/api/door/checkin-ticket','POST',{ticket_id: todo[i].id}) }
+  if(r && !r.error){ LAST.party = r.party; showResult(Object.assign({}, LAST, {counts: r.counts, result:'ok', message:'Whole party checked in.'})) }
+}
+async function lookup(){
+  var q = (document.getElementById('q').value||'').trim(); if(!q) return
+  var d = await api('/api/door/lookup?performance_id='+encodeURIComponent(PERF)+'&q='+encodeURIComponent(q))
+  var box = document.getElementById('found')
+  if(d.error){ box.innerHTML = '<div style="margin-top:10px">'+esc(d.error)+'</div>'; return }
+  box.innerHTML = (d.orders||[]).length ? d.orders.map(function(o){
+    return '<div class="row"><div class="grow"><div style="font-weight:800">'+esc(o.guardian_name)+'</div><div style="font-size:12.5px;color:rgba(255,255,255,.6)">'+esc(o.guardian_email||'')+'</div>'
+      + '<div>'+o.tickets.map(function(t){ return '<button class="seat '+(t.checked_in?'in':'out')+'" onclick="lookupToggle(\''+t.id+'\','+t.checked_in+')">'+(t.checked_in?'✓ ':'')+esc(t.seat_label||'Ticket')+'</button>' }).join('')+'</div></div></div>'
+  }).join('') : '<div style="margin-top:10px;color:rgba(255,255,255,.7)">No one matches “'+esc(q)+'” for this performance.</div>'
+  if(d.counts) refreshCounts(d.counts)
+}
+async function lookupToggle(id, isIn){
+  var r = await api('/api/door/checkin-ticket','POST',{ticket_id: id, undo: !!isIn})
+  if(r.error){ alert(r.error); return }
+  lookup()
+}
+boot()
+</script>
+</body>
+</html>

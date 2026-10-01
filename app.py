@@ -3089,6 +3089,16 @@ def init_db():
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS kbyg_sent_at TIMESTAMP",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS tickets_email_sent_at TIMESTAMP",
         "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS checked_in_by TEXT",
+        """CREATE TABLE IF NOT EXISTS door_scan_log (
+            id TEXT PRIMARY KEY,
+            performance_id TEXT,
+            code TEXT,
+            result TEXT,
+            message TEXT,
+            ticket_id TEXT,
+            scanned_by TEXT,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_door_scan_log_perf ON door_scan_log(performance_id, created_at)",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_enabled BOOLEAN DEFAULT TRUE",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_hours_before INTEGER DEFAULT 24",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_text TEXT DEFAULT ''",
@@ -42344,6 +42354,140 @@ def kbyg_test_email(pid):
         conn.close()
 
 
+# ── House manager view: live check-in dashboard for one performance ───────
+@app.route('/house')
+def house_manager_page():
+    resp = send_from_directory('static', 'house-manager.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+def _log_door_scan(conn, fid, code, result, message, ticket_id=None):
+    try:
+        execute(conn, '''INSERT INTO door_scan_log (id, performance_id, code, result, message, ticket_id, scanned_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''', (uuid.uuid4().hex, fid, (code or '')[:120], result, (message or '')[:300], ticket_id,
+            session.get('name') or session.get('email') or ''))
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+
+
+@app.route('/api/house/<fid>', methods=['GET'])
+def house_manager_data(fid):
+    err = _require_door()
+    if err: return err
+    import datetime as _dt
+    conn = get_db()
+    try:
+        perf = fetchone(conn, '''SELECT pf.*, p.name AS production_name, v.name AS venue_name FROM performances pf
+            JOIN productions p ON p.id=pf.production_id LEFT JOIN venues v ON v.id=pf.venue_id WHERE pf.id=%s''', (fid,))
+        if not perf:
+            return jsonify({'error': 'Performance not found'}), 404
+        tix = fetchall(conn, '''SELECT t.id, t.seat_id, t.seat_label, t.section, t.price_cents, t.confirmation_code, t.checked_in_by,
+                t.checked_in_at, EXTRACT(EPOCH FROM (NOW() - t.checked_in_at))::int AS in_ago_s,
+                o.id AS order_id, o.guardian_name, o.guardian_email, o.guardian_phone, COALESCE(o.sale_channel,'public') AS sale_channel,
+                o.view_token, tt.name AS type_name
+            FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id
+            WHERE t.performance_id=%s AND o.status='completed' ORDER BY o.guardian_name, t.seat_label''', (fid,)) or []
+        seats = []
+        if perf.get('seat_map_id'):
+            seats = fetchall(conn, '''SELECT id, seat_label, section, x, y, accessible FROM seat_map_seats
+                WHERE seat_map_id=%s AND COALESCE(active,TRUE)=TRUE''', (perf['seat_map_id'],)) or []
+            _clear_expired_holds(conn, fid)
+            carts = {r['seat_id'] for r in fetchall(conn, 'SELECT seat_id FROM seat_holds WHERE performance_id=%s', (fid,)) or []}
+            blocks = active_seat_blocks(conn, fid)
+            by_seat = {t['seat_id']: t for t in tix if t.get('seat_id')}
+            for s in seats:
+                t = by_seat.get(s['id'])
+                if t:
+                    s['status'] = 'in' if t['checked_in_at'] else 'sold'
+                    s['ticket_id'] = t['id']; s['who'] = t['guardian_name']
+                elif s['id'] in blocks:
+                    s['status'] = 'held'; s['who'] = blocks[s['id']]['holder_name']
+                elif s['id'] in carts:
+                    s['status'] = 'cart'
+                else:
+                    s['status'] = 'open'
+        sold = len(tix)
+        inside = sum(1 for t in tix if t['checked_in_at'])
+        comps = sum(1 for t in tix if not t['price_cents'])
+        # arrivals per 5 minutes over the last hour
+        buckets = [0] * 12
+        for t in tix:
+            a = t.get('in_ago_s')
+            if a is not None and 0 <= a < 3600:
+                buckets[11 - int(a // 300)] += 1
+        # parties: who's here, who isn't
+        parties = {}
+        for t in tix:
+            p = parties.setdefault(t['order_id'], {'order_id': t['order_id'], 'name': t['guardian_name'], 'email': t['guardian_email'],
+                                                   'phone': t['guardian_phone'], 'channel': t['sale_channel'], 'tickets': []})
+            p['tickets'].append({'id': t['id'], 'seat_label': t['seat_label'] or 'GA', 'checked_in': bool(t['checked_in_at']),
+                                 'code': t['confirmation_code'], 'type': t['type_name']})
+        for p in parties.values():
+            p['in'] = sum(1 for x in p['tickets'] if x['checked_in'])
+        not_arrived = sorted([p for p in parties.values() if p['in'] < len(p['tickets'])], key=lambda p: (p['in'] > 0, (p['name'] or '').lower()))
+        log = fetchall(conn, '''SELECT code, result, message, scanned_by, ticket_id,
+                EXTRACT(EPOCH FROM (NOW() - created_at))::int AS ago_s FROM door_scan_log
+            WHERE performance_id=%s ORDER BY created_at DESC LIMIT 40''', (fid,)) or []
+        names = {t['id']: (t['guardian_name'], t['seat_label']) for t in tix}
+        for l in log:
+            if l.get('ticket_id') in names:
+                l['name'], l['seat_label'] = names[l['ticket_id']]
+        # time to curtain
+        try:
+            d = _dt.date.fromisoformat(str(perf['performance_date'])[:10])
+            tm = (perf.get('performance_time') or '19:00')[:5]
+            start = _dt.datetime.combine(d, _dt.time(int(tm[:2]), int(tm[3:5])))
+            to_curtain = int((start - now_eastern()).total_seconds())
+        except Exception:
+            to_curtain = None
+        wheel_sold = sum(1 for s in seats if s.get('accessible') and s.get('status') in ('in', 'sold'))
+        return jsonify({
+            'performance': {'id': perf['id'], 'production_name': perf['production_name'], 'venue_name': perf.get('venue_name'),
+                            'date': str(perf['performance_date'])[:10], 'time': perf.get('performance_time') or '',
+                            'doors_time': perf.get('doors_time') or '', 'reserved': bool(perf.get('seat_map_id')),
+                            'seconds_to_curtain': to_curtain},
+            'metrics': {'sold': sold, 'checked_in': inside, 'not_arrived': sold - inside, 'comps': comps,
+                        'box_office': sum(1 for t in tix if t['sale_channel'] == 'box_office'),
+                        'parties': len(parties), 'parties_waiting': len(not_arrived),
+                        'capacity': len(seats) if seats else (perf.get('ga_capacity') or 0),
+                        'open_seats': sum(1 for s in seats if s.get('status') == 'open'),
+                        'wheelchair_sold': wheel_sold, 'wheelchair_total': sum(1 for s in seats if s.get('accessible'))},
+            'arrivals': buckets, 'seats': seats, 'not_arrived': not_arrived[:200], 'scan_log': log,
+            'all_parties': list(parties.values())})
+    finally:
+        conn.close()
+
+
+@app.route('/api/house/ticket/<tid>', methods=['GET'])
+def house_ticket_detail(tid):
+    err = _require_door()
+    if err: return err
+    conn = get_db()
+    try:
+        t = fetchone(conn, '''SELECT t.*, o.guardian_name, o.guardian_email, o.guardian_phone, o.id AS order_id, o.view_token,
+                COALESCE(o.sale_channel,'public') AS sale_channel, o.total_cents, tt.name AS type_name
+            FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id
+            WHERE t.id=%s''', (tid,))
+        if not t:
+            return jsonify({'error': 'Ticket not found'}), 404
+        party = fetchall(conn, 'SELECT id, seat_label, checked_in_at FROM tickets WHERE ticket_order_id=%s ORDER BY seat_label', (t['order_id'],)) or []
+        scans = fetchall(conn, '''SELECT result, message, scanned_by, EXTRACT(EPOCH FROM (NOW() - created_at))::int AS ago_s
+            FROM door_scan_log WHERE ticket_id=%s ORDER BY created_at DESC LIMIT 10''', (tid,)) or []
+        t['tickets_url'] = (APP_BASE_URL.rstrip('/') + '/t/' + ensure_order_view_token(conn, t['order_id'])) if t.get('order_id') else ''
+        t['party'] = [{'id': p['id'], 'seat_label': p['seat_label'], 'checked_in': bool(p['checked_in_at'])} for p in party]
+        t['scans'] = scans
+        t['checked_in_at'] = str(t['checked_in_at']) if t.get('checked_in_at') else None
+        for k in ('created_at',):
+            t[k] = str(t.get(k) or '')
+        t.pop('view_token', None)
+        return jsonify(t)
+    finally:
+        conn.close()
+
+
 # ── Door check-in: scan ticket QR codes at /tickets/scan ──────────────────
 def _require_door():
     """Box office / door volunteers: Ticketing or Sign-In/Kiosk access."""
@@ -42377,7 +42521,7 @@ def door_performances():
             FROM performances pf JOIN productions p ON p.id=pf.production_id
             WHERE pf.performance_date BETWEEN %s AND %s AND COALESCE(pf.status,'') NOT IN ('cancelled','draft')
             ORDER BY pf.performance_date, pf.performance_time''',
-            ((t - _dt.timedelta(days=1)).isoformat(), (t + _dt.timedelta(days=30)).isoformat())) or []
+            ((t - _dt.timedelta(days=1)).isoformat(), (t + _dt.timedelta(days=180)).isoformat())) or []
         for r in rows:
             r.update(_door_counts(conn, r['id']))
             r['is_today'] = str(r['performance_date'])[:10] == t.isoformat()
@@ -42414,23 +42558,28 @@ def door_scan():
             t = fetchone(conn, 'SELECT * FROM tickets WHERE UPPER(confirmation_code)=%s AND performance_id=%s', (code.upper(), fid)) \
                 or fetchone(conn, 'SELECT * FROM tickets WHERE UPPER(confirmation_code)=%s', (code.upper(),))
         if not t:
+            _log_door_scan(conn, fid, code, 'invalid', 'Not a valid ticket')
             return jsonify({'result': 'invalid', 'message': 'Not a valid ticket. Check their email or look them up by name.'})
         o = fetchone(conn, 'SELECT status FROM ticket_orders WHERE id=%s', (t['ticket_order_id'],)) or {}
         if o.get('status') != 'completed':
+            _log_door_scan(conn, fid, code, 'invalid', 'Ticket not paid', t['id'])
             return jsonify({'result': 'invalid', 'message': 'This ticket isn\'t paid.'})
         if t['performance_id'] != fid:
             other = fetchone(conn, 'SELECT performance_date, performance_time FROM performances WHERE id=%s', (t['performance_id'],)) or {}
+            _log_door_scan(conn, fid, code, 'wrong_show', 'Ticket is for ' + str(other.get('performance_date') or ''), t['id'])
             return jsonify(dict(_door_ticket_payload(conn, t, fid), result='wrong_show',
                                 message='This ticket is for ' + str(other.get('performance_date') or '') + ' ' + _fmt_time12(other.get('performance_time')) + '.'))
         if t.get('checked_in_at'):
             ago = (fetchone(conn, 'SELECT EXTRACT(EPOCH FROM (NOW() - checked_in_at))::int AS s, checked_in_by FROM tickets WHERE id=%s', (t['id'],)) or {})
             mins = int((ago.get('s') or 0) // 60)
             when = 'just now' if mins < 1 else (str(mins) + ' min ago' if mins < 120 else str(mins // 60) + ' hours ago')
+            _log_door_scan(conn, fid, code, 'already', 'Already checked in ' + when, t['id'])
             return jsonify(dict(_door_ticket_payload(conn, t, fid), result='already',
                                 message='Already checked in ' + when + (' by ' + ago['checked_in_by'] if ago.get('checked_in_by') else '') + '.'))
         execute(conn, 'UPDATE tickets SET checked_in_at=NOW(), checked_in_by=%s WHERE id=%s',
                 (session.get('name') or session.get('email') or '', t['id']))
         conn.commit()
+        _log_door_scan(conn, fid, code, 'ok', 'Checked in', t['id'])
         t['checked_in_at'] = True
         return jsonify(dict(_door_ticket_payload(conn, t, fid), result='ok', message='Welcome!'))
     finally:
@@ -42454,6 +42603,8 @@ def door_checkin_ticket():
         t = fetchone(conn, 'SELECT * FROM tickets WHERE id=%s', (d.get('ticket_id'),))
         if not t:
             return jsonify({'error': 'Ticket not found'}), 404
+        _log_door_scan(conn, t['performance_id'], t.get('confirmation_code') or '', 'undo' if d.get('undo') else 'manual',
+                       'Check-in undone' if d.get('undo') else 'Checked in by hand', t['id'])
         return jsonify(dict(_door_ticket_payload(conn, t, t['performance_id']), result='ok'))
     finally:
         conn.close()

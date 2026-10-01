@@ -39204,9 +39204,63 @@ def update_seat(sid):
     vals.append(sid)
     execute(conn, f'UPDATE seat_map_seats SET {",".join(fields)} WHERE id=%s', vals)
     conn.commit()
+    fixed = 0
+    if any(k in d for k in ('seat_label', 'section', 'row_name', 'seat_number')):
+        try:
+            fixed = sync_ticket_seat_labels(conn, [sid])
+        except Exception as e:
+            app.logger.warning(f'Ticket label sync failed: {e}')
+            conn.rollback()
     row = fetchone(conn, 'SELECT * FROM seat_map_seats WHERE id=%s', (sid,))
     conn.close()
-    return jsonify(row or {'ok': True})
+    out = dict(row or {'ok': True})
+    out['tickets_relabeled'] = fixed
+    return jsonify(out)
+
+
+def sync_ticket_seat_labels(conn, seat_ids=None):
+    """Tickets keep a copy of their seat's label from when they were
+    bought, so fixing a label on the seat map left existing tickets showing
+    the old one. This copies the map's current label and section onto
+    tickets (and their order's seat list) for performances that haven't
+    happened yet. Returns how many tickets changed."""
+    q = '''SELECT t.id, t.ticket_order_id, t.seat_id, t.seat_label, t.section, s.seat_label AS new_label, s.section AS new_section
+        FROM tickets t JOIN seat_map_seats s ON s.id=t.seat_id JOIN performances pf ON pf.id=t.performance_id
+        WHERE pf.performance_date >= %s AND (COALESCE(t.seat_label,'') <> COALESCE(s.seat_label,'') OR COALESCE(t.section,'') <> COALESCE(s.section,''))'''
+    params = [today_eastern().isoformat()]
+    if seat_ids:
+        q += ' AND t.seat_id = ANY(%s)'; params.append(list(seat_ids))
+    rows = fetchall(conn, q, tuple(params)) or []
+    orders = {}
+    for r in rows:
+        execute(conn, 'UPDATE tickets SET seat_label=%s, section=%s WHERE id=%s', (r['new_label'] or '', r['new_section'] or '', r['id']))
+        orders.setdefault(r['ticket_order_id'], {})[r['seat_id']] = (r['new_label'] or '', r['new_section'] or '')
+    for oid, changes in orders.items():
+        o = fetchone(conn, 'SELECT seats_json FROM ticket_orders WHERE id=%s', (oid,)) or {}
+        try:
+            items = json.loads(o.get('seats_json') or '[]')
+        except Exception:
+            continue
+        for li in items:
+            if li.get('seat_id') in changes:
+                li['seat_label'], li['section'] = changes[li['seat_id']]
+        execute(conn, 'UPDATE ticket_orders SET seats_json=%s WHERE id=%s', (json.dumps(items), oid))
+    conn.commit()
+    return len(rows)
+
+
+@app.route('/api/seat-maps/<mid>/sync-ticket-labels', methods=['POST'])
+def sync_seat_map_ticket_labels(mid):
+    """Fix every upcoming ticket on this seat map to match the map's labels."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        ids = [r['id'] for r in fetchall(conn, 'SELECT id FROM seat_map_seats WHERE seat_map_id=%s', (mid,)) or []]
+        n = sync_ticket_seat_labels(conn, ids) if ids else 0
+        return jsonify({'ok': True, 'tickets_relabeled': n})
+    finally:
+        conn.close()
 
 
 @app.route('/api/seats/<sid>', methods=['DELETE'])
@@ -42915,3 +42969,14 @@ def public_tickets_confirmation_page():
     return send_from_directory('static', 'tickets.html')
 
 
+# One pass on every deploy: any upcoming ticket whose seat label no longer
+# matches the seat map (because the map was corrected after people bought)
+# picks up the map's current label.
+try:
+    _sl_conn = get_db()
+    _sl_n = sync_ticket_seat_labels(_sl_conn)
+    _sl_conn.close()
+    if _sl_n:
+        app.logger.info(f'Relabeled {_sl_n} ticket(s) to match their seat maps')
+except Exception as _sl_e:
+    app.logger.warning(f'Startup ticket label sync skipped: {_sl_e}')

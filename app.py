@@ -3602,6 +3602,8 @@ def require_admin():
 # Mirrors PERM_LEGACY_FALLBACK in index.html - keep the two in sync.
 PERM_LEGACY_FALLBACK = {
     'talent': 'productions',
+    'house_manager': 'ticketing',
+    'ticketing': 'marquee',
     'email_log': 'email',
     'donor_benefits': 'donors',
     'waivers': 'volunteers',
@@ -3625,12 +3627,14 @@ PERM_LEGACY_FALLBACK = {
 def resolve_perm_level(perms, section):
     """Explicit setting if present, else legacy parent, else none.
     An explicit 'none' is respected - a deliberate revoke is never overridden."""
-    level = perms.get(section)
-    if level:
-        return level
-    legacy = PERM_LEGACY_FALLBACK.get(section)
-    if legacy and perms.get(legacy):
-        return perms[legacy]
+    # follows the chain (e.g. House Manager -> Ticketing -> Marquee)
+    seen = set()
+    while section and section not in seen:
+        seen.add(section)
+        level = perms.get(section)
+        if level:
+            return level
+        section = PERM_LEGACY_FALLBACK.get(section)
     return 'none'
 
 
@@ -42357,6 +42361,9 @@ def kbyg_test_email(pid):
 # ── House manager view: live check-in dashboard for one performance ───────
 @app.route('/house')
 def house_manager_page():
+    if 'user_id' not in session:
+        from flask import redirect
+        return redirect('/?next=/house')
     resp = send_from_directory('static', 'house-manager.html')
     resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -42366,7 +42373,7 @@ def _log_door_scan(conn, fid, code, result, message, ticket_id=None):
     try:
         execute(conn, '''INSERT INTO door_scan_log (id, performance_id, code, result, message, ticket_id, scanned_by)
             VALUES (%s,%s,%s,%s,%s,%s,%s)''', (uuid.uuid4().hex, fid, (code or '')[:120], result, (message or '')[:300], ticket_id,
-            session.get('name') or session.get('email') or ''))
+            _door_actor()))
         conn.commit()
     except Exception:
         try: conn.rollback()
@@ -42375,7 +42382,7 @@ def _log_door_scan(conn, fid, code, result, message, ticket_id=None):
 
 @app.route('/api/house/<fid>', methods=['GET'])
 def house_manager_data(fid):
-    err = _require_door()
+    err = _require_house()
     if err: return err
     import datetime as _dt
     conn = get_db()
@@ -42461,9 +42468,50 @@ def house_manager_data(fid):
         conn.close()
 
 
+@app.route('/api/house/usher-link', methods=['GET', 'POST'])
+def house_usher_link():
+    """The private scanner link for ushers. POST makes a new one (the old
+    link stops working, e.g. after the run or if it got shared)."""
+    err = _require_house()
+    if err: return err
+    conn = get_db()
+    try:
+        key = _setting(conn, 'door_usher_key') or ''
+        if request.method == 'POST' or not key:
+            if request.method == 'POST':
+                e2 = require_permission('house_manager', 'edit')
+                if e2: return e2
+            key = secrets.token_urlsafe(12)
+            _set_setting(conn, 'door_usher_key', key); conn.commit()
+        return jsonify({'url': APP_BASE_URL.rstrip('/') + '/tickets/scan?key=' + key})
+    finally:
+        conn.close()
+
+
+@app.route('/api/house/usher-link/qr.png', methods=['GET'])
+def house_usher_link_qr():
+    """QR of the usher link, so ushers can point their phone camera at the
+    house manager's screen and open the scanner."""
+    err = _require_house()
+    if err: return err
+    import io, segno
+    conn = get_db()
+    try:
+        key = _setting(conn, 'door_usher_key') or ''
+    finally:
+        conn.close()
+    if not key:
+        return 'No usher link yet', 404
+    buf = io.BytesIO()
+    segno.make(APP_BASE_URL.rstrip('/') + '/tickets/scan?key=' + key, error='m').save(buf, kind='png', scale=8, border=2)
+    resp = app.response_class(buf.getvalue(), mimetype='image/png')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
 @app.route('/api/house/ticket/<tid>', methods=['GET'])
 def house_ticket_detail(tid):
-    err = _require_door()
+    err = _require_house()
     if err: return err
     conn = get_db()
     try:
@@ -42489,11 +42537,50 @@ def house_ticket_detail(tid):
 
 
 # ── Door check-in: scan ticket QR codes at /tickets/scan ──────────────────
+def _usher_key_ok():
+    """Ushers use the scanner without a RoleCall login, through a private
+    link (/tickets/scan?key=...) the house manager shares. The page keeps
+    the key and sends it with each request."""
+    key = (request.headers.get('X-Door-Key') or request.args.get('key') or '').strip()
+    if not key:
+        return False
+    conn = get_db()
+    try:
+        cur = _setting(conn, 'door_usher_key') or ''
+    finally:
+        conn.close()
+    return bool(cur) and hmac.compare_digest(key, cur)
+
+
+def _door_is_staff():
+    if 'user_id' not in session:
+        return False
+    for k in ('house_manager', 'ticketing', 'kiosk'):
+        if require_permission(k, 'view') is None:
+            return True
+    return False
+
+
 def _require_door():
-    """Box office / door volunteers: Ticketing or Sign-In/Kiosk access."""
-    if require_permission('ticketing', 'view') is None:
+    """Door scanner: staff with House Manager / Ticketing / Sign-In access,
+    or an usher with the current usher link."""
+    if _door_is_staff() or _usher_key_ok():
         return None
-    return require_permission('kiosk', 'view')
+    return jsonify({'error': 'This scanner link has expired. Ask the house manager for the current usher link.', 'usher_link_needed': True}), 401
+
+
+def _require_house():
+    """House manager view: logged in, with House Manager access."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Please log in to RoleCall first.'}), 401
+    return require_permission('house_manager', 'view')
+
+
+def _door_actor():
+    if _door_is_staff():
+        return session.get('name') or session.get('email') or 'Staff'
+    nm = (request.headers.get('X-Door-Name') or '').strip()[:60]
+    return (nm + ' (usher)') if nm else 'Usher'
 
 
 @app.route('/tickets/scan')
@@ -42577,7 +42664,7 @@ def door_scan():
             return jsonify(dict(_door_ticket_payload(conn, t, fid), result='already',
                                 message='Already checked in ' + when + (' by ' + ago['checked_in_by'] if ago.get('checked_in_by') else '') + '.'))
         execute(conn, 'UPDATE tickets SET checked_in_at=NOW(), checked_in_by=%s WHERE id=%s',
-                (session.get('name') or session.get('email') or '', t['id']))
+                (_door_actor(), t['id']))
         conn.commit()
         _log_door_scan(conn, fid, code, 'ok', 'Checked in', t['id'])
         t['checked_in_at'] = True
@@ -42598,7 +42685,7 @@ def door_checkin_ticket():
             execute(conn, 'UPDATE tickets SET checked_in_at=NULL, checked_in_by=NULL WHERE id=%s', (d.get('ticket_id'),))
         else:
             execute(conn, 'UPDATE tickets SET checked_in_at=COALESCE(checked_in_at, NOW()), checked_in_by=COALESCE(checked_in_by,%s) WHERE id=%s',
-                    (session.get('name') or session.get('email') or '', d.get('ticket_id')))
+                    (_door_actor(), d.get('ticket_id')))
         conn.commit()
         t = fetchone(conn, 'SELECT * FROM tickets WHERE id=%s', (d.get('ticket_id'),))
         if not t:
@@ -42624,9 +42711,12 @@ def door_lookup():
             WHERE o.performance_id=%s AND o.status='completed' AND (LOWER(o.guardian_name) LIKE %s OR LOWER(o.guardian_email) LIKE %s
               OR COALESCE(o.guardian_phone,'') LIKE %s OR LOWER(t.confirmation_code) LIKE %s OR LOWER(t.seat_label) LIKE %s)
             ORDER BY o.guardian_name LIMIT 25''', (fid, q, q, q, q, q)) or []
+        staff = _door_is_staff()
         for o in orders:
             o['tickets'] = [{'id': t['id'], 'seat_label': t['seat_label'], 'checked_in': bool(t['checked_in_at'])}
                             for t in (fetchall(conn, 'SELECT id, seat_label, checked_in_at FROM tickets WHERE ticket_order_id=%s ORDER BY seat_label', (o['id'],)) or [])]
+            if not staff:
+                o.pop('guardian_email', None)   # ushers see names and seats only
         return jsonify({'orders': orders, 'counts': _door_counts(conn, fid)})
     finally:
         conn.close()

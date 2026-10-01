@@ -37827,7 +37827,7 @@ async function edSaveSeatDetails(sid){
     accessible:accessible, obstructed_view:obstructed, view_note:viewNote});
   if(s && companion !== undefined) s.companion_for = companion || null;
   if(s && reqEl) s.companion_required = reqEl.value === '1';
-  toast('Saved','success');
+  toast(res && res.tickets_relabeled ? 'Saved · '+res.tickets_relabeled+' sold ticket'+(res.tickets_relabeled===1?'':'s')+' updated to the new label' : 'Saved','success');
   edRenderCanvas(); edRenderSidePanel();
 }
 

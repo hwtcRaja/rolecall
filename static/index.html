@@ -36082,6 +36082,7 @@ async function loadTicketsTab(pid){
         ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 14px;background:var(--teal-light,#e0f2fe);border-radius:var(--radius);font-size:13px">'
           + '<button class="btn btn-secondary btn-sm" onclick="openEmailTicketsModal(\''+pid+'\')" title="Send the tickets email to people who already bought">Email Tickets</button>'
           + '<a class="btn btn-secondary btn-sm" href="/tickets/scan" target="_blank" title="Scan ticket QR codes at the door">Door Scanner</a>'
+          + '<a class="btn btn-secondary btn-sm" href="/house" target="_blank" title="Live check-in dashboard for show night">House Manager</a>'
           + '<a class="btn btn-secondary btn-sm" href="'+ticketUrl+'?preview=1" target="_blank" title="Try the whole flow before sales open, including Draft and Pre-Sale performances. Only works while you\'re logged in.">Preview as a buyer</a>'
           + '<span style="flex:1">Public ticket page: <a href="'+ticketUrl+'" target="_blank" style="color:var(--teal-dark);font-weight:700">'+ticketUrl+'</a>'
           + ' <span style="color:var(--text-muted)">— only performances marked "On Sale" below show up here.</span></span>'

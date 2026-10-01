@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="robots" content="noindex"/>
+<title>House Manager · HWTC</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0d1f26;--panel:#13303a;--panel2:#173a46;--line:rgba(255,255,255,.12);--muted:rgba(255,255,255,.62);
+  --in:#22c55e;--sold:#64748b;--open:#16728b;--held:#8b5cf6;--cart:#f59e0b;--bad:#ef4444;--gold:#f4b740}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:#fff;min-height:100vh}
+button,input,select{font-family:inherit;font-size:14px}
+a{color:#7dd3fc}
+.top{display:flex;align-items:center;gap:12px;padding:12px 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+.live{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:800;letter-spacing:.1em;color:#fca5a5}
+.live i{width:9px;height:9px;border-radius:50%;background:#ef4444;animation:blink 1.4s infinite}
+@keyframes blink{50%{opacity:.3}}
+.top h1{font-size:17px;font-weight:800}
+select,.inp{background:var(--panel2);color:#fff;border:1.5px solid var(--line);border-radius:9px;padding:8px 10px}
+.btn{border:none;border-radius:9px;padding:9px 13px;font-weight:700;cursor:pointer;background:var(--panel2);color:#fff;text-decoration:none;display:inline-block}
+.btn.p{background:#22a6c4;color:#06222a}
+.btn.g{background:var(--in);color:#052e16}
+.btn.r{background:transparent;border:1.5px solid rgba(239,68,68,.6);color:#fca5a5}
+.clock{margin-left:auto;text-align:right;font-size:13px;color:var(--muted)}
+.clock b{display:block;font-size:20px;color:#fff}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;padding:14px 18px}
+.m{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.m .k{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.m .v{font-size:28px;font-weight:800;margin-top:2px}
+.m .s{font-size:12px;color:var(--muted)}
+.m.big{grid-column:span 2}
+.bar{height:8px;border-radius:6px;background:rgba(255,255,255,.1);overflow:hidden;margin-top:8px}
+.bar div{height:100%;background:var(--in);transition:width .4s}
+.main{display:grid;grid-template-columns:1fr 380px;gap:14px;padding:0 18px 18px;min-height:0}
+@media(max-width:980px){.main{grid-template-columns:1fr}.m.big{grid-column:span 1}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;min-height:0}
+.map{height:62vh;min-height:320px}
+.map svg{width:100%;height:100%;display:block}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
+.tabs{display:flex;gap:6px;margin-bottom:10px}
+.tab{flex:1;border:none;border-radius:8px;padding:8px;font-weight:700;cursor:pointer;background:transparent;color:var(--muted)}
+.tab.on{background:var(--panel2);color:#fff}
+.list{max-height:56vh;overflow:auto}
+.item{padding:9px 6px;border-top:1px solid var(--line);cursor:pointer;border-radius:6px}
+.item:hover{background:rgba(255,255,255,.04)}
+.item .n{font-weight:700}
+.item .d{font-size:12px;color:var(--muted)}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;margin:3px 4px 0 0}
+.c-in{background:rgba(34,197,94,.2);color:#86efac}.c-out{background:rgba(255,255,255,.1);color:#fff}
+.c-bad{background:rgba(239,68,68,.2);color:#fca5a5}.c-warn{background:rgba(245,158,11,.2);color:#fcd34d}
+.arr{display:flex;align-items:flex-end;gap:3px;height:40px;margin-top:8px}
+.arr div{flex:1;background:#22a6c4;border-radius:2px 2px 0 0;min-height:2px}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,100%);background:#0f2830;border-left:1px solid var(--line);z-index:30;padding:18px;overflow:auto;box-shadow:-10px 0 40px rgba(0,0,0,.4)}
+.drawer h2{font-size:20px;margin-bottom:4px}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--line);font-size:14px}
+.kv span:first-child{color:var(--muted)}
+.seatbtn{border:none;border-radius:8px;padding:7px 10px;margin:4px 6px 0 0;font-weight:700;cursor:pointer}
+.empty{color:var(--muted);font-size:13px;padding:10px 4px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="top">
+  <span class="live"><i></i>LIVE</span>
+  <h1 id="title">House Manager</h1>
+  <select id="perf" onchange="choose(this.value)"></select>
+  <a class="btn" href="/tickets/scan" target="_blank">Open door scanner</a>
+  <div class="clock" id="clock"></div>
+</div>
+<div id="root"><div class="empty" style="padding:30px 18px">Loading…</div></div>
+<div id="drawer" class="drawer" style="display:none"></div>
+
+<script>
+var PERF = '', DATA = null, TAB = 'waiting', FIND = '', TIMER = null, OPEN_TICKET = null
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+async function api(path, method, body){
+  var r = await fetch(path, {method: method||'GET', credentials:'same-origin', headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined})
+  var d = null; try{ d = await r.json() }catch(e){}
+  if(r.status===401 || r.status===403) return {authError:true, error:(d&&d.error)||'Please log in to RoleCall first.'}
+  return d || {error:'Something went wrong.'}
+}
+function t12(t){ t=(t||'').slice(0,5); if(t.length<5) return ''; var h=+t.slice(0,2), m=t.slice(3,5); return ((h%12)||12)+(m!=='00'?':'+m:'')+(h>=12?' PM':' AM') }
+function ago(s){ if(s==null) return ''; return s<60?'just now':s<3600?Math.round(s/60)+' min ago':Math.round(s/3600)+' hr ago' }
+function fmtPerf(p){
+  var dt = new Date(String(p.performance_date).slice(0,10)+'T12:00:00')
+  return (p.is_today?'Today · ':'')+dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+(p.performance_time?' '+t12(p.performance_time):'')+' · '+p.production_name
+}
+async function boot(){
+  var perfs = await api('/api/door/performances')
+  if(perfs.authError){ document.getElementById('root').innerHTML = '<div class="empty" style="padding:30px 18px">'+esc(perfs.error)+' <a href="/">Log in</a>, then come back.</div>'; return }
+  if(!Array.isArray(perfs) || !perfs.length){ document.getElementById('root').innerHTML = '<div class="empty" style="padding:30px 18px">No upcoming performances.</div>'; return }
+  var q = new URLSearchParams(location.search).get('performance') || ''
+  var pick = perfs.find(function(p){ return p.id===q }) || perfs.find(function(p){ return p.is_today }) || perfs[0]
+  document.getElementById('perf').innerHTML = perfs.map(function(p){ return '<option value="'+p.id+'"'+(p.id===pick.id?' selected':'')+'>'+esc(fmtPerf(p))+'</option>' }).join('')
+  choose(pick.id)
+}
+function choose(id){
+  PERF = id; DATA = null; closeDrawer()
+  history.replaceState(null, '', '?performance='+encodeURIComponent(id))
+  clearInterval(TIMER); tick(); TIMER = setInterval(tick, 5000)
+}
+async function tick(){
+  var d = await api('/api/house/'+PERF)
+  if(d.error){ if(!DATA) document.getElementById('root').innerHTML = '<div class="empty" style="padding:30px 18px">'+esc(d.error)+'</div>'; return }
+  DATA = d; render()
+  if(OPEN_TICKET) openTicket(OPEN_TICKET, true)
+}
+function clockHTML(p){
+  var s = p.seconds_to_curtain, txt
+  if(s == null) return ''
+  if(s > 0){ var h = Math.floor(s/3600), m = Math.floor(s%3600/60); txt = (h?h+'h ':'')+m+'m to curtain' }
+  else txt = 'Started '+Math.round(-s/60)+' min ago'
+  return '<b>'+txt+'</b>'+(p.doors_time?'Doors '+t12(p.doors_time)+' · ':'')+'Curtain '+t12(p.time)
+}
+function render(){
+  var d = DATA, p = d.performance, m = d.metrics
+  document.getElementById('title').textContent = p.production_name
+  document.getElementById('clock').innerHTML = clockHTML(p)
+  var pct = m.sold ? Math.round(m.checked_in*100/m.sold) : 0
+  var maxA = Math.max.apply(null, d.arrivals.concat([1]))
+  var html = '<div class="metrics">'
+    + '<div class="m big"><div class="k">Checked in</div><div class="v">'+m.checked_in+' <span style="font-size:16px;color:var(--muted)">of '+m.sold+' · '+pct+'%</span></div><div class="bar"><div style="width:'+pct+'%"></div></div>'
+    + '<div class="arr" title="Arrivals per 5 minutes, last hour">'+d.arrivals.map(function(n){ return '<div style="height:'+Math.max(4, n*100/maxA)+'%" title="'+n+'"></div>' }).join('')+'</div><div class="s">Arrivals, last hour (5-min bars)</div></div>'
+    + '<div class="m"><div class="k">Not here yet</div><div class="v">'+m.not_arrived+'</div><div class="s">'+m.parties_waiting+' of '+m.parties+' parties</div></div>'
+    + (p.reserved ? '<div class="m"><div class="k">Open seats</div><div class="v">'+m.open_seats+'</div><div class="s">of '+m.capacity+'</div></div>' : '<div class="m"><div class="k">Capacity</div><div class="v">'+(m.capacity||'—')+'</div><div class="s">general admission</div></div>')
+    + '<div class="m"><div class="k">Comps</div><div class="v">'+m.comps+'</div><div class="s">'+m.box_office+' box office</div></div>'
+    + (m.wheelchair_total ? '<div class="m"><div class="k">Wheelchair spaces</div><div class="v">'+m.wheelchair_sold+'<span style="font-size:16px;color:var(--muted)"> / '+m.wheelchair_total+'</span></div><div class="s">booked</div></div>' : '')
+    + '</div><div class="main">'
+  // map
+  if(p.reserved && d.seats.length){
+    var col = {'in':'var(--in)', sold:'var(--sold)', open:'var(--open)', held:'var(--held)', cart:'var(--cart)'}
+    var xs = d.seats.map(function(s){ return +s.x }), ys = d.seats.map(function(s){ return +s.y })
+    var minX=Math.min.apply(null,xs)-1, maxX=Math.max.apply(null,xs)+1, minY=Math.min.apply(null,ys)-1, maxY=Math.max.apply(null,ys)+1
+    var svg = '<svg viewBox="'+minX+' '+minY+' '+(maxX-minX)+' '+(maxY-minY)+'" preserveAspectRatio="xMidYMid meet">'
+    d.seats.forEach(function(s){
+      var tip = esc(s.seat_label||'')+(s.who?' — '+esc(s.who):'')+(s.status==='in'?' (here)':s.status==='sold'?' (not here yet)':s.status==='held'?' (held)':s.status==='cart'?' (in a cart)':' (open)')
+      var click = s.ticket_id ? ' onclick="openTicket(\''+s.ticket_id+'\')" style="cursor:pointer"' : ''
+      var ring = OPEN_TICKET && s.ticket_id===OPEN_TICKET ? ' stroke="var(--gold)" stroke-width="0.14"' : ''
+      svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="0.4" fill="'+col[s.status]+'"'+ring+click+'><title>'+tip+'</title></circle>'
+    })
+    svg += '</svg>'
+    html += '<div class="panel"><div class="map">'+svg+'</div><div class="legend">'
+      + [['in','Here'],['sold','Sold, not here yet'],['open','Open'],['held','Held by staff'],['cart','In a cart']].map(function(l){ return '<span><i style="background:'+col[l[0]]+'"></i>'+l[1]+'</span>' }).join('')
+      + '<span>Click a seat for details</span></div></div>'
+  } else {
+    html += '<div class="panel"><div class="empty">General admission: no seat map. Use the lists to find people.</div></div>'
+  }
+  // side panel
+  html += '<div class="panel"><div class="tabs">'
+    + [['waiting','Not here ('+m.parties_waiting+')'],['log','Scan log'],['find','Find']].map(function(t){ return '<button class="tab'+(TAB===t[0]?' on':'')+'" onclick="TAB=\''+t[0]+'\';render()">'+t[1]+'</button>' }).join('')
+    + '</div><div class="list" id="list">'+listHTML()+'</div></div></div>'
+  var keep = document.getElementById('find-q'); var hadFocus = keep && document.activeElement === keep
+  document.getElementById('root').innerHTML = html
+  if(hadFocus){ var f = document.getElementById('find-q'); if(f){ f.focus(); f.setSelectionRange(f.value.length, f.value.length) } }
+}
+function partyRow(p){
+  return '<div class="item" onclick="openTicket(\''+p.tickets[0].id+'\')"><div class="n">'+esc(p.name||'Guest')+'</div>'
+    + '<div class="d">'+esc(p.email||'')+(p.phone?' · '+esc(p.phone):'')+(p.channel!=='public'?' · '+esc(p.channel.replace('_',' ')):'')+'</div>'
+    + '<div>'+p.tickets.map(function(t){ return '<span class="chip '+(t.checked_in?'c-in':'c-out')+'">'+(t.checked_in?'✓ ':'')+esc(t.seat_label)+'</span>' }).join('')+'</div></div>'
+}
+function listHTML(){
+  var d = DATA
+  if(TAB==='waiting'){
+    return d.not_arrived.length ? d.not_arrived.map(partyRow).join('') : '<div class="empty">Everyone is here. 🎉</div>'
+  }
+  if(TAB==='log'){
+    var cls = {ok:'c-in', manual:'c-in', already:'c-warn', wrong_show:'c-warn', invalid:'c-bad', undo:'c-warn'}
+    var lab = {ok:'Scanned in', manual:'Checked in by hand', already:'Already in', wrong_show:'Wrong date', invalid:'Not valid', undo:'Undone'}
+    return d.scan_log.length ? d.scan_log.map(function(l){
+      return '<div class="item"'+(l.ticket_id?' onclick="openTicket(\''+l.ticket_id+'\')"':'')+'><span class="chip '+(cls[l.result]||'c-out')+'">'+esc(lab[l.result]||l.result)+'</span> '
+        + '<span class="n">'+esc(l.name||l.code||'')+'</span>'+(l.seat_label?' · '+esc(l.seat_label):'')
+        + '<div class="d">'+esc(l.message||'')+' · '+ago(l.ago_s)+(l.scanned_by?' · '+esc(l.scanned_by):'')+'</div></div>'
+    }).join('') : '<div class="empty">No scans yet. Problems (wrong date, invalid codes, double scans) show up here in red and orange.</div>'
+  }
+  var q = FIND.trim().toLowerCase()
+  var res = !q ? [] : d.all_parties.filter(function(p){
+    return [p.name, p.email, p.phone].some(function(v){ return (v||'').toLowerCase().indexOf(q) >= 0 })
+      || p.tickets.some(function(t){ return (t.seat_label||'').toLowerCase()===q || (t.code||'').toLowerCase().indexOf(q) >= 0 })
+  })
+  return '<input class="inp" id="find-q" style="width:100%;margin-bottom:8px" placeholder="Name, email, phone, seat or code" value="'+esc(FIND)+'" oninput="FIND=this.value;document.getElementById(\'find-res\').innerHTML=findRes()"/>'
+    + '<div id="find-res">'+findRes()+'</div>'
+}
+function findRes(){
+  var q = FIND.trim().toLowerCase(); if(!q) return '<div class="empty">Search everyone with a ticket to this performance.</div>'
+  var res = DATA.all_parties.filter(function(p){
+    return [p.name, p.email, p.phone].some(function(v){ return (v||'').toLowerCase().indexOf(q) >= 0 })
+      || p.tickets.some(function(t){ return (t.seat_label||'').toLowerCase()===q || (t.code||'').toLowerCase().indexOf(q) >= 0 })
+  })
+  return res.length ? res.map(partyRow).join('') : '<div class="empty">No one matches. They may have bought for a different date, or under another name/email.</div>'
+}
+async function openTicket(id, quiet){
+  OPEN_TICKET = id
+  var t = await api('/api/house/ticket/'+id)
+  if(t.error){ if(!quiet) alert(t.error); return }
+  var dr = document.getElementById('drawer')
+  var lab = {ok:'Scanned in', manual:'Checked in by hand', already:'Scanned again', wrong_show:'Wrong date scan', invalid:'Invalid', undo:'Undone'}
+  dr.innerHTML = '<div style="display:flex;align-items:center;margin-bottom:10px"><button class="btn" onclick="closeDrawer()">✕ Close</button></div>'
+    + '<h2>'+esc(t.guardian_name||'Guest')+'</h2>'
+    + '<div style="color:var(--muted);font-size:13px;margin-bottom:10px">'+(t.guardian_email?'<a href="mailto:'+esc(t.guardian_email)+'">'+esc(t.guardian_email)+'</a>':'')+(t.guardian_phone?' · <a href="tel:'+esc(t.guardian_phone)+'">'+esc(t.guardian_phone)+'</a>':'')+'</div>'
+    + '<div class="kv"><span>Seat</span><strong>'+esc(t.seat_label||'GA')+(t.section?' · '+esc(t.section):'')+'</strong></div>'
+    + '<div class="kv"><span>Ticket</span><strong>'+esc(t.type_name||'')+' · $'+((t.price_cents||0)/100).toFixed(2)+'</strong></div>'
+    + '<div class="kv"><span>Code</span><strong style="font-family:monospace;letter-spacing:1px">'+esc(t.confirmation_code||'')+'</strong></div>'
+    + '<div class="kv"><span>Status</span><strong style="color:'+(t.checked_in_at?'var(--in)':'#fff')+'">'+(t.checked_in_at?'Checked in'+(t.checked_in_by?' by '+esc(t.checked_in_by):''):'Not here yet')+'</strong></div>'
+    + (t.sale_channel!=='public'?'<div class="kv"><span>Sold via</span><strong>'+esc(t.sale_channel.replace('_',' '))+'</strong></div>':'')
+    + '<div style="margin-top:12px"><button class="btn '+(t.checked_in_at?'r':'g')+'" onclick="toggleIn(\''+t.id+'\','+(!!t.checked_in_at)+')">'+(t.checked_in_at?'Undo check-in':'Check in')+'</button></div>'
+    + (t.party.length > 1 ? '<div style="margin-top:16px;font-size:13px;font-weight:700">Their party ('+t.party.length+')</div><div>'
+        + t.party.map(function(x){ return '<button class="seatbtn" style="background:'+(x.checked_in?'var(--in)':'var(--panel2)')+';color:'+(x.checked_in?'#052e16':'#fff')+'" onclick="toggleIn(\''+x.id+'\','+x.checked_in+')">'+(x.checked_in?'✓ ':'')+esc(x.seat_label||'GA')+'</button>' }).join('')
+        + '</div><div style="font-size:11.5px;color:var(--muted);margin-top:4px">Tap a seat to check it in or undo.</div>' : '')
+    + '<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">'
+    + (t.tickets_url?'<a class="btn" href="'+esc(t.tickets_url)+'" target="_blank">Show their tickets</a>':'')
+    + '<button class="btn" onclick="resend(\''+t.order_id+'\',\''+esc(t.guardian_email||'').replace(/'/g,"\\'")+'\')">Resend tickets email</button></div>'
+    + '<div style="margin-top:18px;font-size:13px;font-weight:700">Scan history</div>'
+    + (t.scans.length ? t.scans.map(function(s){ return '<div class="kv"><span>'+esc(lab[s.result]||s.result)+'</span><span style="color:#fff">'+ago(s.ago_s)+(s.scanned_by?' · '+esc(s.scanned_by):'')+'</span></div>' }).join('') : '<div class="empty">Not scanned yet.</div>')
+  dr.style.display = 'block'
+  if(!quiet && DATA) render()
+}
+function closeDrawer(){ OPEN_TICKET = null; var d = document.getElementById('drawer'); if(d) d.style.display = 'none'; if(DATA) render() }
+async function toggleIn(id, isIn){
+  var r = await api('/api/door/checkin-ticket','POST',{ticket_id:id, undo:!!isIn})
+  if(r.error){ alert(r.error); return }
+  tick()
+}
+async function resend(oid, email){
+  var to = prompt('Send their tickets to:', email || ''); if(to === null) return
+  var r = await api('/api/ticket-orders/'+oid+'/resend','POST',{email: to.trim()})
+  alert(r.error ? r.error : 'Tickets sent to '+(to.trim()||email)+'.')
+}
+document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDrawer() })
+boot()
+</script>
+</body>
+</html>

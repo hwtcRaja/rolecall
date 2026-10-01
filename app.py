@@ -3081,6 +3081,17 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS ix_playbill_orders_sq ON playbill_orders(square_order_id)",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS sale_channel TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS companion_release_days INTEGER DEFAULT 2",
+        # Ticket delivery + door check-in: a private link per order to the
+        # mobile tickets page, the "Know before you go" reminder, and who
+        # scanned each ticket in.
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS view_token TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_ticket_orders_view_token ON ticket_orders(view_token) WHERE view_token IS NOT NULL",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS kbyg_sent_at TIMESTAMP",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS tickets_email_sent_at TIMESTAMP",
+        "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS checked_in_by TEXT",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_enabled BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_hours_before INTEGER DEFAULT 24",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_text TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS performance_seat_blocks (
             id TEXT PRIMARY KEY,
             performance_id TEXT NOT NULL REFERENCES performances(id) ON DELETE CASCADE,
@@ -30790,6 +30801,11 @@ def _start_oncall_scheduler():
                 post_sale_countdown_alerts()
             except Exception as e:
                 app.logger.warning(f'Sale countdown alerts error: {e}')
+            try:
+                if now_eastern().minute % 10 == 0:
+                    send_due_kbyg_reminders()
+            except Exception as e:
+                app.logger.warning(f'Know-before-you-go reminders error: {e}')
         scheduler.add_job(_daily_ticket_report_tick, CronTrigger(minute='*'), id='daily_ticket_report',
                           max_instances=1, coalesce=True, misfire_grace_time=30)
         scheduler.add_job(sad_auto_open_due_lotteries, CronTrigger(minute='*'), id='sad_auto_open',
@@ -38638,6 +38654,10 @@ def update_ticketing_settings(pid):
         companion_days = max(0, int(d.get('companion_release_days'))) if d.get('companion_release_days') not in (None, '') else 2
     except (TypeError, ValueError):
         companion_days = 2
+    try:
+        kbyg_hours = max(1, min(240, int(d.get('kbyg_hours_before')))) if d.get('kbyg_hours_before') not in (None, '') else 24
+    except (TypeError, ValueError):
+        kbyg_hours = 24
     if presale_opens_at and not _presale_parse(presale_opens_at):
         return jsonify({'error': 'Pre-sale open time isn\'t a valid date/time'}), 400
     if presale_opens_at and public_sale_at and presale_opens_at >= public_sale_at:
@@ -38657,6 +38677,9 @@ def update_ticketing_settings(pid):
         (limit, charge_fee, fee_percent, fee_flat_cents, default_donation, pid))
     execute(conn, 'UPDATE productions SET public_sale_at=%s, share_name=%s, presale_opens_at=%s, companion_release_days=%s WHERE id=%s',
             (public_sale_at, share_name, presale_opens_at, companion_days, pid))
+    if 'kbyg_enabled' in d:
+        execute(conn, 'UPDATE productions SET kbyg_enabled=%s, kbyg_hours_before=%s, kbyg_text=%s WHERE id=%s',
+                (bool(d.get('kbyg_enabled')), kbyg_hours, (d.get('kbyg_text') or '')[:3000], pid))
     if d.get('presale') == 'new':
         execute(conn, 'UPDATE productions SET presale_key=%s WHERE id=%s', (secrets.token_urlsafe(9), pid))
     elif d.get('presale') == 'off':
@@ -38668,7 +38691,8 @@ def update_ticketing_settings(pid):
         'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents,
         'default_donation_cents': default_donation,
         'public_sale_at': saved.get('public_sale_at'), 'presale_key': saved.get('presale_key'), 'slug': saved.get('slug'),
-        'share_name': share_name, 'presale_opens_at': saved.get('presale_opens_at'), 'companion_release_days': companion_days})
+        'share_name': share_name, 'presale_opens_at': saved.get('presale_opens_at'), 'companion_release_days': companion_days,
+        'kbyg_enabled': bool(d.get('kbyg_enabled', True)), 'kbyg_hours_before': kbyg_hours, 'kbyg_text': (d.get('kbyg_text') or '')[:3000]})
 
 
 # ── VENUES ──────────────────────────────────────────────────────────────
@@ -41898,6 +41922,511 @@ def marquee_playbill_export(pid):
     return Response(buf.getvalue(), mimetype='text/csv', headers={'Content-Disposition': 'attachment; filename=program-ad-orders.csv'})
 
 
+# ── Ticket delivery: email with QR codes, mobile ticket page, reminders ──
+# Every paid order gets a private link (/t/<token>) to a phone-friendly
+# page with one QR code per ticket. The confirmation email carries the same
+# QR codes plus venue, doors and a calendar file; a "Know before you go"
+# email goes out before the show (hours set per production). Door staff
+# scan the QR codes at /tickets/scan.
+from html import escape as _h
+
+
+def ticket_qr_payload(ticket_id):
+    return 'HWTCT:' + ticket_id
+
+
+def ensure_order_view_token(conn, order_id):
+    r = fetchone(conn, 'SELECT view_token FROM ticket_orders WHERE id=%s', (order_id,)) or {}
+    if r.get('view_token'):
+        return r['view_token']
+    tok = secrets.token_urlsafe(16)
+    execute(conn, 'UPDATE ticket_orders SET view_token=%s WHERE id=%s AND view_token IS NULL', (tok, order_id))
+    conn.commit()
+    return (fetchone(conn, 'SELECT view_token FROM ticket_orders WHERE id=%s', (order_id,)) or {}).get('view_token') or tok
+
+
+def _fmt_time12(t):
+    t = (t or '')[:5]
+    if len(t) < 5:
+        return ''
+    h, m = int(t[:2]), t[3:5]
+    return str((h % 12) or 12) + (':' + m if m != '00' else '') + (' PM' if h >= 12 else ' AM')
+
+
+def ticket_order_context(conn, order_id):
+    o = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (order_id,))
+    if not o:
+        return None
+    perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (o['performance_id'],)) or {}
+    prod = fetchone(conn, '''SELECT id, name, share_name, slug, image_url, ticket_logo_url, kbyg_enabled, kbyg_hours_before, kbyg_text
+        FROM productions WHERE id=%s''', (perf.get('production_id'),)) or {}
+    venue = fetchone(conn, 'SELECT name, address, city, notes FROM venues WHERE id=%s', (perf.get('venue_id'),)) if perf.get('venue_id') else None
+    tickets = fetchall(conn, '''SELECT t.id, t.seat_label, t.section, t.confirmation_code, t.checked_in_at, t.view_note, t.obstructed_view,
+            tt.name AS type_name FROM tickets t LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id
+        WHERE t.ticket_order_id=%s ORDER BY t.seat_label''', (order_id,)) or []
+    import datetime as _dt
+    try:
+        d = _dt.date.fromisoformat(str(perf.get('performance_date'))[:10])
+        n = d.day
+        suf = 'th' if 11 <= n % 100 <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+        date_txt = d.strftime('%A, %B ') + str(n) + suf + d.strftime(', %Y')
+    except Exception:
+        date_txt = str(perf.get('performance_date') or '')
+    show_time = _fmt_time12(perf.get('performance_time'))
+    doors = _fmt_time12(perf.get('doors_time'))
+    if not doors and perf.get('performance_time'):
+        try:
+            hh, mm = int(perf['performance_time'][:2]), int(perf['performance_time'][3:5])
+            dm = hh * 60 + mm - 30
+            doors = _fmt_time12('%02d:%02d' % (dm // 60, dm % 60))
+        except Exception:
+            doors = ''
+    addr = ', '.join(x for x in [(venue or {}).get('address') or '', (venue or {}).get('city') or ''] if x.strip())
+    return {'order': o, 'perf': perf, 'prod': prod, 'venue': venue or {}, 'tickets': tickets,
+            'date_txt': date_txt, 'time_txt': show_time, 'doors_txt': doors, 'address': addr,
+            'token': ensure_order_view_token(conn, order_id)}
+
+
+def ticket_ics(ctx):
+    """A calendar file for the performance (Eastern time)."""
+    import datetime as _dt
+    p = ctx['perf']
+    try:
+        d = _dt.date.fromisoformat(str(p['performance_date'])[:10])
+        t = (p.get('performance_time') or '19:00')[:5]
+        start = _dt.datetime.combine(d, _dt.time(int(t[:2]), int(t[3:5])))
+    except Exception:
+        return None
+    end = start + _dt.timedelta(hours=2, minutes=30)
+    show = ctx['prod'].get('name') or 'Show'
+    where = ' '.join(x for x in [ctx['venue'].get('name') or '', ctx['address']] if x)
+    seats = ', '.join(t['seat_label'] or '' for t in ctx['tickets'])
+    link = APP_BASE_URL.rstrip('/') + '/t/' + ctx['token']
+    def esc(v): return (v or '').replace('\\', '\\\\').replace(',', '\\,').replace(';', '\\;').replace('\n', '\\n')
+    return '\r\n'.join(['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Horizon West Theater Company//RoleCall//EN', 'BEGIN:VEVENT',
+                        'UID:' + ctx['order']['id'] + '@rolecall.hwtco.org',
+                        'DTSTAMP:' + _dt.datetime.utcnow().strftime('%Y%m%dT%H%M%SZ'),
+                        'DTSTART;TZID=America/New_York:' + start.strftime('%Y%m%dT%H%M%S'),
+                        'DTEND;TZID=America/New_York:' + end.strftime('%Y%m%dT%H%M%S'),
+                        'SUMMARY:' + esc(show), 'LOCATION:' + esc(where),
+                        'DESCRIPTION:' + esc('Seats: ' + seats + '\nYour tickets: ' + link), 'URL:' + link,
+                        'END:VEVENT', 'END:VCALENDAR', ''])
+
+
+def ticket_email_html(ctx, kind='confirmation'):
+    """The tickets email. kind='confirmation' (just bought) or 'reminder'
+    (Know before you go)."""
+    o, prod, v = ctx['order'], ctx['prod'], ctx['venue']
+    base = APP_BASE_URL.rstrip('/')
+    link = base + '/t/' + ctx['token']
+    first = ((o.get('guardian_name') or '').split(' ') or [''])[0]
+    show = prod.get('name') or ''
+    maps = ('https://www.google.com/maps/search/?api=1&query=' + requests.utils.quote(' '.join(x for x in [v.get('name') or '', ctx['address']] if x))) if (v.get('name') or ctx['address']) else ''
+    intro = (('<p style="margin:0 0 14px">Hi ' + _h(first) + ', you\'re all set for <strong>' + _h(show) + '</strong>! Your tickets are below. '
+              'Show the QR code' + ('s' if len(ctx['tickets']) != 1 else '') + ' at the door from your phone, or print this email.</p>')
+             if kind == 'confirmation' else
+             ('<p style="margin:0 0 14px">Hi ' + _h(first) + ', we can\'t wait to see you at <strong>' + _h(show) + '</strong>! '
+              'Here\'s everything you need to know before you go.</p>'))
+    row = lambda k, val: ('<tr><td style="padding:6px 0;color:#5f6b72;font-size:13px;width:110px;vertical-align:top">' + k + '</td>'
+                          '<td style="padding:6px 0;font-size:14px;font-weight:600">' + val + '</td></tr>')
+    details = ('<table style="width:100%;border-collapse:collapse;margin:0 0 16px;background:#f4f8f9;border-radius:10px">'
+               '<tr><td colspan="2" style="padding:12px 14px 4px"><div style="font-size:18px;font-weight:800;color:#0f5566">' + _h(show) + '</div></td></tr>'
+               '<tr><td colspan="2" style="padding:0 14px 10px"><table style="width:100%;border-collapse:collapse">'
+               + row('Date', _h(ctx['date_txt']))
+               + (row('Show time', _h(ctx['time_txt'])) if ctx['time_txt'] else '')
+               + (row('Doors open', _h(ctx['doors_txt'])) if ctx['doors_txt'] else '')
+               + (row('Where', _h(v.get('name') or '') + ('<br><span style="font-weight:500">' + _h(ctx['address']) + '</span>' if ctx['address'] else '')
+                      + ('<br><a href="' + maps + '" style="color:#16728b;font-weight:600">Directions</a>' if maps else '')) if (v.get('name') or ctx['address']) else '')
+               + '</table></td></tr></table>')
+    btn = ('<div style="text-align:center;margin:0 0 18px"><a href="' + link + '" style="display:inline-block;background:#16728b;color:#fff;text-decoration:none;'
+           'font-weight:700;padding:13px 26px;border-radius:10px;font-size:15px">View &amp; save your tickets</a>'
+           '<div style="font-size:12px;color:#5f6b72;margin-top:6px">Open on your phone and add it to your home screen for quick access at the door.</div></div>')
+    cards = ''
+    for t in ctx['tickets']:
+        qr = base + '/t/' + ctx['token'] + '/qr/' + t['id'] + '.png'
+        cards += ('<table style="width:100%;border-collapse:collapse;border:1.5px dashed #b9c5ca;border-radius:12px;margin:0 0 10px"><tr>'
+                  '<td style="padding:12px;width:132px"><img src="' + qr + '" width="120" height="120" alt="Ticket QR code" style="display:block;border:0"/></td>'
+                  '<td style="padding:12px;vertical-align:middle"><div style="font-size:17px;font-weight:800">' + _h(t['seat_label'] or 'General admission') + '</div>'
+                  + ('<div style="font-size:13px;color:#5f6b72">' + _h(t['section']) + '</div>' if t.get('section') else '')
+                  + ('<div style="font-size:13px;color:#5f6b72">' + _h(t['type_name']) + '</div>' if t.get('type_name') else '')
+                  + ('<div style="font-size:12px;color:#b45309">Limited view' + (': ' + _h(t['view_note']) if t.get('view_note') else '') + '</div>' if t.get('obstructed_view') else '')
+                  + '<div style="font-size:12px;color:#5f6b72;margin-top:6px">Code: <strong style="font-family:monospace;letter-spacing:1px">' + _h(t['confirmation_code'] or '') + '</strong></div></td></tr></table>')
+    kbyg = (prod.get('kbyg_text') or '').strip()
+    extra = ('<div style="margin:18px 0 0;padding:14px 16px;background:#fff8e6;border-radius:10px;font-size:14px;line-height:1.6">'
+             '<div style="font-weight:800;margin-bottom:6px">Know before you go</div>'
+             + (_h(kbyg).replace('\n', '<br>') if kbyg else
+                'Doors open ' + (_h(ctx['doors_txt']) if ctx['doors_txt'] else '30 minutes before the show') + '. Please arrive a little early so you can find your seats. '
+                'Have your QR code ready on your phone (or printed) at the door.')
+             + '</div>')
+    cal = '<p style="font-size:13px;margin:16px 0 0"><a href="' + link + '/calendar.ics" style="color:#16728b;font-weight:600">Add to your calendar</a></p>'
+    return build_hwtc_email_html(('Your tickets: ' if kind == 'confirmation' else 'Know before you go: ') + show,
+                                 intro + details + btn + cards + extra + cal)
+
+
+def send_ticket_email(conn, order_id, kind='confirmation', to_override=None):
+    ctx = ticket_order_context(conn, order_id)
+    if not ctx or not (to_override or ctx['order'].get('guardian_email')) or not ctx['tickets']:
+        return False
+    show = ctx['prod'].get('share_name') or ctx['prod'].get('name') or 'the show'
+    subject = ('Your tickets for ' + show + ' · ' + ctx['date_txt']) if kind == 'confirmation' else ('Know before you go: ' + show + ' · ' + ctx['date_txt'])
+    atts = []
+    ics = ticket_ics(ctx)
+    if ics:
+        import base64 as _b64
+        atts.append({'filename': 'performance.ics', 'content_b64': _b64.b64encode(ics.encode()).decode()})
+    res = send_email([to_override or ctx['order']['guardian_email']], subject, ticket_email_html(ctx, kind),
+                     source='ticket_' + kind, attachments=atts or None)
+    ok = res[0] if isinstance(res, tuple) else bool(res)
+    if ok and not to_override:
+        execute(conn, 'UPDATE ticket_orders SET ' + ('kbyg_sent_at' if kind == 'reminder' else 'tickets_email_sent_at') + '=NOW() WHERE id=%s', (order_id,))
+        conn.commit()
+    return ok
+
+
+@app.route('/t/<token>')
+def public_ticket_view(token):
+    """The buyer's tickets on their phone: one QR per ticket, plus the
+    show details. Private link, emailed to them."""
+    conn = get_db()
+    try:
+        o = fetchone(conn, "SELECT id FROM ticket_orders WHERE view_token=%s AND status='completed'", (token,))
+        if not o:
+            return 'This ticket link isn\'t valid. Check your email for the latest one, or reply to it for help.', 404
+        ctx = ticket_order_context(conn, o['id'])
+    finally:
+        conn.close()
+    prod, v = ctx['prod'], ctx['venue']
+    base = '/t/' + token
+    cards = ''.join(
+        '<div class="tk"><img src="' + base + '/qr/' + t['id'] + '.png" alt="QR code for ' + _h(t['seat_label'] or 'ticket') + '"/>'
+        '<div class="tk-info"><div class="seat">' + _h(t['seat_label'] or 'General admission') + '</div>'
+        + ('<div class="meta">' + _h(t['section']) + '</div>' if t.get('section') else '')
+        + ('<div class="meta">' + _h(t['type_name']) + '</div>' if t.get('type_name') else '')
+        + ('<div class="meta warn">Limited view' + (': ' + _h(t['view_note']) if t.get('view_note') else '') + '</div>' if t.get('obstructed_view') else '')
+        + '<div class="code">' + _h(t['confirmation_code'] or '') + '</div>'
+        + ('<div class="used">Checked in</div>' if t.get('checked_in_at') else '') + '</div></div>'
+        for t in ctx['tickets'])
+    maps = ('https://www.google.com/maps/search/?api=1&query=' + requests.utils.quote(' '.join(x for x in [v.get('name') or '', ctx['address']] if x))) if (v.get('name') or ctx['address']) else ''
+    kbyg = (prod.get('kbyg_text') or '').strip()
+    html = ('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>'
+            '<meta name="robots" content="noindex"/><meta name="apple-mobile-web-app-capable" content="yes"/>'
+            '<title>Tickets · ' + _h(prod.get('name') or '') + '</title>'
+            '<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;800&family=Playfair+Display:wght@800&display=swap" rel="stylesheet">'
+            '<style>*{box-sizing:border-box}body{margin:0;font-family:"DM Sans",-apple-system,sans-serif;background:#0f5566;color:#1f2a30}'
+            '.wrap{max-width:480px;margin:0 auto;padding:22px 16px 40px}.head{color:#fff;text-align:center;margin-bottom:16px}'
+            '.head h1{font-family:"Playfair Display",serif;font-size:28px;margin:0 0 4px}.head p{margin:2px 0;opacity:.9}'
+            '.card{background:#fff;border-radius:16px;padding:16px;margin-bottom:12px}.tk{background:#fff;border-radius:16px;padding:16px;margin-bottom:12px;display:flex;gap:14px;align-items:center}'
+            '.tk img{width:150px;height:150px;flex-shrink:0;image-rendering:pixelated}.seat{font-size:22px;font-weight:800}.meta{font-size:14px;color:#5f6b72}'
+            '.warn{color:#b45309}.code{font-family:monospace;font-size:15px;letter-spacing:2px;margin-top:8px}.used{display:inline-block;margin-top:6px;font-size:12px;font-weight:800;color:#166534;background:#dcfce7;padding:2px 8px;border-radius:10px}'
+            'a{color:#16728b;font-weight:700}.row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:14.5px}.row span:first-child{color:#5f6b72}'
+            '.tip{font-size:12.5px;color:rgba(255,255,255,.85);text-align:center;margin-top:14px;line-height:1.5}'
+            '@media(max-width:380px){.tk img{width:120px;height:120px}}</style></head><body><div class="wrap">'
+            '<div class="head"><h1>' + _h(prod.get('name') or '') + '</h1><p>' + _h(ctx['date_txt']) + (' · ' + _h(ctx['time_txt']) if ctx['time_txt'] else '') + '</p>'
+            '<p style="font-size:13px">' + str(len(ctx['tickets'])) + ' ticket' + ('' if len(ctx['tickets']) == 1 else 's') + ' for ' + _h(ctx['order'].get('guardian_name') or '') + '</p></div>'
+            + cards +
+            '<div class="card">' + ('<div class="row"><span>Doors open</span><strong>' + _h(ctx['doors_txt']) + '</strong></div>' if ctx['doors_txt'] else '')
+            + ('<div class="row"><span>Where</span><strong style="text-align:right">' + _h(v.get('name') or '') + ('<br><span style="font-weight:500;font-size:13px">' + _h(ctx['address']) + '</span>' if ctx['address'] else '') + '</strong></div>' if (v.get('name') or ctx['address']) else '')
+            + ('<div style="margin-top:8px"><a href="' + maps + '" target="_blank">Get directions</a> &nbsp;·&nbsp; <a href="' + base + '/calendar.ics">Add to calendar</a></div>' if maps else '<div style="margin-top:8px"><a href="' + base + '/calendar.ics">Add to calendar</a></div>')
+            + ('<div style="margin-top:12px;font-size:14px;line-height:1.6;border-top:1px solid #e5eaec;padding-top:10px"><strong>Know before you go</strong><br>' + _h(kbyg).replace('\n', '<br>') + '</div>' if kbyg else '')
+            + '</div><div class="tip">Show these QR codes at the door. Tip: add this page to your home screen (Share → Add to Home Screen) so it\'s one tap away.</div>'
+            '</div></body></html>')
+    resp = app.response_class(html, mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/t/<token>/qr/<tid>.png')
+def public_ticket_qr(token, tid):
+    import io, segno
+    conn = get_db()
+    ok = fetchone(conn, '''SELECT 1 AS x FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+        WHERE t.id=%s AND o.view_token=%s''', (tid, token))
+    conn.close()
+    if not ok:
+        return 'Not found', 404
+    buf = io.BytesIO()
+    segno.make(ticket_qr_payload(tid), error='m').save(buf, kind='png', scale=10, border=2)
+    resp = app.response_class(buf.getvalue(), mimetype='image/png')
+    resp.headers['Cache-Control'] = 'private, max-age=86400'
+    return resp
+
+
+@app.route('/t/<token>/calendar.ics')
+def public_ticket_calendar(token):
+    conn = get_db()
+    try:
+        o = fetchone(conn, "SELECT id FROM ticket_orders WHERE view_token=%s AND status='completed'", (token,))
+        if not o:
+            return 'Not found', 404
+        ics = ticket_ics(ticket_order_context(conn, o['id']))
+    finally:
+        conn.close()
+    from flask import Response
+    return Response(ics or '', mimetype='text/calendar', headers={'Content-Disposition': 'attachment; filename="performance.ics"'})
+
+
+def send_due_kbyg_reminders():
+    """Every 10 minutes: send "Know before you go" to each paid order whose
+    performance starts within its production's reminder window."""
+    import datetime as _dt
+    conn = get_db()
+    try:
+        now = now_eastern()
+        rows = fetchall(conn, '''SELECT o.id, pf.performance_date, pf.performance_time, COALESCE(pr.kbyg_hours_before, 24) AS hrs
+            FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id JOIN productions pr ON pr.id=pf.production_id
+            WHERE o.status='completed' AND o.kbyg_sent_at IS NULL AND COALESCE(o.guardian_email,'') <> ''
+              AND COALESCE(pr.kbyg_enabled, TRUE)=TRUE AND COALESCE(o.sale_channel,'public') <> 'test'
+              AND pf.performance_date BETWEEN %s AND %s AND COALESCE(pf.status,'') NOT IN ('cancelled')''',
+            ((now.date() - _dt.timedelta(days=1)).isoformat(), (now.date() + _dt.timedelta(days=8)).isoformat())) or []
+        for r in rows:
+            try:
+                d = _dt.date.fromisoformat(str(r['performance_date'])[:10])
+                t = (r.get('performance_time') or '19:00')[:5]
+                start = _dt.datetime.combine(d, _dt.time(int(t[:2]), int(t[3:5])))
+            except Exception:
+                continue
+            if start - _dt.timedelta(hours=int(r['hrs'] or 24)) <= now < start:
+                try:
+                    send_ticket_email(conn, r['id'], 'reminder')
+                except Exception as e:
+                    app.logger.warning(f'KBYG email failed for {r["id"]}: {e}')
+    finally:
+        conn.close()
+
+
+@app.route('/api/ticket-orders/<oid>/resend', methods=['POST'])
+def resend_ticket_email(oid):
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        o = fetchone(conn, 'SELECT guardian_email, status FROM ticket_orders WHERE id=%s', (oid,))
+        if not o or o['status'] != 'completed':
+            return jsonify({'error': 'Only paid orders have tickets to send.'}), 400
+        to = (d.get('email') or '').strip() or None
+        if to:
+            execute(conn, 'UPDATE ticket_orders SET guardian_email=%s WHERE id=%s', (to.lower(), oid)); conn.commit()
+        ok = send_ticket_email(conn, oid, 'confirmation')
+        return jsonify({'ok': bool(ok)}) if ok else (jsonify({'error': 'The email didn\'t send. Check the address and try again.'}), 400)
+    finally:
+        conn.close()
+
+
+def _bulk_ticket_email_targets(conn, pid, performance_id=None, only_unsent=True):
+    q = '''SELECT o.id FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        WHERE pf.production_id=%s AND o.status='completed' AND COALESCE(o.guardian_email,'') <> ''
+          AND COALESCE(o.sale_channel,'public') <> 'test' AND pf.performance_date >= %s'''
+    params = [pid, today_eastern().isoformat()]
+    if performance_id:
+        q += ' AND o.performance_id=%s'; params.append(performance_id)
+    if only_unsent:
+        q += ' AND o.tickets_email_sent_at IS NULL'
+    return [r['id'] for r in fetchall(conn, q + ' ORDER BY o.created_at', tuple(params)) or []]
+
+
+@app.route('/api/productions/<pid>/send-ticket-emails', methods=['POST'])
+def bulk_send_ticket_emails(pid):
+    """Send the tickets email (QR codes etc.) to people who already bought,
+    e.g. everyone who ordered before tickets emails existed. dry_run just
+    counts. Sends in the background, a couple per second, so a big list
+    doesn't time out or trip the email provider's rate limit."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    perf_id = d.get('performance_id') or None
+    only_unsent = d.get('only_unsent', True) is not False
+    conn = get_db()
+    try:
+        ids = _bulk_ticket_email_targets(conn, pid, perf_id, only_unsent)
+        if d.get('dry_run'):
+            sent = fetchone(conn, '''SELECT COUNT(*) AS n FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+                WHERE pf.production_id=%s AND o.status='completed' AND o.tickets_email_sent_at IS NOT NULL''', (pid,)) or {}
+            return jsonify({'count': len(ids), 'already_sent': int(sent.get('n') or 0)})
+    finally:
+        conn.close()
+    if not ids:
+        return jsonify({'ok': True, 'count': 0})
+    import threading, time as _t
+    def run(order_ids):
+        c = get_db()
+        try:
+            for oid in order_ids:
+                try:
+                    send_ticket_email(c, oid, 'confirmation')
+                except Exception as e:
+                    app.logger.warning(f'Bulk ticket email failed for {oid}: {e}')
+                    try: c.rollback()
+                    except Exception: pass
+                _t.sleep(0.6)
+        finally:
+            c.close()
+    threading.Thread(target=run, args=(ids,), daemon=True).start()
+    return jsonify({'ok': True, 'count': len(ids), 'minutes': max(1, round(len(ids) * 0.7 / 60))})
+
+
+@app.route('/api/productions/<pid>/kbyg-test', methods=['POST'])
+def kbyg_test_email(pid):
+    """Send the newest paid order's tickets email (confirmation or reminder
+    style) to the staff member, to check how it looks."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    kind = d.get('kind') or 'reminder'
+    conn = get_db()
+    try:
+        me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session.get('user_id'),)) or {}
+        if (d.get('to') or '').strip():
+            me = {'email': d['to'].strip()}
+        o = fetchone(conn, '''SELECT o.id FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+            WHERE pf.production_id=%s AND o.status='completed' ORDER BY o.completed_at DESC NULLS LAST LIMIT 1''', (pid,))
+        if not o:
+            return jsonify({'error': 'There are no paid orders for this show yet. Place a test order in preview mode first.'}), 400
+        if not me.get('email'):
+            return jsonify({'error': 'Your account has no email address.'}), 400
+        ok = send_ticket_email(conn, o['id'], 'reminder' if kind == 'reminder' else 'confirmation', to_override=me['email'])
+        return jsonify({'ok': True, 'sent_to': me['email']}) if ok else (jsonify({'error': 'The email didn\'t send.'}), 400)
+    finally:
+        conn.close()
+
+
+# ── Door check-in: scan ticket QR codes at /tickets/scan ──────────────────
+def _require_door():
+    """Box office / door volunteers: Ticketing or Sign-In/Kiosk access."""
+    if require_permission('ticketing', 'view') is None:
+        return None
+    return require_permission('kiosk', 'view')
+
+
+@app.route('/tickets/scan')
+def ticket_scanner_page():
+    resp = send_from_directory('static', 'ticket-scanner.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+def _door_counts(conn, fid):
+    r = fetchone(conn, '''SELECT COUNT(*) AS sold, COUNT(checked_in_at) AS inside FROM tickets t
+        JOIN ticket_orders o ON o.id=t.ticket_order_id WHERE t.performance_id=%s AND o.status='completed' ''', (fid,)) or {}
+    return {'sold': int(r.get('sold') or 0), 'checked_in': int(r.get('inside') or 0)}
+
+
+@app.route('/api/door/performances', methods=['GET'])
+def door_performances():
+    err = _require_door()
+    if err: return err
+    import datetime as _dt
+    conn = get_db()
+    try:
+        t = today_eastern()
+        rows = fetchall(conn, '''SELECT pf.id, pf.performance_date, pf.performance_time, p.name AS production_name
+            FROM performances pf JOIN productions p ON p.id=pf.production_id
+            WHERE pf.performance_date BETWEEN %s AND %s AND COALESCE(pf.status,'') NOT IN ('cancelled','draft')
+            ORDER BY pf.performance_date, pf.performance_time''',
+            ((t - _dt.timedelta(days=1)).isoformat(), (t + _dt.timedelta(days=30)).isoformat())) or []
+        for r in rows:
+            r.update(_door_counts(conn, r['id']))
+            r['is_today'] = str(r['performance_date'])[:10] == t.isoformat()
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+def _door_ticket_payload(conn, t, fid):
+    o = fetchone(conn, 'SELECT id, guardian_name FROM ticket_orders WHERE id=%s', (t['ticket_order_id'],)) or {}
+    party = fetchall(conn, 'SELECT id, seat_label, checked_in_at FROM tickets WHERE ticket_order_id=%s ORDER BY seat_label', (t['ticket_order_id'],)) or []
+    return {'ticket_id': t['id'], 'seat_label': t.get('seat_label') or 'General admission', 'section': t.get('section') or '',
+            'name': o.get('guardian_name') or '', 'order_id': o.get('id'),
+            'party': [{'id': p['id'], 'seat_label': p['seat_label'], 'checked_in': bool(p['checked_in_at'])} for p in party],
+            'counts': _door_counts(conn, fid)}
+
+
+@app.route('/api/door/scan', methods=['POST'])
+def door_scan():
+    """Check one ticket in. Accepts the QR payload (HWTCT:<ticket id>) or
+    the printed confirmation code."""
+    err = _require_door()
+    if err: return err
+    d = request.json or {}
+    fid = d.get('performance_id')
+    code = (d.get('code') or '').strip()
+    if not fid or not code:
+        return jsonify({'result': 'error', 'message': 'Pick a performance and scan a ticket.'}), 400
+    conn = get_db()
+    try:
+        if code.upper().startswith('HWTCT:'):
+            t = fetchone(conn, 'SELECT * FROM tickets WHERE id=%s', (code[6:],))
+        else:
+            t = fetchone(conn, 'SELECT * FROM tickets WHERE UPPER(confirmation_code)=%s AND performance_id=%s', (code.upper(), fid)) \
+                or fetchone(conn, 'SELECT * FROM tickets WHERE UPPER(confirmation_code)=%s', (code.upper(),))
+        if not t:
+            return jsonify({'result': 'invalid', 'message': 'Not a valid ticket. Check their email or look them up by name.'})
+        o = fetchone(conn, 'SELECT status FROM ticket_orders WHERE id=%s', (t['ticket_order_id'],)) or {}
+        if o.get('status') != 'completed':
+            return jsonify({'result': 'invalid', 'message': 'This ticket isn\'t paid.'})
+        if t['performance_id'] != fid:
+            other = fetchone(conn, 'SELECT performance_date, performance_time FROM performances WHERE id=%s', (t['performance_id'],)) or {}
+            return jsonify(dict(_door_ticket_payload(conn, t, fid), result='wrong_show',
+                                message='This ticket is for ' + str(other.get('performance_date') or '') + ' ' + _fmt_time12(other.get('performance_time')) + '.'))
+        if t.get('checked_in_at'):
+            ago = (fetchone(conn, 'SELECT EXTRACT(EPOCH FROM (NOW() - checked_in_at))::int AS s, checked_in_by FROM tickets WHERE id=%s', (t['id'],)) or {})
+            mins = int((ago.get('s') or 0) // 60)
+            when = 'just now' if mins < 1 else (str(mins) + ' min ago' if mins < 120 else str(mins // 60) + ' hours ago')
+            return jsonify(dict(_door_ticket_payload(conn, t, fid), result='already',
+                                message='Already checked in ' + when + (' by ' + ago['checked_in_by'] if ago.get('checked_in_by') else '') + '.'))
+        execute(conn, 'UPDATE tickets SET checked_in_at=NOW(), checked_in_by=%s WHERE id=%s',
+                (session.get('name') or session.get('email') or '', t['id']))
+        conn.commit()
+        t['checked_in_at'] = True
+        return jsonify(dict(_door_ticket_payload(conn, t, fid), result='ok', message='Welcome!'))
+    finally:
+        conn.close()
+
+
+@app.route('/api/door/checkin-ticket', methods=['POST'])
+def door_checkin_ticket():
+    """Check a specific ticket in or out (undo) from the party list / lookup."""
+    err = _require_door()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        if d.get('undo'):
+            execute(conn, 'UPDATE tickets SET checked_in_at=NULL, checked_in_by=NULL WHERE id=%s', (d.get('ticket_id'),))
+        else:
+            execute(conn, 'UPDATE tickets SET checked_in_at=COALESCE(checked_in_at, NOW()), checked_in_by=COALESCE(checked_in_by,%s) WHERE id=%s',
+                    (session.get('name') or session.get('email') or '', d.get('ticket_id')))
+        conn.commit()
+        t = fetchone(conn, 'SELECT * FROM tickets WHERE id=%s', (d.get('ticket_id'),))
+        if not t:
+            return jsonify({'error': 'Ticket not found'}), 404
+        return jsonify(dict(_door_ticket_payload(conn, t, t['performance_id']), result='ok'))
+    finally:
+        conn.close()
+
+
+@app.route('/api/door/lookup', methods=['GET'])
+def door_lookup():
+    """Find a party by name, email, phone or code for this performance."""
+    err = _require_door()
+    if err: return err
+    fid = request.args.get('performance_id')
+    q = '%' + (request.args.get('q') or '').strip().lower() + '%'
+    conn = get_db()
+    try:
+        orders = fetchall(conn, '''SELECT DISTINCT o.id, o.guardian_name, o.guardian_email FROM ticket_orders o
+            JOIN tickets t ON t.ticket_order_id=o.id
+            WHERE o.performance_id=%s AND o.status='completed' AND (LOWER(o.guardian_name) LIKE %s OR LOWER(o.guardian_email) LIKE %s
+              OR COALESCE(o.guardian_phone,'') LIKE %s OR LOWER(t.confirmation_code) LIKE %s OR LOWER(t.seat_label) LIKE %s)
+            ORDER BY o.guardian_name LIMIT 25''', (fid, q, q, q, q, q)) or []
+        for o in orders:
+            o['tickets'] = [{'id': t['id'], 'seat_label': t['seat_label'], 'checked_in': bool(t['checked_in_at'])}
+                            for t in (fetchall(conn, 'SELECT id, seat_label, checked_in_at FROM tickets WHERE ticket_order_id=%s ORDER BY seat_label', (o['id'],)) or [])]
+        return jsonify({'orders': orders, 'counts': _door_counts(conn, fid)})
+    finally:
+        conn.close()
+
+
 def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
     """Turns a paid (or free) order into real tickets, releases the seat
     holds that produced them, and marks the order completed."""
@@ -41936,19 +42465,7 @@ def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
         app.logger.warning(f'Benefit code redemption record failed: {e}')
     if order.get('guardian_email'):
         try:
-            perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (order['performance_id'],))
-            prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) if perf else None
-            seat_list = ', '.join(
-                (li.get('seat_label','') + (f" ({li['section']})" if li.get('section') else ''))
-                for li in line_items) or f'{len(line_items)} ticket(s)'
-            send_email([order['guardian_email']], f"Your tickets — {(prod or {}).get('name','')}",
-                build_hwtc_email_html(f"Your tickets — {(prod or {}).get('name','')}",
-                f'<h2 style="color:#145466">You\'re all set!</h2>'
-                f'<p>Hi {order.get("guardian_name","")},</p>'
-                f'<p>Thanks for your order for <strong>{(prod or {}).get("name","")}</strong>'
-                f'{" on "+perf.get("performance_date","") if perf and perf.get("performance_date") else ""}.</p>'
-                f'<p><strong>Seats/Tickets:</strong> {seat_list}</p>'
-                f'<p>See you at the show!</p>'))
+            send_ticket_email(conn, order_id, 'confirmation')
         except Exception as e:
             app.logger.warning(f'Ticket confirmation email failed: {e}')
 
@@ -42112,6 +42629,11 @@ def get_ticket_order_admin(oid):
         for r in related:
             r['ticket_count'] = _order_ticket_count(r)
             r.pop('seats_json', None)
+    if order.get('status') == 'completed':
+        try:
+            order['tickets_url'] = APP_BASE_URL.rstrip('/') + '/t/' + ensure_order_view_token(conn, oid)
+        except Exception:
+            pass
     conn.close()
     try:
         order['seats'] = json.loads(order.get('seats_json') or '[]')

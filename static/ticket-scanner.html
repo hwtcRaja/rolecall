@@ -48,18 +48,46 @@ select{background:#123c48;color:#fff;border:1.5px solid rgba(255,255,255,.2);bor
 </head>
 <body>
 <div class="bar"></div>
-<div class="top"><h1>Door Check-In</h1><select id="perf" onchange="choosePerf(this.value)"></select><a href="/house" target="_blank" style="color:#7dd3fc;font-size:13px;font-weight:700;text-decoration:none">House view →</a></div>
+<div class="top"><h1>Door Check-In</h1><select id="perf" onchange="choosePerf(this.value)"></select><span id="who" style="font-size:12.5px;color:rgba(255,255,255,.7)"></span></div>
 <div class="wrap" id="app"><div style="padding:30px 0;color:rgba(255,255,255,.7)">Loading…</div></div>
 <div id="result" class="result" style="display:none" onclick="hideResult()"></div>
 
 <script>
 var PERF = '', stream = null, scanning = false, lastCode = '', lastAt = 0, paused = false
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+// Ushers open this from the private usher link (?key=...). The key is kept
+// on this device so the page keeps working; no RoleCall login needed.
+var DOOR_KEY = (function(){
+  try{
+    var k = new URLSearchParams(location.search).get('key')
+    if(k){ localStorage.setItem('hwtc_door_key', k); history.replaceState(null, '', location.pathname) }
+    return localStorage.getItem('hwtc_door_key') || ''
+  }catch(e){ return '' }
+})()
+function usherName(){ try{ return localStorage.getItem('hwtc_door_name') || '' }catch(e){ return '' } }
 async function api(path, method, body){
-  var r = await fetch(path, {method: method||'GET', credentials:'same-origin', headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined})
+  var h = {'X-Door-Key': DOOR_KEY, 'X-Door-Name': usherName()}
+  if(body) h['Content-Type'] = 'application/json'
+  var r = await fetch(path, {method: method||'GET', credentials:'same-origin', headers: h, body: body?JSON.stringify(body):undefined})
   var d = null; try{ d = await r.json() }catch(e){}
-  if(r.status === 401 || r.status === 403) return {authError: true, error: (d && d.error) || 'Please log in to RoleCall first.'}
+  if(r.status === 401 || r.status === 403) return {authError: true, error: (d && d.error) || 'Ask the house manager for the usher scanner link.'}
   return d || {error: 'Something went wrong.'}
+}
+function askName(then){
+  document.getElementById('app').innerHTML = '<div class="box"><label for="nm">Your first name</label>'
+    + '<div style="font-size:13px;color:rgba(255,255,255,.7);margin-bottom:10px">So the house manager knows who checked people in.</div>'
+    + '<input id="nm" autocomplete="given-name" onkeydown="if(event.key===\'Enter\')saveName()"/><button class="btn btn-p" style="width:100%;margin-top:10px" onclick="saveName()">Start scanning</button></div>'
+  window._afterName = then
+  setTimeout(function(){ var i = document.getElementById('nm'); if(i) i.focus() }, 50)
+}
+function saveName(){
+  var v = (document.getElementById('nm').value||'').trim(); if(!v) return
+  try{ localStorage.setItem('hwtc_door_name', v) }catch(e){}
+  showWho(); if(window._afterName) window._afterName()
+}
+function showWho(){
+  var n = usherName(), el = document.getElementById('who')
+  if(el) el.innerHTML = n ? esc(n)+' · <a href="#" style="color:#7dd3fc" onclick="localStorage.removeItem(\'hwtc_door_name\');askName(boot);return false">not you?</a>' : ''
 }
 function fmtPerf(p){
   var dt = new Date(String(p.performance_date).slice(0,10)+'T12:00:00')
@@ -69,7 +97,9 @@ function fmtPerf(p){
 }
 async function boot(){
   var perfs = await api('/api/door/performances')
-  if(perfs.authError){ document.getElementById('app').innerHTML = '<div class="box">'+esc(perfs.error)+' <a href="/" style="color:#7dd3fc">Log in</a>, then come back to this page.</div>'; return }
+  if(perfs.authError){ document.getElementById('app').innerHTML = '<div class="box">'+esc(perfs.error)+'</div>'; return }
+  if(DOOR_KEY && !usherName()){ askName(boot); return }
+  showWho()
   var sel = document.getElementById('perf')
   if(!Array.isArray(perfs) || !perfs.length){ sel.style.display='none'; document.getElementById('app').innerHTML = '<div class="box">No performances in the next few weeks.</div>'; return }
   var saved = ''; try{ saved = localStorage.getItem('hwtc_door_perf') || '' }catch(e){}

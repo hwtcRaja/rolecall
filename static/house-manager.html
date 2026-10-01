@@ -7,6 +7,7 @@
 <title>House Manager · HWTC</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
 <style>
 :root{--bg:#0d1f26;--panel:#13303a;--panel2:#173a46;--line:rgba(255,255,255,.12);--muted:rgba(255,255,255,.62);
   --in:#22c55e;--sold:#64748b;--open:#16728b;--held:#8b5cf6;--cart:#f59e0b;--bad:#ef4444;--gold:#f4b740}
@@ -69,11 +70,13 @@ select,.inp{background:var(--panel2);color:#fff;border:1.5px solid var(--line);b
   <span class="live"><i></i>LIVE</span>
   <h1 id="title">House Manager</h1>
   <select id="perf" onchange="choose(this.value)"></select>
-  <a class="btn" href="/tickets/scan" target="_blank">Open door scanner</a>
+  <button class="btn p" onclick="openScanner()">Scan tickets</button>
+  <button class="btn" onclick="openUsherLink()">Usher scanner link</button>
   <div class="clock" id="clock"></div>
 </div>
 <div id="root"><div class="empty" style="padding:30px 18px">Loading…</div></div>
 <div id="drawer" class="drawer" style="display:none"></div>
+<div id="overlay" style="display:none;position:fixed;inset:0;z-index:40;background:rgba(5,15,19,.92);align-items:center;justify-content:center;padding:18px"></div>
 
 <script>
 var PERF = '', DATA = null, TAB = 'waiting', FIND = '', TIMER = null, OPEN_TICKET = null
@@ -230,7 +233,67 @@ async function resend(oid, email){
   var r = await api('/api/ticket-orders/'+oid+'/resend','POST',{email: to.trim()})
   alert(r.error ? r.error : 'Tickets sent to '+(to.trim()||email)+'.')
 }
-document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeDrawer() })
+// ── Scan from the house manager screen (same check-in as the door) ──
+var SC = {stream:null, on:false, last:'', at:0, busy:false}
+function overlay(html){ var o = document.getElementById('overlay'); o.innerHTML = html; o.style.display = html ? 'flex' : 'none' }
+async function openScanner(){
+  overlay('<div style="width:min(460px,100%)"><div style="display:flex;align-items:center;margin-bottom:10px"><div style="font-weight:800;font-size:17px;flex:1">Scan tickets</div><button class="btn" onclick="closeScanner()">✕ Close</button></div>'
+    + '<div style="position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:1/1"><video id="sc-v" playsinline muted style="width:100%;height:100%;object-fit:cover"></video><canvas id="sc-c" style="display:none"></canvas>'
+    + '<div style="position:absolute;inset:16%;border:3px solid rgba(244,183,64,.8);border-radius:14px;pointer-events:none"></div></div>'
+    + '<div id="sc-res" style="margin-top:12px;min-height:60px"></div></div>')
+  try{
+    SC.stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}}, audio:false})
+    var v = document.getElementById('sc-v'); v.srcObject = SC.stream; await v.play(); SC.on = true; requestAnimationFrame(scLoop)
+  }catch(e){ document.getElementById('sc-res').innerHTML = '<div class="empty">Camera unavailable on this device. Use Find to check people in by name.</div>' }
+}
+function closeScanner(){ SC.on = false; if(SC.stream) SC.stream.getTracks().forEach(function(t){ t.stop() }); SC.stream = null; overlay(''); tick() }
+function scLoop(){
+  if(!SC.on) return
+  var v = document.getElementById('sc-v'), c = document.getElementById('sc-c')
+  if(v && c && v.readyState === v.HAVE_ENOUGH_DATA && !SC.busy){
+    c.width = v.videoWidth; c.height = v.videoHeight
+    var ctx = c.getContext('2d'); ctx.drawImage(v, 0, 0, c.width, c.height)
+    var code = jsQR(ctx.getImageData(0,0,c.width,c.height).data, c.width, c.height)
+    if(code && code.data && (code.data !== SC.last || Date.now() - SC.at > 4000)){ SC.last = code.data; SC.at = Date.now(); scScan(code.data) }
+  }
+  requestAnimationFrame(scLoop)
+}
+async function scScan(code){
+  SC.busy = true
+  var r = await api('/api/door/scan','POST',{performance_id: PERF, code: code})
+  var bg = r.result==='ok' ? 'var(--in)' : (r.result==='already'||r.result==='wrong_show') ? 'var(--cart)' : 'var(--bad)'
+  var head = r.result==='ok' ? '✓ Checked in' : r.result==='already' ? 'Already in' : r.result==='wrong_show' ? 'Wrong date' : '✕ Not valid'
+  document.getElementById('sc-res').innerHTML = '<div style="background:'+bg+';color:#06150b;border-radius:12px;padding:12px 14px">'
+    + '<div style="font-size:20px;font-weight:800">'+head+'</div>'
+    + '<div style="font-weight:700">'+esc(r.name||'')+(r.seat_label?' · '+esc(r.seat_label):'')+'</div>'
+    + '<div style="font-size:13px">'+esc(r.message||r.error||'')+'</div>'
+    + (r.ticket_id ? '<button class="btn" style="margin-top:8px;background:rgba(0,0,0,.2);color:#fff" onclick="closeScanner();openTicket(\''+r.ticket_id+'\')">Open their details</button>' : '')
+    + '</div>'
+  setTimeout(function(){ SC.busy = false }, 1200)
+}
+
+// ── Usher link: ushers scan at the door with no RoleCall account ──
+async function openUsherLink(){
+  var r = await api('/api/house/usher-link')
+  if(r.error){ alert(r.error); return }
+  overlay('<div style="width:min(440px,100%);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;text-align:center">'
+    + '<div style="font-weight:800;font-size:17px;margin-bottom:6px">Usher scanner link</div>'
+    + '<div style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.5">Ushers point their phone camera at this code (or open the link) to start scanning. No login needed. They\'ll be asked their first name so check-ins show who scanned.</div>'
+    + '<img src="/api/house/usher-link/qr.png?t='+Date.now()+'" alt="QR code for the usher scanner link" style="width:220px;height:220px;background:#fff;border-radius:10px;padding:6px"/>'
+    + '<input class="inp" readonly value="'+esc(r.url)+'" onclick="this.select()" style="width:100%;margin-top:12px;font-size:12px"/>'
+    + '<div style="display:flex;gap:8px;margin-top:10px"><button class="btn" style="flex:1" onclick="navigator.clipboard.writeText(\''+esc(r.url)+'\');this.textContent=\'Copied!\'">Copy link</button>'
+    + '<button class="btn r" style="flex:1" onclick="newUsherLink()">Make a new link</button></div>'
+    + '<div style="font-size:11.5px;color:var(--muted);margin-top:8px">A new link stops the old one working right away (e.g. after the run, or if it was shared).</div>'
+    + '<button class="btn" style="margin-top:12px" onclick="overlay(\'\')">Done</button></div>')
+}
+async function newUsherLink(){
+  if(!confirm('Make a new usher link? Ushers on the old link will need the new one.')) return
+  var r = await api('/api/house/usher-link','POST',{})
+  if(r.error){ alert(r.error); return }
+  openUsherLink()
+}
+
+document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ if(document.getElementById('overlay').style.display==='flex'){ if(SC.on) closeScanner(); else overlay('') } else closeDrawer() } })
 boot()
 </script>
 </body>

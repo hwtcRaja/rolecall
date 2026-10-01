@@ -4414,7 +4414,12 @@ async function handleLogin(){
  const pw=document.getElementById('login-password').value
  const data=await api('/api/auth/login','POST',{email,password:pw})
  if(data.error){document.getElementById('auth-error').style.display='block'}
- else loginSuccess(data)
+ else {
+  // came from a staff-only page (e.g. /house): go back there after logging in
+  var nxt = new URLSearchParams(location.search).get('next') || ''
+  if(/^\/[a-z0-9\-\/]*$/i.test(nxt) && nxt.indexOf('//') < 0){ location.href = nxt; return }
+  loginSuccess(data)
+ }
 }
 function quickLogin(email,pw){
  document.getElementById('login-email').value=email
@@ -4639,6 +4644,8 @@ const NAV_PERM_MAP = {
 const PERM_LEGACY_FALLBACK = {
  'licensing': 'productions',
  'talent': 'productions',
+ 'house_manager': 'ticketing',
+ 'ticketing': 'marquee',
  'space_requests': 'rentals',
  'foh_training': 'events',
  'waivers': 'volunteers',
@@ -4658,10 +4665,13 @@ const PERM_LEGACY_FALLBACK = {
 function resolvePermLevel(section){
  if(!section) return null
  const perms = currentUser?.permissions||{}
- const level = perms[section]
- if(level) return level
- const legacy = PERM_LEGACY_FALLBACK[section]
- if(legacy && perms[legacy]) return perms[legacy]
+ // follows the chain (e.g. House Manager -> Ticketing -> Marquee)
+ const seen = {}
+ while(section && !seen[section]){
+  seen[section] = true
+  if(perms[section]) return perms[section]
+  section = PERM_LEGACY_FALLBACK[section]
+ }
  return null
 }
 // Per-production grants (Settings → Users → Production access): someone with
@@ -18844,6 +18854,8 @@ const PERM_SECTIONS = [
  {key:'donor_benefits', label:'  ↳ Donor Benefits', desc:'Benefit eligibility, marking benefits used, creating donor codes, outreach lists', parent:'donors'},
  {key:'donor_templates', label:'  ↳ Donor Email Templates', desc:'Thank-you and donor email templates', parent:'donors'},
  {key:'marquee', label:'Marquee', desc:'Registrations, discount codes, donations'},
+ {key:'ticketing', label:'  ↳ Ticketing & Box Office', desc:'Show ticketing setup, seat holds, live seat map, orders, emailing tickets', parent:'marquee'},
+ {key:'house_manager', label:'  ↳ House Manager', desc:'Show-night House Manager view (/house): live check-in dashboard, seat map, scan log, fixing ticket problems, and the usher scanner link. Ushers don\'t need an account; they use the usher link.', parent:'ticketing'},
  {key:'refund_requests', label:'Refund Requests', desc:'Review, approve, and process refund requests — actually charges back to Square'},
  {key:'rentals', label:'Artistic Partnership', desc:'Create and manage Artistic Partnership requests & agreements'},
  {key:'oncall', label:'On-Call Schedule', desc:'Manage who answers calls & texts to the Twilio number'},

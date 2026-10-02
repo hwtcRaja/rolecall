@@ -3105,6 +3105,8 @@ def init_db():
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_ticket_orders_view_token ON ticket_orders(view_token) WHERE view_token IS NOT NULL",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS kbyg_sent_at TIMESTAMP",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS tickets_email_sent_at TIMESTAMP",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS square_fee_cents INTEGER",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS square_fee_checked_at TIMESTAMP",
         """CREATE TABLE IF NOT EXISTS presale_invites (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -31050,6 +31052,11 @@ def _start_oncall_scheduler():
             except Exception as e:
                 app.logger.warning(f'Sale countdown alerts error: {e}')
             try:
+                if now_eastern().minute % 15 == 7:
+                    sync_ticket_square_fees()
+            except Exception as e:
+                app.logger.warning(f'Ticket fee sync error: {e}')
+            try:
                 if now_eastern().minute % 10 == 0:
                     send_due_kbyg_reminders()
             except Exception as e:
@@ -37573,6 +37580,95 @@ def ticket_checkout_donations(conn, start=None, end=None, production_ids=None):
     return total, per_show, per_cart
 
 
+# ── Square processing fees on ticket orders ───────────────────────────────
+# Square reports its fee on each payment a little after it's taken. We look
+# it up from the Square order (one Square order = one checkout, which can
+# be several ticket_orders plus an add-on donation) and spread the whole fee
+# across that checkout's ticket orders by what each one cost, so
+# tickets + service fees + donations - Square fees = what was deposited.
+def _square_fee_for_order(square_order_id):
+    """(fee_cents, settled) for a Square order. settled=False means Square
+    hasn't reported the fee yet."""
+    try:
+        r = requests.get(f'{SQUARE_API_BASE}/v2/orders/{square_order_id}', headers=square_headers(), timeout=10)
+        order = (r.json() or {}).get('order') or {}
+    except Exception as e:
+        app.logger.warning(f'Square order lookup failed: {e}')
+        return None, False
+    tenders = order.get('tenders') or []
+    if not tenders:
+        return None, False
+    fee, settled = 0, True
+    for t in tenders:
+        pf = (t.get('processing_fee_money') or {}).get('amount')
+        if pf is None and t.get('payment_id'):
+            try:
+                pr = requests.get(f'{SQUARE_API_BASE}/v2/payments/{t["payment_id"]}', headers=square_headers(), timeout=10)
+                pay = (pr.json() or {}).get('payment') or {}
+                fees = pay.get('processing_fee') or []
+                if fees:
+                    pf = sum(int((f.get('amount_money') or {}).get('amount') or 0) for f in fees)
+            except Exception:
+                pf = None
+        if pf is None:
+            settled = False
+        else:
+            fee += int(pf)
+    return fee, settled
+
+
+def sync_ticket_square_fees(limit=150):
+    """Fill in Square fees for paid ticket orders that don't have one yet."""
+    if not SQUARE_ACCESS_TOKEN:
+        return 0
+    conn = get_db()
+    done = 0
+    try:
+        rows = fetchall(conn, '''SELECT DISTINCT square_order_id FROM ticket_orders
+            WHERE status='completed' AND square_order_id IS NOT NULL AND square_fee_cents IS NULL
+              AND COALESCE(completed_at, created_at) < NOW() - INTERVAL '5 minutes'
+              AND (square_fee_checked_at IS NULL OR square_fee_checked_at < NOW() - INTERVAL '45 minutes')
+            LIMIT %s''', (limit,)) or []
+        for r in rows:
+            sq = r['square_order_id']
+            fee, settled = _square_fee_for_order(sq)
+            orders = fetchall(conn, '''SELECT id, COALESCE(total_cents,0) + COALESCE(service_fee_cents,0) AS w FROM ticket_orders
+                WHERE square_order_id=%s AND status='completed' ORDER BY id''', (sq,)) or []
+            if not orders:
+                continue
+            if fee is None or not settled:
+                execute(conn, 'UPDATE ticket_orders SET square_fee_checked_at=NOW() WHERE square_order_id=%s', (sq,))
+                conn.commit()
+                continue
+            total_w = sum(int(o['w'] or 0) for o in orders) or len(orders)
+            given = 0
+            for i, o in enumerate(orders):
+                share = fee - given if i == len(orders) - 1 else int(round(fee * (int(o['w'] or 0) or 1) / total_w))
+                given += share
+                execute(conn, 'UPDATE ticket_orders SET square_fee_cents=%s, square_fee_checked_at=NOW() WHERE id=%s', (share, o['id']))
+            conn.commit()
+            done += 1
+    except Exception as e:
+        app.logger.warning(f'Ticket fee sync failed: {e}')
+    finally:
+        conn.close()
+    return done
+
+
+@app.route('/api/marquee/ticket-fees/sync', methods=['POST'])
+def marquee_sync_ticket_fees():
+    err = require_permission('marquee', 'view')
+    if err: return err
+    n = sync_ticket_square_fees(limit=300)
+    conn = get_db()
+    try:
+        left = (fetchone(conn, '''SELECT COUNT(*) AS n FROM ticket_orders WHERE status='completed'
+            AND square_order_id IS NOT NULL AND square_fee_cents IS NULL''') or {}).get('n') or 0
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'checkouts_updated': n, 'still_waiting': int(left)})
+
+
 @app.route('/api/marquee/box-office', methods=['GET'])
 def marquee_box_office():
     """Ticket sales metrics for Marquee's Box Office tab -- a genuinely
@@ -37586,10 +37682,16 @@ def marquee_box_office():
     conn = get_db()
     totals = fetchone(conn, '''SELECT
         COALESCE(SUM(t.price_cents),0) AS ticket_revenue,
-        COALESCE(SUM(o.service_fee_cents),0) AS fee_revenue,
         COUNT(t.id) AS tickets_sold
         FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
-        WHERE o.status='completed' ''')
+        WHERE o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test' ''') or {}
+    # order-level money (one row per order, so a 4-ticket order's service
+    # fee isn't counted 4 times)
+    om = fetchone(conn, '''SELECT COALESCE(SUM(service_fee_cents),0) AS fee_revenue,
+            COALESCE(SUM(square_fee_cents),0) AS square_fees,
+            COUNT(*) FILTER (WHERE square_order_id IS NOT NULL AND square_fee_cents IS NULL) AS fees_pending
+        FROM ticket_orders WHERE status='completed' AND COALESCE(sale_channel,'public') <> 'test' ''') or {}
+    totals['fee_revenue'] = om.get('fee_revenue', 0)
     upcoming_count = (fetchone(conn, '''SELECT COUNT(*) AS c FROM performances
         WHERE status IN ('presale','on_sale','sold_out') AND performance_date >= CURRENT_DATE::text''') or {}).get('c', 0)
     by_show = fetchall(conn, '''SELECT p.id, p.name,
@@ -37603,14 +37705,25 @@ def marquee_box_office():
         GROUP BY p.id, p.name
         HAVING COUNT(pf.id) > 0
         ORDER BY revenue DESC''') or []
+    show_money = {r['production_id']: r for r in fetchall(conn, '''SELECT pf.production_id,
+            COALESCE(SUM(o.service_fee_cents),0) AS service_fees, COALESCE(SUM(o.square_fee_cents),0) AS square_fees
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        WHERE o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test' GROUP BY pf.production_id''') or []}
     don_total, don_by_show, _ = ticket_checkout_donations(conn)
     for sh in by_show:
         sh['donations'] = don_by_show.get(sh['id'], 0)
+        sm = show_money.get(sh['id']) or {}
+        sh['service_fees'] = int(sm.get('service_fees') or 0)
+        sh['square_fees'] = int(sm.get('square_fees') or 0)
+        sh['net'] = int(sh['revenue'] or 0) + sh['service_fees'] + sh['donations'] - sh['square_fees']
     conn.close()
     return jsonify({
         'ticket_revenue': totals.get('ticket_revenue', 0),
         'fee_revenue': totals.get('fee_revenue', 0),
         'donation_revenue': don_total,
+        'square_fees': int(om.get('square_fees') or 0),
+        'fees_pending': int(om.get('fees_pending') or 0),
+        'net_revenue': int(totals.get('ticket_revenue') or 0) + int(om.get('fee_revenue') or 0) + int(don_total or 0) - int(om.get('square_fees') or 0),
         'tickets_sold': totals.get('tickets_sold', 0),
         'upcoming_performances': upcoming_count,
         'shows': by_show,

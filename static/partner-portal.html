@@ -49,6 +49,9 @@ main{max-width:960px;margin:0 auto;padding:20px 20px 60px}
 .blk{border-radius:4px;padding:1px 4px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .blk.mine{background:var(--soft);color:var(--brand-dark);font-weight:700}
 .blk.other{background:#eef2f4;color:var(--muted)}
+.blk .rm{display:inline-block;min-width:16px;padding:0 3px;margin-right:3px;border-radius:3px;font-weight:800;color:#fff;font-size:9.5px;text-align:center}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);margin:0 0 10px}
+.legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:4px}
 .field{margin-bottom:12px}
 .field label{display:block;font-size:13px;font-weight:700;margin-bottom:5px}
 .field input,.field select,.field textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff}
@@ -160,14 +163,25 @@ function calendarHTML(){
   var m = CAL_MONTH, y = m.getFullYear(), mo = m.getMonth()
   var first = new Date(y, mo, 1), startDow = first.getDay(), days = new Date(y, mo+1, 0).getDate()
   var today = new Date().toISOString().slice(0,10)
-  var ev = (D.calendar||[]).filter(function(c){ return !CAL_SPACE || c.space_id === CAL_SPACE })
+  var ALL = CAL_SPACE === '__all'
+  var ev = (D.calendar||[]).filter(function(c){ return ALL || !CAL_SPACE || c.space_id === CAL_SPACE })
+  // in "All rooms", each booking gets a small room tag (A, B…) in that room's colour
+  var ROOM_COLORS = ['#16728b','#b45309','#7c3aed','#be185d','#15803d','#1d4ed8']
+  var roomTag = {}
+  spaces.forEach(function(sp, i){
+    var words = String(sp.name||'').trim().split(/\s+/), last = words[words.length-1] || sp.name
+    roomTag[sp.id] = {short: (/^[A-Za-z0-9]{1,2}$/.test(last) ? last : (sp.name||'?').slice(0,2)).toUpperCase(), color: ROOM_COLORS[i % ROOM_COLORS.length], name: sp.name}
+  })
   var by = {}; ev.forEach(function(c){ (by[c.date] = by[c.date] || []).push(c) })
   var h = '<div class="card"><div class="cal-head"><h2 style="margin:0;flex:1">Studio calendar</h2>'
-    + (spaces.length > 1 ? '<select onchange="CAL_SPACE=this.value;render()" aria-label="Room">'+spaces.map(function(s){ return '<option value="'+s.id+'"'+(s.id===CAL_SPACE?' selected':'')+'>'+esc(s.name)+'</option>' }).join('')+'</select>' : '')
+    + (spaces.length > 1 ? '<select onchange="CAL_SPACE=this.value;render()" aria-label="Room">'
+        + '<option value="__all"'+(CAL_SPACE==='__all'?' selected':'')+'>All rooms</option>'
+        + spaces.map(function(s){ return '<option value="'+s.id+'"'+(s.id===CAL_SPACE?' selected':'')+'>'+esc(s.name)+'</option>' }).join('')+'</select>' : '')
     + '<button class="btn btn-s" onclick="moveMonth(-1)" aria-label="Previous month">‹</button>'
     + '<strong style="min-width:130px;text-align:center">'+first.toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</strong>'
     + '<button class="btn btn-s" onclick="moveMonth(1)" aria-label="Next month">›</button></div>'
     + '<p class="muted" style="margin:0 0 10px;font-size:13.5px">Your dates are shown by name; anything else already booked shows as "Booked." Tap open days to pick dates you\'d like to add, then send the request.</p>'
+    + (ALL ? '<div class="legend">'+spaces.map(function(sp){ var t = roomTag[sp.id]; return '<span><i style="background:'+t.color+'"></i>'+esc(t.short)+' = '+esc(sp.name)+'</span>' }).join('')+'</div>' : '')
     + '<div class="cal">' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(d){ return '<div class="dow">'+d+'</div>' }).join('')
   for(var i=0;i<startDow;i++) h += '<div class="day out"></div>'
   for(var dd=1; dd<=days; dd++){
@@ -176,8 +190,11 @@ function calendarHTML(){
     var past = ds < today, sel = PICKED.some(function(p){ return p.date===ds })
     h += '<div class="day'+(past?' past':'')+(sel?' sel':'')+'" '+(past?'':'onclick="toggleDay(\''+ds+'\')" role="button" tabindex="0" onkeydown="if(event.key===\'Enter\')toggleDay(\''+ds+'\')"')+' aria-label="'+ds+(items.length?' '+items.length+' booked':'')+'">'
       + '<div class="n">'+dd+'</div>'
-      + items.slice(0,3).map(function(c){ return '<div class="blk '+(c.mine?'mine':'other')+'" title="'+esc(c.title+' '+t12(c.start)+(c.end?'–'+t12(c.end):''))+'">'+(c.start?t12(c.start)+' ':'')+esc(c.title)+'</div>' }).join('')
-      + (items.length>3?'<div class="muted">+'+(items.length-3)+' more</div>':'') + '</div>'
+      + items.slice(0,ALL?4:3).map(function(c){
+          var t = roomTag[c.space_id]
+          var tag = (ALL && t) ? '<span class="rm" style="background:'+t.color+'">'+esc(t.short)+'</span>' : ''
+          return '<div class="blk '+(c.mine?'mine':'other')+'" title="'+esc((t&&ALL?t.name+': ':'')+c.title+' '+t12(c.start)+(c.end?'–'+t12(c.end):''))+'">'+tag+(c.start?t12(c.start)+' ':'')+esc(c.title)+'</div>' }).join('')
+      + (items.length>(ALL?4:3)?'<div class="muted">+'+(items.length-(ALL?4:3))+' more</div>':'') + '</div>'
   }
   h += '</div></div>'
   h += '<div class="card"><h2>Request more dates</h2>' + (PICKED.length

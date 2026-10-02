@@ -3129,6 +3129,8 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         "CREATE INDEX IF NOT EXISTS ix_door_scan_log_perf ON door_scan_log(performance_id, created_at)",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_enabled BOOLEAN DEFAULT TRUE",
+        # survey kiosk: after someone submits, start a fresh response for the next person
+        "ALTER TABLE surveys ADD COLUMN IF NOT EXISTS kiosk_reset BOOLEAN DEFAULT FALSE",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_hours_before INTEGER DEFAULT 24",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_text TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS performance_seat_blocks (
@@ -25135,6 +25137,8 @@ def create_survey():
          d.get('status','draft'), bool(d.get('allow_anonymous',True)),
          bool(d.get('require_name',False)), bool(d.get('require_email',False)),
          d.get('closes_at') or None))
+    if 'kiosk_reset' in d:
+        execute(conn, 'UPDATE surveys SET kiosk_reset=%s WHERE id=%s', (bool(d.get('kiosk_reset')), sid))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': sid, 'slug': slug})
 
@@ -25164,6 +25168,8 @@ def update_survey(sid):
             (d.get('title',''), d.get('description',''), d.get('status','draft'),
              bool(d.get('allow_anonymous',True)), bool(d.get('require_name',False)),
              bool(d.get('require_email',False)), d.get('closes_at') or None, sid))
+    if 'kiosk_reset' in d:
+        execute(conn, 'UPDATE surveys SET kiosk_reset=%s WHERE id=%s', (bool(d.get('kiosk_reset')), sid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -25204,6 +25210,22 @@ def get_survey_results(sid):
     questions = fetchall(conn, 'SELECT * FROM survey_questions WHERE survey_id=%s ORDER BY sort_order', (sid,)) or []
     responses = fetchall(conn, 'SELECT * FROM survey_responses WHERE survey_id=%s ORDER BY submitted_at DESC', (sid,)) or []
     conn.close()
+    # The public form used to save answers by question position (0, 1, 2…)
+    # while results look them up by question id, so results looked empty.
+    # Map position-keyed answers onto the matching question.
+    ids = [q['id'] for q in questions]
+    for r in responses:
+        a = r.get('answers') or {}
+        if isinstance(a, str):
+            try: a = json.loads(a)
+            except Exception: a = {}
+        fixed = {}
+        for k, v in a.items():
+            if str(k).isdigit() and int(k) < len(ids) and k not in ids:
+                fixed.setdefault(ids[int(k)], v)
+            else:
+                fixed[k] = v
+        r['answers'] = fixed
     return jsonify({'survey': survey, 'questions': questions, 'responses': responses})
 
 @app.route('/api/public/survey/<slug>')
@@ -25222,6 +25244,9 @@ def submit_survey_response(slug):
     if not survey: conn.close(); return jsonify({'error': 'Survey not found or closed'}), 404
     d = request.json or {}
     rid = str(uuid.uuid4())
+    qids = [q['id'] for q in (fetchall(conn, 'SELECT id FROM survey_questions WHERE survey_id=%s ORDER BY sort_order', (survey['id'],)) or [])]
+    raw = d.get('answers') or {}
+    d['answers'] = {(qids[int(k)] if str(k).isdigit() and int(k) < len(qids) else k): v for k, v in raw.items()}
     execute(conn, '''INSERT INTO survey_responses (id,survey_id,respondent_name,respondent_email,answers,ip_address)
         VALUES (%s,%s,%s,%s,%s,%s)''',
         (rid, survey['id'], d.get('name',''), d.get('email',''),

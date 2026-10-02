@@ -38604,6 +38604,7 @@ function openSurveyEditor(sid){
   + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="sv-allow-anon" '+((!survey||survey.allow_anonymous)?'checked':'')+' style="accent-color:var(--teal)"/>Allow anonymous responses</label>'
   + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="sv-require-name" '+(survey&&survey.require_name?'checked':'')+' style="accent-color:var(--teal)"/>Require name</label>'
   + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer"><input type="checkbox" id="sv-require-email" '+(survey&&survey.require_email?'checked':'')+' style="accent-color:var(--teal)"/>Require email</label>'
+  + '<label style="display:flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer" title="For a tablet at an event: after someone submits, the survey clears and starts over for the next person"><input type="checkbox" id="sv-kiosk" '+(survey&&survey.kiosk_reset?'checked':'')+' style="accent-color:var(--teal);width:auto"/> Kiosk mode (start a new response automatically)</label>'
   + '</div>'
   + '<hr class="divider"/>'
   + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><div style="font-size:13px;font-weight:700">Questions</div><button type="button" class="btn btn-secondary btn-sm" onclick="addSurveyQuestionRow()">+ Add Question</button></div>'
@@ -38664,6 +38665,7 @@ async function saveSurveyEditor(){
   allow_anonymous: document.getElementById('sv-allow-anon').checked,
   require_name: document.getElementById('sv-require-name').checked,
   require_email: document.getElementById('sv-require-email').checked,
+  kiosk_reset: document.getElementById('sv-kiosk').checked,
  }
  var sid = _surveyEditorId
  var res = sid ? await api('/api/surveys/'+sid, 'PUT', payload) : await api('/api/surveys', 'POST', payload)
@@ -38702,9 +38704,15 @@ async function openSurveyResults(sid){
    })
    var max = Math.max.apply(null, Object.values(tally).concat([1]))
    var options = (q.options||[]).slice()
+   if(q.question_type==='rating') options = ['1','2','3','4','5']
    Object.keys(tally).forEach(function(k){ if(!options.includes(k)) options.push(k) })
-   body = options.length
-    ? options.map(function(opt){
+   var avgHtml = ''
+   if(q.question_type==='rating' && answers.length){
+    var sum = answers.reduce(function(t,a){ return t + (parseFloat(a)||0) }, 0)
+    avgHtml = '<div style="font-size:12.5px;margin-bottom:6px">Average <strong>'+(sum/answers.length).toFixed(1)+'</strong> out of 5 · '+answers.length+' rating'+(answers.length===1?'':'s')+'</div>'
+   }
+   body = options.length && answers.length
+    ? avgHtml + options.map(function(opt){
        var count = tally[opt]||0
        var pct = Math.round((count/max)*100)
        return '<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>'+escHtml(opt)+'</span><span style="color:var(--text-muted)">'+count+'</span></div><div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden"><div style="width:'+pct+'%;background:var(--teal-400);height:100%"></div></div></div>'

@@ -52,6 +52,8 @@ textarea:focus,input:focus{border-color:#145466}
       <div class="check">✓</div>
       <h2>Thank you!</h2>
       <p>Your response has been submitted. We appreciate your feedback!</p>
+      <p id="kiosk-note" style="display:none;font-size:13px;color:#6b7280"></p>
+      <button class="btn" id="again-btn" type="button" style="display:none;margin-top:10px;max-width:280px" onclick="startOver()">Start a new response</button>
     </div>
   </div>
 </div>
@@ -67,6 +69,7 @@ async function loadSurvey(){
     if(d.error){ showError(d.error); return }
     survey = d.survey
     questions = d.questions
+    if(survey.kiosk_reset) KIOSK = true
     document.getElementById('header-title').textContent = survey.title
     document.title = survey.title + ' — HWTC'
     renderSurvey()
@@ -118,7 +121,7 @@ function renderSurvey(){
     } else if(q.question_type==='rating'){
       html += '<div class="rating-row">'
       for(var i=1;i<=5;i++){
-        html += '<button class="rating-btn" id="rating-'+qi+'-'+i+'" data-qi="'+qi+'" data-val="'+i+'" class="survey-rating-btn">'+i+'</button>'
+        html += '<button type="button" class="rating-btn survey-rating-btn" id="rating-'+qi+'-'+i+'" data-qi="'+qi+'" data-val="'+i+'" aria-label="'+i+' out of 5">'+i+'</button>'
       }
       html += '</div><div style="display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;margin-top:4px"><span>Not at all</span><span>Very much</span></div>'
     } else {
@@ -131,7 +134,11 @@ function renderSurvey(){
   html += '</div>'
   el.innerHTML = html
 
-  // Wire up all events via delegation
+  // Wire up all events via delegation, once: in kiosk mode the form is
+  // re-rendered for each new person, and attaching these again would make
+  // one click count twice (e.g. a double submit).
+  if(el._wired) return
+  el._wired = true
   el.addEventListener('change', function(e){
     const t = e.target
     if(t.classList.contains('survey-radio')){
@@ -266,6 +273,18 @@ async function submitSurvey(){
       document.getElementById('survey-content').style.display='none'
       document.getElementById('success').style.display=''
       window.scrollTo(0,0)
+      if(KIOSK){
+        // kiosk / event table: clear it and get ready for the next person
+        var left = 6, note = document.getElementById('kiosk-note')
+        document.getElementById('again-btn').style.display = ''
+        note.style.display = ''
+        note.textContent = 'Starting a new response in '+left+'…'
+        clearInterval(window._kt)
+        window._kt = setInterval(function(){
+          left--; note.textContent = 'Starting a new response in '+left+'…'
+          if(left <= 0) startOver()
+        }, 1000)
+      }
     } else {
       btn.disabled=false; btn.textContent='Submit Response'
     }
@@ -274,6 +293,17 @@ async function submitSurvey(){
   }
 }
 
+// Kiosk mode: the survey's "start a new response automatically" setting,
+// or ?kiosk=1 on the link.
+var KIOSK = new URLSearchParams(location.search).get('kiosk') === '1'
+function startOver(){
+  clearInterval(window._kt)
+  answers = {}; ratings = {}
+  document.getElementById('success').style.display = 'none'
+  document.getElementById('survey-content').style.display = ''
+  renderSurvey()
+  window.scrollTo(0,0)
+}
 function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
 function escAttr(s){ return String(s||'').replace(/"/g,'&quot;').replace(/'/g,'&#39;') }
 

@@ -4936,6 +4936,55 @@ def delete_interest_type(tid):
 #  EVENTS
 # ─────────────────────────────────────────────
 
+@app.route('/api/events/bulk-update', methods=['POST'])
+def bulk_update_events():
+    """Change several events at once. Only the fields sent are changed:
+    room, location, status, event_type_id, start_time, end_time,
+    show_on_lobby. room_mode 'add'/'remove' adds or takes a room off each
+    event's room list instead of replacing it."""
+    err = require_permission('events', 'edit')
+    if err: return err
+    d = request.json or {}
+    ids = [x for x in (d.get('ids') or []) if x][:2000]
+    f = d.get('fields') or {}
+    if not ids:
+        return jsonify({'error': 'Pick at least one event.'}), 400
+    allowed = {'location': str, 'status': str, 'event_type_id': str, 'start_time': str, 'end_time': str}
+    sets, vals = [], []
+    for k, typ in allowed.items():
+        if k in f:
+            v = (f.get(k) or '').strip()
+            if k == 'status' and v not in ('draft', 'open', 'closed', 'cancelled', 'completed', ''):
+                return jsonify({'error': 'Unknown status'}), 400
+            sets.append(k + '=%s'); vals.append(v or None if k == 'event_type_id' else v)
+    if 'show_on_lobby' in f:
+        sets.append('show_on_lobby=%s'); vals.append(bool(f.get('show_on_lobby')))
+    mode = d.get('room_mode') or 'replace'
+    conn = get_db()
+    try:
+        changed = 0
+        if 'room' in f and mode == 'replace':
+            sets.append('room=%s'); vals.append(', '.join(x.strip() for x in str(f.get('room') or '').split(',') if x.strip()))
+        if sets:
+            execute(conn, 'UPDATE events SET ' + ', '.join(sets) + ', updated_at=NOW() WHERE id = ANY(%s)', tuple(vals + [ids]))
+            changed = len(ids)
+        if 'room' in f and mode in ('add', 'remove'):
+            target = [x.strip() for x in str(f.get('room') or '').split(',') if x.strip()]
+            for ev in fetchall(conn, 'SELECT id, room FROM events WHERE id = ANY(%s)', (ids,)) or []:
+                cur = [x.strip() for x in (ev.get('room') or '').split(',') if x.strip()]
+                if mode == 'add':
+                    new = cur + [t for t in target if t.lower() not in [c.lower() for c in cur]]
+                else:
+                    new = [c for c in cur if c.lower() not in [t.lower() for t in target]]
+                if new != cur:
+                    execute(conn, 'UPDATE events SET room=%s, updated_at=NOW() WHERE id=%s', (', '.join(new), ev['id']))
+            changed = len(ids)
+        conn.commit()
+        return jsonify({'ok': True, 'updated': changed})
+    finally:
+        conn.close()
+
+
 @app.route('/api/events')
 def get_events():
     err = require_auth()

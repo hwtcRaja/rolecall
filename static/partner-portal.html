@@ -205,8 +205,8 @@ function calendarHTML(){
   }
   h += '</div>' + dayPanelHTML(spaces, roomTag, today) + '</div>'
   h += '<div class="card"><h2>Request more dates</h2>' + (PICKED.length
-      ? '<div class="dates">'+PICKED.map(function(p,i){ var busy = (by[p.date]||[]).length; return '<span class="dchip">'+esc(fdate(p.date))+(busy?' ⚠︎':'')+'<button aria-label="Remove" onclick="PICKED.splice('+i+',1);render()">✕</button></span>' }).join('')+'</div>'
-        + (PICKED.some(function(p){ return (by[p.date]||[]).length }) ? '<div class="muted" style="font-size:13px">⚠︎ Something is already booked that day. It may still work at a different time; we\'ll let you know.</div>' : '')
+      ? '<div class="dates">'+PICKED.map(function(p,i){ var clash = pickClashes(p).length; return '<span class="dchip" style="cursor:pointer" onclick="openDay(\''+p.date+'\')" title="Tap to change the time">'+esc(fdate(p.date))+(p.start?' · '+t12(p.start)+(p.end?'–'+t12(p.end):''):'')+(clash?' ⚠︎':'')+'<button aria-label="Remove" onclick="event.stopPropagation();PICKED.splice('+i+',1);render()">✕</button></span>' }).join('')+'</div>'
+        + (PICKED.some(function(p){ return pickClashes(p).length }) ? '<div style="font-size:13px;color:var(--bad)">⚠︎ marks a time that overlaps something already booked. Tap the date to change its time.</div>' : '')
         + '<button class="btn btn-p" style="margin-top:10px" onclick="REQ_PREFILL=\'add_dates\';TAB=\'requests\';render()">Continue with '+PICKED.length+' date'+(PICKED.length===1?'':'s')+'</button>'
       : '<div class="muted">Tap open days on the calendar to pick them.</div>') + '</div>'
   return h
@@ -214,6 +214,19 @@ function calendarHTML(){
 function moveMonth(n){ CAL_MONTH = new Date(CAL_MONTH.getFullYear(), CAL_MONTH.getMonth()+n, 1); DAY_OPEN = null; render() }
 function openDay(ds){ DAY_OPEN = DAY_OPEN === ds ? null : ds; render()
   setTimeout(function(){ var el = document.getElementById('day-panel'); if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth', block:'nearest'}) }, 30) }
+// Does the time they want overlap something already booked that day in
+// their room (or, if they're viewing one room, that room)?
+function pickClashes(p){
+  if(!p || !p.start || !p.end) return []
+  var room = (CAL_SPACE && CAL_SPACE !== '__all') ? CAL_SPACE : (((D.partnerships||[]).find(function(x){ return x.space_id })||{}).space_id || '')
+  return (D.calendar||[]).filter(function(c){
+    return c.date === p.date && !c.mine && (!room || c.space_id === room) && c.start && c.end && c.start < p.end && p.start < c.end
+  })
+}
+function setPickTime(ds, which, v){
+  var p = PICKED.find(function(x){ return x.date===ds }); if(!p) return
+  p[which] = v; render()
+}
 // The expanded day: every booking that day in each room (or the chosen
 // room), with full times, plus a button to add/remove it from a request.
 function dayPanelHTML(spaces, roomTag, today){
@@ -225,6 +238,16 @@ function dayPanelHTML(spaces, roomTag, today){
   var h = '<div class="dayp" id="day-panel"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="flex:1">'+esc(fdate(ds))+'</h3>'
     + (ds >= today ? '<button class="btn '+(picked?'btn-s':'btn-p')+'" onclick="toggleDay(\''+ds+'\')">'+(picked?'Remove from my request':'Add this day to my request')+'</button>' : '<span class="muted" style="font-size:13px">This day has passed</span>')
     + '<button class="btn btn-s" onclick="DAY_OPEN=null;render()" aria-label="Close">✕</button></div>'
+  if(picked){
+    var pk = PICKED.find(function(x){ return x.date===ds }), clash = pickClashes(pk)
+    h += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px;padding:10px 12px;background:var(--soft);border-radius:10px">'
+      + '<strong style="font-size:14px">Your time</strong>'
+      + '<input type="time" aria-label="Start time" value="'+esc(pk.start||'')+'" onchange="setPickTime(\''+ds+'\',\'start\',this.value)" style="width:auto;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px"/>'
+      + '<span>to</span><input type="time" aria-label="End time" value="'+esc(pk.end||'')+'" onchange="setPickTime(\''+ds+'\',\'end\',this.value)" style="width:auto;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px"/>'
+      + (clash.length ? '<span style="color:var(--bad);font-size:13px;font-weight:700">Overlaps '+clash.map(function(c){ return t12(c.start)+'–'+t12(c.end) }).join(', ')+'. Try a different time.</span>'
+         : (pk.start && pk.end ? '<span class="free" style="font-size:13px">Looks open</span>' : ''))
+      + '</div>'
+  }
   rooms.forEach(function(sp){
     var items = dayItems.filter(function(c){ return c.space_id === sp.id }).sort(function(a,b){ return (a.start||'')<(b.start||'')?-1:1 })
     var t = roomTag[sp.id] || {}
@@ -236,9 +259,14 @@ function dayPanelHTML(spaces, roomTag, today){
   })
   return h + '</div>'
 }
+function defaultTimes(){
+  var p = (D.partnerships||[]).find(function(x){ return x.start_time }) || {}
+  return {start: (p.start_time||'').slice(0,5), end: (p.end_time||'').slice(0,5)}
+}
 function toggleDay(ds){
   var i = PICKED.findIndex(function(p){ return p.date===ds })
-  if(i >= 0) PICKED.splice(i,1); else PICKED.push({date: ds})
+  var dt = defaultTimes()
+  if(i >= 0) PICKED.splice(i,1); else PICKED.push({date: ds, start: dt.start, end: dt.end})
   PICKED.sort(function(a,b){ return a.date<b.date?-1:1 }); render()
 }
 
@@ -268,11 +296,12 @@ function requestsHTML(){
     var def = ps[0] || {}
     h += '<div class="field"><label>Dates</label>'
       + (PICKED.length ? PICKED.map(function(p,i){ return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap"><strong style="min-width:140px">'+esc(fdate(p.date))+'</strong>'
-          + '<input type="time" aria-label="Start time" value="'+esc(p.start||def.start_time||'')+'" onchange="PICKED['+i+'].start=this.value" style="width:auto"/>'
-          + '<span>to</span><input type="time" aria-label="End time" value="'+esc(p.end||def.end_time||'')+'" onchange="PICKED['+i+'].end=this.value" style="width:auto"/>'
-          + '<button class="btn btn-s" style="padding:6px 10px" onclick="PICKED.splice('+i+',1);render()">Remove</button></div>' }).join('')
+          + '<input type="time" aria-label="Start time" value="'+esc(p.start||(def.start_time||'').slice(0,5))+'" onchange="PICKED['+i+'].start=this.value;render()" style="width:auto"/>'
+          + '<span>to</span><input type="time" aria-label="End time" value="'+esc(p.end||(def.end_time||'').slice(0,5))+'" onchange="PICKED['+i+'].end=this.value;render()" style="width:auto"/>'
+          + '<button class="btn btn-s" style="padding:6px 10px" onclick="PICKED.splice('+i+',1);render()">Remove</button>'
+          + (pickClashes(p).length ? '<span style="color:var(--bad);font-size:12.5px;font-weight:700">Overlaps something already booked</span>' : '')+'</div>' }).join('')
         : '<div class="muted" style="font-size:14px">No dates picked yet. <a href="#" onclick="TAB=\'calendar\';render();return false">Pick them on the calendar</a> or add one here:</div>')
-      + '<div style="display:flex;gap:8px;margin-top:6px"><input type="date" id="rq-add" style="width:auto"/><button class="btn btn-s" onclick="var v=document.getElementById(\'rq-add\').value;if(v&&!PICKED.some(function(p){return p.date===v})){PICKED.push({date:v});PICKED.sort(function(a,b){return a.date<b.date?-1:1});render()}">Add date</button></div></div>'
+      + '<div style="display:flex;gap:8px;margin-top:6px"><input type="date" id="rq-add" style="width:auto"/><button class="btn btn-s" onclick="var v=document.getElementById(\'rq-add\').value;if(v&&!PICKED.some(function(p){return p.date===v})){var dt=defaultTimes();PICKED.push({date:v,start:dt.start,end:dt.end});PICKED.sort(function(a,b){return a.date<b.date?-1:1});render()}">Add date</button></div></div>'
   }
   h += '<div class="field"><label for="rq-details">'+(kind==='add_dates'?'Anything we should know? (optional)':'Details')+'</label>'
     + '<textarea id="rq-details" rows="4" placeholder="'+(kind==='invoice'?'e.g. Please add the two extra rehearsals to our October invoice.':kind==='add_dates'?'e.g. We need the space for extra rehearsals before our showcase.':'')+'">'+esc(kind==='invoice' && window._invNote ? 'About: '+window._invNote+'\n' : '')+'</textarea></div>'

@@ -768,6 +768,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <option value="standalone"> Standalone</option>
  </select>
  <select class="filter-select" id="ev-filter-status" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Statuses</option><option value="draft">Scheduled</option><option value="open">In Progress</option><option value="closed">Completed</option><option value="cancelled">Cancelled</option></select>
+ <button class="btn btn-secondary admin-only" onclick="openBulkEventEditor()" title="Change rooms, location, status, type or times on many events at once">Bulk edit</button>
  <button class="btn btn-primary admin-only" onclick="openEventModal()">+ New Event</button>
  </div>
  </div>
@@ -29191,6 +29192,123 @@ function updateEventBgcLock(){
 // ═══════════════════════════════════════════════════════════════
 // EVENT MODAL HELPERS — LOCATION, RECURRENCE, DUPLICATE
 // ═══════════════════════════════════════════════════════════════
+
+// ── Bulk edit events (rooms, location, status, type, times) ──
+var _be = {events: [], sel: {}, types: []}
+var BE_ROOMS = ['Studio A','Studio B','Main Stage','Black Box','Rehearsal Hall','Lobby']
+async function openBulkEventEditor(){
+  var [evs, types] = await Promise.all([api('/api/events'), api('/api/event-types')])
+  _be.events = Array.isArray(evs) ? evs : []
+  _be.types = Array.isArray(types) ? types : []
+  _be.sel = {}
+  var today = new Date().toISOString().slice(0,10)
+  var o = document.createElement('div')
+  o.id = 'bulk-events-overlay'
+  o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px'
+  o.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:1100px;height:90vh;display:flex;flex-direction:column;overflow:hidden">'
+    + '<div style="display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)"><div style="font-size:16px;font-weight:800;flex:1">Bulk edit events</div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="document.getElementById(\'bulk-events-overlay\').remove()">Close</button></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 330px;flex:1;min-height:0">'
+    // left: filters + list
+    + '<div style="display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--border)">'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--border);align-items:center">'
+    + '<input id="be-q" placeholder="Search name…" oninput="beRender()" style="width:170px;padding:7px 10px;font-size:13px"/>'
+    + '<input type="date" id="be-from" value="'+today+'" onchange="beRender()" style="width:auto;padding:6px 8px;font-size:13px" title="From"/>'
+    + '<input type="date" id="be-to" onchange="beRender()" style="width:auto;padding:6px 8px;font-size:13px" title="To"/>'
+    + '<select id="be-type" onchange="beRender()" style="width:auto;padding:6px 8px;font-size:13px"><option value="">All types</option>'+_be.types.map(function(t){ return '<option value="'+t.id+'">'+escHtml(t.name)+'</option>' }).join('')+'</select>'
+    + '<select id="be-room" onchange="beRender()" style="width:auto;padding:6px 8px;font-size:13px"><option value="">Any room</option><option value="__none">No room set</option>'+BE_ROOMS.map(function(r){ return '<option value="'+r+'">'+r+'</option>' }).join('')+'</select>'
+    + '<select id="be-status" onchange="beRender()" style="width:auto;padding:6px 8px;font-size:13px"><option value="">Any status</option><option value="draft">Scheduled</option><option value="open">In Progress</option><option value="closed">Completed</option><option value="cancelled">Cancelled</option></select>'
+    + '</div>'
+    + '<div style="display:flex;align-items:center;gap:10px;padding:8px 14px;font-size:12.5px;border-bottom:1px solid var(--border)">'
+    + '<label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;font-weight:700;text-transform:none;letter-spacing:0"><input type="checkbox" id="be-all" onchange="beSelectAll(this.checked)" style="width:auto"/> Select all shown</label>'
+    + '<span id="be-shown" style="color:var(--text-muted)"></span><span style="flex:1"></span><a href="#" onclick="_be.sel={};beRender();return false">Clear selection</a></div>'
+    + '<div id="be-list" style="flex:1;overflow:auto"></div></div>'
+    // right: changes
+    + '<div style="padding:14px 16px;overflow:auto">'
+    + '<div id="be-count" style="font-size:14px;font-weight:800;margin-bottom:10px">0 selected</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">Turn on only what you want to change. Everything else stays as it is on each event.</div>'
+    + beField('room','Room', '<select id="be-room-mode" style="margin-bottom:6px"><option value="replace">Set the room(s) to exactly…</option><option value="add">Add room(s) to what they have</option><option value="remove">Remove room(s)</option></select>'
+        + '<div style="display:flex;flex-wrap:wrap;gap:4px 12px">'+BE_ROOMS.map(function(r){ return '<label style="display:flex;align-items:center;gap:5px;font-size:13px;margin:0;font-weight:500;text-transform:none;letter-spacing:0;cursor:pointer"><input type="checkbox" class="be-room-cb" value="'+r+'" style="width:auto"/>'+r+'</label>' }).join('')+'</div>'
+        + '<input id="be-room-custom" placeholder="Other room (optional)" style="margin-top:6px;font-size:13px"/>'
+        + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">With "Set exactly", leaving everything unticked clears the room.</div>')
+    + beField('location','Location', '<input id="be-location" placeholder="HWTC"/>')
+    + beField('status','Status', '<select id="be-status-v"><option value="draft">Scheduled</option><option value="open">In Progress</option><option value="closed">Completed</option><option value="cancelled">Cancelled</option></select>')
+    + beField('type','Event type', '<select id="be-type-v"><option value="">No type</option>'+_be.types.map(function(t){ return '<option value="'+t.id+'">'+escHtml(t.name)+'</option>' }).join('')+'</select>')
+    + beField('times','Times', '<div style="display:flex;gap:6px;align-items:center"><input type="time" id="be-start" style="width:auto"/> to <input type="time" id="be-end" style="width:auto"/></div>')
+    + beField('lobby','Lobby display', '<select id="be-lobby-v"><option value="1">Show on lobby screens</option><option value="0">Hide from lobby screens</option></select>')
+    + '<button class="btn btn-primary" style="width:100%;margin-top:6px" id="be-apply" onclick="beApply()" disabled>Apply to 0 events</button>'
+    + '</div></div></div>'
+  document.body.appendChild(o)
+  beRender()
+}
+function beField(key, label, inner){
+  return '<div style="border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:10px">'
+    + '<label style="display:flex;align-items:center;gap:8px;margin:0 0 6px;cursor:pointer;font-size:13px;font-weight:700;text-transform:none;letter-spacing:0"><input type="checkbox" class="be-on" data-k="'+key+'" onchange="this.closest(\'div\').querySelector(\'.be-body\').style.display=this.checked?\'\':\'none\'" style="width:auto"/> Change '+label.toLowerCase()+'</label>'
+    + '<div class="be-body" style="display:none">'+inner+'</div></div>'
+}
+function beFiltered(){
+  var q = (document.getElementById('be-q').value||'').toLowerCase(), from = document.getElementById('be-from').value, to = document.getElementById('be-to').value
+  var ty = document.getElementById('be-type').value, rm = document.getElementById('be-room').value, st = document.getElementById('be-status').value
+  return _be.events.filter(function(e){
+    var d = (e.event_date||'').slice(0,10)
+    if(from && d < from) return false
+    if(to && d > to) return false
+    if(q && (e.name||'').toLowerCase().indexOf(q) < 0) return false
+    if(ty && e.event_type_id !== ty) return false
+    if(st && (e.status||'draft') !== st) return false
+    var rooms = (e.room||'').split(',').map(function(x){ return x.trim() }).filter(Boolean)
+    if(rm === '__none' && rooms.length) return false
+    if(rm && rm !== '__none' && rooms.indexOf(rm) < 0) return false
+    return true
+  }).sort(function(a,b){ var ak=(a.event_date||'')+(a.start_time||''), bk=(b.event_date||'')+(b.start_time||''); return ak<bk?-1:ak>bk?1:0 })
+}
+function beRender(){
+  var list = beFiltered()
+  document.getElementById('be-shown').textContent = list.length+' event'+(list.length===1?'':'s')+' shown'
+  var allOn = list.length && list.every(function(e){ return _be.sel[e.id] })
+  document.getElementById('be-all').checked = !!allOn
+  document.getElementById('be-list').innerHTML = list.length ? '<table style="width:100%;border-collapse:collapse;font-size:12.5px">'
+    + list.map(function(e){
+        var on = !!_be.sel[e.id]
+        return '<tr style="border-bottom:1px solid var(--border);'+(on?'background:var(--teal-50,#f0fdfa)':'')+'"><td style="padding:7px 10px;width:28px"><input type="checkbox" '+(on?'checked':'')+' onchange="beToggle(\''+e.id+'\',this.checked)" style="width:auto"/></td>'
+          + '<td style="padding:7px 4px;white-space:nowrap">'+escHtml(tkFmtDate(e.event_date))+(e.start_time?'<div style="color:var(--text-muted)">'+escHtml(tkFmtTime(e.start_time))+(e.end_time?' – '+escHtml(tkFmtTime(e.end_time)):'')+'</div>':'')+'</td>'
+          + '<td style="padding:7px 8px"><div style="font-weight:600">'+escHtml(e.name||'')+'</div><div style="color:var(--text-muted)">'+escHtml(e.event_type_name||'')+(e.production_name?' · '+escHtml(e.production_name):e.program_name?' · '+escHtml(e.program_name):'')+'</div></td>'
+          + '<td style="padding:7px 8px;color:'+(e.room?'var(--text)':'var(--text-hint)')+'">'+escHtml(e.room||'no room')+(e.location&&e.location!=='HWTC'?'<div style="color:var(--text-muted)">'+escHtml(e.location)+'</div>':'')+'</td></tr>'
+      }).join('') + '</table>' : '<div style="padding:24px;color:var(--text-muted);font-size:13px">No events match these filters.</div>'
+  beCount()
+}
+function beToggle(id, on){ if(on) _be.sel[id] = true; else delete _be.sel[id]; beRender() }
+function beSelectAll(on){ beFiltered().forEach(function(e){ if(on) _be.sel[e.id] = true; else delete _be.sel[e.id] }); beRender() }
+function beCount(){
+  var n = Object.keys(_be.sel).length
+  document.getElementById('be-count').textContent = n+' selected'
+  var b = document.getElementById('be-apply'); b.disabled = !n; b.textContent = 'Apply to '+n+' event'+(n===1?'':'s')
+}
+async function beApply(){
+  var on = {}; document.querySelectorAll('.be-on').forEach(function(c){ if(c.checked) on[c.dataset.k] = true })
+  if(!Object.keys(on).length){ toast('Turn on at least one change','error'); return }
+  var fields = {}, mode = 'replace'
+  if(on.room){
+    var rooms = Array.from(document.querySelectorAll('.be-room-cb:checked')).map(function(c){ return c.value })
+    var custom = (document.getElementById('be-room-custom').value||'').trim(); if(custom) rooms.push(custom)
+    mode = document.getElementById('be-room-mode').value
+    if(mode !== 'replace' && !rooms.length){ toast('Pick the room(s) to '+mode,'error'); return }
+    fields.room = rooms.join(', ')
+  }
+  if(on.location) fields.location = document.getElementById('be-location').value
+  if(on.status) fields.status = document.getElementById('be-status-v').value
+  if(on.type) fields.event_type_id = document.getElementById('be-type-v').value
+  if(on.times){ fields.start_time = document.getElementById('be-start').value; fields.end_time = document.getElementById('be-end').value }
+  if(on.lobby) fields.show_on_lobby = document.getElementById('be-lobby-v').value === '1'
+  var ids = Object.keys(_be.sel)
+  if(!confirm('Apply these changes to '+ids.length+' event'+(ids.length===1?'':'s')+'?')) return
+  var res = await api('/api/events/bulk-update','POST',{ids: ids, fields: fields, room_mode: mode})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Updated '+res.updated+' event'+(res.updated===1?'':'s'),'success')
+  var evs = await api('/api/events'); if(Array.isArray(evs)){ _be.events = evs; allEvents = evs }
+  beRender()
+  try{ renderEventsPage() }catch(e){}
+}
 
 function getEventLocation(){
  const sel=document.getElementById('edit-event-location-sel')

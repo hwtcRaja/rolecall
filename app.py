@@ -24548,6 +24548,46 @@ def split_registration_by_session(conn, reg_id):
     return ids
 
 
+@app.route('/api/registrations/<rid>/add-session', methods=['POST'])
+def api_registration_add_session(rid):
+    """Give the same person another booked date as its own registration,
+    e.g. a family that paid for two lessons but only one date was recorded.
+    split_payment divides what they already paid between the two dates;
+    otherwise the new date is added with nothing paid toward it."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    sid = d.get('session_id')
+    conn = get_db()
+    try:
+        reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (rid,))
+        if not reg or not sid:
+            return jsonify({'error': 'Pick a session.'}), 400
+        sess = fetchone(conn, 'SELECT id FROM program_sessions WHERE id=%s AND program_id=%s', (sid, reg['program_id']))
+        if not sess:
+            return jsonify({'error': 'That session isn\'t part of this program.'}), 400
+        try:
+            cur = [x for x in json.loads(reg.get('session_ids') or '[]') if x]
+        except Exception:
+            cur = []
+        if sid in cur:
+            return jsonify({'error': 'They\'re already booked in that session.'}), 400
+        execute(conn, 'UPDATE program_registrations SET session_ids=%s WHERE id=%s', (json.dumps(cur + [sid]), rid))
+        conn.commit()
+        ids = split_registration_by_session(conn, rid)
+        new_id = next((i for i in ids if i != rid), None)
+        if new_id and not d.get('split_payment'):
+            # put the original's amounts back; the added date has nothing paid
+            for col in ('amount_paid', 'amount_paid_cents', 'discount_amount', 'balance_due', 'sibling_discount_amount', 'refund_amount_cents'):
+                if col in reg:
+                    execute(conn, 'UPDATE program_registrations SET ' + col + '=%s WHERE id=%s', (reg.get(col), rid))
+                    execute(conn, 'UPDATE program_registrations SET ' + col + '=%s WHERE id=%s', (None if reg.get(col) is None else 0, new_id))
+            conn.commit()
+        return jsonify({'ok': True, 'registration_ids': ids})
+    finally:
+        conn.close()
+
+
 @app.route('/api/registrations/<rid>/split-sessions', methods=['POST'])
 def api_split_registration_sessions(rid):
     err = require_auth()

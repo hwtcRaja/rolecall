@@ -3731,8 +3731,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <option value="Black Box">Black Box</option>
  <option value="Rehearsal Hall">Rehearsal Hall</option>
  <option value="Lobby">Lobby</option>
+ <option value="multi">More than one room…</option>
  <option value="other">Other / Custom…</option>
  </select>
+ <div id="edit-event-rooms-multi" style="display:none;margin-top:8px;padding:10px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius)">
+ <div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Tick every room this event uses. Each one shows as booked (on the partner calendar and in room conflict checks).</div>
+ <div style="display:flex;flex-wrap:wrap;gap:6px 14px">
+ <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:0;font-weight:500;text-transform:none;letter-spacing:0"><input type="checkbox" class="ev-room-cb" value="Studio A" style="width:auto"/> Studio A</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:0;font-weight:500;text-transform:none;letter-spacing:0"><input type="checkbox" class="ev-room-cb" value="Studio B" style="width:auto"/> Studio B</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:0;font-weight:500;text-transform:none;letter-spacing:0"><input type="checkbox" class="ev-room-cb" value="Main Stage" style="width:auto"/> Main Stage</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:0;font-weight:500;text-transform:none;letter-spacing:0"><input type="checkbox" class="ev-room-cb" value="Black Box" style="width:auto"/> Black Box</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:0;font-weight:500;text-transform:none;letter-spacing:0"><input type="checkbox" class="ev-room-cb" value="Rehearsal Hall" style="width:auto"/> Rehearsal Hall</label><label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin:0;font-weight:500;text-transform:none;letter-spacing:0"><input type="checkbox" class="ev-room-cb" value="Lobby" style="width:auto"/> Lobby</label>
+ </div></div>
  <input type="text" id="edit-event-room" placeholder="Custom room name" style="display:none;width:100%;padding:10px 14px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:14px;outline:none"/>
  </div>
  </div>
@@ -29195,6 +29201,10 @@ function getEventLocation(){
 function getEventRoom(){
  const sel=document.getElementById('edit-event-room-sel')
  if(sel&&sel.value==='other') return document.getElementById('edit-event-room').value.trim()
+ if(sel&&sel.value==='multi'){
+  // several rooms are saved as one list, e.g. "Studio A, Studio B"
+  return Array.from(document.querySelectorAll('.ev-room-cb:checked')).map(function(c){ return c.value }).join(', ')
+ }
  return sel?sel.value:''
 }
 
@@ -29208,8 +29218,10 @@ function onLocationSelChange(){
 function onRoomSelChange(){
  const sel=document.getElementById('edit-event-room-sel')
  const inp=document.getElementById('edit-event-room')
+ const multi=document.getElementById('edit-event-rooms-multi')
  if(sel.value==='other'){inp.style.display='';inp.focus()}
  else inp.style.display='none'
+ if(multi) multi.style.display = sel.value==='multi' ? '' : 'none'
 }
 
 function setEventLocationUI(location, room){
@@ -29228,7 +29240,15 @@ function setEventLocationUI(location, room){
  const roomSel=document.getElementById('edit-event-room-sel')
  const roomInp=document.getElementById('edit-event-room')
  const knownRooms=['','Studio A','Studio B','Main Stage','Black Box','Rehearsal Hall','Lobby']
- if(knownRooms.includes(room)){
+ const multi=document.getElementById('edit-event-rooms-multi')
+ const parts=(room||'').split(',').map(function(x){ return x.trim() }).filter(Boolean)
+ document.querySelectorAll('.ev-room-cb').forEach(function(c){ c.checked = parts.indexOf(c.value) >= 0 })
+ if(multi) multi.style.display='none'
+ if(parts.length > 1 && parts.every(function(x){ return knownRooms.includes(x) })){
+  if(roomSel) roomSel.value='multi'
+  if(roomInp) roomInp.style.display='none'
+  if(multi) multi.style.display=''
+ } else if(knownRooms.includes(room)){
  if(roomSel) roomSel.value=room||''
  if(roomInp) roomInp.style.display='none'
  } else if(room){

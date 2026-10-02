@@ -45,6 +45,13 @@ main{max-width:960px;margin:0 auto;padding:20px 20px 60px}
 .day.out{background:#f8fafb;color:#b7c0c5;cursor:default}
 .day.past{opacity:.55}
 .day.sel{outline:3px solid #f4b740}
+.day.open{box-shadow:0 0 0 2px var(--brand) inset}
+.dayp{border:1.5px solid var(--brand);border-radius:12px;padding:14px 16px;margin-top:12px;background:#fbfdfe}
+.dayp h3{margin:0 0 8px;font-size:16px}
+.slot{display:flex;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.slot:first-of-type{border-top:none}
+.slot .tm{min-width:150px;font-weight:700}
+.free{color:var(--ok);font-weight:700}
 .day .n{font-weight:700;font-size:12px}
 .blk{border-radius:4px;padding:1px 4px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .blk.mine{background:var(--soft);color:var(--brand-dark);font-weight:700}
@@ -72,7 +79,7 @@ main{max-width:960px;margin:0 auto;padding:20px 20px 60px}
 
 <script>
 var TOKEN = location.pathname.replace(/^\/partner\/?/, '').replace(/\/$/, '')
-var D = null, TAB = 'overview', CAL_SPACE = '', CAL_MONTH = null, PICKED = [], REQ_PREFILL = null
+var D = null, TAB = 'overview', CAL_SPACE = '', CAL_MONTH = null, PICKED = [], REQ_PREFILL = null, DAY_OPEN = null
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
 function money(c){ return '$'+((c||0)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) }
 function fdate(d){ if(!d) return ''; try{ return new Date(String(d).slice(0,10)+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}) }catch(e){ return d } }
@@ -180,7 +187,7 @@ function calendarHTML(){
     + '<button class="btn btn-s" onclick="moveMonth(-1)" aria-label="Previous month">‹</button>'
     + '<strong style="min-width:130px;text-align:center">'+first.toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</strong>'
     + '<button class="btn btn-s" onclick="moveMonth(1)" aria-label="Next month">›</button></div>'
-    + '<p class="muted" style="margin:0 0 10px;font-size:13.5px">Your dates are shown by name; anything else already booked shows as "Booked." Tap open days to pick dates you\'d like to add, then send the request.</p>'
+    + '<p class="muted" style="margin:0 0 10px;font-size:13.5px">Your dates are shown by name; anything else already booked shows as "Booked." Tap any day to see every booking and time, and to add it to a request.</p>'
     + (ALL ? '<div class="legend">'+spaces.map(function(sp){ var t = roomTag[sp.id]; return '<span><i style="background:'+t.color+'"></i>'+esc(t.short)+' = '+esc(sp.name)+'</span>' }).join('')+'</div>' : '')
     + '<div class="cal">' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(d){ return '<div class="dow">'+d+'</div>' }).join('')
   for(var i=0;i<startDow;i++) h += '<div class="day out"></div>'
@@ -188,7 +195,7 @@ function calendarHTML(){
     var ds = y+'-'+String(mo+1).padStart(2,'0')+'-'+String(dd).padStart(2,'0')
     var items = by[ds] || []
     var past = ds < today, sel = PICKED.some(function(p){ return p.date===ds })
-    h += '<div class="day'+(past?' past':'')+(sel?' sel':'')+'" '+(past?'':'onclick="toggleDay(\''+ds+'\')" role="button" tabindex="0" onkeydown="if(event.key===\'Enter\')toggleDay(\''+ds+'\')"')+' aria-label="'+ds+(items.length?' '+items.length+' booked':'')+'">'
+    h += '<div class="day'+(past?' past':'')+(sel?' sel':'')+(DAY_OPEN===ds?' open':'')+'" onclick="openDay(\''+ds+'\')" role="button" tabindex="0" onkeydown="if(event.key===\'Enter\')openDay(\''+ds+'\')" aria-label="'+ds+(items.length?' '+items.length+' booked':'')+'">'
       + '<div class="n">'+dd+'</div>'
       + items.slice(0,ALL?4:3).map(function(c){
           var t = roomTag[c.space_id]
@@ -196,7 +203,7 @@ function calendarHTML(){
           return '<div class="blk '+(c.mine?'mine':'other')+'" title="'+esc((t&&ALL?t.name+': ':'')+c.title+' '+t12(c.start)+(c.end?'–'+t12(c.end):''))+'">'+tag+(c.start?t12(c.start)+' ':'')+esc(c.title)+'</div>' }).join('')
       + (items.length>(ALL?4:3)?'<div class="muted">+'+(items.length-(ALL?4:3))+' more</div>':'') + '</div>'
   }
-  h += '</div></div>'
+  h += '</div>' + dayPanelHTML(spaces, roomTag, today) + '</div>'
   h += '<div class="card"><h2>Request more dates</h2>' + (PICKED.length
       ? '<div class="dates">'+PICKED.map(function(p,i){ var busy = (by[p.date]||[]).length; return '<span class="dchip">'+esc(fdate(p.date))+(busy?' ⚠︎':'')+'<button aria-label="Remove" onclick="PICKED.splice('+i+',1);render()">✕</button></span>' }).join('')+'</div>'
         + (PICKED.some(function(p){ return (by[p.date]||[]).length }) ? '<div class="muted" style="font-size:13px">⚠︎ Something is already booked that day. It may still work at a different time; we\'ll let you know.</div>' : '')
@@ -204,7 +211,31 @@ function calendarHTML(){
       : '<div class="muted">Tap open days on the calendar to pick them.</div>') + '</div>'
   return h
 }
-function moveMonth(n){ CAL_MONTH = new Date(CAL_MONTH.getFullYear(), CAL_MONTH.getMonth()+n, 1); render() }
+function moveMonth(n){ CAL_MONTH = new Date(CAL_MONTH.getFullYear(), CAL_MONTH.getMonth()+n, 1); DAY_OPEN = null; render() }
+function openDay(ds){ DAY_OPEN = DAY_OPEN === ds ? null : ds; render()
+  setTimeout(function(){ var el = document.getElementById('day-panel'); if(el && el.scrollIntoView) el.scrollIntoView({behavior:'smooth', block:'nearest'}) }, 30) }
+// The expanded day: every booking that day in each room (or the chosen
+// room), with full times, plus a button to add/remove it from a request.
+function dayPanelHTML(spaces, roomTag, today){
+  if(!DAY_OPEN) return ''
+  var ds = DAY_OPEN, ALL = CAL_SPACE === '__all'
+  var rooms = ALL || !CAL_SPACE ? spaces : spaces.filter(function(sp){ return sp.id === CAL_SPACE })
+  var dayItems = (D.calendar||[]).filter(function(c){ return c.date === ds })
+  var picked = PICKED.some(function(p){ return p.date===ds })
+  var h = '<div class="dayp" id="day-panel"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h3 style="flex:1">'+esc(fdate(ds))+'</h3>'
+    + (ds >= today ? '<button class="btn '+(picked?'btn-s':'btn-p')+'" onclick="toggleDay(\''+ds+'\')">'+(picked?'Remove from my request':'Add this day to my request')+'</button>' : '<span class="muted" style="font-size:13px">This day has passed</span>')
+    + '<button class="btn btn-s" onclick="DAY_OPEN=null;render()" aria-label="Close">✕</button></div>'
+  rooms.forEach(function(sp){
+    var items = dayItems.filter(function(c){ return c.space_id === sp.id }).sort(function(a,b){ return (a.start||'')<(b.start||'')?-1:1 })
+    var t = roomTag[sp.id] || {}
+    h += '<div style="margin-top:10px"><div style="font-size:13px;font-weight:800;margin-bottom:2px">'+(rooms.length>1?'<span class="rm" style="display:inline-block;padding:0 5px;border-radius:3px;color:#fff;font-size:10.5px;background:'+(t.color||'#16728b')+';margin-right:6px">'+esc(t.short||'')+'</span>':'')+esc(sp.name)+'</div>'
+      + (items.length ? items.map(function(c){
+          return '<div class="slot"><span class="tm">'+(c.start ? t12(c.start)+(c.end?' – '+t12(c.end):'') : 'All day')+'</span><span'+(c.mine?' style="color:var(--brand-dark);font-weight:700"':' class="muted"')+'>'+esc(c.title)+(c.mine?' (you)':'')+'</span></div>' }).join('')
+        : '<div class="slot"><span class="free">Open all day</span></div>')
+      + '</div>'
+  })
+  return h + '</div>'
+}
 function toggleDay(ds){
   var i = PICKED.findIndex(function(p){ return p.date===ds })
   if(i >= 0) PICKED.splice(i,1); else PICKED.push({date: ds})

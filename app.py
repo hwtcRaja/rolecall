@@ -2364,6 +2364,20 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS desired_frequency TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ALTER COLUMN start_date DROP NOT NULL",
         "ALTER TABLE rental_partners ADD COLUMN IF NOT EXISTS organization_website TEXT DEFAULT ''",
+        "ALTER TABLE rental_partners ADD COLUMN IF NOT EXISTS portal_token TEXT",
+        "CREATE UNIQUE INDEX IF NOT EXISTS ux_rental_partners_portal_token ON rental_partners(portal_token) WHERE portal_token IS NOT NULL",
+        """CREATE TABLE IF NOT EXISTS rental_change_requests (
+            id TEXT PRIMARY KEY,
+            partner_id TEXT NOT NULL REFERENCES rental_partners(id) ON DELETE CASCADE,
+            request_id TEXT REFERENCES rental_requests(id) ON DELETE CASCADE,
+            kind TEXT DEFAULT 'other',
+            details TEXT DEFAULT '',
+            dates_json TEXT DEFAULT '[]',
+            status TEXT DEFAULT 'pending',
+            staff_reply TEXT DEFAULT '',
+            resolved_by TEXT,
+            resolved_at TIMESTAMP,
+            created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS kiosk_signin_mode TEXT DEFAULT 'auto'",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS rsvp_kind TEXT DEFAULT 'volunteer'",
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS hide_block_names BOOLEAN DEFAULT false",
@@ -35972,6 +35986,338 @@ def _rental_portal_thread_html(msgs):
             f'<div style="font-size:10.5px;opacity:0.75;margin-bottom:3px">{who} · {when}</div><div>{body}</div></div></div>'
         )
     return ''.join(rows)
+
+# ── Partner portal: one place for an approved Artistic Partner ────────────
+# /partner/<token> (private link per partner, emailed by staff; /partner
+# lets a partner contact request their link by email). Shows their
+# agreements, the space calendar (their dates by name, everyone else's as
+# "Booked"), their invoices with Pay buttons, and lets them ask to add
+# dates or change an invoice. Requests land in the partnership's message
+# thread and a staff queue; approving added dates puts them on the schedule.
+def _partner_by_token(conn, token):
+    if not token:
+        return None
+    return fetchone(conn, "SELECT * FROM rental_partners WHERE portal_token=%s AND COALESCE(status,'active') <> 'archived'", (token,))
+
+
+def ensure_partner_portal_token(conn, pid):
+    r = fetchone(conn, 'SELECT portal_token FROM rental_partners WHERE id=%s', (pid,)) or {}
+    if r.get('portal_token'):
+        return r['portal_token']
+    tok = secrets.token_urlsafe(18)
+    execute(conn, 'UPDATE rental_partners SET portal_token=%s WHERE id=%s', (tok, pid))
+    conn.commit()
+    return tok
+
+
+def _rental_staff_emails(conn):
+    es = fetchone(conn, 'SELECT rental_approver_emails, rental_approval_levels FROM email_settings WHERE id=1') or {}
+    out = []
+    try:
+        levels = json.loads(es.get('rental_approval_levels') or '[]')
+        if levels and levels[0].get('emails'):
+            out = [e.strip() for e in levels[0]['emails'].replace(',', '\n').splitlines() if e.strip()]
+    except Exception:
+        pass
+    if not out:
+        out = [e.strip() for e in (es.get('rental_approver_emails') or '').replace(',', '\n').splitlines() if e.strip()]
+    return out
+
+
+def _payment_state(p):
+    st = (p.get('square_invoice_status') or '').upper()
+    if p.get('paid_at') or st == 'PAID':
+        return 'paid'
+    if st in ('CANCELED', 'CANCELLED'):
+        return 'cancelled'
+    if p.get('due_date') and str(p['due_date'])[:10] < today_eastern().isoformat():
+        return 'overdue'
+    if p.get('sent_at') or p.get('public_url'):
+        return 'due'
+    return 'upcoming'
+
+
+@app.route('/partner')
+@app.route('/partner/<token>')
+def partner_portal_page(token=None):
+    resp = send_from_directory('static', 'partner-portal.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/public/partner/request-link', methods=['POST'])
+def partner_portal_request_link():
+    """Email the portal link to a partner contact. Same reply whether or
+    not the email matches, so it can't be used to find out who partners."""
+    email = ((request.json or {}).get('email') or '').strip().lower()
+    if '@' in email:
+        conn = get_db()
+        try:
+            for p in fetchall(conn, '''SELECT id, name, contact_name, contact_email FROM rental_partners
+                    WHERE LOWER(TRIM(contact_email))=%s AND COALESCE(status,'active') <> 'archived' ''', (email,)) or []:
+                tok = ensure_partner_portal_token(conn, p['id'])
+                link = APP_BASE_URL.rstrip('/') + '/partner/' + tok
+                send_email([email], 'Your Horizon West Theater Company partner portal',
+                           build_hwtc_email_html('Your partner portal',
+                               '<p>Hi ' + _h((p.get('contact_name') or '').split(' ')[0] or 'there') + ',</p>'
+                               '<p>Here\'s your private link to the <strong>' + _h(p['name']) + '</strong> partner portal: your agreement, '
+                               'the studio calendar, invoices, and requests for more dates.</p>'
+                               '<p style="text-align:center"><a href="' + link + '" style="display:inline-block;background:#16728b;color:#fff;'
+                               'text-decoration:none;font-weight:700;padding:12px 24px;border-radius:10px">Open your partner portal</a></p>'
+                               '<p style="font-size:13px;color:#5f6b72">Bookmark it. Please don\'t share it outside your organization.</p>'),
+                           source='partner_portal_link')
+        finally:
+            conn.close()
+    return jsonify({'ok': True, 'message': 'If that email belongs to one of our partners, a link is on its way.'})
+
+
+@app.route('/api/public/partner/<token>', methods=['GET'])
+def partner_portal_data(token):
+    import datetime as _dt
+    conn = get_db()
+    try:
+        p = _partner_by_token(conn, token)
+        if not p:
+            return jsonify({'error': 'This partner link isn\'t valid anymore. Ask us for a new one.'}), 404
+        reqs = fetchall(conn, '''SELECT rr.id, rr.title, rr.status, rr.start_date, rr.end_date, rr.start_time, rr.end_time, rr.space_id,
+                rr.portal_token, rr.billing_frequency, rs.name AS space_name
+            FROM rental_requests rr LEFT JOIN rental_spaces rs ON rs.id=rr.space_id
+            WHERE rr.partner_id=%s AND rr.status NOT IN ('denied') ORDER BY rr.start_date DESC''', (p['id'],)) or []
+        req_ids = [r['id'] for r in reqs]
+        agreements = fetchall(conn, '''SELECT ra.id, ra.request_id, ra.status, ra.partner_signed_at, ra.hwtc_signed_at, ra.sent_at, ra.signing_token
+            FROM rental_agreements ra WHERE ra.request_id = ANY(%s) ORDER BY ra.created_at DESC''', (req_ids,)) or [] if req_ids else []
+        agr_by_req = {}
+        for a in agreements:
+            agr_by_req.setdefault(a['request_id'], a)
+        pays = fetchall(conn, '''SELECT rp.*, ra.request_id FROM rental_payments rp JOIN rental_agreements ra ON ra.id=rp.agreement_id
+            WHERE ra.request_id = ANY(%s) ORDER BY COALESCE(NULLIF(rp.due_date,''),'9999'), rp.created_at''', (req_ids,)) or [] if req_ids else []
+        titles = {r['id']: r['title'] for r in reqs}
+        invoices = []
+        for x in pays:
+            stt = _payment_state(x)
+            invoices.append({'id': x['id'], 'title': titles.get(x['request_id'], ''), 'label': x.get('installment_label') or (x.get('payment_type') or '').replace('_', ' ').title(),
+                             'amount_cents': x['amount_cents'], 'due_date': x.get('due_date') or '', 'state': stt,
+                             'pay_url': x.get('public_url') if stt in ('due', 'overdue') else '', 'paid_at': str(x.get('paid_at') or '')[:10]})
+        # calendar: next 6 months for the spaces they use (or all spaces)
+        start = today_eastern() - _dt.timedelta(days=7)
+        end = today_eastern() + _dt.timedelta(days=190)
+        spaces = fetchall(conn, "SELECT id, name FROM rental_spaces WHERE COALESCE(active,TRUE)=TRUE ORDER BY sort_order, name") or []
+        occ = fetchall(conn, '''SELECT o.occurrence_date, o.start_time, o.end_time, o.status, rr.id AS request_id, rr.title, rr.partner_id, rr.space_id
+            FROM rental_occurrences o JOIN rental_requests rr ON rr.id=o.request_id
+            WHERE o.occurrence_date BETWEEN %s AND %s AND COALESCE(o.status,'scheduled') NOT IN ('cancelled')
+              AND rr.status IN ('approved','signed','active','completed')
+            ORDER BY o.occurrence_date, o.start_time''', (start.isoformat(), end.isoformat())) or []
+        cal = []
+        for o in occ:
+            mine = o['partner_id'] == p['id']
+            cal.append({'date': str(o['occurrence_date'])[:10], 'start': o.get('start_time') or '', 'end': o.get('end_time') or '',
+                        'space_id': o.get('space_id'), 'mine': mine, 'title': o['title'] if mine else 'Booked'})
+        # HWTC's own events in those rooms (matched on the room name)
+        for sp in spaces:
+            for ev in fetchall(conn, '''SELECT event_date, start_time, end_time FROM events WHERE event_date BETWEEN %s AND %s
+                    AND (COALESCE(room,'') ILIKE %s OR COALESCE(location,'') ILIKE %s)
+                    AND rental_occurrence_id IS NULL AND rental_request_id IS NULL
+                    AND COALESCE(status,'') NOT IN ('cancelled')''',
+                    (start.isoformat(), end.isoformat(), '%' + sp['name'] + '%', '%' + sp['name'] + '%')) or []:
+                cal.append({'date': str(ev['event_date'])[:10], 'start': ev.get('start_time') or '', 'end': ev.get('end_time') or '',
+                            'space_id': sp['id'], 'mine': False, 'title': 'Booked'})
+        cal.sort(key=lambda c: (c['date'], c['start']))
+        changes = fetchall(conn, '''SELECT id, request_id, kind, details, dates_json, status, staff_reply, created_at
+            FROM rental_change_requests WHERE partner_id=%s ORDER BY created_at DESC LIMIT 30''', (p['id'],)) or []
+        for c in changes:
+            c['created_at'] = str(c['created_at'])[:10]
+            try: c['dates'] = json.loads(c.pop('dates_json') or '[]')
+            except Exception: c['dates'] = []
+        outstanding = sum(i['amount_cents'] for i in invoices if i['state'] in ('due', 'overdue'))
+        return jsonify({
+            'partner': {'name': p['name'], 'contact_name': p.get('contact_name'), 'contact_email': p.get('contact_email')},
+            'partnerships': [{'id': r['id'], 'title': r['title'], 'status': r['status'], 'start_date': r['start_date'], 'end_date': r.get('end_date') or '',
+                              'start_time': r.get('start_time') or '', 'end_time': r.get('end_time') or '', 'space': r.get('space_name') or '',
+                              'space_id': r.get('space_id'),
+                              'agreement': ({'id': agr_by_req[r['id']]['id'], 'status': agr_by_req[r['id']]['status'],
+                                             'signed': bool(agr_by_req[r['id']].get('partner_signed_at')),
+                                             'sign_url': (APP_BASE_URL.rstrip('/') + '/rent/sign/' + agr_by_req[r['id']]['signing_token'])
+                                                         if (agr_by_req[r['id']].get('signing_token') and not agr_by_req[r['id']].get('partner_signed_at')
+                                                             and agr_by_req[r['id']].get('sent_at')) else ''}
+                                            if r['id'] in agr_by_req else None),
+                              'messages_url': (APP_BASE_URL.rstrip('/') + '/rent/manage/' + r['portal_token']) if r.get('portal_token') else ''}
+                             for r in reqs],
+            'invoices': invoices, 'outstanding_cents': outstanding,
+            'spaces': spaces, 'calendar': cal, 'changes': changes})
+    finally:
+        conn.close()
+
+
+@app.route('/partner/<token>/agreement/<aid>')
+def partner_portal_agreement(token, aid):
+    """Read-only copy of their agreement, with signatures."""
+    conn = get_db()
+    try:
+        p = _partner_by_token(conn, token)
+        a = fetchone(conn, '''SELECT ra.*, rr.title, rr.partner_id FROM rental_agreements ra JOIN rental_requests rr ON rr.id=ra.request_id
+            WHERE ra.id=%s''', (aid,)) if p else None
+        if not p or not a or a['partner_id'] != p['id']:
+            return 'Not found', 404
+    finally:
+        conn.close()
+    sig = ''
+    if a.get('partner_signed_at'):
+        sig += '<p><strong>Signed by ' + _h(a.get('partner_signed_name') or p['name']) + '</strong> on ' + _h(str(a['partner_signed_at'])[:10]) + '</p>'
+    if a.get('hwtc_signed_at'):
+        sig += '<p><strong>Signed for HWTC by ' + _h(a.get('hwtc_signed_name') or '') + (', ' + _h(a['hwtc_signed_title']) if a.get('hwtc_signed_title') else '') + '</strong> on ' + _h(str(a['hwtc_signed_at'])[:10]) + '</p>'
+    html = ('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">'
+            '<title>Agreement · ' + _h(a.get('title') or '') + '</title><style>body{font-family:Georgia,serif;font-size:14px;color:#1a2332;margin:0;background:#f4f7f8}'
+            '.w{max-width:860px;margin:0 auto;background:#fff;padding:36px;box-shadow:0 2px 20px rgba(0,0,0,.08)}.bar{max-width:860px;margin:0 auto;padding:12px 0;font-family:sans-serif}'
+            '@media print{.bar{display:none}body{background:#fff}.w{box-shadow:none}}</style></head><body>'
+            '<div class="bar"><a href="/partner/' + _h(token) + '">← Back to your portal</a> &nbsp;·&nbsp; <a href="#" onclick="print();return false">Print / save as PDF</a></div>'
+            '<div class="w">' + (a.get('contract_html') or '<p>This agreement hasn\'t been written yet.</p>') + '<hr>' + (sig or '<p><em>Not signed yet.</em></p>') + '</div></body></html>')
+    return app.response_class(html, mimetype='text/html')
+
+
+@app.route('/api/public/partner/<token>/change-request', methods=['POST'])
+def partner_portal_change_request(token):
+    """Partner asks to add dates, change an invoice, or something else."""
+    d = request.json or {}
+    kind = d.get('kind') if d.get('kind') in ('add_dates', 'invoice', 'other') else 'other'
+    conn = get_db()
+    try:
+        p = _partner_by_token(conn, token)
+        if not p:
+            return jsonify({'error': 'This partner link isn\'t valid anymore.'}), 404
+        req = fetchone(conn, 'SELECT id, title FROM rental_requests WHERE id=%s AND partner_id=%s', (d.get('request_id'), p['id']))
+        if not req:
+            return jsonify({'error': 'Pick which partnership this is about.'}), 400
+        dates = []
+        for x in (d.get('dates') or [])[:60]:
+            dt = (x.get('date') or '')[:10]
+            if len(dt) == 10:
+                dates.append({'date': dt, 'start': (x.get('start') or '')[:5], 'end': (x.get('end') or '')[:5]})
+        details = (d.get('details') or '').strip()[:3000]
+        if kind == 'add_dates' and not dates:
+            return jsonify({'error': 'Add at least one date.'}), 400
+        if not dates and not details:
+            return jsonify({'error': 'Tell us what you\'d like to change.'}), 400
+        cid = uuid.uuid4().hex
+        execute(conn, '''INSERT INTO rental_change_requests (id, partner_id, request_id, kind, details, dates_json)
+            VALUES (%s,%s,%s,%s,%s,%s)''', (cid, p['id'], req['id'], kind, details, json.dumps(dates)))
+        label = {'add_dates': 'Request to add dates', 'invoice': 'Invoice change request', 'other': 'Change request'}[kind]
+        lines = ''.join('<li>' + _h(x['date']) + ((' ' + _h(x['start']) + (' – ' + _h(x['end']) if x['end'] else '')) if x['start'] else '') + '</li>' for x in dates)
+        body_html = '<p><strong>' + label + '</strong> (from the partner portal)</p>' + ('<ul>' + lines + '</ul>' if lines else '') + ('<p>' + _h(details).replace('\n', '<br>') + '</p>' if details else '')
+        execute(conn, '''INSERT INTO rental_messages (id, request_id, direction, from_email, from_name, subject, body_html, body_text)
+            VALUES (%s,%s,'inbound',%s,%s,%s,%s,%s)''', (uuid.uuid4().hex, req['id'], p.get('contact_email') or '', p.get('contact_name') or p['name'],
+            label + ': ' + (req.get('title') or ''), body_html, label + '\n' + '\n'.join(x['date'] + ' ' + x['start'] + '-' + x['end'] for x in dates) + '\n' + details))
+        conn.commit()
+        for addr in _rental_staff_emails(conn):
+            try:
+                send_email(addr, label + ': ' + p['name'], build_hwtc_email_html(label + ': ' + p['name'],
+                           '<p><strong>' + _h(p['name']) + '</strong> sent a ' + label.lower() + ' for "' + _h(req.get('title') or '') + '".</p>' + body_html
+                           + '<p>Review it in RoleCall → Artistic Partnership → Partner requests.</p>'), source='partner_change_request')
+            except Exception:
+                pass
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+# staff side
+@app.route('/api/rental/partners/<pid>/portal-link', methods=['GET', 'POST'])
+def staff_partner_portal_link(pid):
+    """GET: the partner's portal link. POST {action:'email'|'new'}: email it
+    to the partner contact, or replace it (the old link stops working)."""
+    err = require_permission('rentals', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        p = fetchone(conn, 'SELECT * FROM rental_partners WHERE id=%s', (pid,))
+        if not p:
+            return jsonify({'error': 'Partner not found'}), 404
+        action = (request.json or {}).get('action') if request.method == 'POST' else None
+        if action == 'new':
+            execute(conn, 'UPDATE rental_partners SET portal_token=NULL WHERE id=%s', (pid,)); conn.commit()
+        tok = ensure_partner_portal_token(conn, pid)
+        link = APP_BASE_URL.rstrip('/') + '/partner/' + tok
+        if action == 'email':
+            if not p.get('contact_email'):
+                return jsonify({'error': 'This partner has no contact email.'}), 400
+            send_email([p['contact_email']], 'Your Horizon West Theater Company partner portal',
+                       build_hwtc_email_html('Your partner portal',
+                           '<p>Hi ' + _h((p.get('contact_name') or '').split(' ')[0] or 'there') + ',</p>'
+                           '<p>You now have a partner portal for <strong>' + _h(p['name']) + '</strong>. It\'s one place to see your agreement, '
+                           'check what\'s booked on the studio calendar, ask to add dates, and view and pay your invoices.</p>'
+                           '<p style="text-align:center"><a href="' + link + '" style="display:inline-block;background:#16728b;color:#fff;'
+                           'text-decoration:none;font-weight:700;padding:12px 24px;border-radius:10px">Open your partner portal</a></p>'
+                           '<p style="font-size:13px;color:#5f6b72">Bookmark this link and keep it within your organization. '
+                           'If you lose it, you can get it again at ' + APP_BASE_URL.rstrip('/') + '/partner.</p>'),
+                       source='partner_portal_link')
+        return jsonify({'ok': True, 'url': link, 'emailed': action == 'email'})
+    finally:
+        conn.close()
+
+
+@app.route('/api/rental/change-requests', methods=['GET'])
+def staff_rental_change_requests():
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT c.*, p.name AS partner_name, rr.title, rr.space_id, rr.start_time, rr.end_time
+            FROM rental_change_requests c JOIN rental_partners p ON p.id=c.partner_id
+            LEFT JOIN rental_requests rr ON rr.id=c.request_id
+            ORDER BY (c.status='pending') DESC, c.created_at DESC LIMIT 100''') or []
+        for c in rows:
+            c['created_at'] = str(c['created_at'])[:16]
+            try: c['dates'] = json.loads(c.pop('dates_json') or '[]')
+            except Exception: c['dates'] = []
+            # flag dates that clash with something already booked in that room
+            for x in c['dates']:
+                x['conflict'] = bool(fetchone(conn, '''SELECT 1 AS y FROM rental_occurrences o JOIN rental_requests r ON r.id=o.request_id
+                    WHERE o.occurrence_date=%s AND r.space_id=%s AND r.id<>%s AND COALESCE(o.status,'scheduled')<>'cancelled'
+                      AND r.status IN ('approved','signed','active','completed')''', (x['date'], c.get('space_id'), c['request_id']))) if c.get('space_id') else False
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+@app.route('/api/rental/change-requests/<cid>', methods=['POST'])
+def staff_resolve_change_request(cid):
+    """action 'approve' (adds any requested dates to the schedule) or
+    'decline', with an optional reply that's emailed to the partner."""
+    err = require_permission('rentals', 'edit')
+    if err: return err
+    d = request.json or {}
+    action = d.get('action')
+    conn = get_db()
+    try:
+        c = fetchone(conn, 'SELECT * FROM rental_change_requests WHERE id=%s', (cid,))
+        if not c:
+            return jsonify({'error': 'Not found'}), 404
+        req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (c['request_id'],)) or {}
+        p = fetchone(conn, 'SELECT * FROM rental_partners WHERE id=%s', (c['partner_id'],)) or {}
+        added = 0
+        if action == 'approve':
+            for x in json.loads(c.get('dates_json') or '[]'):
+                if not fetchone(conn, 'SELECT 1 AS y FROM rental_occurrences WHERE request_id=%s AND occurrence_date=%s', (c['request_id'], x['date'])):
+                    execute(conn, '''INSERT INTO rental_occurrences (id, request_id, occurrence_date, start_time, end_time, status, notes)
+                        VALUES (%s,%s,%s,%s,%s,'scheduled','Added from partner portal request')''',
+                        (str(uuid.uuid4()), c['request_id'], x['date'], x.get('start') or req.get('start_time') or '', x.get('end') or req.get('end_time') or ''))
+                    added += 1
+        reply = (d.get('reply') or '').strip()[:3000]
+        execute(conn, '''UPDATE rental_change_requests SET status=%s, staff_reply=%s, resolved_by=%s, resolved_at=NOW() WHERE id=%s''',
+                ('approved' if action == 'approve' else 'declined', reply, session.get('name') or session.get('email') or '', cid))
+        conn.commit()
+        if p.get('contact_email'):
+            msg = ('<p>Your request for <strong>' + _h(req.get('title') or '') + '</strong> was <strong>' + ('approved' if action == 'approve' else 'not approved') + '</strong>.'
+                   + (' ' + str(added) + ' date' + ('' if added == 1 else 's') + ' added to your schedule.' if added else '') + '</p>'
+                   + ('<p>' + _h(reply).replace('\n', '<br>') + '</p>' if reply else '')
+                   + ('<p><a href="' + APP_BASE_URL.rstrip('/') + '/partner/' + p['portal_token'] + '">Open your partner portal</a></p>' if p.get('portal_token') else ''))
+            try:
+                send_email([p['contact_email']], 'Update on your request: ' + (req.get('title') or ''), build_hwtc_email_html('Update on your request', msg), source='partner_change_reply')
+            except Exception:
+                pass
+        return jsonify({'ok': True, 'dates_added': added})
+    finally:
+        conn.close()
+
 
 @app.route('/rent/manage/<token>', methods=['GET'])
 def rental_portal_page(token):

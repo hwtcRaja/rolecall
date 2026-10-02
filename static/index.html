@@ -28233,6 +28233,14 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
             : '<div style="padding:10px 12px;background:#fef3c7;border:1.5px solid #fde68a;border-radius:8px;margin-bottom:10px;font-size:12.5px;color:#92400e">No session currently booked.</div>')
           + '<label style="font-size:11px;font-weight:700;color:var(--text-muted);display:block;margin-bottom:4px">Move to a different session</label>'
           + '<select id="er-session-select" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'+optionsHtml+'</select>'
+          + '<details style="margin-top:10px"><summary style="font-size:12px;font-weight:700;color:var(--teal-dark);cursor:pointer">+ Add another date for them</summary>'
+          + '<div style="padding:8px 0 2px;font-size:12px;color:var(--text-muted)">Books them into a second session as its own registration (same person and contact info). Use this if they paid for more than one lesson but only one date was recorded.</div>'
+          + '<select id="er-add-session" style="width:100%;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;margin-bottom:6px">'
+          + '<option value="">Pick a session…</option>' + sorted.filter(function(s){ return s.id !== currentId }).map(function(s){
+              var full = s.capacity && (s.enrolled_count||0) >= s.capacity
+              return '<option value="'+s.id+'" '+(full?'disabled':'')+'>'+escHtml(sessLabel(s)+(full?' (Full)':''))+'</option>' }).join('') + '</select>'
+          + '<label style="display:flex;gap:6px;align-items:center;font-size:12px;margin:2px 0 8px;cursor:pointer"><input type="checkbox" id="er-add-split" checked style="width:auto"/> They already paid for both: split what they paid between the two dates</label>'
+          + '<button type="button" class="btn btn-secondary btn-sm" style="width:100%" onclick="addRegistrationSession(\''+rid+'\', this, \''+(progId||'')+'\')">Add this date</button></details>'
       } else {
         listEl.innerHTML = sessions.map(function(s){
           var checked = savedSids2.indexOf(s.id) !== -1
@@ -36934,6 +36942,17 @@ function _refreshTicketOrderViews(){
   closeAdHocModal('order-detail-modal')
   if(document.getElementById('mq-boxoffice-search') && typeof renderMarqueeBoxOfficeOrders === 'function') renderMarqueeBoxOfficeOrders()
   Object.keys(_ticketOrdersOpen||{}).forEach(function(pid){ if(_ticketOrdersOpen[pid] && typeof searchTicketOrders === 'function') searchTicketOrders(pid) })
+}
+async function addRegistrationSession(rid, btn, pid){
+  var sid = (document.getElementById('er-add-session')||{}).value
+  if(!sid){ toast('Pick a session to add','error'); return }
+  var res = await api('/api/registrations/'+rid+'/add-session','POST',{session_id: sid, split_payment: !!(document.getElementById('er-add-split')||{}).checked})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Added as its own registration','success')
+  var el = btn
+  while(el && el.parentElement && el.parentElement !== document.body) el = el.parentElement
+  if(el && el.parentElement === document.body) el.remove()
+  if(pid) loadProgramRegistrations(pid)
 }
 async function splitRegistrationSessions(rid, n, btn, pid){
   if(!confirm('Split this into '+n+' separate registrations, one per date?')) return

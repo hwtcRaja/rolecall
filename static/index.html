@@ -35587,6 +35587,13 @@ async function saveShowSalesGoal(){
   toast(v ? 'Goal saved' : 'Goal cleared','success'); renderShowSalesCard()
 }
 
+async function syncTicketFees(btn){
+  btn.disabled = true; btn.textContent = 'Checking Square…'
+  var res = await api('/api/marquee/ticket-fees/sync','POST',{})
+  if(res.error){ toast(res.error,'error'); btn.disabled = false; btn.textContent = 'Refresh fees from Square'; return }
+  toast('Updated fees for '+res.checkouts_updated+' checkout'+(res.checkouts_updated===1?'':'s')+(res.still_waiting?' · '+res.still_waiting+' still waiting on Square':''),'success')
+  renderMarqueeBoxOffice(document.getElementById('marquee-tab-boxoffice'))
+}
 async function renderMarqueeBoxOffice(el){
   var data = await api('/api/marquee/box-office')
   if(!data || data.error){ el.innerHTML = '<div class="card" style="padding:30px;text-align:center;color:var(--text-muted)">Could not load box office data.</div>'; return }
@@ -35599,7 +35606,11 @@ async function renderMarqueeBoxOffice(el){
     + '<div style="background:#e0f2fe;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#145466">'+(data.tickets_sold||0)+'</div><div style="font-size:11px;font-weight:600;color:#145466;margin-top:2px">Tickets Sold</div></div>'
     + '<div style="background:#fffbeb;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#92400e">'+fmtMoney(data.fee_revenue)+'</div><div style="font-size:11px;font-weight:600;color:#92400e;margin-top:2px">Service Fees Collected</div></div>'
     + '<div style="background:#ede9fe;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#6d28d9">'+(data.upcoming_performances||0)+'</div><div style="font-size:11px;font-weight:600;color:#6d28d9;margin-top:2px">Upcoming Performances</div></div>'
+    + '<div style="background:#fef2f2;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#991b1b">− '+fmtMoney(data.square_fees)+'</div><div style="font-size:11px;font-weight:600;color:#991b1b;margin-top:2px">Square Fees'+(data.fees_pending?' <span style="font-weight:500">('+data.fees_pending+' pending)</span>':'')+'</div></div>'
+    + '<div style="background:#0f5566;border-radius:12px;padding:14px 16px"><div style="font-size:20px;font-weight:800;color:#fff">'+fmtMoney(data.net_revenue)+'</div><div style="font-size:11px;font-weight:600;color:#cdeef5;margin-top:2px">Net to HWTC</div></div>'
     + '</div>'
+  html += '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px;color:var(--text-muted);margin:2px 0 8px"><span><strong>Net to HWTC</strong> = tickets + service fees + donations at checkout − Square\'s processing fees (pulled from Square for each payment). Test orders aren\'t included.'+(data.fees_pending?' Fees for '+data.fees_pending+' order'+(data.fees_pending===1?'':'s')+' haven\'t come in from Square yet, so net is a little high until they do.':'')+'</span>'
+    + '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="syncTicketFees(this)">Refresh fees from Square</button></div>'
   html += '<div style="font-size:11px;color:var(--text-hint);margin:-2px 0 20px">Ticket sales — audience tickets to watch a show. This is separate from any production\'s registration revenue on the main Dashboard (e.g. Rising Stars cast fees), which is a different thing people are paying for.</div>'
 
   var shows = data.shows || []
@@ -35613,6 +35624,7 @@ async function renderMarqueeBoxOffice(el){
             + '<div style="display:flex;align-items:center;gap:10px">'
             + '<span style="font-weight:700;font-size:13.5px">'+fmtMoney(s.revenue)+'</span>'
             + (s.donations ? '<span style="font-size:12px;font-weight:700;color:#9d174d" title="Donations added at checkout with this show\'s tickets">+ '+fmtMoney(s.donations)+' donated</span>' : '')
+            + (s.square_fees ? '<span style="font-size:12px;color:#991b1b" title="Square processing fees">− '+fmtMoney(s.square_fees)+' fees</span><span style="font-size:12px;font-weight:800;color:#0f5566" title="Tickets + service fees + donations − Square fees">= '+fmtMoney(s.net)+' net</span>' : '')
             + '<button class="btn btn-secondary btn-sm" onclick="_mqBoxOfficeProdFilter=\''+s.id+'\';renderMarqueeBoxOfficeOrders()">View Orders</button>'
             + '</div></div>'
         }).join('')

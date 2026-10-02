@@ -28202,7 +28202,19 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
         var timeStr = s.start_time ? fmtErTime(s.start_time)+(s.end_time?' – '+fmtErTime(s.end_time):'') : ''
         return (dateStr+timeStr) || s.name
       }
-      if(prog.booking_mode){
+      if(prog.booking_mode && savedSids2.length > 1){
+        // Booked several slots in one go (from before registrations were
+        // split automatically). Show every date and offer to split them
+        // into one registration each so each can be moved or cancelled.
+        var booked = savedSids2.map(function(id){ return sessions.find(function(s){ return s.id===id }) }).filter(Boolean)
+          .sort(function(a,b){ var ak=(a.start_date||'')+(a.start_time||''), bk=(b.start_date||'')+(b.start_time||''); return ak<bk?-1:ak>bk?1:0 })
+        listEl.innerHTML = '<div style="padding:10px 12px;background:#eff6ff;border:1.5px solid #bfdbfe;border-radius:8px;margin-bottom:8px;font-size:12.5px;color:#1e3a8a">'
+          + '<div style="font-weight:700;margin-bottom:4px">'+booked.length+' sessions booked together</div>'
+          + booked.map(function(s){ return '<div>• '+escHtml(sessLabel(s))+'</div>' }).join('')
+          + '</div>'
+          + '<button type="button" class="btn btn-secondary btn-sm" style="width:100%" onclick="splitRegistrationSessions(\''+rid+'\', '+booked.length+', this, \''+(progId||'')+'\')">Split into '+booked.length+' separate registrations (one per date)</button>'
+          + '<div style="font-size:11px;color:var(--text-muted);margin-top:4px">Same person and payment; the amount paid is divided between the dates. After splitting, each one can be moved to a different slot or cancelled on its own.</div>'
+      } else if(prog.booking_mode){
         // Booking mode = one slot per registration — a giant checkbox list
         // of every open slot doesn't make sense here. Show what's booked
         // now, plus a dropdown to move them to a different open slot.
@@ -28240,6 +28252,8 @@ function openEditRegistrationModal(pid, rid, regs, saveEndpoint){
     if(prog && prog.booking_mode){
       var sel = document.getElementById('er-session-select')
       if(sel && sel.value) sessionIds = [sel.value]
+      // several dates booked together and not split yet: keep them all
+      else if(!sel && typeof savedSids !== 'undefined' && savedSids.length > 1) sessionIds = savedSids.slice()
     } else {
       document.querySelectorAll('.er-session-cb:checked').forEach(function(cb){ sessionIds.push(cb.dataset.sid) })
     }
@@ -36507,6 +36521,7 @@ async function openTicketingSettings(pid){
     + (presaleUrl
         ? '<div style="display:flex;gap:6px;align-items:center"><input readonly value="'+escHtml(presaleUrl)+'" style="font-size:12px" onclick="this.select()"/>'
           + '<button type="button" class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+presaleUrl+'\');toast(\'Pre-sale link copied\',\'success\')">Copy</button></div>'
+          + '<button type="button" class="btn btn-primary btn-sm" style="margin-top:8px" onclick="openPresaleInvites(\''+pid+'\')">Email the pre-sale link…</button>'
           + '<div style="display:flex;gap:10px;margin-top:6px;font-size:12px"><a href="#" onclick="saveTicketingSettings(\''+pid+'\',\'new\');return false">Make a new link</a><span style="color:var(--text-muted)">(the old one stops working)</span>'
           + '<a href="#" style="color:#b91c1c;margin-left:auto" onclick="saveTicketingSettings(\''+pid+'\',\'off\');return false">Turn off pre-sale</a></div>'
         : '<button type="button" class="btn btn-secondary btn-sm" onclick="saveTicketingSettings(\''+pid+'\',\'new\')">Create pre-sale link</button>')
@@ -36612,6 +36627,60 @@ async function sendEmailTickets(){
   if(res.error){ toast(res.error,'error'); btn.disabled = false; return }
   closeAdHocModal('email-tickets-modal')
   toast('Sending tickets to '+res.count+' buyer'+(res.count===1?'':'s')+' in the background'+(res.minutes?' (about '+res.minutes+' min)':'')+'. You can keep working.','success')
+}
+
+// ── Email the pre-sale link to donors, cast families, team, or a list ──
+async function openPresaleInvites(pid){
+  var benefits = await api('/api/donor-benefits')
+  benefits = Array.isArray(benefits) ? benefits : []
+  var prod = allProductions.find(function(p){ return p.id===pid }) || {}
+  window._piPid = pid
+  showAdHocModal('presale-invite-modal', 'Email the pre-sale link',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">Pick who should get the private pre-sale link for <strong>'+escHtml(prod.name||'this show')+'</strong>. Everyone gets their own email with a "Get pre-sale tickets" button and the pre-sale and public on-sale times.</div>'
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;color:var(--text-muted);margin-bottom:6px">Who</div>'
+    + (benefits.length ? '<div style="margin-bottom:8px"><div style="font-size:13px;font-weight:600;margin-bottom:4px">Donors with a benefit (only those who can use it right now)</div>'
+        + benefits.map(function(b){ return '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:3px 0;cursor:pointer"><input type="checkbox" class="pi-benefit" value="'+b.id+'" onchange="previewPresaleInvites()" style="width:auto"'+(/pre.?sale|early/i.test(b.name||'')?' checked':'')+'/> '+escHtml(b.name)+' <span style="color:var(--text-muted)">('+escHtml(b.tier_name||'')+' and up)</span></label>' }).join('') + '</div>' : '')
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:6px 0;cursor:pointer"><input type="checkbox" id="pi-cast" onchange="previewPresaleInvites()" style="width:auto"/> Cast families (parents/guardians of youth cast in this show)</label>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:6px 0 10px;cursor:pointer"><input type="checkbox" id="pi-team" onchange="previewPresaleInvites()" style="width:auto"/> Production team (everyone on the show\'s Team tab)</label>'
+    + '<div class="form-group"><label>Anyone else (paste emails, one per line or separated by commas)</label><textarea id="pi-extra" rows="3" placeholder="Jane Smith <jane@example.com>\nboard@hwtco.org" oninput="clearTimeout(window._piT);window._piT=setTimeout(previewPresaleInvites,500)"></textarea></div>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:12px;cursor:pointer"><input type="checkbox" id="pi-skip" checked onchange="previewPresaleInvites()" style="width:auto"/> Skip people who were already sent the link for this show</label>'
+    + '<div class="form-group"><label>Subject</label><input id="pi-subject" value="'+escHtml('Your pre-sale access: '+(prod.name||''))+'"/></div>'
+    + '<div class="form-group"><label>Message</label><textarea id="pi-msg" rows="4">Thank you for being part of the Horizon West Theater Company family! As a thank-you, you get first pick of seats before tickets go on sale to the public.</textarea></div>'
+    + '<div id="pi-count" style="font-size:14px;font-weight:700;margin:4px 0 6px">Counting…</div><div id="pi-list" style="max-height:160px;overflow:auto;font-size:12px;margin-bottom:12px"></div>'
+    + '<div style="display:flex;gap:8px;margin-bottom:10px"><input id="pi-test" type="email" value="'+escHtml((currentUser&&currentUser.email)||'')+'" style="flex:1"/><button class="btn btn-secondary btn-sm" onclick="testPresaleInvite()">Send me a test</button></div>'
+    + '<button class="btn btn-primary" style="width:100%" id="pi-send" onclick="sendPresaleInvites()" disabled>Send</button>', 640)
+  previewPresaleInvites()
+}
+function _piBody(mode){
+  return {mode: mode, benefit_ids: Array.from(document.querySelectorAll('.pi-benefit:checked')).map(function(b){ return b.value }),
+    cast_families: !!(document.getElementById('pi-cast')||{}).checked, team: !!(document.getElementById('pi-team')||{}).checked,
+    extra_emails: (document.getElementById('pi-extra')||{}).value || '', skip_sent: !!(document.getElementById('pi-skip')||{}).checked,
+    subject: (document.getElementById('pi-subject')||{}).value || '', message: (document.getElementById('pi-msg')||{}).value || '',
+    test_to: (document.getElementById('pi-test')||{}).value || ''}
+}
+async function previewPresaleInvites(){
+  var res = await api('/api/productions/'+_piPid+'/presale-invites','POST', _piBody('preview'))
+  var c = document.getElementById('pi-count'), l = document.getElementById('pi-list'), btn = document.getElementById('pi-send')
+  if(!c) return
+  if(res.error){ c.textContent = res.error; btn.disabled = true; return }
+  c.innerHTML = res.count+' '+(res.count===1?'person':'people')+' will get the link'+(res.already_sent?' <span style="font-weight:500;color:var(--text-muted)">('+res.already_sent+' already sent, skipped)</span>':'')
+  l.innerHTML = (res.recipients||[]).map(function(r){ return '<div style="padding:3px 0;border-top:1px solid var(--border);'+(r.already_sent && document.getElementById('pi-skip').checked?'opacity:0.45':'')+'">'+escHtml(r.name||'')+' <span style="color:var(--text-muted)">'+escHtml(r.email)+' · '+escHtml(r.sources.join(', '))+(r.already_sent?' · already sent':'')+'</span></div>' }).join('')
+  btn.disabled = !res.count
+  btn.textContent = res.count ? 'Send to '+res.count+' '+(res.count===1?'person':'people') : 'Send'
+}
+async function testPresaleInvite(){
+  var res = await api('/api/productions/'+_piPid+'/presale-invites','POST', _piBody('test'))
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Test sent','success')
+}
+async function sendPresaleInvites(){
+  var btn = document.getElementById('pi-send')
+  if(!confirm(btn.textContent+'? This sends real emails with the private pre-sale link.')) return
+  btn.disabled = true; btn.textContent = 'Starting…'
+  var res = await api('/api/productions/'+_piPid+'/presale-invites','POST', _piBody('send'))
+  if(res.error){ toast(res.error,'error'); btn.disabled = false; return }
+  closeAdHocModal('presale-invite-modal')
+  toast('Sending the pre-sale link to '+res.count+' '+(res.count===1?'person':'people')+' in the background'+(res.minutes?' (about '+res.minutes+' min)':''),'success')
 }
 
 async function sendKbygTest(pid, kind){
@@ -36865,6 +36934,17 @@ function _refreshTicketOrderViews(){
   closeAdHocModal('order-detail-modal')
   if(document.getElementById('mq-boxoffice-search') && typeof renderMarqueeBoxOfficeOrders === 'function') renderMarqueeBoxOfficeOrders()
   Object.keys(_ticketOrdersOpen||{}).forEach(function(pid){ if(_ticketOrdersOpen[pid] && typeof searchTicketOrders === 'function') searchTicketOrders(pid) })
+}
+async function splitRegistrationSessions(rid, n, btn, pid){
+  if(!confirm('Split this into '+n+' separate registrations, one per date?')) return
+  var res = await api('/api/registrations/'+rid+'/split-sessions','POST',{})
+  if(res.error){ toast(res.error,'error'); return }
+  toast('Split into '+res.count+' registrations','success')
+  // close the edit window (the overlay it lives in) and refresh the list
+  var el = btn
+  while(el && el.parentElement && el.parentElement !== document.body) el = el.parentElement
+  if(el && el.parentElement === document.body) el.remove()
+  if(pid) loadProgramRegistrations(pid)
 }
 async function resendTickets(oid, email){
   var to = prompt('Send their tickets to:', email || '')

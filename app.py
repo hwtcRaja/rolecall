@@ -2365,6 +2365,9 @@ def init_db():
         "ALTER TABLE rental_requests ALTER COLUMN start_date DROP NOT NULL",
         "ALTER TABLE rental_partners ADD COLUMN IF NOT EXISTS organization_website TEXT DEFAULT ''",
         "ALTER TABLE rental_partners ADD COLUMN IF NOT EXISTS portal_token TEXT",
+        # dates added on top of a partnership's pattern (e.g. approved from a
+        # partner portal request); kept when the partnership's dates are edited
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS extra_dates TEXT DEFAULT '[]'",
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_rental_partners_portal_token ON rental_partners(portal_token) WHERE portal_token IS NOT NULL",
         """CREATE TABLE IF NOT EXISTS rental_change_requests (
             id TEXT PRIMARY KEY,
@@ -33426,6 +33429,26 @@ _backfill_session_registration_events()
 _fix_rental_event_locations()
 
 def _generate_rental_occurrences(conn, request_id, d):
+    """Schedule dates from the partnership's pattern, plus any extra dates
+    added on top (rental_requests.extra_dates), so approved add-on dates
+    survive later edits to the pattern."""
+    _generate_rental_occurrences_base(conn, request_id, d)
+    try:
+        row = fetchone(conn, 'SELECT extra_dates, start_time, end_time FROM rental_requests WHERE id=%s', (request_id,)) or {}
+        extras = json.loads(row.get('extra_dates') or '[]')
+    except Exception:
+        extras = []
+    for x in extras:
+        dt = (x.get('date') or '')[:10]
+        if len(dt) != 10 or fetchone(conn, 'SELECT 1 AS y FROM rental_occurrences WHERE request_id=%s AND occurrence_date=%s', (request_id, dt)):
+            continue
+        execute(conn, '''INSERT INTO rental_occurrences (id, request_id, occurrence_date, start_time, end_time, status, notes)
+            VALUES (%s,%s,%s,%s,%s,'scheduled','Added date')''',
+            (str(uuid.uuid4()), request_id, dt, x.get('start_time') or d.get('start_time') or row.get('start_time') or '',
+             x.get('end_time') or d.get('end_time') or row.get('end_time') or ''))
+
+
+def _generate_rental_occurrences_base(conn, request_id, d):
     """Create one rental_occurrences row per day this request covers, so it
     shows up on the calendar (via the synthetic-event merge in get_events).
     Only called once a request reaches 'approved' status — see
@@ -35369,6 +35392,31 @@ def add_rental_payment_plan_installment(aid):
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': pid})
 
+def _add_rental_installment(conn, aid, amount_cents, due_date, label, created_by):
+    """Same as the 'add installment' button: a new scheduled invoice on the
+    agreement's payment plan, and the contract's Exhibit A rebuilt."""
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+    if not agr:
+        return None
+    pid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_payments
+        (id, agreement_id, payment_type, amount_cents, due_date, square_invoice_status, created_by, installment_label)
+        VALUES (%s,%s,'installment',%s,%s,'scheduled',%s,%s)''', (pid, aid, amount_cents, due_date, created_by, label))
+    req = fetchone(conn, '''SELECT rr.*, rp.name AS partner_name, rp.contact_name, rp.contact_email, rp.contact_phone,
+        rp.organization_type, rs.name AS space_name, rs.amenities
+        FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        LEFT JOIN rental_spaces rs ON rs.id=rr.space_id WHERE rr.id=%s''', (agr['request_id'],))
+    execute(conn, 'UPDATE rental_requests SET billing_installments_plan=%s WHERE id=%s',
+            (json.dumps(_get_live_installments_plan(conn, aid) or []), agr['request_id']))
+    try:
+        execute(conn, 'UPDATE rental_agreements SET contract_html=%s, updated_at=NOW() WHERE id=%s',
+                (_rebuild_rental_contract_html(conn, agr, req), aid))
+    except Exception as e:
+        app.logger.warning(f'Contract rebuild after added installment failed: {e}')
+    conn.commit()
+    return pid
+
+
 @app.route('/api/rental/payments/<pid>', methods=['PUT'])
 def edit_rental_payment_installment(pid):
     """Edits a not-yet-sent installment's amount/due date/label — for
@@ -36303,6 +36351,24 @@ def staff_partner_portal_link(pid):
         conn.close()
 
 
+@app.route('/api/rental/requests/<rid>/extra-dates/remove', methods=['POST'])
+def remove_rental_extra_date(rid):
+    err = require_permission('rentals', 'edit')
+    if err: return err
+    dt = ((request.json or {}).get('date') or '')[:10]
+    conn = get_db()
+    try:
+        r = fetchone(conn, 'SELECT extra_dates FROM rental_requests WHERE id=%s', (rid,)) or {}
+        try: ex = json.loads(r.get('extra_dates') or '[]')
+        except Exception: ex = []
+        execute(conn, 'UPDATE rental_requests SET extra_dates=%s WHERE id=%s', (json.dumps([x for x in ex if (x.get('date') or '')[:10] != dt]), rid))
+        execute(conn, "DELETE FROM rental_occurrences WHERE request_id=%s AND occurrence_date=%s", (rid, dt))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
 @app.route('/api/rental/change-requests', methods=['GET'])
 def staff_rental_change_requests():
     err = require_permission('rentals', 'view')
@@ -36317,6 +36383,14 @@ def staff_rental_change_requests():
             c['created_at'] = str(c['created_at'])[:16]
             try: c['dates'] = json.loads(c.pop('dates_json') or '[]')
             except Exception: c['dates'] = []
+            agr = fetchone(conn, 'SELECT id FROM rental_agreements WHERE request_id=%s ORDER BY created_at DESC LIMIT 1', (c['request_id'],))
+            c['has_agreement'] = bool(agr)
+            c['suggested_per_date_cents'] = None
+            if agr:
+                tot = fetchone(conn, "SELECT COALESCE(SUM(amount_cents),0) AS t FROM rental_payments WHERE agreement_id=%s AND COALESCE(square_invoice_status,'') NOT IN ('CANCELED','CANCELLED')", (agr['id'],)) or {}
+                n = fetchone(conn, "SELECT COUNT(*) AS n FROM rental_occurrences WHERE request_id=%s AND COALESCE(status,'scheduled')<>'cancelled'", (c['request_id'],)) or {}
+                if int(n.get('n') or 0) and int(tot.get('t') or 0):
+                    c['suggested_per_date_cents'] = int(round(int(tot['t']) / int(n['n'])))
             # flag dates that clash with something already booked in that room
             for x in c['dates']:
                 x['conflict'] = bool(fetchone(conn, '''SELECT 1 AS y FROM rental_occurrences o JOIN rental_requests r ON r.id=o.request_id
@@ -36343,13 +36417,49 @@ def staff_resolve_change_request(cid):
         req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (c['request_id'],)) or {}
         p = fetchone(conn, 'SELECT * FROM rental_partners WHERE id=%s', (c['partner_id'],)) or {}
         added = 0
+        invoice_id = None
         if action == 'approve':
-            for x in json.loads(c.get('dates_json') or '[]'):
-                if not fetchone(conn, 'SELECT 1 AS y FROM rental_occurrences WHERE request_id=%s AND occurrence_date=%s', (c['request_id'], x['date'])):
+            new_dates = [x for x in json.loads(c.get('dates_json') or '[]')
+                         if not fetchone(conn, 'SELECT 1 AS y FROM rental_occurrences WHERE request_id=%s AND occurrence_date=%s', (c['request_id'], x['date']))]
+            # 1) the partnership's own date list, so the dates show (and stay)
+            #    when the partnership is edited: its specific-date list if it
+            #    uses one, otherwise its added-dates list
+            if new_dates:
+                rows = [{'date': x['date'], 'start_time': x.get('start') or req.get('start_time') or '', 'end_time': x.get('end') or req.get('end_time') or ''} for x in new_dates]
+                if (req.get('date_mode') or '') == 'specific':
+                    try: cur = json.loads(req.get('specific_dates') or '[]')
+                    except Exception: cur = []
+                    execute(conn, 'UPDATE rental_requests SET specific_dates=%s WHERE id=%s',
+                            (json.dumps(sorted(cur + rows, key=lambda r: (r.get('date') if isinstance(r, dict) else r))), req['id']))
+                else:
+                    try: cur = json.loads(req.get('extra_dates') or '[]')
+                    except Exception: cur = []
+                    execute(conn, 'UPDATE rental_requests SET extra_dates=%s WHERE id=%s', (json.dumps(cur + rows), req['id']))
+                # 2) the schedule/calendar
+                for r in rows:
                     execute(conn, '''INSERT INTO rental_occurrences (id, request_id, occurrence_date, start_time, end_time, status, notes)
                         VALUES (%s,%s,%s,%s,%s,'scheduled','Added from partner portal request')''',
-                        (str(uuid.uuid4()), c['request_id'], x['date'], x.get('start') or req.get('start_time') or '', x.get('end') or req.get('end_time') or ''))
+                        (str(uuid.uuid4()), req['id'], r['date'], r['start_time'], r['end_time']))
                     added += 1
+            # 3) the invoice: an added installment on their payment plan
+            inv = d.get('invoice') or {}
+            try:
+                amt = int(round(float(inv.get('amount') or 0) * 100))
+            except (TypeError, ValueError):
+                amt = 0
+            if amt > 0:
+                agr = fetchone(conn, "SELECT id FROM rental_agreements WHERE request_id=%s ORDER BY created_at DESC LIMIT 1", (req['id'],))
+                if not agr:
+                    return jsonify({'error': 'This partnership has no agreement yet, so there\'s no invoice to add to. Approve without an amount, then bill once the agreement exists.'}), 400
+                who = session.get('name') or session.get('email') or 'RoleCall'
+                label = (inv.get('label') or '').strip() or ('Added date' + ('s' if added != 1 else '') + ': ' + ', '.join(x['date'] for x in new_dates))[:120]
+                due = (inv.get('due_date') or '').strip() or today_eastern().isoformat()
+                invoice_id = _add_rental_installment(conn, agr['id'], amt, due, label, who)
+                if invoice_id and inv.get('send_now'):
+                    try:
+                        _send_scheduled_rental_invoice(conn, invoice_id, who)
+                    except Exception as e:
+                        app.logger.warning(f'Sending added-dates invoice failed: {e}')
         reply = (d.get('reply') or '').strip()[:3000]
         execute(conn, '''UPDATE rental_change_requests SET status=%s, staff_reply=%s, resolved_by=%s, resolved_at=NOW() WHERE id=%s''',
                 ('approved' if action == 'approve' else 'declined', reply, session.get('name') or session.get('email') or '', cid))
@@ -36363,7 +36473,7 @@ def staff_resolve_change_request(cid):
                 send_email([p['contact_email']], 'Update on your request: ' + (req.get('title') or ''), build_hwtc_email_html('Update on your request', msg), source='partner_change_reply')
             except Exception:
                 pass
-        return jsonify({'ok': True, 'dates_added': added})
+        return jsonify({'ok': True, 'dates_added': added, 'invoice_id': invoice_id})
     finally:
         conn.close()
 

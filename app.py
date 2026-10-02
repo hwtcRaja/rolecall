@@ -35604,7 +35604,7 @@ def check_rental_availability():
                         'start_time': r.get('start_time', ''), 'end_time': r.get('end_time', '')})
             if space:
                 event_rows = fetchall(conn, '''SELECT name, start_time, end_time FROM events
-                    WHERE (LOWER(room)=LOWER(%s) OR LOWER(location)=LOWER(%s))
+                    WHERE ((',' || LOWER(REPLACE(COALESCE(room,''), ', ', ',')) || ',') LIKE '%%,' || LOWER(%s) || ',%%' OR LOWER(location)=LOWER(%s))
                     AND %s BETWEEN event_date AND COALESCE(NULLIF(end_date,''), event_date)''',
                     (space['name'], space['name'], date)) or []
                 for ev in event_rows:
@@ -35698,7 +35698,7 @@ def check_space_request_availability():
                         'start_time': r.get('start_time',''), 'end_time': r.get('end_time','')})
             if space:
                 event_rows = fetchall(conn, '''SELECT name, start_time, end_time FROM events
-                    WHERE (LOWER(room)=LOWER(%s) OR LOWER(location)=LOWER(%s))
+                    WHERE ((',' || LOWER(REPLACE(COALESCE(room,''), ', ', ',')) || ',') LIKE '%%,' || LOWER(%s) || ',%%' OR LOWER(location)=LOWER(%s))
                     AND %s BETWEEN event_date AND COALESCE(NULLIF(end_date,''), event_date)''',
                     (space['name'], space['name'], date_str)) or []
                 for ev in event_rows:

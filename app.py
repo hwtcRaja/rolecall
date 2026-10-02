@@ -3088,6 +3088,16 @@ def init_db():
         "CREATE UNIQUE INDEX IF NOT EXISTS ux_ticket_orders_view_token ON ticket_orders(view_token) WHERE view_token IS NOT NULL",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS kbyg_sent_at TIMESTAMP",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS tickets_email_sent_at TIMESTAMP",
+        """CREATE TABLE IF NOT EXISTS presale_invites (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            email TEXT NOT NULL,
+            email_key TEXT NOT NULL,
+            name TEXT,
+            sources TEXT,
+            sent_by TEXT,
+            sent_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE (production_id, email_key))""",
         "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS checked_in_by TEXT",
         """CREATE TABLE IF NOT EXISTS door_scan_log (
             id TEXT PRIMARY KEY,
@@ -24483,6 +24493,75 @@ def download_registration_invoice(rid):
     return _rental_pdf_response(pdf_b64, f'Invoice - {student_name} - {entity_name}')
 
 
+def split_registration_by_session(conn, reg_id):
+    """One registration that booked several sessions becomes one registration
+    per session (same person, same payment), with the amounts divided by each
+    session's price. Returns the ids of all resulting registrations."""
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
+    if not reg:
+        return []
+    try:
+        sids = [x for x in json.loads(reg.get('session_ids') or '[]') if x]
+    except Exception:
+        sids = []
+    if len(sids) < 2:
+        return [reg_id]
+    prog = fetchone(conn, 'SELECT price FROM youth_programs WHERE id=%s', (reg['program_id'],)) or {}
+    sess = {r['id']: r for r in fetchall(conn, 'SELECT id, price_override FROM program_sessions WHERE id = ANY(%s)', (sids,)) or []}
+    weights = []
+    for sid in sids:
+        po = (sess.get(sid) or {}).get('price_override')
+        weights.append(float(po) if po not in (None, '') else float(prog.get('price') or 1) or 1.0)
+    total_w = sum(weights) or float(len(sids))
+    money_cols = ['amount_paid', 'amount_paid_cents', 'discount_amount', 'balance_due', 'sibling_discount_amount', 'refund_amount_cents']
+    def shares(v):
+        if v in (None, ''):
+            return [v] * len(sids)
+        v = int(v); out, given = [], 0
+        for i, w in enumerate(weights):
+            part = v - given if i == len(weights) - 1 else int(round(v * w / total_w))
+            out.append(part); given += part
+        return out
+    split = {c: shares(reg.get(c)) for c in money_cols if c in reg}
+    group = reg.get('registration_group_id') or uuid.uuid4().hex
+    cols = [c for c in reg.keys() if c not in ('id',)]
+    ids = [reg_id]
+    for i, sid in enumerate(sids):
+        vals = dict(reg)
+        vals['session_ids'] = json.dumps([sid])
+        vals['registration_group_id'] = group
+        for c, parts in split.items():
+            vals[c] = parts[i]
+        if i == 0:
+            sets = ', '.join(c + '=%s' for c in ['session_ids', 'registration_group_id'] + list(split.keys()))
+            execute(conn, 'UPDATE program_registrations SET ' + sets + ', updated_at=NOW() WHERE id=%s',
+                    tuple([vals['session_ids'], group] + [vals[c] for c in split.keys()] + [reg_id]))
+        else:
+            nid = str(uuid.uuid4())
+            vals['id'] = nid
+            # keep the welcome-email stamp so nobody gets a second welcome
+            use = ['id'] + cols
+            execute(conn, 'INSERT INTO program_registrations (' + ', '.join(use) + ') VALUES (' + ', '.join(['%s'] * len(use)) + ')',
+                    tuple(vals[c] for c in use))
+            ids.append(nid)
+    conn.commit()
+    return ids
+
+
+@app.route('/api/registrations/<rid>/split-sessions', methods=['POST'])
+def api_split_registration_sessions(rid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        ids = split_registration_by_session(conn, rid)
+        if not ids:
+            return jsonify({'error': 'Registration not found'}), 404
+        return jsonify({'ok': True, 'registration_ids': ids, 'count': len(ids)})
+    finally:
+        conn.close()
+
+
 def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
     """Mark registration confirmed and create participant records."""
     reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
@@ -24759,6 +24838,18 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
     # Make sure any session(s) this registration covers have a real, loggable
     # event — see _auto_create_events_for_registration for why this matters.
     _auto_create_events_for_registration(conn, reg, prog)
+
+    # Booking-style programs (private lessons and other dated slots): someone
+    # who books several slots at once gets one registration per slot, so each
+    # date can be managed, moved or cancelled on its own. Done after the
+    # confirmation/welcome emails so they still get one email listing all.
+    try:
+        if prog and prog.get('booking_mode') and prog.get('sessions_enabled'):
+            split_registration_by_session(conn, reg_id)
+    except Exception as e:
+        app.logger.warning(f'Auto-split by session failed for {reg_id}: {e}')
+        try: conn.rollback()
+        except Exception: pass
 
 
 def _auto_create_events_for_registration(conn, reg, prog):
@@ -26185,6 +26276,28 @@ def portal_registration_link():
         conn.close()
 
 
+def program_spots_remaining(conn, p):
+    """Spots left. For programs with sessions, that's what's left across the
+    sessions people can still book (open, not cancelled, not already past),
+    not the program's own capacity field. None means no limit."""
+    if not p.get('sessions_enabled'):
+        if not p.get('capacity'):
+            return None
+        return max(0, (p.get('capacity') or 0) - get_registration_count(conn, p['id']))
+    rows = fetchall(conn, '''SELECT ps.id, ps.capacity, ps.start_date,
+            (SELECT COUNT(*) FROM program_registrations WHERE program_id=%s AND session_ids LIKE '%%"' || ps.id || '"%%'
+             AND status NOT IN ('cancelled','waitlisted')) AS enrolled
+        FROM program_sessions ps WHERE ps.program_id=%s AND COALESCE(ps.status,'open') NOT IN ('cancelled','closed')''',
+        (p['id'], p['id'])) or []
+    today = today_eastern().isoformat()
+    rows = [r for r in rows if not r.get('start_date') or str(r['start_date'])[:10] >= today]
+    if not rows:
+        return 0
+    if any(r.get('capacity') in (None, 0) for r in rows):
+        return None
+    return sum(max(0, int(r['capacity']) - int(r['enrolled'] or 0)) for r in rows)
+
+
 @app.route('/api/public/program/<slug>')
 def public_program_info(slug):
     """Public program info — no auth needed."""
@@ -26196,7 +26309,7 @@ def public_program_info(slug):
     # Attach counts
     p['registration_count'] = get_registration_count(conn, p['id'])
     p['waitlist_count'] = get_waitlist_count(conn, p['id'])
-    p['spots_remaining'] = max(0, (p.get('capacity') or 999) - p['registration_count']) if p.get('capacity') else None
+    p['spots_remaining'] = program_spots_remaining(conn, p)
     # Attach instructor name
     if p.get('instructor_id'):
         v = fetchone(conn, 'SELECT name, bio, photo_url FROM volunteers WHERE id=%s', (p['instructor_id'],))
@@ -26423,10 +26536,25 @@ def public_submit_registration(slug):
         return jsonify({'ok': True, 'type': 'waitlisted', 'position': agewl_positions[0],
                         'registration_id': agewl_ids[0], 'age_note': age_grace_note})
 
-    # Check capacity
+    # Check capacity. Programs with sessions are full only when the
+    # session(s) being booked are full (or nothing bookable is left), not
+    # when the program-level capacity number is reached.
     reg_count = get_registration_count(conn, p['id'])
     cap = p.get('capacity')
-    is_full = cap and reg_count >= cap
+    if p.get('sessions_enabled'):
+        _sel = [x for x in (d.get('session_ids') or []) if x] if isinstance(d.get('session_ids'), list) else []
+        if _sel:
+            is_full = False
+            for _sid in _sel:
+                _sr = fetchone(conn, '''SELECT ps.capacity, (SELECT COUNT(*) FROM program_registrations WHERE program_id=%s
+                        AND session_ids LIKE '%%"' || ps.id || '"%%' AND status NOT IN ('cancelled','waitlisted')) AS enrolled
+                    FROM program_sessions ps WHERE ps.id=%s AND ps.program_id=%s''', (p['id'], _sid, p['id']))
+                if _sr and _sr.get('capacity') and int(_sr['enrolled'] or 0) >= int(_sr['capacity']):
+                    is_full = True
+        else:
+            is_full = program_spots_remaining(conn, p) == 0
+    else:
+        is_full = cap and reg_count >= cap
 
     if is_full:
         # Waitlist — each child (primary + siblings) gets their own independent
@@ -27662,7 +27790,7 @@ def public_programs_list():
     """All open programs for the browse/add-more experience."""
     conn = get_db()
     progs = fetchall(conn, """SELECT id, name, slug, description, price, deposit_amount,
-        capacity, registration_status, registration_form_type,
+        capacity, registration_status, registration_form_type, sessions_enabled,
         start_date, end_date, sibling_discount_enabled,
         sibling_discount_type, sibling_discount_value
         FROM youth_programs WHERE registration_status='open'
@@ -27671,7 +27799,7 @@ def public_programs_list():
     for p in progs:
         count = (fetchone(conn, "SELECT COUNT(*) AS c FROM program_registrations WHERE program_id=%s AND status IN ('confirmed','pending_payment')", (p['id'],)) or {}).get('c', 0)
         p['registration_count'] = count
-        p['spots_remaining'] = max(0, (p['capacity'] or 999) - count) if p.get('capacity') else None
+        p['spots_remaining'] = program_spots_remaining(conn, p) if p.get('sessions_enabled') else (max(0, (p['capacity'] or 999) - count) if p.get('capacity') else None)
     conn.close()
     return jsonify(progs or [])
 
@@ -42316,7 +42444,7 @@ def bulk_send_ticket_emails(pid):
     if not ids:
         return jsonify({'ok': True, 'count': 0})
     import threading, time as _t
-    def run(order_ids):
+    def send_tickets(order_ids):
         c = get_db()
         try:
             for oid in order_ids:
@@ -42329,7 +42457,7 @@ def bulk_send_ticket_emails(pid):
                 _t.sleep(0.6)
         finally:
             c.close()
-    threading.Thread(target=run, args=(ids,), daemon=True).start()
+    threading.Thread(target=send_tickets, args=(ids,), daemon=True).start()
     return jsonify({'ok': True, 'count': len(ids), 'minutes': max(1, round(len(ids) * 0.7 / 60))})
 
 
@@ -42720,6 +42848,148 @@ def door_lookup():
         return jsonify({'orders': orders, 'counts': _door_counts(conn, fid)})
     finally:
         conn.close()
+
+
+# ── Email the pre-sale link to a chosen group ─────────────────────────────
+# Audience can mix: donors who have a chosen benefit (and can use it now),
+# the cast's families (youth guardians), the production team, and any
+# pasted list of emails. One email per address; addresses already sent the
+# link for this show can be skipped. Sent in the background.
+def presale_audience(conn, pid, d):
+    import re as _re
+    out = {}
+    def add(email, name, source):
+        e = (email or '').strip().lower()
+        if not e or '@' not in e or not _re.match(r'^[^@\s]+@[^@\s]+\.[^@\s]+$', e):
+            return
+        k = ticket_email_key(e) or e
+        if k not in out:
+            out[k] = {'email': e, 'name': (name or '').strip(), 'sources': [source]}
+        elif source not in out[k]['sources']:
+            out[k]['sources'].append(source)
+    # donors with the chosen benefit(s), eligible right now
+    bids = [b for b in (d.get('benefit_ids') or []) if b]
+    if bids:
+        settings = donor_benefit_settings(conn)
+        for bid in bids:
+            b = fetchone(conn, '''SELECT b.*, t.min_amount AS tier_min FROM donor_tier_benefits b
+                JOIN donor_tiers t ON t.id=b.tier_id WHERE b.id=%s''', (bid,))
+            if not b:
+                continue
+            donors = fetchall(conn, '''SELECT dn.id, dn.display_name, dn.email, dn.tier_id, dn.tier_achieved_date, dn.benefits_override_until
+                FROM donors dn JOIN donor_tiers t ON t.id=dn.tier_id
+                WHERE COALESCE(dn.status,'active')='active' AND t.min_amount >= %s AND COALESCE(dn.email,'') <> '' ''', (b['tier_min'],)) or []
+            for dn in donors:
+                if not dn.get('tier_achieved_date'):
+                    dn['tier_achieved_date'] = compute_tier_achieved_date(conn, dn['id'], dn['tier_id'])
+                try:
+                    if donor_benefit_status(conn, dn, settings, benefits=[b], usage=[])['eligible_now']:
+                        add(dn['email'], dn['display_name'], 'Donor: ' + (b.get('name') or 'benefit'))
+                except Exception:
+                    pass
+    if d.get('cast_families'):
+        for r in fetchall(conn, '''SELECT g.email, g.name FROM youth_production_members ypm
+                JOIN youth_participants y ON y.id=ypm.youth_id JOIN youth_guardians g ON g.youth_id=y.id
+                WHERE ypm.production_id=%s AND COALESCE(y.status,'active')='active' ''', (pid,)) or []:
+            add(r['email'], r['name'], 'Cast family')
+    if d.get('team'):
+        for r in fetchall(conn, '''SELECT v.email, v.name FROM production_members pm JOIN volunteers v ON v.id=pm.volunteer_id
+                WHERE pm.production_id=%s''', (pid,)) or []:
+            add(r['email'], r['name'], 'Production team')
+    for line in _re.split(r'[\n,;]+', d.get('extra_emails') or ''):
+        line = line.strip()
+        m = _re.search(r'[^\s<>"]+@[^\s<>"]+', line)
+        if m:
+            nm = line.replace(m.group(0), '').strip(' <>"\t-')
+            add(m.group(0), nm, 'Added by hand')
+    sent = {r['email_key'] for r in fetchall(conn, 'SELECT email_key FROM presale_invites WHERE production_id=%s', (pid,)) or []}
+    rows = list(out.values())
+    for r in rows:
+        r['already_sent'] = (ticket_email_key(r['email']) or r['email']) in sent
+    return rows
+
+
+def presale_invite_html(prod, link, message, name=''):
+    opens = _presale_parse(prod.get('presale_opens_at'))
+    pub = _presale_parse(prod.get('public_sale_at'))
+    fmt = lambda t: t.strftime('%A, %B %-d at %-I:%M %p').replace(':00 ', ' ')
+    first = (name or '').split(' ')[0] if name else ''
+    when = []
+    if opens and opens > now_eastern():
+        when.append('Pre-sale opens <strong>' + _h(fmt(opens)) + '</strong>')
+    else:
+        when.append('Pre-sale is <strong>open now</strong>')
+    if pub and pub > now_eastern():
+        when.append('before tickets go on sale to the public ' + _h(fmt(pub)))
+    body = (('<p>Hi ' + _h(first) + ',</p>' if first else '')
+            + ('<p style="white-space:pre-line">' + _h(message) + '</p>' if message else '')
+            + '<div style="background:#f4f8f9;border-radius:12px;padding:16px;margin:16px 0;text-align:center">'
+            + '<div style="font-size:19px;font-weight:800;color:#0f5566;margin-bottom:6px">' + _h(prod['name']) + '</div>'
+            + '<div style="font-size:14px;margin-bottom:14px">' + ', '.join(when) + '.</div>'
+            + '<a href="' + link + '" style="display:inline-block;background:#16728b;color:#fff;text-decoration:none;font-weight:700;padding:13px 26px;border-radius:10px;font-size:15px">Get pre-sale tickets</a>'
+            + '</div><p style="font-size:13px;color:#5f6b72">This link is just for you. Please don\'t share it, so our pre-sale stays special.</p>')
+    return build_hwtc_email_html('Pre-sale tickets: ' + prod['name'], body)
+
+
+@app.route('/api/productions/<pid>/presale-invites', methods=['POST'])
+def presale_invites(pid):
+    """mode: 'preview' (who would get it), 'test' (send to test_to), or
+    'send' (everyone in the audience, in the background)."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    mode = d.get('mode') or 'preview'
+    conn = get_db()
+    try:
+        prod = fetchone(conn, 'SELECT id, name, slug, presale_key, presale_opens_at, public_sale_at FROM productions WHERE id=%s', (pid,))
+        if not prod:
+            return jsonify({'error': 'Show not found'}), 404
+        if not prod.get('presale_key'):
+            return jsonify({'error': 'Create the pre-sale link first (Ticketing Settings → Private pre-sale link).'}), 400
+        link = APP_BASE_URL.rstrip('/') + '/tickets/' + (prod.get('slug') or prod['id']) + '?presale=' + prod['presale_key']
+        subject = (d.get('subject') or '').strip()[:150] or ('Pre-sale tickets for ' + prod['name'])
+        message = (d.get('message') or '').strip()[:3000]
+        if mode == 'test':
+            to = (d.get('test_to') or '').strip()
+            if '@' not in to:
+                return jsonify({'error': 'Enter an email for the test.'}), 400
+            res = send_email([to], '[Test] ' + subject, presale_invite_html(prod, link, message, ''), source='presale_invite_test')
+            ok = res[0] if isinstance(res, tuple) else bool(res)
+            return jsonify({'ok': True}) if ok else (jsonify({'error': 'The test didn\'t send.'}), 400)
+        rows = presale_audience(conn, pid, d)
+        if d.get('skip_sent', True):
+            todo = [r for r in rows if not r['already_sent']]
+        else:
+            todo = rows
+        if mode == 'preview':
+            return jsonify({'count': len(todo), 'total': len(rows), 'already_sent': sum(1 for r in rows if r['already_sent']),
+                            'recipients': [{'email': r['email'], 'name': r['name'], 'sources': r['sources'], 'already_sent': r['already_sent']} for r in rows[:500]]})
+    finally:
+        conn.close()
+    if not todo:
+        return jsonify({'ok': True, 'count': 0})
+    who = session.get('name') or session.get('email') or ''
+    import threading, time as _t
+    def send_invites(items):
+        c = get_db()
+        try:
+            for r in items:
+                try:
+                    res = send_email([r['email']], subject, presale_invite_html(prod, link, message, r['name']), source='presale_invite')
+                    if (res[0] if isinstance(res, tuple) else bool(res)):
+                        execute(c, '''INSERT INTO presale_invites (id, production_id, email, email_key, name, sources, sent_by)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (production_id, email_key) DO UPDATE SET sent_at=NOW()''',
+                            (uuid.uuid4().hex, pid, r['email'], ticket_email_key(r['email']) or r['email'], r['name'], ', '.join(r['sources']), who))
+                        c.commit()
+                except Exception as e:
+                    app.logger.warning(f'Pre-sale invite to {r["email"]} failed: {e}')
+                    try: c.rollback()
+                    except Exception: pass
+                _t.sleep(0.6)
+        finally:
+            c.close()
+    threading.Thread(target=send_invites, args=(todo,), daemon=True).start()
+    return jsonify({'ok': True, 'count': len(todo), 'minutes': max(1, round(len(todo) * 0.7 / 60))})
 
 
 def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):

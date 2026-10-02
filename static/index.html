@@ -38627,7 +38627,7 @@ function renderSurveyQuestionsList(){
    + '<div style="display:flex;gap:8px;margin-bottom:8px">'
    + '<input type="text" value="'+escHtml(q.question_text)+'" placeholder="Question text" oninput="_surveyEditorQuestions['+i+'].question_text=this.value" style="flex:1;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:13px"/>'
    + '<select onchange="_surveyEditorQuestions['+i+'].question_type=this.value;renderSurveyQuestionsList()" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:8px;font-family:inherit;font-size:12.5px">'
-   + ['text','radio','checkbox'].map(function(t){ return '<option value="'+t+'"'+(q.question_type===t?' selected':'')+'>'+(t==='text'?'Short Text':t==='radio'?'Single Choice':'Multiple Choice')+'</option>' }).join('')
+   + ['text','radio','checkbox','rating'].map(function(t){ return '<option value="'+t+'"'+(q.question_type===t?' selected':'')+'>'+(t==='text'?'Short Text':t==='radio'?'Single Choice':t==='checkbox'?'Multiple Choice':'Rating (1–5)')+'</option>' }).join('')
    + '</select>'
    + '<button type="button" class="btn btn-danger btn-sm" onclick="removeSurveyQuestionRow('+i+')" title="Remove question">✕</button>'
    + '</div>'
@@ -38637,7 +38637,7 @@ function renderSurveyQuestionsList(){
      : '')
    + '<div style="display:flex;gap:14px">'
    + '<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" '+(q.required?'checked':'')+' onchange="_surveyEditorQuestions['+i+'].required=this.checked" style="accent-color:var(--teal)"/>Required</label>'
-   + (needsOptions?'<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" '+(q.allow_other?'checked':'')+' onchange="_surveyEditorQuestions['+i+'].allow_other=this.checked" style="accent-color:var(--teal)"/>Allow "Other"</label>':'')
+   + (needsOptions?'<label style="display:flex;align-items:center;gap:5px;font-size:12px;cursor:pointer"><input type="checkbox" '+(q.allow_other?'checked':'')+' onchange="_surveyEditorQuestions['+i+'].allow_other=this.checked" style="accent-color:var(--teal)"/>Allow "Other" (with a box to type their own answer)</label>':'')
    + '</div>'
    + '</div>'
  }).join('')
@@ -38679,66 +38679,196 @@ async function saveSurveyEditor(){
  loadSurveysPage()
 }
 
-// ── Results ──
+// ── Survey results: summary, responses table, trend, filters, exports ──
+var _sr = null
 async function openSurveyResults(sid){
- var data = await api('/api/surveys/'+sid+'/results')
- if(!data || data.error){ toast((data&&data.error)||'Could not load results', 'error'); return }
- var overlay = document.createElement('div')
- overlay.id = 'survey-results-overlay'
- overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px'
- overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
-
- var responses = data.responses || []
- var questionsHtml = (data.questions||[]).map(function(q){
-  var answers = responses.map(function(r){ var a=(r.answers||{}); return a[q.id] }).filter(function(a){ return a!==undefined && a!==null && a!=='' })
-  var body = ''
-  if(q.question_type==='text'){
-   body = answers.length
-    ? '<div style="display:flex;flex-direction:column;gap:6px">'+answers.map(function(a){ return '<div style="background:var(--bg);border-radius:8px;padding:8px 10px;font-size:12.5px">'+escHtml(String(a))+'</div>' }).join('')+'</div>'
-    : '<div style="font-size:12px;color:var(--text-hint)">No answers yet</div>'
-  } else {
-   var tally = {}
-   answers.forEach(function(a){
-    var vals = Array.isArray(a) ? a : [a]
-    vals.forEach(function(v){ tally[v] = (tally[v]||0) + 1 })
-   })
-   var max = Math.max.apply(null, Object.values(tally).concat([1]))
-   var options = (q.options||[]).slice()
-   if(q.question_type==='rating') options = ['1','2','3','4','5']
-   Object.keys(tally).forEach(function(k){ if(!options.includes(k)) options.push(k) })
-   var avgHtml = ''
-   if(q.question_type==='rating' && answers.length){
-    var sum = answers.reduce(function(t,a){ return t + (parseFloat(a)||0) }, 0)
-    avgHtml = '<div style="font-size:12.5px;margin-bottom:6px">Average <strong>'+(sum/answers.length).toFixed(1)+'</strong> out of 5 · '+answers.length+' rating'+(answers.length===1?'':'s')+'</div>'
-   }
-   body = options.length && answers.length
-    ? avgHtml + options.map(function(opt){
-       var count = tally[opt]||0
-       var pct = Math.round((count/max)*100)
-       return '<div style="margin-bottom:6px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:2px"><span>'+escHtml(opt)+'</span><span style="color:var(--text-muted)">'+count+'</span></div><div style="background:var(--border);border-radius:4px;height:6px;overflow:hidden"><div style="width:'+pct+'%;background:var(--teal-400);height:100%"></div></div></div>'
-      }).join('')
-    : '<div style="font-size:12px;color:var(--text-hint)">No answers yet</div>'
-  }
-  return '<div style="margin-bottom:18px"><div style="font-size:13px;font-weight:700;margin-bottom:8px">'+escHtml(q.question_text)+'</div>'+body+'</div>'
- }).join('')
-
- var responseListHtml = responses.length
-  ? '<div style="max-height:180px;overflow-y:auto;border-top:1px solid var(--border);padding-top:10px">'
-    + responses.map(function(r){
-       return '<div style="font-size:11.5px;color:var(--text-muted);padding:4px 0">'+escHtml(r.respondent_name||'Anonymous')+(r.respondent_email?' · '+escHtml(r.respondent_email):'')+' · '+new Date(r.submitted_at).toLocaleString()+'</div>'
-      }).join('')
-    + '</div>'
-  : ''
-
- overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:600px;max-height:90vh;overflow-y:auto;padding:24px">'
-  + '<div style="font-size:16px;font-weight:800;margin-bottom:4px">'+escHtml(data.survey.title)+'</div>'
-  + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:18px">'+responses.length+' response'+(responses.length===1?'':'s')+'</div>'
-  + (questionsHtml || '<div style="font-size:13px;color:var(--text-muted)">No questions on this survey yet.</div>')
-  + responseListHtml
-  + '<div style="display:flex;justify-content:flex-end;margin-top:16px"><button class="btn btn-secondary" onclick="document.getElementById(\'survey-results-overlay\').remove()">Close</button></div>'
-  + '</div>'
- document.body.appendChild(overlay)
+  var data = await api('/api/surveys/'+sid+'/results')
+  if(!data || data.error){ toast((data&&data.error)||'Could not load results', 'error'); return }
+  _sr = {data: data, tab: 'summary', from: '', to: '', filterQ: '', filterA: '', q: ''}
+  var o = document.createElement('div')
+  o.id = 'survey-results-overlay'
+  o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px'
+  o.addEventListener('click', function(e){ if(e.target===o) o.remove() })
+  o.innerHTML = '<div id="sr-box" style="background:var(--surface);border-radius:14px;width:100%;max-width:1100px;height:92vh;display:flex;flex-direction:column;overflow:hidden"></div>'
+  document.body.appendChild(o)
+  srRender()
 }
+// one answer -> list of values ("Other: …" grouped as "Other")
+function srVals(q, a){
+  if(a === undefined || a === null || a === '') return []
+  var arr = Array.isArray(a) ? a : [a]
+  return arr.filter(function(v){ return v !== '' && v !== null && v !== undefined }).map(function(v){
+    v = String(v); return q.question_type !== 'text' && /^Other:/.test(v) ? 'Other' : v })
+}
+function srFiltered(){
+  var d = _sr.data, qs = d.questions || []
+  return (d.responses || []).filter(function(r){
+    var day = String(r.submitted_at||'').slice(0,10)
+    if(_sr.from && day < _sr.from) return false
+    if(_sr.to && day > _sr.to) return false
+    if(_sr.filterQ && _sr.filterA){
+      var q = qs.find(function(x){ return x.id === _sr.filterQ })
+      if(!q || srVals(q, (r.answers||{})[q.id]).indexOf(_sr.filterA) < 0) return false
+    }
+    if(_sr.q){
+      var hay = JSON.stringify(r.answers||{}).toLowerCase() + ' ' + (r.respondent_name||'').toLowerCase() + ' ' + (r.respondent_email||'').toLowerCase()
+      if(hay.indexOf(_sr.q.toLowerCase()) < 0) return false
+    }
+    return true
+  })
+}
+function srStats(q, rows){
+  var answered = 0, tally = {}, others = [], texts = [], nums = []
+  rows.forEach(function(r){
+    var raw = (r.answers||{})[q.id], vals = srVals(q, raw)
+    if(!vals.length) return
+    answered++
+    if(q.question_type === 'text'){ texts.push({text: String(raw), at: r.submitted_at}); return }
+    vals.forEach(function(v){ tally[v] = (tally[v]||0) + 1 })
+    ;(Array.isArray(raw) ? raw : [raw]).forEach(function(v){ if(/^Other:/.test(String(v))) others.push(String(v).replace(/^Other:\s*/, '')) })
+    if(q.question_type === 'rating') nums.push(parseFloat(raw) || 0)
+  })
+  var options = (q.options||[]).slice()
+  if(q.question_type === 'rating') options = ['1','2','3','4','5']
+  Object.keys(tally).forEach(function(k){ if(options.indexOf(k) < 0) options.push(k) })
+  var avg = nums.length ? nums.reduce(function(a,b){ return a+b }, 0) / nums.length : null
+  var sorted = nums.slice().sort(function(a,b){ return a-b })
+  var median = sorted.length ? (sorted.length % 2 ? sorted[(sorted.length-1)/2] : (sorted[sorted.length/2-1] + sorted[sorted.length/2]) / 2) : null
+  return {answered: answered, tally: tally, options: options, others: others, texts: texts, avg: avg, median: median,
+    top2: nums.length ? nums.filter(function(n){ return n >= 4 }).length / nums.length : null}
+}
+function srRender(){
+  var d = _sr.data, qs = d.questions || [], rows = srFiltered(), all = d.responses || []
+  var box = document.getElementById('sr-box'); if(!box) return
+  var dates = all.map(function(r){ return String(r.submitted_at||'').slice(0,10) }).filter(Boolean).sort()
+  var filterQ = qs.find(function(q){ return q.id === _sr.filterQ })
+  var filterOpts = filterQ ? srStats(filterQ, all).options : []
+  var head = '<div style="padding:14px 18px;border-bottom:1px solid var(--border)">'
+    + '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><div style="flex:1;min-width:200px"><div style="font-size:17px;font-weight:800">'+escHtml(d.survey.title)+'</div>'
+    + '<div style="font-size:12.5px;color:var(--text-muted)">'+rows.length+' of '+all.length+' response'+(all.length===1?'':'s')+(dates.length?' · '+escHtml(tkFmtDate(dates[0]))+' – '+escHtml(tkFmtDate(dates[dates.length-1])):'')+'</div></div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="srExportResponses()">Export responses (CSV)</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="srExportSummary()">Export summary (CSV)</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="srPrint()">Print report</button>'
+    + '<button class="btn btn-primary btn-sm" onclick="document.getElementById(\'survey-results-overlay\').remove()">Close</button></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px;font-size:12.5px">'
+    + '<span style="font-weight:700;color:var(--text-muted)">Filter</span>'
+    + '<input type="date" value="'+_sr.from+'" onchange="_sr.from=this.value;srRender()" style="width:auto;padding:5px 8px;font-size:12.5px" title="From"/>'
+    + '<input type="date" value="'+_sr.to+'" onchange="_sr.to=this.value;srRender()" style="width:auto;padding:5px 8px;font-size:12.5px" title="To"/>'
+    + '<select onchange="_sr.filterQ=this.value;_sr.filterA=\'\';srRender()" style="width:auto;max-width:240px;padding:5px 8px;font-size:12.5px"><option value="">Only people who answered…</option>'
+    + qs.filter(function(q){ return q.question_type !== 'text' }).map(function(q){ return '<option value="'+q.id+'"'+(q.id===_sr.filterQ?' selected':'')+'>'+escHtml(q.question_text.slice(0,60))+'</option>' }).join('')+'</select>'
+    + (filterQ ? '<select onchange="_sr.filterA=this.value;srRender()" style="width:auto;padding:5px 8px;font-size:12.5px"><option value="">…pick an answer</option>'+filterOpts.map(function(o){ return '<option value="'+escHtml(o)+'"'+(o===_sr.filterA?' selected':'')+'>'+escHtml(o)+'</option>' }).join('')+'</select>' : '')
+    + ((_sr.from||_sr.to||_sr.filterA||_sr.q) ? '<a href="#" onclick="_sr.from=\'\';_sr.to=\'\';_sr.filterQ=\'\';_sr.filterA=\'\';_sr.q=\'\';srRender();return false">Clear filters</a>' : '')
+    + '</div>'
+    + '<div style="display:flex;gap:6px;margin-top:10px">' + [['summary','Summary'],['responses','Responses'],['trend','Over time']].map(function(t){
+        var on = _sr.tab===t[0]; return '<button class="btn btn-sm '+(on?'btn-primary':'btn-secondary')+'" onclick="_sr.tab=\''+t[0]+'\';srRender()">'+t[1]+'</button>' }).join('') + '</div></div>'
+  var body = '<div style="flex:1;overflow:auto;padding:16px 18px">'
+  if(!rows.length) body += '<div style="padding:30px;text-align:center;color:var(--text-muted)">'+(all.length?'No responses match these filters.':'No responses yet.')+'</div>'
+  else if(_sr.tab==='summary') body += srSummaryHTML(qs, rows)
+  else if(_sr.tab==='responses') body += srResponsesHTML(qs, rows)
+  else body += srTrendHTML(rows)
+  box.innerHTML = head + body + '</div>'
+}
+function srSummaryHTML(qs, rows){
+  var n = rows.length
+  var h = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px">'
+  var completeAll = rows.filter(function(r){ return qs.every(function(q){ return !q.required || srVals(q, (r.answers||{})[q.id]).length }) }).length
+  var named = rows.filter(function(r){ return r.respondent_name || r.respondent_email }).length
+  var ratingQs = qs.filter(function(q){ return q.question_type==='rating' })
+  var allRatings = []; ratingQs.forEach(function(q){ rows.forEach(function(r){ var v = parseFloat((r.answers||{})[q.id]); if(v) allRatings.push(v) }) })
+  function card(v, l){ return '<div style="background:var(--bg);border-radius:10px;padding:10px 14px"><div style="font-size:22px;font-weight:800">'+v+'</div><div style="font-size:11.5px;color:var(--text-muted);font-weight:600">'+l+'</div></div>' }
+  h += card(n, 'Responses') + card(Math.round(completeAll*100/n)+'%', 'Answered every required question')
+    + (allRatings.length ? card((allRatings.reduce(function(a,b){return a+b},0)/allRatings.length).toFixed(1)+' / 5', 'Average rating (all rating questions)') : '')
+    + (named ? card(named, 'Left their name or email') : '')
+  h += '</div>'
+  qs.forEach(function(q, qi){
+    var st = srStats(q, rows)
+    h += '<div style="border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;break-inside:avoid">'
+      + '<div style="display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;margin-bottom:8px"><div style="font-size:14px;font-weight:800;flex:1">'+(qi+1)+'. '+escHtml(q.question_text)+'</div>'
+      + '<div style="font-size:12px;color:var(--text-muted)">'+st.answered+' of '+n+' answered ('+Math.round(st.answered*100/n)+'%)'+(q.question_type==='checkbox'?' · could pick more than one':'')+'</div></div>'
+    if(q.question_type === 'text'){
+      h += st.texts.length ? '<div style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow:auto">'+st.texts.map(function(t){ return '<div style="background:var(--bg);border-radius:8px;padding:8px 10px;font-size:13px">'+escHtml(t.text)+'<div style="font-size:11px;color:var(--text-hint);margin-top:2px">'+escHtml(String(t.at||'').slice(0,10))+'</div></div>' }).join('')+'</div>'
+        : '<div style="font-size:12.5px;color:var(--text-hint)">No answers.</div>'
+    } else {
+      if(st.avg !== null) h += '<div style="display:flex;gap:18px;font-size:13px;margin-bottom:8px"><span>Average <strong>'+st.avg.toFixed(2)+'</strong> / 5</span><span>Median <strong>'+st.median+'</strong></span><span><strong>'+Math.round(st.top2*100)+'%</strong> rated 4 or 5</span></div>'
+      var denom = st.answered || 1
+      h += st.options.map(function(opt){
+        var c = st.tally[opt] || 0, pct = Math.round(c*100/denom)
+        return '<div style="display:grid;grid-template-columns:minmax(120px,240px) 1fr 90px;gap:10px;align-items:center;margin-bottom:5px;font-size:13px">'
+          + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(opt)+'">'+escHtml(opt)+'</span>'
+          + '<div style="height:14px;background:var(--bg);border-radius:7px;overflow:hidden"><div style="height:100%;width:'+pct+'%;background:#16728b;border-radius:7px"></div></div>'
+          + '<span style="text-align:right;color:var(--text-muted)"><strong style="color:var(--text)">'+c+'</strong> · '+pct+'%</span></div>'
+      }).join('')
+      if(st.others.length) h += '<details style="margin-top:6px"><summary style="font-size:12.5px;cursor:pointer;color:var(--teal-dark)">"Other" answers ('+st.others.length+')</summary><div style="margin-top:6px;font-size:12.5px">'+st.others.map(function(o){ return '<div style="padding:3px 0;border-top:1px solid var(--border)">'+escHtml(o)+'</div>' }).join('')+'</div></details>'
+    }
+    h += '</div>'
+  })
+  return h
+}
+function srResponsesHTML(qs, rows){
+  return '<div style="margin-bottom:10px"><input placeholder="Search answers, names, emails…" value="'+escHtml(_sr.q)+'" oninput="_sr.q=this.value;clearTimeout(window._srT);window._srT=setTimeout(srRender,300)" style="max-width:360px;padding:7px 10px;font-size:13px"/></div>'
+    + '<div style="overflow:auto;border:1px solid var(--border);border-radius:10px"><table style="border-collapse:collapse;font-size:12.5px;min-width:100%">'
+    + '<thead><tr style="background:var(--bg);text-align:left;position:sticky;top:0"><th style="padding:8px 10px;white-space:nowrap">Submitted</th><th style="padding:8px 10px">Name / email</th>'
+    + qs.map(function(q){ return '<th style="padding:8px 10px;min-width:140px;max-width:260px">'+escHtml(q.question_text)+'</th>' }).join('') + '</tr></thead><tbody>'
+    + rows.map(function(r){
+        return '<tr style="border-top:1px solid var(--border);vertical-align:top"><td style="padding:7px 10px;white-space:nowrap">'+escHtml(String(r.submitted_at||'').slice(0,16).replace('T',' '))+'</td>'
+          + '<td style="padding:7px 10px">'+escHtml(r.respondent_name||'')+(r.respondent_email?'<div style="color:var(--text-muted)">'+escHtml(r.respondent_email)+'</div>':'')+(!r.respondent_name&&!r.respondent_email?'<span style="color:var(--text-hint)">Anonymous</span>':'')+'</td>'
+          + qs.map(function(q){ var a = (r.answers||{})[q.id]; return '<td style="padding:7px 10px;max-width:260px">'+escHtml(Array.isArray(a) ? a.join(', ') : (a==null?'':String(a)))+'</td>' }).join('') + '</tr>'
+      }).join('') + '</tbody></table></div>'
+}
+function srTrendHTML(rows){
+  var by = {}
+  rows.forEach(function(r){ var d = String(r.submitted_at||'').slice(0,10); if(d) by[d] = (by[d]||0) + 1 })
+  var days = Object.keys(by).sort()
+  if(!days.length) return ''
+  // fill the gaps so quiet days show as zero
+  var series = [], cur = new Date(days[0]+'T12:00:00'), end = new Date(days[days.length-1]+'T12:00:00')
+  while(cur <= end && series.length < 400){ var k = cur.toISOString().slice(0,10); series.push([k, by[k]||0]); cur.setDate(cur.getDate()+1) }
+  var max = Math.max.apply(null, series.map(function(x){ return x[1] }).concat([1]))
+  var W = 900, H = 200, pad = 26, bw = (W - pad*2) / series.length
+  var svg = '<svg viewBox="0 0 '+W+' '+(H+26)+'" style="width:100%;height:auto">'
+  series.forEach(function(x, i){ var h = x[1]/max*(H-pad); svg += '<rect x="'+(pad+i*bw+bw*0.15)+'" y="'+(H-h)+'" width="'+Math.max(1,bw*0.7)+'" height="'+h+'" rx="2" fill="#16728b"><title>'+x[0]+': '+x[1]+'</title></rect>' })
+  var step = Math.max(1, Math.ceil(series.length/8))
+  series.forEach(function(x, i){ if(i % step === 0 || i === series.length-1){ var dt = new Date(x[0]+'T12:00:00'); svg += '<text x="'+(pad+i*bw+bw/2)+'" y="'+(H+16)+'" font-size="11" text-anchor="middle" fill="#6b7280">'+(dt.getMonth()+1)+'/'+dt.getDate()+'</text>' } })
+  svg += '<line x1="'+pad+'" y1="'+H+'" x2="'+(W-pad)+'" y2="'+H+'" stroke="#d1d5db"/></svg>'
+  var best = series.slice().sort(function(a,b){ return b[1]-a[1] })[0]
+  return '<div style="font-size:14px;font-weight:800;margin-bottom:6px">Responses per day</div>'+svg
+    + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:6px">Busiest day: <strong>'+escHtml(tkFmtDate(best[0]))+'</strong> with '+best[1]+' response'+(best[1]===1?'':'s')+' · '+series.length+' day'+(series.length===1?'':'s')+' shown</div>'
+}
+function srCsv(rows){ return rows.map(function(r){ return r.map(function(v){ v = String(v==null?'':v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v }).join(',') }).join('\n') }
+function srDownload(name, text){
+  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff'+text], {type:'text/csv'})); a.download = name; document.body.appendChild(a); a.click(); a.remove()
+}
+function srSlug(){ return String(_sr.data.survey.title||'survey').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'') }
+function srExportResponses(){
+  var qs = _sr.data.questions || [], rows = srFiltered()
+  var out = [['Submitted','Name','Email'].concat(qs.map(function(q){ return q.question_text }))]
+  rows.forEach(function(r){ out.push([String(r.submitted_at||'').slice(0,16).replace('T',' '), r.respondent_name||'', r.respondent_email||''].concat(qs.map(function(q){ var a = (r.answers||{})[q.id]; return Array.isArray(a) ? a.join('; ') : (a==null?'':a) }))) })
+  srDownload(srSlug()+'-responses.csv', srCsv(out))
+}
+function srExportSummary(){
+  var qs = _sr.data.questions || [], rows = srFiltered()
+  var out = [['Question','Answer','Count','Percent of people who answered','Answered','Total responses']]
+  qs.forEach(function(q){
+    var st = srStats(q, rows)
+    if(q.question_type === 'text'){ st.texts.forEach(function(t){ out.push([q.question_text, t.text, '', '', st.answered, rows.length]) }); return }
+    st.options.forEach(function(o){ var c = st.tally[o]||0; out.push([q.question_text, o, c, st.answered ? Math.round(c*1000/st.answered)/10+'%' : '0%', st.answered, rows.length]) })
+    if(st.avg !== null) out.push([q.question_text, 'Average (out of 5)', st.avg.toFixed(2), '', st.answered, rows.length])
+    st.others.forEach(function(o){ out.push([q.question_text, 'Other: '+o, '', '', st.answered, rows.length]) })
+  })
+  srDownload(srSlug()+'-summary.csv', srCsv(out))
+}
+function srPrint(){
+  var qs = _sr.data.questions || [], rows = srFiltered()
+  var w = window.open('', '_blank'); if(!w){ toast('Allow pop-ups to print the report','error'); return }
+  var filt = [_sr.from?'from '+_sr.from:'', _sr.to?'to '+_sr.to:'', (_sr.filterQ&&_sr.filterA)?'only "'+_sr.filterA+'"':''].filter(Boolean).join(', ')
+  w.document.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+escHtml(_sr.data.survey.title)+' results</title>'
+    + '<style>body{font-family:-apple-system,Segoe UI,sans-serif;color:#1f2a30;max-width:860px;margin:24px auto;padding:0 18px}h1{font-size:22px;margin:0}'
+    + '.sub{color:#5f6b72;font-size:13px;margin:4px 0 18px}</style></head><body>'
+    + '<h1>'+escHtml(_sr.data.survey.title)+'</h1><div class="sub">'+rows.length+' response'+(rows.length===1?'':'s')+(filt?' ('+escHtml(filt)+')':'')+' · Horizon West Theater Company · printed '+new Date().toLocaleDateString()+'</div>'
+    + srSummaryHTML(qs, rows).replace(/max-height:260px;overflow:auto/g, '') + '</body></html>')
+  w.document.close(); setTimeout(function(){ w.print() }, 400)
+}
+
 </script>
 
 <script>

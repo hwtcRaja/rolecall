@@ -152,7 +152,10 @@ function renderSurvey(){
       })
       // Show/hide other input
       const otherInput = document.getElementById('other-'+qi)
-      if(otherInput) otherInput.style.display = val==='__other__' ? '' : 'none'
+      if(otherInput){
+        otherInput.style.display = val==='__other__' ? 'block' : 'none'
+        if(val==='__other__'){ var oi = otherInput.querySelector('input'); if(oi){ oi.focus(); if(oi.value) answers[qi] = 'Other: '+oi.value } }
+      }
     }
     if(t.classList.contains('survey-checkbox')){
       const qi = parseInt(t.dataset.qi)
@@ -162,7 +165,11 @@ function renderSurvey(){
       if(!answers[qi]) answers[qi] = []
       if(val === '__other__'){
         const otherInput = document.getElementById('other-'+qi)
-        if(otherInput) otherInput.style.display = t.checked ? '' : 'none'
+        if(otherInput){
+          otherInput.style.display = t.checked ? 'block' : 'none'
+          var oi2 = otherInput.querySelector('input')
+          if(t.checked && oi2){ oi2.focus(); if(oi2.value) answers[qi].push('Other: '+oi2.value) }
+        }
         if(!t.checked) answers[qi] = answers[qi].filter(function(v){ return !String(v).startsWith('Other:') })
       } else {
         if(t.checked){ if(answers[qi].indexOf(val)<0) answers[qi].push(val) }
@@ -262,6 +269,13 @@ async function submitSurvey(){
     }
   }
   document.getElementById('form-error').style.display='none'
+  for(var k in answers){ if(answers[k] === '__other__') answers[k] = 'Other' }
+  questions.forEach(function(q, i){
+    if(q.question_type==='checkbox' && Array.isArray(answers[i])){
+      var cb = document.querySelector('.survey-other-cb[data-qi="'+i+'"]')
+      if(cb && cb.checked && !answers[i].some(function(v){ return String(v).indexOf('Other') === 0 })) answers[i].push('Other')
+    }
+  })
   if(btn){ btn.disabled=true; btn.textContent='Submitting...' }
   try{
     const r = await fetch('/api/public/survey/'+slug+'/respond',{

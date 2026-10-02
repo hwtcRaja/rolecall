@@ -31113,7 +31113,7 @@ function renderRentalsPage(){
   const body = document.getElementById('rentals-body')
   if(!body) return
   const { requests, partners, spaces } = _rentalData
-  const tabs = ['Requests','Partners','Schedule']
+  const tabs = ['Requests','Partners','Schedule','Partner Requests']
   let html = '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
     + tabs.map((t,i)=>`<button onclick="switchRentalTab(${i})" id="rtab-${i}"
       style="padding:8px 16px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:${i===0?'700':'600'};cursor:pointer;border-bottom:2px solid ${i===0?'#145466':'transparent'};margin-bottom:-2px;color:${i===0?'#145466':'var(--text-muted)'}">
@@ -31383,7 +31383,9 @@ function renderRentalsPage(){
   }
   html += '</div>'
 
+  html += '<div id="rtab-panel-3" style="display:none"></div>'
   body.innerHTML = html
+  loadPartnerRequestsPanel()
 }
 
 // ── Deposit / Final Payment invoices (Square) ────────────────────────────
@@ -31813,12 +31815,54 @@ async function submitEditRentalInstallment(paymentId, agreementId){
 }
 
 function switchRentalTab(idx){
-  for(var i=0;i<3;i++){
+  for(var i=0;i<4;i++){
     const p=document.getElementById('rtab-panel-'+i)
     const t=document.getElementById('rtab-'+i)
     if(p) p.style.display=i===idx?'':'none'
     if(t){ t.style.fontWeight=i===idx?'700':'600'; t.style.borderBottomColor=i===idx?'#145466':'transparent'; t.style.color=i===idx?'#145466':'var(--text-muted)' }
   }
+}
+
+// ── Artistic Partnership → Partner requests (from the partner portal) ──
+async function loadPartnerRequestsPanel(){
+  var el = document.getElementById('rtab-panel-3'); if(!el) return
+  el.innerHTML = '<div style="padding:20px;color:var(--text-muted)">Loading…</div>'
+  var rows = await api('/api/rental/change-requests')
+  if(!Array.isArray(rows)){ el.innerHTML = '<div style="padding:20px;color:#b91c1c">'+escHtml((rows&&rows.error)||'Could not load')+'</div>'; return }
+  var pend = rows.filter(function(r){ return r.status==='pending' }).length
+  var b = document.getElementById('rtab-3'); if(b) b.innerHTML = 'Partner Requests'+(pend?' <span style="background:#dc2626;color:#fff;border-radius:10px;padding:1px 7px;font-size:11px">'+pend+'</span>':'')
+  var lab = {add_dates:'Add dates', invoice:'Invoice change', other:'Request'}
+  el.innerHTML = '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Requests partners send from their partner portal. Approving an "add dates" request puts those dates on their schedule; update their invoice in the request if the price changes. Your reply is emailed to them.</div>'
+    + (rows.length ? rows.map(function(r){
+      var st = r.status==='pending' ? '<span style="background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px">Waiting</span>'
+        : r.status==='approved' ? '<span style="background:#dcfce7;color:#166534;font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px">Approved</span>'
+        : '<span style="background:#f1f5f9;color:#64748b;font-size:11px;font-weight:700;padding:2px 9px;border-radius:10px">Declined</span>'
+      return '<div class="card" style="padding:14px 16px;margin-bottom:10px">'
+        + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><strong>'+escHtml(r.partner_name)+'</strong><span style="color:var(--text-muted);font-size:12.5px">'+escHtml(r.title||'')+' · '+escHtml(lab[r.kind]||'Request')+' · '+escHtml(r.created_at)+'</span><span style="flex:1"></span>'+st+'</div>'
+        + (r.dates && r.dates.length ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'+r.dates.map(function(x){ return '<span style="font-size:12.5px;padding:4px 9px;border-radius:8px;background:'+(x.conflict?'#fee2e2':'var(--bg)')+';color:'+(x.conflict?'#991b1b':'var(--text)')+'" title="'+(x.conflict?'Something else is already booked in this room that day':'')+'">'+escHtml(tkFmtDate(x.date))+(x.start?' · '+escHtml(tkFmtTime(x.start))+(x.end?'–'+escHtml(tkFmtTime(x.end)):''):'')+(x.conflict?' · conflict':'')+'</span>' }).join('')+'</div>' : '')
+        + (r.details ? '<div style="margin-top:8px;font-size:13px;white-space:pre-wrap">'+escHtml(r.details)+'</div>' : '')
+        + (r.status==='pending'
+            ? '<div style="margin-top:10px"><textarea id="pcr-reply-'+r.id+'" rows="2" placeholder="Reply to the partner (optional, emailed to them)" style="width:100%"></textarea>'
+              + '<div style="display:flex;gap:8px;margin-top:6px"><button class="btn btn-primary btn-sm" onclick="resolvePartnerRequest(\''+r.id+'\',\'approve\')">'+(r.dates&&r.dates.length?'Approve & add '+r.dates.length+' date'+(r.dates.length===1?'':'s'):'Mark done')+'</button>'
+              + '<button class="btn btn-secondary btn-sm" onclick="resolvePartnerRequest(\''+r.id+'\',\'decline\')">Decline</button></div></div>'
+            : (r.staff_reply ? '<div style="margin-top:8px;font-size:12.5px;color:var(--text-muted)"><strong>Reply:</strong> '+escHtml(r.staff_reply)+'</div>' : ''))
+        + '</div>'
+    }).join('') : '<div style="padding:20px;color:var(--text-muted);font-size:13px">No requests yet. Send partners their portal link from the Partners tab.</div>')
+}
+async function resolvePartnerRequest(id, action){
+  var reply = (document.getElementById('pcr-reply-'+id)||{}).value || ''
+  if(action==='decline' && !reply && !confirm('Decline without a reply?')) return
+  var res = await api('/api/rental/change-requests/'+id,'POST',{action: action, reply: reply})
+  if(res.error){ toast(res.error,'error'); return }
+  toast(action==='approve' ? (res.dates_added ? res.dates_added+' date'+(res.dates_added===1?'':'s')+' added' : 'Marked done') : 'Declined','success')
+  loadPartnerRequestsPanel()
+}
+async function partnerPortalLink(pid, action){
+  var res = await api('/api/rental/partners/'+pid+'/portal-link', action ? 'POST' : 'GET', action ? {action: action} : undefined)
+  if(res.error){ toast(res.error,'error'); return }
+  var box = document.getElementById('pd-portal-link'); if(box) box.value = res.url
+  if(action==='email') toast('Portal link emailed to the partner','success')
+  else if(action==='new') toast('New link made; the old one no longer works','success')
 }
 
 async function approveRentalRequest(rid){
@@ -32320,7 +32364,17 @@ function renderPartnerDetailsTab(p){
    <div class="form-group" style="margin-bottom:12px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Notes</label>
    <textarea id="pm-notes" rows="3" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml(p.notes||'')}</textarea></div>
    <button class="btn btn-primary btn-sm" onclick="saveDetailPartner('${p.id||''}')">Save Changes</button>
+   ${p.id ? `<div style="margin-top:18px;padding:12px 14px;background:var(--bg);border-radius:var(--radius)">
+     <div style="font-size:13px;font-weight:700;margin-bottom:4px">Partner portal</div>
+     <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">A private page where this partner sees their agreement, the studio calendar, and their invoices, and can request dates or invoice changes. No account needed.</div>
+     <input id="pd-portal-link" readonly onclick="this.select()" placeholder="Loading…" style="width:100%;font-size:12px;margin-bottom:8px"/>
+     <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('pd-portal-link').value);toast('Copied','success')">Copy link</button>
+      <button class="btn btn-primary btn-sm" onclick="partnerPortalLink('${p.id}','email')">Email it to ${escHtml(p.contact_name||'the partner')}</button>
+      <button class="btn btn-secondary btn-sm" style="color:#b91c1c" onclick="if(confirm('Make a new link? The old one stops working.'))partnerPortalLink('${p.id}','new')">New link</button>
+     </div></div>` : ''}
   `
+  if(p.id) partnerPortalLink(p.id)
 }
 
 async function saveDetailPartner(pid){

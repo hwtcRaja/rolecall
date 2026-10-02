@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="robots" content="noindex"/>
+<title>Partner Portal · Horizon West Theater Company</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1f2a30;--muted:#5f6b72;--line:#dfe5e8;--bg:#f4f7f8;--brand:#16728b;--brand-dark:#0f5566;--soft:#e3f1f5;--ok:#166534;--okbg:#dcfce7;--warn:#92400e;--warnbg:#fef3c7;--bad:#991b1b;--badbg:#fee2e2}
+*{box-sizing:border-box}
+body{margin:0;font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+a{color:var(--brand);font-weight:600}
+button,input,select,textarea{font-family:inherit;font-size:15px}
+:focus-visible{outline:3px solid #f4b740;outline-offset:2px}
+header{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;justify-content:center}
+header img{height:52px}
+.hero{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;padding:26px 20px 30px}
+.hero .in{max-width:960px;margin:0 auto}
+.hero h1{font-family:'Playfair Display',Georgia,serif;font-size:clamp(26px,4vw,36px);margin:0}
+.hero p{margin:6px 0 0;opacity:.9}
+nav.tabs{max-width:960px;margin:-18px auto 0;padding:0 20px;display:flex;gap:6px;flex-wrap:wrap}
+nav.tabs button{border:none;background:#fff;border-radius:10px;padding:10px 16px;font-weight:700;color:var(--muted);cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+nav.tabs button[aria-selected="true"]{background:var(--ink);color:#fff}
+main{max-width:960px;margin:0 auto;padding:20px 20px 60px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+.card h2{font-size:18px;margin:0 0 10px}
+.muted{color:var(--muted)}
+.pill{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px}
+.p-ok{background:var(--okbg);color:var(--ok)}.p-warn{background:var(--warnbg);color:var(--warn)}.p-bad{background:var(--badbg);color:var(--bad)}.p-mute{background:#eef2f4;color:var(--muted)}
+.row{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.row:first-of-type{border-top:none}
+.grow{flex:1;min-width:200px}
+.btn{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;font-size:14px}
+.btn-p{background:var(--brand);color:#fff}.btn-p:hover{background:var(--brand-dark)}
+.btn-s{background:#eef2f4;color:var(--ink)}
+.big{font-size:28px;font-weight:800}
+.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px}
+.summary .card{margin:0}
+.cal-head{display:flex;align-items:center;gap:10px;margin-bottom:10px;flex-wrap:wrap}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal .dow{font-size:11px;font-weight:700;color:var(--muted);text-align:center;padding:4px 0}
+.day{min-height:74px;border:1px solid var(--line);border-radius:8px;padding:4px;font-size:11px;background:#fff;cursor:pointer;position:relative}
+.day.out{background:#f8fafb;color:#b7c0c5;cursor:default}
+.day.past{opacity:.55}
+.day.sel{outline:3px solid #f4b740}
+.day .n{font-weight:700;font-size:12px}
+.blk{border-radius:4px;padding:1px 4px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.blk.mine{background:var(--soft);color:var(--brand-dark);font-weight:700}
+.blk.other{background:#eef2f4;color:var(--muted)}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:13px;font-weight:700;margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff}
+.dates{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.dchip{background:var(--soft);color:var(--brand-dark);border-radius:8px;padding:5px 9px;font-size:13px;font-weight:700}
+.dchip button{border:none;background:none;color:var(--muted);cursor:pointer;margin-left:4px}
+.err{color:var(--bad);font-size:13.5px;margin-top:6px}
+.okmsg{color:var(--ok);font-size:14px;font-weight:700;margin-top:6px}
+@media(max-width:600px){.day{min-height:56px}.blk{font-size:10px}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header><img src="/static/images/hwtc_logo_teal.png" alt="Horizon West Theater Company" onerror="this.style.display='none'"/></header>
+<div class="hero"><div class="in"><h1 id="pname">Partner Portal</h1><p id="psub">Artistic Partnership</p></div></div>
+<nav class="tabs" id="tabs" role="tablist"></nav>
+<main id="app"><div class="card">Loading…</div></main>
+
+<script>
+var TOKEN = location.pathname.replace(/^\/partner\/?/, '').replace(/\/$/, '')
+var D = null, TAB = 'overview', CAL_SPACE = '', CAL_MONTH = null, PICKED = [], REQ_PREFILL = null
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+function money(c){ return '$'+((c||0)/100).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}) }
+function fdate(d){ if(!d) return ''; try{ return new Date(String(d).slice(0,10)+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'}) }catch(e){ return d } }
+function t12(t){ t=(t||'').slice(0,5); if(t.length<5) return ''; var h=+t.slice(0,2), m=t.slice(3,5); return ((h%12)||12)+(m!=='00'?':'+m:'')+(h>=12?' PM':' AM') }
+async function api(path, method, body){
+  var r = await fetch(path, {method: method||'GET', headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined})
+  try{ return await r.json() }catch(e){ return {error:'Something went wrong. Please try again.'} }
+}
+
+async function boot(){
+  if(!TOKEN) return showRequestLink()
+  D = await api('/api/public/partner/'+encodeURIComponent(TOKEN))
+  if(D.error){ document.getElementById('app').innerHTML = '<div class="card">'+esc(D.error)+' <a href="/partner">Get a new link</a></div>'; return }
+  document.getElementById('pname').textContent = D.partner.name
+  document.getElementById('psub').textContent = 'Artistic Partnership with Horizon West Theater Company'
+  document.title = D.partner.name+' · Partner Portal'
+  var mine = (D.partnerships||[]).find(function(p){ return p.space_id })
+  CAL_SPACE = mine ? mine.space_id : ((D.spaces||[])[0]||{}).id || ''
+  var t = new Date(); CAL_MONTH = new Date(t.getFullYear(), t.getMonth(), 1)
+  render()
+}
+function showRequestLink(){
+  document.getElementById('tabs').innerHTML = ''
+  document.getElementById('app').innerHTML = '<div class="card" style="max-width:480px;margin:0 auto"><h2>Find your partner portal</h2>'
+    + '<p class="muted" style="margin-top:0">Enter the email we have on file for your organization and we\'ll send you your private link.</p>'
+    + '<div class="field"><label for="em">Email</label><input id="em" type="email" autocomplete="email" onkeydown="if(event.key===\'Enter\')requestLink()"/></div>'
+    + '<button class="btn btn-p" onclick="requestLink()">Email me my link</button><div id="rl-msg"></div></div>'
+}
+async function requestLink(){
+  var e = (document.getElementById('em').value||'').trim(); if(!e) return
+  var r = await api('/api/public/partner/request-link','POST',{email:e})
+  document.getElementById('rl-msg').innerHTML = '<div class="okmsg">'+esc(r.message || 'Check your email.')+'</div>'
+}
+
+function tabsHTML(){
+  var waiting = (D.invoices||[]).filter(function(i){ return i.state==='due'||i.state==='overdue' }).length
+  var tabs = [['overview','Overview'],['calendar','Calendar'],['invoices','Invoices'+(waiting?' ('+waiting+')':'')],['requests','Requests']]
+  return tabs.map(function(t){ return '<button role="tab" aria-selected="'+(TAB===t[0])+'" onclick="TAB=\''+t[0]+'\';render()">'+t[1]+'</button>' }).join('')
+}
+function render(){
+  document.getElementById('tabs').innerHTML = tabsHTML()
+  var h = ''
+  if(TAB==='overview') h = overviewHTML()
+  if(TAB==='calendar') h = calendarHTML()
+  if(TAB==='invoices') h = invoicesHTML()
+  if(TAB==='requests') h = requestsHTML()
+  document.getElementById('app').innerHTML = h
+}
+function statusPill(s){
+  var m = {approved:['Approved','p-ok'], signed:['Signed','p-ok'], active:['Active','p-ok'], completed:['Completed','p-mute'], pending:['Pending review','p-warn'], sent_back:['Needs changes','p-warn']}
+  var x = m[s] || [s, 'p-mute']; return '<span class="pill '+x[1]+'">'+esc(x[0])+'</span>'
+}
+function invPill(s){
+  var m = {paid:['Paid','p-ok'], due:['Due','p-warn'], overdue:['Overdue','p-bad'], upcoming:['Not sent yet','p-mute'], cancelled:['Cancelled','p-mute']}
+  var x = m[s] || [s,'p-mute']; return '<span class="pill '+x[1]+'">'+x[0]+'</span>'
+}
+function overviewHTML(){
+  var upcoming = (D.calendar||[]).filter(function(c){ return c.mine && c.date >= new Date().toISOString().slice(0,10) }).slice(0,5)
+  var due = (D.invoices||[]).filter(function(i){ return i.state==='due'||i.state==='overdue' })
+  var h = '<div class="summary">'
+    + '<div class="card"><div class="muted" style="font-size:13px">Outstanding balance</div><div class="big" style="color:'+(D.outstanding_cents?'var(--bad)':'var(--ok)')+'">'+money(D.outstanding_cents)+'</div>'
+    + (due.length ? '<a href="#" onclick="TAB=\'invoices\';render();return false">'+due.length+' invoice'+(due.length===1?'':'s')+' to pay</a>' : '<div class="muted" style="font-size:13px">All paid up. Thank you!</div>')+'</div>'
+    + '<div class="card"><div class="muted" style="font-size:13px">Next date</div><div class="big" style="font-size:20px">'+(upcoming[0] ? esc(fdate(upcoming[0].date)) : '—')+'</div>'
+    + (upcoming[0] && upcoming[0].start ? '<div class="muted" style="font-size:13px">'+t12(upcoming[0].start)+(upcoming[0].end?' – '+t12(upcoming[0].end):'')+'</div>' : '')+'</div>'
+    + '<div class="card"><div class="muted" style="font-size:13px">Need more dates?</div><button class="btn btn-p" style="margin-top:8px" onclick="TAB=\'calendar\';render()">Check the calendar</button></div>'
+    + '</div>'
+  h += '<div class="card"><h2>Your partnerships</h2>'
+  if(!(D.partnerships||[]).length) h += '<div class="muted">Nothing here yet.</div>'
+  ;(D.partnerships||[]).forEach(function(p){
+    var a = p.agreement
+    h += '<div class="row"><div class="grow"><div style="font-weight:800;font-size:16px">'+esc(p.title)+'</div>'
+      + '<div class="muted" style="font-size:13.5px">'+esc(p.space||'')+(p.start_date?' · '+esc(fdate(p.start_date))+(p.end_date&&p.end_date!==p.start_date?' – '+esc(fdate(p.end_date)):''):'')
+      + (p.start_time?' · '+t12(p.start_time)+(p.end_time?' – '+t12(p.end_time):''):'')+'</div></div>'
+      + statusPill(p.status)
+      + (a ? (a.sign_url ? '<a class="btn btn-p" href="'+esc(a.sign_url)+'">Review &amp; sign agreement</a>' : '<a class="btn btn-s" href="/partner/'+esc(TOKEN)+'/agreement/'+esc(a.id)+'" target="_blank">View agreement</a>') : '<span class="muted" style="font-size:13px">Agreement coming soon</span>')
+      + (p.messages_url ? '<a class="btn btn-s" href="'+esc(p.messages_url)+'" target="_blank">Messages</a>' : '')
+      + '</div>'
+  })
+  h += '</div>'
+  if(upcoming.length){
+    h += '<div class="card"><h2>Coming up</h2>' + upcoming.map(function(c){ return '<div class="row"><div class="grow"><strong>'+esc(fdate(c.date))+'</strong> <span class="muted">'+(c.start?t12(c.start)+(c.end?' – '+t12(c.end):''):'')+'</span></div><span class="muted">'+esc(c.title)+'</span></div>' }).join('') + '</div>'
+  }
+  return h
+}
+
+function calendarHTML(){
+  var spaces = D.spaces || []
+  var m = CAL_MONTH, y = m.getFullYear(), mo = m.getMonth()
+  var first = new Date(y, mo, 1), startDow = first.getDay(), days = new Date(y, mo+1, 0).getDate()
+  var today = new Date().toISOString().slice(0,10)
+  var ev = (D.calendar||[]).filter(function(c){ return !CAL_SPACE || c.space_id === CAL_SPACE })
+  var by = {}; ev.forEach(function(c){ (by[c.date] = by[c.date] || []).push(c) })
+  var h = '<div class="card"><div class="cal-head"><h2 style="margin:0;flex:1">Studio calendar</h2>'
+    + (spaces.length > 1 ? '<select onchange="CAL_SPACE=this.value;render()" aria-label="Room">'+spaces.map(function(s){ return '<option value="'+s.id+'"'+(s.id===CAL_SPACE?' selected':'')+'>'+esc(s.name)+'</option>' }).join('')+'</select>' : '')
+    + '<button class="btn btn-s" onclick="moveMonth(-1)" aria-label="Previous month">‹</button>'
+    + '<strong style="min-width:130px;text-align:center">'+first.toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</strong>'
+    + '<button class="btn btn-s" onclick="moveMonth(1)" aria-label="Next month">›</button></div>'
+    + '<p class="muted" style="margin:0 0 10px;font-size:13.5px">Your dates are shown by name; anything else already booked shows as "Booked." Tap open days to pick dates you\'d like to add, then send the request.</p>'
+    + '<div class="cal">' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(d){ return '<div class="dow">'+d+'</div>' }).join('')
+  for(var i=0;i<startDow;i++) h += '<div class="day out"></div>'
+  for(var dd=1; dd<=days; dd++){
+    var ds = y+'-'+String(mo+1).padStart(2,'0')+'-'+String(dd).padStart(2,'0')
+    var items = by[ds] || []
+    var past = ds < today, sel = PICKED.some(function(p){ return p.date===ds })
+    h += '<div class="day'+(past?' past':'')+(sel?' sel':'')+'" '+(past?'':'onclick="toggleDay(\''+ds+'\')" role="button" tabindex="0" onkeydown="if(event.key===\'Enter\')toggleDay(\''+ds+'\')"')+' aria-label="'+ds+(items.length?' '+items.length+' booked':'')+'">'
+      + '<div class="n">'+dd+'</div>'
+      + items.slice(0,3).map(function(c){ return '<div class="blk '+(c.mine?'mine':'other')+'" title="'+esc(c.title+' '+t12(c.start)+(c.end?'–'+t12(c.end):''))+'">'+(c.start?t12(c.start)+' ':'')+esc(c.title)+'</div>' }).join('')
+      + (items.length>3?'<div class="muted">+'+(items.length-3)+' more</div>':'') + '</div>'
+  }
+  h += '</div></div>'
+  h += '<div class="card"><h2>Request more dates</h2>' + (PICKED.length
+      ? '<div class="dates">'+PICKED.map(function(p,i){ var busy = (by[p.date]||[]).length; return '<span class="dchip">'+esc(fdate(p.date))+(busy?' ⚠︎':'')+'<button aria-label="Remove" onclick="PICKED.splice('+i+',1);render()">✕</button></span>' }).join('')+'</div>'
+        + (PICKED.some(function(p){ return (by[p.date]||[]).length }) ? '<div class="muted" style="font-size:13px">⚠︎ Something is already booked that day. It may still work at a different time; we\'ll let you know.</div>' : '')
+        + '<button class="btn btn-p" style="margin-top:10px" onclick="REQ_PREFILL=\'add_dates\';TAB=\'requests\';render()">Continue with '+PICKED.length+' date'+(PICKED.length===1?'':'s')+'</button>'
+      : '<div class="muted">Tap open days on the calendar to pick them.</div>') + '</div>'
+  return h
+}
+function moveMonth(n){ CAL_MONTH = new Date(CAL_MONTH.getFullYear(), CAL_MONTH.getMonth()+n, 1); render() }
+function toggleDay(ds){
+  var i = PICKED.findIndex(function(p){ return p.date===ds })
+  if(i >= 0) PICKED.splice(i,1); else PICKED.push({date: ds})
+  PICKED.sort(function(a,b){ return a.date<b.date?-1:1 }); render()
+}
+
+function invoicesHTML(){
+  var inv = D.invoices || []
+  var h = '<div class="card"><h2>Invoices</h2>'
+  if(!inv.length) return h + '<div class="muted">No invoices yet.</div></div>'
+  inv.forEach(function(i){
+    h += '<div class="row"><div class="grow"><div style="font-weight:800">'+esc(i.label||'Invoice')+' · '+money(i.amount_cents)+'</div>'
+      + '<div class="muted" style="font-size:13.5px">'+esc(i.title)+(i.due_date?' · Due '+esc(fdate(i.due_date)):'')+(i.paid_at?' · Paid '+esc(fdate(i.paid_at)):'')+'</div></div>'
+      + invPill(i.state)
+      + (i.pay_url ? '<a class="btn btn-p" href="'+esc(i.pay_url)+'" target="_blank" rel="noopener">Pay now</a>' : '')
+      + (i.state!=='paid' && i.state!=='cancelled' ? '<button class="btn btn-s" onclick="REQ_PREFILL=\'invoice\';window._invNote=\''+esc((i.label||'Invoice')+' ('+money(i.amount_cents)+', '+i.title+')').replace(/'/g,"\\'")+'\';TAB=\'requests\';render()">Request a change</button>' : '')
+      + '</div>'
+  })
+  return h + '<div class="muted" style="font-size:13px;margin-top:10px">Payments go through Square. Your receipt is emailed when it\'s paid.</div></div>'
+}
+
+function requestsHTML(){
+  var ps = D.partnerships || []
+  var kind = REQ_PREFILL || 'add_dates'
+  var h = '<div class="card"><h2>Send a request</h2>'
+    + '<div class="field"><label for="rq-kind">What would you like?</label><select id="rq-kind" onchange="REQ_PREFILL=this.value;render()">'
+    + [['add_dates','Add dates'],['invoice','Change an invoice'],['other','Something else']].map(function(o){ return '<option value="'+o[0]+'"'+(kind===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('')+'</select></div>'
+    + '<div class="field"><label for="rq-req">Which partnership?</label><select id="rq-req">'+ps.map(function(p){ return '<option value="'+p.id+'">'+esc(p.title)+'</option>' }).join('')+'</select></div>'
+  if(kind==='add_dates'){
+    var def = ps[0] || {}
+    h += '<div class="field"><label>Dates</label>'
+      + (PICKED.length ? PICKED.map(function(p,i){ return '<div style="display:flex;gap:8px;align-items:center;margin-bottom:6px;flex-wrap:wrap"><strong style="min-width:140px">'+esc(fdate(p.date))+'</strong>'
+          + '<input type="time" aria-label="Start time" value="'+esc(p.start||def.start_time||'')+'" onchange="PICKED['+i+'].start=this.value" style="width:auto"/>'
+          + '<span>to</span><input type="time" aria-label="End time" value="'+esc(p.end||def.end_time||'')+'" onchange="PICKED['+i+'].end=this.value" style="width:auto"/>'
+          + '<button class="btn btn-s" style="padding:6px 10px" onclick="PICKED.splice('+i+',1);render()">Remove</button></div>' }).join('')
+        : '<div class="muted" style="font-size:14px">No dates picked yet. <a href="#" onclick="TAB=\'calendar\';render();return false">Pick them on the calendar</a> or add one here:</div>')
+      + '<div style="display:flex;gap:8px;margin-top:6px"><input type="date" id="rq-add" style="width:auto"/><button class="btn btn-s" onclick="var v=document.getElementById(\'rq-add\').value;if(v&&!PICKED.some(function(p){return p.date===v})){PICKED.push({date:v});PICKED.sort(function(a,b){return a.date<b.date?-1:1});render()}">Add date</button></div></div>'
+  }
+  h += '<div class="field"><label for="rq-details">'+(kind==='add_dates'?'Anything we should know? (optional)':'Details')+'</label>'
+    + '<textarea id="rq-details" rows="4" placeholder="'+(kind==='invoice'?'e.g. Please add the two extra rehearsals to our October invoice.':kind==='add_dates'?'e.g. We need the space for extra rehearsals before our showcase.':'')+'">'+esc(kind==='invoice' && window._invNote ? 'About: '+window._invNote+'\n' : '')+'</textarea></div>'
+    + '<button class="btn btn-p" id="rq-send" onclick="sendRequest()">Send request</button><div id="rq-msg"></div></div>'
+  var ch = D.changes || []
+  if(ch.length){
+    h += '<div class="card"><h2>Your requests</h2>' + ch.map(function(c){
+      var st = c.status==='approved' ? '<span class="pill p-ok">Approved</span>' : c.status==='declined' ? '<span class="pill p-bad">Not approved</span>' : '<span class="pill p-warn">Waiting for us</span>'
+      var lab = {add_dates:'Add dates', invoice:'Invoice change', other:'Request'}[c.kind] || 'Request'
+      return '<div class="row"><div class="grow"><strong>'+lab+'</strong> <span class="muted" style="font-size:13px">sent '+esc(fdate(c.created_at))+'</span>'
+        + (c.dates && c.dates.length ? '<div class="muted" style="font-size:13.5px">'+c.dates.map(function(x){ return esc(fdate(x.date)) }).join(', ')+'</div>' : '')
+        + (c.details ? '<div style="font-size:13.5px;white-space:pre-wrap">'+esc(c.details)+'</div>' : '')
+        + (c.staff_reply ? '<div style="font-size:13.5px;margin-top:4px"><strong>HWTC:</strong> '+esc(c.staff_reply)+'</div>' : '')+'</div>'+st+'</div>'
+    }).join('') + '</div>'
+  }
+  return h
+}
+async function sendRequest(){
+  var kind = document.getElementById('rq-kind').value, msg = document.getElementById('rq-msg'), btn = document.getElementById('rq-send')
+  btn.disabled = true; btn.textContent = 'Sending…'
+  var r = await api('/api/public/partner/'+encodeURIComponent(TOKEN)+'/change-request','POST',{kind: kind, request_id: document.getElementById('rq-req').value,
+    dates: kind==='add_dates' ? PICKED : [], details: document.getElementById('rq-details').value})
+  btn.disabled = false; btn.textContent = 'Send request'
+  if(r.error){ msg.innerHTML = '<div class="err">'+esc(r.error)+'</div>'; return }
+  PICKED = []; REQ_PREFILL = null; window._invNote = ''
+  D = await api('/api/public/partner/'+encodeURIComponent(TOKEN)); render()
+  document.getElementById('rq-msg').innerHTML = '<div class="okmsg">Sent! We\'ll get back to you by email.</div>'
+}
+boot()
+</script>
+</body>
+</html>

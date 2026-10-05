@@ -6996,6 +6996,25 @@ function renderEmailGroupOptions(){
  return
  }
 
+  if(type==='interest'){
+    // Pick one or several interests and send one email to everyone who
+    // matches, each person once.
+    var oldSub = document.getElementById('email-sub-interest-detail'); if(oldSub) oldSub.remove()
+    detail.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px">Tick every interest to include. Each person gets the email once, even if they match several.</div>'
+      + '<div style="display:flex;gap:14px;margin-bottom:6px;font-size:12.5px">'
+      + '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;margin:0;text-transform:none;letter-spacing:0;font-weight:500"><input type="radio" name="email-interest-mode" value="any" checked onchange="emailInterestPicked()" style="width:auto"/> Interested in <strong>any</strong> of these</label>'
+      + '<label style="display:flex;align-items:center;gap:5px;cursor:pointer;margin:0;text-transform:none;letter-spacing:0;font-weight:500"><input type="radio" name="email-interest-mode" value="all" onchange="emailInterestPicked()" style="width:auto"/> Interested in <strong>all</strong> of these</label></div>'
+      + '<div style="max-height:240px;overflow-y:auto">'
+      + (interestTypes.length ? interestTypes.map(function(it){
+          return '<label class="vol-checkbox-item" style="cursor:pointer"><input type="checkbox" class="email-interest-cb" value="'+escHtml(it.name)+'" onchange="emailInterestPicked()"/>'
+            + '<div style="flex:1;min-width:0"><div style="font-weight:500;font-size:13px">'+escHtml(it.name)+'</div></div>'
+            + '<span class="email-interest-count" data-name="'+escHtml(it.name)+'" style="font-size:11px;color:var(--text-muted)"></span></label>' }).join('')
+        : '<div style="color:var(--text-muted);font-size:13px;padding:8px 12px">No interests set up yet.</div>')
+      + '</div><div id="email-interest-sub"></div><div id="email-interest-total" style="font-size:12px;font-weight:700;margin-top:6px"></div>'
+    emailInterestPicked()
+    return
+  }
+
  // Restore the plain dropdown markup in case guardian_programs' checklist
  // is what's currently sitting in this container.
  if(!document.getElementById('email-group-value')){
@@ -7048,6 +7067,47 @@ function renderEmailGroupOptions(){
  sel.innerHTML+=`<option value="${e.id}">${e.name} (${formatDate(e.event_date)})</option>`
  })
  }
+}
+
+function _emailVolInterests(v){ try{ return JSON.parse(v.interests||'[]') }catch(e){ return [] } }
+function emailInterestMatches(){
+  var picked = Array.from(document.querySelectorAll('.email-interest-cb:checked')).map(function(c){ return c.value })
+  var mode = (document.querySelector('input[name="email-interest-mode"]:checked')||{}).value || 'any'
+  var subVal = (document.getElementById('email-sub-interest-value')||{}).value || ''
+  if(!picked.length) return {picked: picked, mode: mode, subVal: subVal, list: []}
+  var list = volunteers.filter(function(v){
+    var ints = _emailVolInterests(v)
+    var ok = mode === 'all' ? picked.every(function(p){ return ints.indexOf(p) >= 0 }) : picked.some(function(p){ return ints.indexOf(p) >= 0 })
+    if(!ok) return false
+    if(subVal && picked.length === 1){
+      try{ return ((JSON.parse(v.sub_selections||'{}')[picked[0]])||[]).indexOf(subVal) >= 0 }catch(e){ return false }
+    }
+    return true
+  })
+  return {picked: picked, mode: mode, subVal: subVal, list: list}
+}
+function emailInterestPicked(){
+  // per-interest counts, the optional sub-option filter (one interest only), and the running total
+  document.querySelectorAll('.email-interest-count').forEach(function(el){
+    var n = volunteers.filter(function(v){ return _emailVolInterests(v).indexOf(el.dataset.name) >= 0 }).length
+    el.textContent = n+' '+(n===1?'person':'people')
+  })
+  var picked = Array.from(document.querySelectorAll('.email-interest-cb:checked')).map(function(c){ return c.value })
+  var sub = document.getElementById('email-interest-sub')
+  if(sub){
+    var keep = (document.getElementById('email-sub-interest-value')||{}).value || ''
+    sub.innerHTML = ''
+    if(picked.length === 1){
+      var it = interestTypes.find(function(x){ return x.name === picked[0] }), opts = []
+      try{ opts = JSON.parse((it&&it.sub_options)||'[]') }catch(e){}
+      if(opts.length){
+        sub.innerHTML = '<select id="email-sub-interest-value" onchange="emailInterestPicked()" style="width:100%;margin-top:6px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">'
+          + '<option value="">— All '+escHtml(picked[0])+' —</option>' + opts.map(function(o){ return '<option value="'+escHtml(o)+'"'+(o===keep?' selected':'')+'>↳ '+escHtml(o)+' only</option>' }).join('') + '</select>'
+      }
+    }
+  }
+  var m = emailInterestMatches(), tot = document.getElementById('email-interest-total')
+  if(tot) tot.textContent = m.picked.length ? m.list.length+' '+(m.list.length===1?'person':'people')+' will be added' : ''
 }
 
 async function applyEmailGroup(){
@@ -7118,18 +7178,12 @@ async function applyEmailGroup(){
  label=`${prog?.name||'Program'} volunteers`
 
  } else if(type==='interest'){
- if(!val){toast('Select an interest','error');return}
- const subVal = document.getElementById('email-sub-interest-value')?.value || ''
- matched=volunteers.filter(v=>{
- try{
- const ints=JSON.parse(v.interests||'[]')
- if(!ints.includes(val)) return false
- if(!subVal) return true
- const ss=JSON.parse(v.sub_selections||'{}')
- return (ss[val]||[]).includes(subVal)
- }catch{return false}
- })
- label = subVal ? `Volunteers: ${val} → ${subVal}`: `Volunteers interested in: ${val}`
+  const m = emailInterestMatches()
+  if(!m.picked.length){toast('Tick at least one interest','error');return}
+  matched = m.list
+  label = m.picked.length === 1
+   ? (m.subVal ? `Volunteers: ${m.picked[0]} → ${m.subVal}` : `Volunteers interested in: ${m.picked[0]}`)
+   : `Volunteers interested in ${m.mode==='all'?'all of':'any of'}: ${m.picked.join(', ')}`
 
  } else if(type==='event'){
  if(!val){toast('Select an event','error');return}

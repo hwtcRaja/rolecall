@@ -25,6 +25,20 @@ def fn_body(name):
 print("\n── Python ──")
 try:
     tree=ast.parse(src); ok("app.py syntax")
+    # Railway runs Python 3.11, which is stricter about f-strings than newer
+    # Pythons (no reusing the same quote inside {...}). Code that's fine
+    # here can fail to even start there ("Worker failed to boot").
+    _py311 = None
+    for _cand in ['python3.11', os.path.expanduser('~/.local/share/uv/python/cpython-3.11-linux-x86_64-gnu/bin/python3.11')]:
+        try:
+            if subprocess.run([_cand, '--version'], capture_output=True).returncode == 0: _py311 = _cand; break
+        except Exception: pass
+    if _py311:
+        _r = subprocess.run([_py311, '-c', "compile(open('app.py').read(),'app.py','exec')"], capture_output=True, text=True)
+        if _r.returncode == 0: ok("app.py compiles on Python 3.11 (Railway)")
+        else: fail("app.py does NOT compile on Python 3.11 (Railway will fail to boot): " + (_r.stderr.strip().splitlines() or ['?'])[-1][:200])
+    else:
+        warn("Python 3.11 not installed here; couldn't check Railway compatibility (install with: uv python install 3.11)")
     funcs=[n.name for n in ast.walk(tree) if isinstance(n,ast.FunctionDef)]
     dups=[f for f,c in collections.Counter(funcs).items() if c>1]
     if dups: fail(f"Duplicate functions: {dups}")

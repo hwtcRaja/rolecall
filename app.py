@@ -7467,7 +7467,7 @@ def portal_reply_thread(tid):
                 fam = fetchone(conn, 'SELECT email FROM families WHERE passphrase=%s', (thread['family_passphrase'],))
                 if fam and fam.get('email'): recipients = [fam['email']]
             if recipients:
-                html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New reply: {_h(thread["subject"] or '')}</h2><div style="background:#f5f9fa;padding:14px 14px 2px;border-radius:8px;margin:12px 0">{message_text_html(body)}</div><p><a href="https://rolecall.hwtco.org/portal.html" style="background:#145466;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">View in Portal</a></p></div>'
+                html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New reply: {_h(thread["subject"] or "")}</h2><div style="background:#f5f9fa;padding:14px 14px 2px;border-radius:8px;margin:12px 0">{message_text_html(body)}</div><p><a href="https://rolecall.hwtco.org/portal.html" style="background:#145466;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">View in Portal</a></p></div>'
                 send_email(recipients, f'Re: {thread["subject"]}', build_hwtc_email_html(f'Re: {thread["subject"]}', html))
             else:
                 app.logger.warning(f'portal_reply_thread {tid}: no family email found to notify (family_id={thread.get("family_id")})')
@@ -7497,7 +7497,7 @@ def portal_reply_thread(tid):
                         recipients.append(vol['email'])
         except Exception: pass
         if recipients:
-            html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">Family replied: {_h(thread["subject"] or '')}</h2><div style="background:#f5f9fa;padding:14px 14px 2px;border-radius:8px;margin:12px 0">{message_text_html(body)}</div></div>'
+            html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">Family replied: {_h(thread["subject"] or "")}</h2><div style="background:#f5f9fa;padding:14px 14px 2px;border-radius:8px;margin:12px 0">{message_text_html(body)}</div></div>'
             send_email(recipients, f'Portal Reply: {thread["subject"]}', build_hwtc_email_html(f'Portal Reply: {thread["subject"]}', html))
     conn.close()
     return jsonify({'ok': True})

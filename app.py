@@ -405,10 +405,47 @@ def get_db():
     )
     return conn
 
+_MIG_CACHE = None
+def _migration_already_done(c, sql):
+    """True when a migration is a plain ADD COLUMN / CREATE TABLE / CREATE
+    INDEX ... IF NOT EXISTS whose object already exists."""
+    import re as _re
+    global _MIG_CACHE
+    try:
+        if _MIG_CACHE is None:
+            c.execute("SELECT table_name, column_name FROM information_schema.columns WHERE table_schema='public'")
+            cols = set((r[0], r[1]) for r in c.fetchall())
+            c.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+            tables = set(r[0] for r in c.fetchall())
+            c.execute("SELECT indexname FROM pg_indexes WHERE schemaname='public'")
+            idx = set(r[0] for r in c.fetchall())
+            _MIG_CACHE = (cols, tables, idx)
+        cols, tables, idx = _MIG_CACHE
+        q = ' '.join(sql.split())
+        m = _re.match(r'(?i)ALTER TABLE (\w+) ADD COLUMN IF NOT EXISTS (\w+)\b', q)
+        if m and ',' not in q.split(m.group(0), 1)[1].split('DEFAULT')[0]:
+            return (m.group(1).lower(), m.group(2).lower()) in cols and not _re.search(r'(?i)\bADD COLUMN\b.*\bADD COLUMN\b', q)
+        m = _re.match(r'(?i)CREATE TABLE IF NOT EXISTS (\w+)', q)
+        if m:
+            return m.group(1).lower() in tables
+        m = _re.match(r'(?i)CREATE (?:UNIQUE )?INDEX IF NOT EXISTS (\w+)', q)
+        if m:
+            return m.group(1).lower() in idx
+    except Exception:
+        try: c.connection.rollback()
+        except Exception: pass
+    return False
+
+
 def init_db():
+    # lock_timeout: while a new version starts, the old one may still be
+    # running and holding a lock on a table a migration wants to alter. A
+    # migration that can't get its lock within a few seconds is skipped
+    # (each is retried on the next start) instead of hanging the startup,
+    # which is what made Railway report "Application failed to respond".
     conn = psycopg2.connect(
         DATABASE_URL,
-        options="-c timezone=America/New_York"
+        options="-c timezone=America/New_York -c lock_timeout=4000 -c statement_timeout=90000"
     )
     c = conn.cursor()
 
@@ -3463,6 +3500,11 @@ def init_db():
             started_at TIMESTAMP DEFAULT NOW(),
             ended_at TIMESTAMP)""",
 ]:
+        # Skip anything already in place without touching the table: even an
+        # "ADD COLUMN IF NOT EXISTS" takes an exclusive lock, and during a
+        # deploy the old instance can be holding a lock that makes it wait.
+        if _migration_already_done(c, col_sql):
+            continue
         try:
             c.execute(col_sql)
             conn.commit()
@@ -44327,6 +44369,7 @@ def public_tickets_confirmation_page():
 # picks up the map's current label.
 try:
     _sl_conn = get_db()
+    execute(_sl_conn, "SET lock_timeout = '4s'")
     _sl_n = sync_ticket_seat_labels(_sl_conn)
     _sl_conn.close()
     if _sl_n:

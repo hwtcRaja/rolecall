@@ -7278,6 +7278,23 @@ def _family_notification_emails(conn, family_id):
     return emails
 
 
+def message_text_html(text):
+    """A typed message as email-safe HTML that keeps its formatting: blank
+    lines become paragraphs, single line breaks stay line breaks, and any
+    HTML someone typed is shown as text rather than run."""
+    import html as _hm, re as _re
+    t = (text or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+    if not t:
+        return ''
+    paras = [p for p in _re.split(r'\n\s*\n', t) if p.strip()]
+    out = []
+    for p in paras:
+        safe = _hm.escape(p.strip()).replace('\n', '<br>')
+        safe = _re.sub(r'(https?://[^\s<]+)', r'<a href="\1" style="color:#145466">\1</a>', safe)
+        out.append('<p style="margin:0 0 12px;line-height:1.6">' + safe + '</p>')
+    return ''.join(out)
+
+
 @app.route('/api/portal/messages/start', methods=['POST'])
 def portal_start_message_thread():
     d = request.json or {}
@@ -7338,7 +7355,7 @@ def portal_start_message_thread():
         elif production_id:
             p = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (production_id,))
             if p: ctx = f' - {p["name"]}'
-        html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New Portal Message{ctx}</h2><p><strong>From:</strong> {sender_name}<br/><strong>Subject:</strong> {subject}</p><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p style="color:#9ca3af;font-size:12px">Reply via Programs or Productions - Portal Content - Messages tab in RoleCall admin.</p></div>'
+        html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New Portal Message{ctx}</h2><p><strong>From:</strong> {_h(sender_name)}<br/><strong>Subject:</strong> {_h(subject)}</p><div style="background:#f5f9fa;padding:14px 14px 2px;border-radius:8px;margin:12px 0">{message_text_html(body)}</div><p style="color:#9ca3af;font-size:12px">Reply via Programs or Productions - Portal Content - Messages tab in RoleCall admin.</p></div>'
         send_email(recipients, f'Portal Message: {subject}', build_hwtc_email_html(f'Portal Message: {subject}', html))
     conn.close()
     return jsonify({'ok': True, 'thread_id': tid})
@@ -7408,7 +7425,7 @@ def portal_reply_thread(tid):
                 fam = fetchone(conn, 'SELECT email FROM families WHERE passphrase=%s', (thread['family_passphrase'],))
                 if fam and fam.get('email'): recipients = [fam['email']]
             if recipients:
-                html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New reply: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div><p><a href="https://rolecall.hwtco.org/portal.html" style="background:#145466;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">View in Portal</a></p></div>'
+                html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">New reply: {_h(thread["subject"] or '')}</h2><div style="background:#f5f9fa;padding:14px 14px 2px;border-radius:8px;margin:12px 0">{message_text_html(body)}</div><p><a href="https://rolecall.hwtco.org/portal.html" style="background:#145466;color:#fff;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700">View in Portal</a></p></div>'
                 send_email(recipients, f'Re: {thread["subject"]}', build_hwtc_email_html(f'Re: {thread["subject"]}', html))
             else:
                 app.logger.warning(f'portal_reply_thread {tid}: no family email found to notify (family_id={thread.get("family_id")})')
@@ -7438,7 +7455,7 @@ def portal_reply_thread(tid):
                         recipients.append(vol['email'])
         except Exception: pass
         if recipients:
-            html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">Family replied: {thread["subject"]}</h2><div style="background:#f5f9fa;padding:14px;border-radius:8px;margin:12px 0">{body}</div></div>'
+            html = f'<div style="font-family:-apple-system,sans-serif;max-width:600px"><h2 style="color:#145466">Family replied: {_h(thread["subject"] or '')}</h2><div style="background:#f5f9fa;padding:14px 14px 2px;border-radius:8px;margin:12px 0">{message_text_html(body)}</div></div>'
             send_email(recipients, f'Portal Reply: {thread["subject"]}', build_hwtc_email_html(f'Portal Reply: {thread["subject"]}', html))
     conn.close()
     return jsonify({'ok': True})
@@ -37692,6 +37709,142 @@ def marquee_sync_ticket_fees():
     finally:
         conn.close()
     return jsonify({'ok': True, 'checkouts_updated': n, 'still_waiting': int(left)})
+
+
+# ── BloomBooks integration (read-only) ────────────────────────────────────
+# BloomBooks pulls each production's sales actuals from RoleCall so show
+# budgets can show budget vs. actual. RoleCall stays the source of truth;
+# these endpoints only read. Auth: header "X-API-Key: <key>", where the key
+# is made in Settings → Integrations (stored as a hash).
+def _bloombooks_key_ok():
+    import hashlib
+    key = (request.headers.get('X-API-Key') or '').strip()
+    if not key:
+        return False
+    conn = get_db()
+    try:
+        stored = _setting(conn, 'bloombooks_api_key_hash') or ''
+    finally:
+        conn.close()
+    return bool(stored) and hmac.compare_digest(hashlib.sha256(key.encode()).hexdigest(), stored)
+
+
+def production_financials(conn, pid):
+    prod = fetchone(conn, '''SELECT id, name, slug, stage, status, start_date, end_date FROM productions WHERE id=%s''', (pid,))
+    if not prod:
+        return None
+    real = "o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test'"
+    tix = fetchone(conn, f'''SELECT COUNT(t.id) AS tickets, COALESCE(SUM(t.price_cents),0) AS ticket_cents,
+            COUNT(t.id) FILTER (WHERE COALESCE(t.price_cents,0)=0) AS comps,
+            COALESCE(SUM(CASE WHEN COALESCE(t.price_cents,0)=0 THEN COALESCE(tt.price_cents,0) ELSE 0 END),0) AS comp_face_cents,
+            COALESCE(SUM(CASE WHEN COALESCE(o.sale_channel,'public')='presale' THEN t.price_cents ELSE 0 END),0) AS presale_cents
+        FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id JOIN performances pf ON pf.id=t.performance_id
+        LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id
+        WHERE pf.production_id=%s AND {real}''', (pid,)) or {}
+    om = fetchone(conn, f'''SELECT COUNT(*) AS orders, COALESCE(SUM(o.service_fee_cents),0) AS service_fee_cents,
+            COALESCE(SUM(o.square_fee_cents),0) AS square_fee_cents,
+            COUNT(*) FILTER (WHERE o.square_order_id IS NOT NULL AND o.square_fee_cents IS NULL) AS fees_pending,
+            COALESCE(SUM(o.discount_cents),0) AS discount_cents
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id WHERE pf.production_id=%s AND {real}''', (pid,)) or {}
+    refunds = fetchone(conn, '''SELECT COALESCE(SUM(o.total_cents),0) AS c FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        WHERE pf.production_id=%s AND o.status='refunded' ''', (pid,)) or {}
+    _dt, don_by_show, _ = ticket_checkout_donations(conn)
+    donations = int(don_by_show.get(pid, 0) or 0)
+    ads = fetchone(conn, "SELECT COUNT(*) AS n, COALESCE(SUM(price_cents),0) AS c FROM playbill_orders WHERE production_id=%s AND status='paid'", (pid,)) or {}
+    perfs = fetchall(conn, f'''SELECT pf.id, pf.performance_date, pf.performance_time, pf.status,
+            COUNT(t.id) FILTER (WHERE {real}) AS tickets,
+            COALESCE(SUM(t.price_cents) FILTER (WHERE {real}),0) AS ticket_cents
+        FROM performances pf LEFT JOIN tickets t ON t.performance_id=pf.id
+        LEFT JOIN ticket_orders o ON o.id=t.ticket_order_id
+        WHERE pf.production_id=%s
+        GROUP BY pf.id ORDER BY pf.performance_date, pf.performance_time''', (pid,)) or []
+    perf_fees = {r['performance_id']: r for r in fetchall(conn, f'''SELECT o.performance_id, COALESCE(SUM(o.service_fee_cents),0) AS service_fee_cents,
+            COALESCE(SUM(o.square_fee_cents),0) AS square_fee_cents FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        WHERE pf.production_id=%s AND {real} GROUP BY o.performance_id''', (pid,)) or []}
+    ticket_cents = int(tix.get('ticket_cents') or 0)
+    svc = int(om.get('service_fee_cents') or 0)
+    sq = int(om.get('square_fee_cents') or 0)
+    return {
+        'production': {'id': prod['id'], 'name': prod['name'], 'slug': prod.get('slug'), 'stage': prod.get('stage'),
+                       'status': prod.get('status'), 'start_date': prod.get('start_date'), 'end_date': prod.get('end_date')},
+        'as_of': now_eastern().strftime('%Y-%m-%dT%H:%M:%S') + ' America/New_York',
+        'currency': 'USD', 'amounts_in': 'cents',
+        'earned_revenue': {
+            'ticket_sales_cents': ticket_cents,
+            'presale_ticket_sales_cents': int(tix.get('presale_cents') or 0),
+            'service_fees_cents': svc,
+            'program_ads_cents': int(ads.get('c') or 0),
+            'discounts_given_cents': int(om.get('discount_cents') or 0),
+            'refunds_cents': int(refunds.get('c') or 0)},
+        'contributed_revenue': {'checkout_donations_cents': donations},
+        'expenses': {'square_processing_fees_cents': sq, 'square_fees_still_pending_orders': int(om.get('fees_pending') or 0)},
+        'net_cents': ticket_cents + svc + donations + int(ads.get('c') or 0) - sq,
+        'counts': {'tickets_sold': int(tix.get('tickets') or 0), 'orders': int(om.get('orders') or 0),
+                   'comps': int(tix.get('comps') or 0), 'comp_face_value_cents': int(tix.get('comp_face_cents') or 0),
+                   'program_ad_items': int(ads.get('n') or 0)},
+        'performances': [{'id': r['id'], 'date': str(r['performance_date'])[:10], 'time': r.get('performance_time') or '',
+                          'status': r.get('status'), 'tickets_sold': int(r['tickets'] or 0), 'ticket_sales_cents': int(r['ticket_cents'] or 0),
+                          'service_fees_cents': int((perf_fees.get(r['id']) or {}).get('service_fee_cents') or 0),
+                          'square_processing_fees_cents': int((perf_fees.get(r['id']) or {}).get('square_fee_cents') or 0)}
+                         for r in perfs],
+        'notes': ('net_cents = ticket sales + service fees + checkout donations + program ads - Square processing fees '
+                  '(Program ad Square fees are not yet tracked, so net is slightly high when ads exist). Test orders excluded. '
+                  'Checkout donations are contributed revenue, not show earned revenue.')}
+
+
+@app.route('/api/integrations/bloombooks/productions', methods=['GET'])
+def bloombooks_productions():
+    if not _bloombooks_key_ok():
+        return jsonify({'error': 'Invalid or missing API key'}), 401
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT p.id, p.name, p.slug, p.stage, p.status, p.start_date, p.end_date,
+                (SELECT COUNT(*) FROM performances pf WHERE pf.production_id=p.id) AS performances
+            FROM productions p ORDER BY p.start_date DESC NULLS LAST''') or []
+        return jsonify({'productions': rows})
+    finally:
+        conn.close()
+
+
+@app.route('/api/integrations/bloombooks/productions/<pid>/financials', methods=['GET'])
+def bloombooks_production_financials(pid):
+    if not _bloombooks_key_ok():
+        return jsonify({'error': 'Invalid or missing API key'}), 401
+    conn = get_db()
+    try:
+        out = production_financials(conn, pid)
+        if not out:
+            return jsonify({'error': 'Production not found'}), 404
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+@app.route('/api/settings/bloombooks-key', methods=['GET', 'POST', 'DELETE'])
+def bloombooks_key_settings():
+    """Staff: make (POST, shown once), check (GET), or remove (DELETE) the key."""
+    import hashlib
+    if request.method == 'GET':
+        err = require_permission('settings', 'view')
+        if err: return err
+    elif session.get('role') != 'admin':
+        return jsonify({'error': 'Only admins can change the BloomBooks key.'}), 403
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            key = 'rc_bb_' + secrets.token_urlsafe(32)
+            _set_setting(conn, 'bloombooks_api_key_hash', hashlib.sha256(key.encode()).hexdigest())
+            _set_setting(conn, 'bloombooks_api_key_hint', key[:10] + '…' + key[-4:])
+            conn.commit()
+            return jsonify({'ok': True, 'key': key})
+        if request.method == 'DELETE':
+            _set_setting(conn, 'bloombooks_api_key_hash', '')
+            _set_setting(conn, 'bloombooks_api_key_hint', '')
+            conn.commit()
+            return jsonify({'ok': True})
+        return jsonify({'configured': bool(_setting(conn, 'bloombooks_api_key_hash')), 'hint': _setting(conn, 'bloombooks_api_key_hint') or ''})
+    finally:
+        conn.close()
 
 
 @app.route('/api/marquee/box-office', methods=['GET'])

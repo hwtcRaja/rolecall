@@ -37632,7 +37632,7 @@ def _square_fee_for_order(square_order_id):
     """(fee_cents, settled) for a Square order. settled=False means Square
     hasn't reported the fee yet."""
     try:
-        r = requests.get(f'{SQUARE_API_BASE}/v2/orders/{square_order_id}', headers=square_headers(), timeout=10)
+        r = requests.get(f'{SQUARE_API_BASE}/v2/orders/{square_order_id}', headers=square_headers(), timeout=6)
         order = (r.json() or {}).get('order') or {}
     except Exception as e:
         app.logger.warning(f'Square order lookup failed: {e}')
@@ -37645,7 +37645,7 @@ def _square_fee_for_order(square_order_id):
         pf = (t.get('processing_fee_money') or {}).get('amount')
         if pf is None and t.get('payment_id'):
             try:
-                pr = requests.get(f'{SQUARE_API_BASE}/v2/payments/{t["payment_id"]}', headers=square_headers(), timeout=10)
+                pr = requests.get(f'{SQUARE_API_BASE}/v2/payments/{t["payment_id"]}', headers=square_headers(), timeout=6)
                 pay = (pr.json() or {}).get('payment') or {}
                 fees = pay.get('processing_fee') or []
                 if fees:
@@ -37701,14 +37701,20 @@ def sync_ticket_square_fees(limit=150):
 def marquee_sync_ticket_fees():
     err = require_permission('marquee', 'view')
     if err: return err
-    n = sync_ticket_square_fees(limit=300)
+    # Looking up hundreds of Square payments one by one can take minutes,
+    # far longer than a web request is allowed (the server cuts it off and
+    # the page sees a 502). Do a quick batch now and the rest in the
+    # background.
+    n = sync_ticket_square_fees(limit=15)
+    import threading
+    threading.Thread(target=sync_ticket_square_fees, kwargs={'limit': 400}, daemon=True).start()
     conn = get_db()
     try:
         left = (fetchone(conn, '''SELECT COUNT(*) AS n FROM ticket_orders WHERE status='completed'
             AND square_order_id IS NOT NULL AND square_fee_cents IS NULL''') or {}).get('n') or 0
     finally:
         conn.close()
-    return jsonify({'ok': True, 'checkouts_updated': n, 'still_waiting': int(left)})
+    return jsonify({'ok': True, 'checkouts_updated': n, 'still_waiting': int(left), 'background': True})
 
 
 # ── BloomBooks integration (read-only) ────────────────────────────────────

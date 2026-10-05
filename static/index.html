@@ -35665,7 +35665,7 @@ async function syncTicketFees(btn){
   btn.disabled = true; btn.textContent = 'Checking Square…'
   var res = await api('/api/marquee/ticket-fees/sync','POST',{})
   if(res.error){ toast(res.error,'error'); btn.disabled = false; btn.textContent = 'Refresh fees from Square'; return }
-  toast('Updated fees for '+res.checkouts_updated+' checkout'+(res.checkouts_updated===1?'':'s')+(res.still_waiting?' · '+res.still_waiting+' still waiting on Square':''),'success')
+  toast('Updated '+res.checkouts_updated+' checkout'+(res.checkouts_updated===1?'':'s')+(res.still_waiting?'. '+res.still_waiting+' more are being checked in the background; refresh this tab in a minute or two.':''),'success')
   renderMarqueeBoxOffice(document.getElementById('marquee-tab-boxoffice'))
 }
 async function renderMarqueeBoxOffice(el){

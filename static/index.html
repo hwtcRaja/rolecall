@@ -25600,7 +25600,7 @@ ${isAdmin?`<button id="pdtab-btn-registrations" style="padding:10px 18px;font-si
  </div>
  <div style="margin-bottom:10px">
  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">File</label>
- <input type="file" id="prog-file-input-current" style="width:100%;padding:7px 0;font-family:inherit;font-size:13px"/>
+ <input type="file" id="prog-file-input-current" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.csv,image/*,audio/*,video/*,.mp4,.mov,.m4v,.webm,.zip" style="width:100%;padding:7px 0;font-family:inherit;font-size:13px"/><div style="font-size:11px;color:var(--text-hint)">PDF, Office, images, audio or video, up to 1 GB.</div>
  <div id="prog-file-upload-status-current" style="font-size:11px;color:var(--text-muted);margin-top:3px"></div>
  </div>
  <button class="btn btn-primary btn-sm" onclick="addProgramFile(window._currentProgramDetailId)">Add File</button>
@@ -25717,7 +25717,7 @@ function renderProductionPortalHTML(pid, stage){
  </div>
  <div style="margin-bottom:10px">
  <label style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;color:var(--text-muted);display:block;margin-bottom:5px">File</label>
- <input type="file" id="prod-file-input-${pid}" style="width:100%;padding:7px 0;font-family:inherit;font-size:13px"/>
+ <input type="file" id="prod-file-input-${pid}" accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.rtf,.csv,image/*,audio/*,video/*,.mp4,.mov,.m4v,.webm,.zip" style="width:100%;padding:7px 0;font-family:inherit;font-size:13px"/><div style="font-size:11px;color:var(--text-hint)">PDF, Office, images, audio or video, up to 1 GB.</div>
  <div id="prod-file-upload-status-${pid}" style="font-size:11px;color:var(--text-muted);margin-top:3px"></div>
  </div>
  <button class="btn btn-primary btn-sm" onclick="addProductionFile('${pid}')">Add File</button>
@@ -26699,28 +26699,85 @@ function bindHeadshotFileUpload(fileInputId, hiddenInputId, previewId, statusId,
  }
  }
 }
+// ── Bio submissions: sort (A–Z by default), search, export ──
+var _bioState = {}
+function _bioLast(n){ var p = String(n||'').trim().split(/\s+/); return (p.length > 1 ? p[p.length-1] : p[0] || '').toLowerCase() }
+function _bioSorted(pid){
+  var st = _bioState[pid] || {}, rows = (st.rows || []).slice(), q = (st.q || '').toLowerCase()
+  if(q) rows = rows.filter(function(s){ return [s.submitter_name, s.bio, s.show_role, s.show_group].join(' ').toLowerCase().indexOf(q) >= 0 })
+  var by = st.sort || 'first'
+  var name = function(s){ return String(s.submitter_name||'').toLowerCase() }
+  rows.sort(function(a, b){
+    if(by === 'first') return name(a).localeCompare(name(b))
+    if(by === 'last') return _bioLast(a.submitter_name).localeCompare(_bioLast(b.submitter_name)) || name(a).localeCompare(name(b))
+    if(by === 'newest') return String(b.submitted_at||'').localeCompare(String(a.submitted_at||''))
+    if(by === 'oldest') return String(a.submitted_at||'').localeCompare(String(b.submitted_at||''))
+    if(by === 'role') return String(a.show_group||'~').localeCompare(String(b.show_group||'~')) || String(a.show_role||'~').localeCompare(String(b.show_role||'~')) || name(a).localeCompare(name(b))
+    return 0
+  })
+  return rows
+}
 async function loadBioSubmissions(pid){
- const el = document.getElementById('prod-bio-submissions-'+pid)
- if(!el) return
- el.innerHTML = '<div style="font-size:13px;color:var(--text-muted)">Loading bio submissions…</div>'
- try{
- const subs = await api('/api/productions/'+pid+'/bio-submissions')
- if(!Array.isArray(subs) || !subs.length){
- el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);font-style:italic">No bio submissions yet.</div>'
- return
- }
- el.innerHTML = subs.map(s => `
- <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px">
- <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px">
- <div style="font-size:13px;font-weight:700">${escHtml(s.submitter_name||'(no name)')} ${s.youth_id?'<span style="font-weight:400;color:var(--text-muted);font-size:11px">(youth)</span>':''}</div>
- <button onclick="clearBioSubmission('${pid}','${s.id}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);text-decoration:underline;white-space:nowrap">Clear</button>
- </div>
- ${s.headshot_url?`<div style="font-size:12px;margin-bottom:4px"><a href="${s.headshot_url}" target="_blank">View headshot →</a></div>`:''}
- <div style="font-size:12.5px;color:var(--text)">${escHtml(s.bio||'(no bio text)')}</div>
- </div>`).join('')
- } catch(e){
- el.innerHTML = ''
- }
+  const el = document.getElementById('prod-bio-submissions-'+pid)
+  if(!el) return
+  el.innerHTML = '<div style="font-size:13px;color:var(--text-muted)">Loading bio submissions…</div>'
+  try{
+    const subs = await api('/api/productions/'+pid+'/bio-submissions')
+    if(!Array.isArray(subs) || !subs.length){
+      el.innerHTML = '<div style="font-size:13px;color:var(--text-muted);font-style:italic">No bio submissions yet.</div>'
+      return
+    }
+    _bioState[pid] = Object.assign({sort: 'first', q: ''}, _bioState[pid] || {}, {rows: subs})
+    renderBioSubmissions(pid)
+  } catch(e){
+    el.innerHTML = ''
+  }
+}
+function renderBioSubmissions(pid){
+  const el = document.getElementById('prod-bio-submissions-'+pid); if(!el) return
+  const st = _bioState[pid], rows = _bioSorted(pid)
+  const words = function(t){ return String(t||'').trim() ? String(t).trim().split(/\s+/).length : 0 }
+  const bar = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">'
+    + '<select onchange="_bioState[\''+pid+'\'].sort=this.value;renderBioSubmissions(\''+pid+'\')" style="width:auto;padding:6px 8px;font-size:12.5px" aria-label="Sort bios">'
+    + [['first','Name A–Z (first name)'],['last','Name A–Z (last name)'],['role','By role / group'],['newest','Newest first'],['oldest','Oldest first']].map(function(o){ return '<option value="'+o[0]+'"'+(st.sort===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('') + '</select>'
+    + '<input placeholder="Search…" value="'+escHtml(st.q||'')+'" oninput="_bioState[\''+pid+'\'].q=this.value;clearTimeout(window._bioT);window._bioT=setTimeout(function(){renderBioSubmissions(\''+pid+'\')},250)" style="width:160px;padding:6px 8px;font-size:12.5px"/>'
+    + '<span style="font-size:12px;color:var(--text-muted)">'+rows.length+' of '+st.rows.length+'</span><span style="flex:1"></span>'
+    + '<button class="btn btn-secondary btn-sm" onclick="exportBios(\''+pid+'\',\'csv\')">Export CSV</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="exportBios(\''+pid+'\',\'doc\')">Export for program (Word)</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="exportBios(\''+pid+'\',\'copy\')">Copy all</button></div>'
+  el.innerHTML = bar + rows.map(function(s){ return `
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:8px">
+     <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:6px">
+      <div style="font-size:13px;font-weight:700">${escHtml(s.submitter_name||'(no name)')} ${s.youth_id?'<span style="font-weight:400;color:var(--text-muted);font-size:11px">(youth)</span>':''}
+       ${s.show_role?'<span style="font-weight:500;color:var(--teal-dark);font-size:12px"> · '+escHtml(s.show_role)+'</span>':''}</div>
+      <div style="display:flex;gap:10px;align-items:center;white-space:nowrap"><span style="font-size:11px;color:var(--text-muted)">${words(s.bio)} words · ${escHtml(String(s.submitted_at||'').slice(0,10))}</span>
+      <button onclick="clearBioSubmission('${pid}','${s.id}')" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text-muted);text-decoration:underline">Clear</button></div>
+     </div>
+     ${s.headshot_url?`<div style="font-size:12px;margin-bottom:4px"><a href="${s.headshot_url}" target="_blank">View headshot →</a></div>`:''}
+     <div style="font-size:12.5px;color:var(--text);white-space:pre-wrap">${escHtml(s.bio||'(no bio text)')}</div>
+    </div>` }).join('')
+}
+function exportBios(pid, kind){
+  const rows = _bioSorted(pid), prod = (allProductions||[]).find(function(p){ return p.id===pid }) || {}
+  const slug = String(prod.name||'show').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')
+  const save = function(name, text, type){ const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type: type})); a.download = name; document.body.appendChild(a); a.click(); a.remove() }
+  if(kind === 'csv'){
+    const esc = function(v){ v = String(v==null?'':v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v }
+    const out = [['Name','Role','Group','Youth','Bio','Word count','Headshot URL','Submitted']].concat(rows.map(function(s){
+      return [s.submitter_name, s.show_role, s.show_group, s.youth_id?'Yes':'No', s.bio, String(s.bio||'').trim()?String(s.bio).trim().split(/\s+/).length:0, s.headshot_url, String(s.submitted_at||'').slice(0,16).replace('T',' ')] }))
+    save(slug+'-bios.csv', '\ufeff'+out.map(function(r){ return r.map(esc).join(',') }).join('\n'), 'text/csv'); return
+  }
+  if(kind === 'copy'){
+    const text = rows.map(function(s){ return (s.submitter_name||'') + (s.show_role ? ' (' + s.show_role + ')' : '') + '\n' + (s.bio||'') }).join('\n\n')
+    navigator.clipboard.writeText(text).then(function(){ toast('Copied '+rows.length+' bios','success') }, function(){ toast('Couldn\'t copy; try the Word export','error') }); return
+  }
+  // Word: an HTML document Word opens directly, ready to drop into the program layout
+  const body = rows.map(function(s){
+    return '<p style="margin:0 0 2pt"><b>' + escHtml((s.submitter_name||'').toUpperCase()) + '</b>' + (s.show_role ? ' <i>(' + escHtml(s.show_role) + ')</i>' : '') + '</p>'
+      + '<p style="margin:0 0 12pt">' + escHtml(s.bio||'').replace(/\n/g,'<br>') + '</p>' }).join('')
+  const doc = '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>Bios</title>'
+    + '<style>body{font-family:Georgia,serif;font-size:11pt}</style></head><body><h2>' + escHtml(prod.name||'') + ' — Bios</h2>' + body + '</body></html>'
+  save(slug+'-bios.doc', '\ufeff'+doc, 'application/msword')
 }
 
 async function clearBioSubmission(pid, sid){
@@ -28923,9 +28980,11 @@ async function removeProgramRequiredWaiver(pid, wid){
 
 function renderPortalFolderPills(prefix, pid, folders){
  // folders is now an array of folder name strings (from GET /api/portal/folders)
- const el = document.getElementById(`${prefix}-folders-${pid}`)
+ // The program page's portal panel uses "-current" ids instead of the
+ // program's id, which is why new program folders never appeared.
+ const el = document.getElementById(`${prefix}-folders-${pid}`) || document.getElementById(`${prefix}-folders-current`)
  if(!el) return
- const sel = document.getElementById(`${prefix}-file-folder-${pid}`)
+ const sel = document.getElementById(`${prefix}-file-folder-${pid}`) || document.getElementById(`${prefix}-file-folder-current`)
  if(sel){
  sel.innerHTML = '<option value="General">General</option>' +
  folders.map(f=>`<option value="${escHtml(f)}">${escHtml(f)}</option>`).join('')

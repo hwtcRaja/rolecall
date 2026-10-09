@@ -1057,6 +1057,12 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW())""",
         # portal folders
         "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS folder TEXT DEFAULT 'General'",
+        # uploaded files (not just links): stored in the uploads folder
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS filename TEXT",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS original_name TEXT",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS file_size BIGINT",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS mime TEXT",
+        "ALTER TABLE portal_files ADD COLUMN IF NOT EXISTS access_token TEXT",
         # email settings
         """CREATE TABLE IF NOT EXISTS email_settings (
             id INTEGER PRIMARY KEY DEFAULT 1,
@@ -14900,8 +14906,15 @@ def get_bio_submissions(pid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, '''SELECT * FROM bio_submissions
-        WHERE production_id=%s ORDER BY submitted_at DESC''', (pid,)) or []
+    # include each person's role on this show, for sorting and the playbill export
+    rows = fetchall(conn, '''SELECT b.*,
+            COALESCE(NULLIF(ym.cast_title,''), ym.role, pm.role, '') AS show_role,
+            COALESCE(NULLIF(ym.cast_section,''), pm.department, '') AS show_group
+        FROM bio_submissions b
+        LEFT JOIN youth_production_members ym ON ym.production_id=b.production_id AND ym.youth_id=b.youth_id
+        LEFT JOIN LATERAL (SELECT role, department FROM production_members
+                           WHERE production_id=b.production_id AND volunteer_id=b.volunteer_id LIMIT 1) pm ON TRUE
+        WHERE b.production_id=%s ORDER BY b.submitted_at DESC''', (pid,)) or []
     conn.close()
     return jsonify(rows)
 
@@ -15210,6 +15223,9 @@ def portal_youth_request_update(yid):
 
 @app.route('/api/portal/files')
 def portal_get_files():
+    # staff only: this lists every portal file, including private file links
+    err = require_auth()
+    if err: return err
     program_id    = request.args.get('program_id') or request.args.get('context_id') if request.args.get('context_type','production')=='program' else None
     production_id = request.args.get('production_id') or (request.args.get('context_id') if request.args.get('context_type','production')=='production' else None)
     conn = get_db()
@@ -19401,11 +19417,22 @@ def delete_portal_announcement_admin(aid):
 # ── Portal files & folders ──
 # Real table schema: id, program_id, production_id, title, drive_url, description, folder, author_id
 
+PORTAL_UPLOAD_TYPES = {
+    '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.rtf', '.csv',
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic',
+    '.mp3', '.m4a', '.wav', '.aac', '.ogg',
+    '.mp4', '.mov', '.m4v', '.webm', '.avi',
+    '.zip'}
+PORTAL_UPLOAD_MAX = 1024 * 1024 * 1024   # 1 GB
+
+
 @app.route('/api/portal/files', methods=['POST'])
 def create_portal_file():
     err = require_auth()
     if err: return err
-    d = request.json or {}
+    if request.files.get('file'):
+        return _create_portal_upload()
+    d = request.get_json(silent=True) or {}
     fid = str(uuid.uuid4())
     conn = get_db()
     program_id    = d.get('program_id') or None
@@ -19423,13 +19450,80 @@ def create_portal_file():
     conn.close()
     return jsonify(row)
 
+def _create_portal_upload():
+    """An actual file (PDF, image, audio, video…) uploaded to a program or
+    production portal. It's saved in the uploads folder and its link carries
+    a private token, so families can open it from the portal (and videos
+    can play) without a RoleCall login, while the link can't be guessed."""
+    f = request.files['file']
+    if not f or not f.filename:
+        return jsonify({'error': 'Choose a file to upload'}), 400
+    ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+    if ext not in PORTAL_UPLOAD_TYPES:
+        return jsonify({'error': 'That file type isn\'t supported. Use a PDF, Office file, image, audio, video or zip.'}), 400
+    program_id = request.form.get('program_id') or None
+    production_id = request.form.get('production_id') or None
+    if not program_id and not production_id:
+        return jsonify({'error': 'Missing which program or production this is for'}), 400
+    stored = uuid.uuid4().hex + ext
+    path = os.path.join(UPLOAD_FOLDER, stored)
+    f.save(path)
+    size = os.path.getsize(path)
+    if size > PORTAL_UPLOAD_MAX:
+        os.remove(path)
+        return jsonify({'error': 'That file is over 1 GB. For long videos, upload to YouTube or Google Drive and add the link instead.'}), 400
+    fid = str(uuid.uuid4())
+    token = secrets.token_urlsafe(16)
+    title = (request.form.get('title') or '').strip() or os.path.splitext(f.filename)[0]
+    folder = (request.form.get('folder') or 'General').strip() or 'General'
+    import mimetypes
+    mime = f.mimetype or mimetypes.guess_type(f.filename)[0] or 'application/octet-stream'
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO portal_files
+            (id, program_id, production_id, title, drive_url, folder, author_id, filename, original_name, file_size, mime, access_token)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (fid, program_id, production_id, title[:200], f'/api/portal/files/{fid}/download?t={token}', folder[:80],
+             session.get('user_id'), stored, f.filename[:255], size, mime, token))
+        conn.commit()
+        row = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
+    finally:
+        conn.close()
+    return jsonify(row), 201
+
+
+@app.route('/api/portal/files/<fid>/download')
+def download_portal_file(fid):
+    conn = get_db()
+    try:
+        f = fetchone(conn, 'SELECT * FROM portal_files WHERE id=%s', (fid,))
+    finally:
+        conn.close()
+    if not f or not f.get('filename'):
+        return jsonify({'error': 'File not found'}), 404
+    tok = request.args.get('t') or ''
+    if not ('user_id' in session or (f.get('access_token') and hmac.compare_digest(tok, f['access_token']))):
+        return jsonify({'error': 'This link isn\'t valid. Open the file from the portal.'}), 403
+    if not os.path.exists(os.path.join(UPLOAD_FOLDER, f['filename'])):
+        return jsonify({'error': 'This file is no longer on the server. Please upload it again.'}), 404
+    # conditional=True answers byte-range requests, so videos can play and seek
+    resp = send_from_directory(UPLOAD_FOLDER, f['filename'], mimetype=f.get('mime') or None, conditional=True,
+                               as_attachment=request.args.get('download') == '1', download_name=f.get('original_name') or f['filename'])
+    resp.headers['Cache-Control'] = 'private, max-age=3600'
+    return resp
+
+
 @app.route('/api/portal/files/<fid>', methods=['DELETE'])
 def delete_portal_file(fid):
     err = require_auth()
     if err: return err
     conn = get_db()
+    row = fetchone(conn, 'SELECT filename FROM portal_files WHERE id=%s', (fid,))
     execute(conn, 'DELETE FROM portal_files WHERE id=%s', (fid,))
     conn.commit(); conn.close()
+    if row and row.get('filename'):
+        try: os.remove(os.path.join(UPLOAD_FOLDER, row['filename']))
+        except Exception: pass
     return jsonify({'ok': True})
 
 @app.route('/api/portal/folders')

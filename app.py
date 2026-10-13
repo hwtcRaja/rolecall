@@ -11520,12 +11520,26 @@ def send_bulk_email():
     if not subject: return jsonify({'error': 'No subject'}), 400
     if not body_text: return jsonify({'error': 'No message body'}), 400
     sent = 0; failed = 0; failed_list = []
+    vol_ids = {}
+    if '{profile_link}' in body_text:
+        _c = get_db()
+        try:
+            for r in fetchall(_c, 'SELECT id, LOWER(TRIM(email)) AS e FROM volunteers ORDER BY created_at') or []:
+                vol_ids.setdefault(r['e'], r['id'])
+        finally:
+            _c.close()
     for rec in recipients:
         name = (rec.get('name') or '').strip()
         email_addr = (rec.get('email') or '').strip()
         if not email_addr: continue
         personalized_body = body_text.replace('{name}', name.split()[0] if name else 'there')
+        if '{profile_link}' in personalized_body:
+            # each volunteer gets their own private link to update their profile
+            vid = vol_ids.get(email_addr.lower())
+            personalized_body = personalized_body.replace('{profile_link}', volunteer_profile_link(vid) if vid else APP_BASE_URL.rstrip('/') + '/volunteer/profile')
         html_content = '<p>' + personalized_body.replace('\n\n','</p><p>').replace('\n','<br>') + '</p>'
+        # bare web addresses become clickable (ones already inside a link are left alone)
+        html_content = re.sub(r'(?<![="\'>])(https?://[^\s<"\']+)', r'<a href="\1" style="color:#145466;font-weight:600">\1</a>', html_content)
         html_body = build_hwtc_email_html(subject, html_content)
         ok, err_msg = send_email([email_addr], subject, html_body, from_email=from_email, from_name=from_name, source='Email Composer')
         if ok:
@@ -16541,6 +16555,113 @@ def kiosk_youth_sign_out():
 # ─────────────────────────────────────────────
 #  APPLICATIONS (volunteer interest form)
 # ─────────────────────────────────────────────
+
+# ── Volunteer self-service profile (/volunteer/profile) ───────────────────
+# Volunteers can update their own interests and contact basics from a
+# private link, no account needed: either the personal {profile_link} in
+# a staff email, or by entering their email on the page (the link is
+# emailed; the reply is the same whether or not the email is on file).
+VOL_PROFILE_SALT = 'hwtc-volunteer-profile-v1'
+VOL_PROFILE_MAX_AGE = 60 * 60 * 24 * 45   # 45 days, so an announcement email stays usable
+
+
+def _vol_profile_serializer():
+    from itsdangerous import URLSafeTimedSerializer
+    return URLSafeTimedSerializer(app.secret_key, salt=VOL_PROFILE_SALT)
+
+
+def volunteer_profile_link(volunteer_id):
+    return APP_BASE_URL.rstrip('/') + '/volunteer/profile?t=' + _vol_profile_serializer().dumps({'v': volunteer_id})
+
+
+def _vol_from_token(token):
+    from itsdangerous import BadSignature, SignatureExpired
+    try:
+        data = _vol_profile_serializer().loads(token or '', max_age=VOL_PROFILE_MAX_AGE)
+    except SignatureExpired:
+        return None, 'This link has expired. Enter your email below and we\'ll send a fresh one.'
+    except BadSignature:
+        return None, 'This link isn\'t valid. Enter your email below and we\'ll send a fresh one.'
+    return data.get('v'), None
+
+
+@app.route('/volunteer/profile')
+def volunteer_profile_page():
+    resp = send_from_directory('static', 'volunteer-profile.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/public/volunteer-profile/request-link', methods=['POST'])
+def volunteer_profile_request_link():
+    email = ((request.json or {}).get('email') or '').strip().lower()
+    if '@' in email:
+        conn = get_db()
+        try:
+            v = fetchone(conn, "SELECT id, name FROM volunteers WHERE LOWER(TRIM(email))=%s ORDER BY created_at LIMIT 1", (email,))
+        finally:
+            conn.close()
+        if v:
+            link = volunteer_profile_link(v['id'])
+            try:
+                send_email([email], 'Update your HWTC volunteer profile', build_hwtc_email_html('Update your volunteer profile',
+                    '<p>Hi ' + _h((v.get('name') or '').split(' ')[0] or 'there') + ',</p>'
+                    '<p>Here\'s your private link to update your volunteer interests and contact info with Horizon West Theater Company.</p>'
+                    '<p style="text-align:center"><a href="' + link + '" style="display:inline-block;background:#16728b;color:#fff;text-decoration:none;'
+                    'font-weight:700;padding:12px 24px;border-radius:10px">Update my profile</a></p>'
+                    '<p style="font-size:13px;color:#5f6b72">The link works for 45 days. If you didn\'t ask for this, you can ignore it.</p>'),
+                    source='volunteer_profile_link')
+            except Exception as e:
+                app.logger.warning(f'Volunteer profile link email failed: {e}')
+    return jsonify({'ok': True, 'message': 'If that email is on our volunteer list, a link to update your profile is on its way.'})
+
+
+@app.route('/api/public/volunteer-profile', methods=['GET', 'PUT'])
+def volunteer_profile_api():
+    d = request.json if request.method == 'PUT' else {}
+    vid, err = _vol_from_token((d or {}).get('t') or request.args.get('t'))
+    if not vid:
+        return jsonify({'error': err or 'Missing link'}), 400
+    conn = get_db()
+    try:
+        v = fetchone(conn, 'SELECT id, name, email, phone, pronouns, interests, sub_selections FROM volunteers WHERE id=%s', (vid,))
+        if not v:
+            return jsonify({'error': 'We couldn\'t find your volunteer profile. Please contact us.'}), 404
+        types = fetchall(conn, 'SELECT id, name, color, sub_options, sub_options_label FROM interest_types ORDER BY name') or []
+        if request.method == 'PUT':
+            valid = {t['name'] for t in types}
+            interests = [i for i in (d.get('interests') or []) if i in valid]
+            # keep any older interests that aren't on today's list (the page
+            # doesn't show them, so the volunteer couldn't have removed them)
+            try: prev = json.loads(v.get('interests') or '[]')
+            except Exception: prev = []
+            interests += [i for i in prev if i not in valid and i not in interests]
+            subs = {}
+            for k, vals in (d.get('sub_selections') or {}).items():
+                if k in interests and isinstance(vals, list):
+                    subs[k] = [str(x)[:120] for x in vals][:30]
+            execute(conn, '''UPDATE volunteers SET interests=%s, sub_selections=%s, phone=%s, pronouns=%s WHERE id=%s''',
+                    (json.dumps(interests), json.dumps(subs), (d.get('phone') or '').strip()[:40] or v.get('phone'),
+                     (d.get('pronouns') or '').strip()[:40], vid))
+            try:
+                execute(conn, '''INSERT INTO notes (id, volunteer_id, content, author) VALUES (%s,%s,%s,%s)''',
+                        (str(uuid.uuid4()), vid, 'Updated their own interests from the volunteer profile page: ' + (', '.join(interests) or 'none'), 'Volunteer'))
+            except Exception:
+                conn.rollback()
+                execute(conn, '''UPDATE volunteers SET interests=%s, sub_selections=%s, phone=%s, pronouns=%s WHERE id=%s''',
+                        (json.dumps(interests), json.dumps(subs), (d.get('phone') or '').strip()[:40] or v.get('phone'),
+                         (d.get('pronouns') or '').strip()[:40], vid))
+            conn.commit()
+            v = fetchone(conn, 'SELECT id, name, email, phone, pronouns, interests, sub_selections FROM volunteers WHERE id=%s', (vid,))
+        def _j(x, default):
+            try: return json.loads(x) if isinstance(x, str) else (x or default)
+            except Exception: return default
+        return jsonify({'name': v['name'], 'email': v['email'], 'phone': v.get('phone') or '', 'pronouns': v.get('pronouns') or '',
+                        'interests': _j(v.get('interests'), []), 'sub_selections': _j(v.get('sub_selections'), {}),
+                        'interest_types': types, 'saved': request.method == 'PUT'})
+    finally:
+        conn.close()
+
 
 @app.route('/api/join/interest-types')
 def join_interest_types():

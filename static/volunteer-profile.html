@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="robots" content="noindex"/>
+<title>My Volunteer Profile · Horizon West Theater Company</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Playfair+Display:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#1f2a30;--muted:#5f6b72;--line:#dfe5e8;--bg:#f4f7f8;--brand:#16728b;--brand-dark:#0f5566;--soft:#e3f1f5;--ok:#166534;--bad:#b42318}
+*{box-sizing:border-box}
+body{margin:0;font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+button,input{font-family:inherit;font-size:15px}
+:focus-visible{outline:3px solid #f4b740;outline-offset:2px}
+header{background:#fff;border-bottom:1px solid var(--line);padding:10px 20px;display:flex;justify-content:center}
+header img{height:52px}
+.hero{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;padding:24px 20px 28px;text-align:center}
+.hero h1{font-family:'Playfair Display',Georgia,serif;font-size:clamp(24px,4vw,32px);margin:0}
+.hero p{margin:6px 0 0;opacity:.9}
+main{max-width:640px;margin:0 auto;padding:20px 18px 60px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:14px}
+.card h2{font-size:17px;margin:0 0 4px}
+.muted{color:var(--muted);font-size:14px;line-height:1.55}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:13.5px;font-weight:700;margin-bottom:5px}
+.field input{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:10px}
+.field input:focus{border-color:var(--brand);outline:none}
+.int{display:flex;gap:12px;align-items:flex-start;padding:12px;border:1.5px solid var(--line);border-radius:12px;margin-bottom:8px;cursor:pointer}
+.int.on{border-color:var(--brand);background:var(--soft)}
+.int input{width:20px;height:20px;margin-top:1px;accent-color:var(--brand)}
+.int .nm{font-weight:700}
+.int .new{font-size:11px;font-weight:800;color:#fff;background:#d97706;border-radius:10px;padding:1px 8px;margin-left:6px}
+.subs{margin:8px 0 0;display:flex;flex-wrap:wrap;gap:6px 14px;font-size:14px}
+.subs label{display:flex;align-items:center;gap:6px;cursor:pointer}
+.btn{border:none;border-radius:10px;padding:12px 18px;font-weight:700;cursor:pointer;font-size:15px;background:var(--brand);color:#fff;width:100%}
+.btn:hover{background:var(--brand-dark)}
+.btn[disabled]{opacity:.6;cursor:default}
+.ok{color:var(--ok);font-weight:700;margin-top:10px}
+.err{color:var(--bad);margin-top:8px;font-size:14px}
+.sticky{position:sticky;bottom:0;background:linear-gradient(transparent,var(--bg) 30%);padding:16px 0 4px}
+</style>
+</head>
+<body>
+<header><img src="/static/images/hwtc_logo_teal.png" alt="Horizon West Theater Company" onerror="this.style.display='none'"/></header>
+<div class="hero"><h1>My volunteer profile</h1><p id="sub">Tell us how you'd like to help</p></div>
+<main id="app"><div class="card">Loading…</div></main>
+<script>
+var TOKEN = new URLSearchParams(location.search).get('t') || ''
+var P = null
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+async function api(path, method, body){
+  var r = await fetch(path, {method: method||'GET', headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined})
+  try{ return await r.json() }catch(e){ return {error:'Something went wrong. Please try again.'} }
+}
+function askEmail(msg){
+  document.getElementById('app').innerHTML = '<div class="card"><h2>Get your private link</h2>'
+    + '<p class="muted">'+esc(msg || 'Enter the email you volunteer with and we\'ll send you a link to update your interests and contact info.')+'</p>'
+    + '<div class="field"><label for="em">Email</label><input id="em" type="email" autocomplete="email" onkeydown="if(event.key===\'Enter\')sendLink()"/></div>'
+    + '<button class="btn" onclick="sendLink()">Email me my link</button><div id="msg"></div></div>'
+}
+async function sendLink(){
+  var e = (document.getElementById('em').value||'').trim(); if(!e) return
+  var r = await api('/api/public/volunteer-profile/request-link','POST',{email:e})
+  document.getElementById('msg').innerHTML = '<div class="ok">'+esc(r.message||'Check your email.')+'</div>'
+}
+function subOpts(t){ try{ return JSON.parse(t.sub_options||'[]') }catch(e){ return [] } }
+function render(saved){
+  var mine = P.interests || [], subs = P.sub_selections || {}
+  document.getElementById('sub').textContent = 'Hi '+(String(P.name||'').split(' ')[0]||'there')+'! Update how you\'d like to help.'
+  var h = '<div class="card"><h2>What would you like to help with?</h2><p class="muted" style="margin:0 0 12px">Tick everything you\'re interested in. We use this to reach out when something comes up that fits.</p>'
+  ;(P.interest_types||[]).forEach(function(t, i){
+    var on = mine.indexOf(t.name) >= 0, so = subOpts(t)
+    var isNew = /event planning/i.test(t.name)
+    h += '<label class="int'+(on?' on':'')+'" for="i'+i+'"><input type="checkbox" id="i'+i+'" class="icb" value="'+esc(t.name)+'" '+(on?'checked':'')+' onchange="toggleI(this)"/>'
+      + '<div style="flex:1"><div class="nm">'+esc(t.name)+(isNew?'<span class="new">NEW</span>':'')+'</div>'
+      + (so.length ? '<div class="subs" data-for="'+esc(t.name)+'" style="'+(on?'':'display:none')+'">'+(t.sub_options_label?'<div class="muted" style="width:100%">'+esc(t.sub_options_label)+'</div>':'')
+          + so.map(function(o){ return '<label><input type="checkbox" class="scb" data-i="'+esc(t.name)+'" value="'+esc(o)+'" '+(((subs[t.name])||[]).indexOf(o)>=0?'checked':'')+' style="width:auto"/> '+esc(o)+'</label>' }).join('')+'</div>' : '')
+      + '</div></label>'
+  })
+  h += '</div><div class="card"><h2>Your contact info</h2><p class="muted" style="margin:0 0 12px">'+esc(P.email)+' <span style="font-size:13px">(to change your email, reply to any HWTC email)</span></p>'
+    + '<div class="field"><label for="ph">Phone</label><input id="ph" type="tel" autocomplete="tel" value="'+esc(P.phone)+'"/></div>'
+    + '<div class="field"><label for="pr">Pronouns (optional)</label><input id="pr" value="'+esc(P.pronouns)+'" placeholder="e.g. she/her"/></div></div>'
+    + '<div class="sticky"><button class="btn" id="save" onclick="save()">Save my profile</button><div id="msg">'+(saved?'<div class="ok" role="status">Saved. Thank you!</div>':'')+'</div></div>'
+  document.getElementById('app').innerHTML = h
+}
+function toggleI(cb){
+  var lab = cb.closest('.int'); lab.classList.toggle('on', cb.checked)
+  var s = lab.querySelector('.subs'); if(s) s.style.display = cb.checked ? '' : 'none'
+}
+async function save(){
+  var btn = document.getElementById('save'); btn.disabled = true; btn.textContent = 'Saving…'
+  var interests = Array.from(document.querySelectorAll('.icb:checked')).map(function(c){ return c.value })
+  var subs = {}
+  document.querySelectorAll('.scb:checked').forEach(function(c){ if(interests.indexOf(c.dataset.i) >= 0) (subs[c.dataset.i] = subs[c.dataset.i] || []).push(c.value) })
+  var r = await api('/api/public/volunteer-profile','PUT',{t: TOKEN, interests: interests, sub_selections: subs,
+    phone: document.getElementById('ph').value, pronouns: document.getElementById('pr').value})
+  if(r.error){ btn.disabled = false; btn.textContent = 'Save my profile'; document.getElementById('msg').innerHTML = '<div class="err">'+esc(r.error)+'</div>'; return }
+  P = r; render(true)
+}
+async function boot(){
+  if(!TOKEN) return askEmail()
+  var r = await api('/api/public/volunteer-profile?t='+encodeURIComponent(TOKEN))
+  if(r.error) return askEmail(r.error)
+  P = r; render(false)
+}
+boot()
+</script>
+</body>
+</html>

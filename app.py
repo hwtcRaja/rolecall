@@ -18470,7 +18470,7 @@ def kiosk_authorized_pickups(yid):
 def kiosk_youth_for_event(event_id):
     """Get youth enrolled in the production or program linked to this event."""
     conn = get_db()
-    evt = fetchone(conn, 'SELECT production_id, program_id FROM events WHERE id=%s', (event_id,))
+    evt = fetchone(conn, 'SELECT production_id, program_id, linked_session_id, event_date, start_time FROM events WHERE id=%s', (event_id,))
     if not evt:
         conn.close()
         return jsonify([])
@@ -18499,12 +18499,28 @@ def kiosk_youth_for_event(event_id):
         # Check if this program uses sessions
         prog = fetchone(conn, 'SELECT sessions_enabled FROM youth_programs WHERE id=%s', (program_id,))
         if prog and prog.get('sessions_enabled'):
-            # Find the session matching this event's date
-            event_date = (fetchone(conn, 'SELECT event_date FROM events WHERE id=%s', (event_id,)) or {}).get('event_date')
+            # Which session is this event? It used to be guessed from the
+            # date alone (first session that starts that day), so two sessions
+            # on the same day, like a morning and an afternoon workshop, both
+            # showed the first session's roster. Now, in order:
+            #   1. the session the event was created for (linked_session_id)
+            #   2. a session on that date whose start time matches the event
+            #   3. the only session running that date (incl. multi-day ones)
+            event_date = str(evt.get('event_date') or '')[:10]
             session = None
-            if event_date:
-                session = fetchone(conn, 'SELECT id FROM program_sessions WHERE program_id=%s AND start_date=%s LIMIT 1',
-                    (program_id, event_date))
+            if evt.get('linked_session_id'):
+                session = fetchone(conn, 'SELECT id FROM program_sessions WHERE id=%s AND program_id=%s', (evt['linked_session_id'], program_id))
+            if not session and event_date:
+                same_day = fetchall(conn, '''SELECT id, start_time FROM program_sessions WHERE program_id=%s
+                    AND COALESCE(status,'open') <> 'cancelled'
+                    AND (start_date=%s OR (start_date <= %s AND COALESCE(NULLIF(end_date,''), start_date) >= %s))''',
+                    (program_id, event_date, event_date, event_date)) or []
+                et = (evt.get('start_time') or '')[:5]
+                timed = [x for x in same_day if et and (x.get('start_time') or '')[:5] == et]
+                if len(timed) == 1:
+                    session = timed[0]
+                elif len(same_day) == 1:
+                    session = same_day[0]
             if session:
                 import json as _jskeid
                 session_id = session['id']

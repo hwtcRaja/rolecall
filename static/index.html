@@ -6025,7 +6025,10 @@ function populateHoursFilters(){
  const thirtyDaysAgo = new Date(Date.now()-30*24*3600*1000).toISOString().slice(0,10)
  const recentPast = past.filter(e=>e.event_date>=thirtyDaysAgo)
  const olderPast = past.filter(e=>e.event_date<thirtyDaysAgo)
- const opt = e => `<option value="${e.id}" data-id="${e.id}" data-name="${escHtml(e.name)}" data-search="${escHtml((e.name+' '+(e.event_date?formatDate(e.event_date):'')).toLowerCase())}">${e.name}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`
+ // search also matches the class / show an event belongs to (e.g. "vocal"
+ // finds every Private Vocal Workshops session, whatever the slot is named)
+ const evLabel = e => e.name + (e.program_name && String(e.name||'').toLowerCase().indexOf(String(e.program_name).toLowerCase()) < 0 ? ' · '+e.program_name : '')
+ const opt = e => `<option value="${e.id}" data-id="${e.id}" data-name="${escHtml(e.name)}" data-search="${escHtml((e.name+' '+(e.program_name||'')+' '+(e.production_name||'')+' '+(e.event_date?formatDate(e.event_date):'')).toLowerCase())}">${escHtml(evLabel(e))}${e.event_date?' ('+formatDate(e.event_date)+')':''}</option>`
  const group = (label, list) => list.length ? `<optgroup label="${label}">${list.map(opt).join('')}</optgroup>` : ''
  ltsel.innerHTML = '<option value="">— Select an event or type custom —</option>'
  + group('Today & Upcoming', upcoming)

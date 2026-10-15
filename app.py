@@ -3161,6 +3161,10 @@ def init_db():
             sent_at TIMESTAMP DEFAULT NOW(),
             UNIQUE (production_id, email_key))""",
         "ALTER TABLE tickets ADD COLUMN IF NOT EXISTS checked_in_by TEXT",
+        # open/close done by staff or automatically isn't done by an ELIC;
+        # record who/what actually did it instead of borrowing a master ELIC
+        "ALTER TABLE event_logs ALTER COLUMN elic_id DROP NOT NULL",
+        "ALTER TABLE event_logs ADD COLUMN IF NOT EXISTS actor_name TEXT",
         """CREATE TABLE IF NOT EXISTS door_scan_log (
             id TEXT PRIMARY KEY,
             performance_id TEXT,
@@ -5251,6 +5255,10 @@ def create_event():
     row['required_waivers'] = []; row['elics'] = []
     return jsonify(row)
 
+def staff_actor_name():
+    return 'Staff: ' + (session.get('name') or session.get('email') or 'RoleCall user')
+
+
 @app.route('/api/events/<eid>/status', methods=['POST'])
 def set_event_status(eid):
     err = require_permission('events')
@@ -5266,17 +5274,10 @@ def set_event_status(eid):
     # log entry or they won't be reflected on the kiosk.
     if status in ('open', 'closed'):
         try:
-            system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
-                          fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
-            system_elic_id = system_elic.get('id')
-            if system_elic_id:
-                action = 'open' if status == 'open' else 'close'
-                notes = f'Status set to {status} via admin'
-                execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
-                    VALUES (%s,%s,%s,%s,%s,'')''',
-                    (str(uuid.uuid4()), eid, system_elic_id, action, notes))
-            else:
-                app.logger.warning('set_event_status: no elic found, skipping event_logs entry')
+            action = 'open' if status == 'open' else 'close'
+            execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature,actor_name)
+                VALUES (%s,%s,NULL,%s,%s,'',%s)''',
+                (str(uuid.uuid4()), eid, action, f'Status set to {status} in RoleCall', staff_actor_name()))
         except Exception as e:
             app.logger.warning(f'set_event_status log entry failed (non-fatal): {e}')
     conn.commit()
@@ -5324,16 +5325,10 @@ def update_event(eid):
     # actually changed to open/closed here, mirror it into event_logs too.
     if new_status != prev_status and new_status in ('open', 'closed'):
         try:
-            system_elic = fetchone(conn, 'SELECT id FROM elics WHERE is_master=TRUE LIMIT 1') or \
-                          fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
-            system_elic_id = system_elic.get('id')
-            if system_elic_id:
-                action = 'open' if new_status == 'open' else 'close'
-                execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
-                    VALUES (%s,%s,%s,%s,%s,'')''',
-                    (str(uuid.uuid4()), eid, system_elic_id, action, f'Status set to {new_status} via admin edit'))
-            else:
-                app.logger.warning('update_event: no elic found, skipping event_logs entry')
+            action = 'open' if new_status == 'open' else 'close'
+            execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature,actor_name)
+                VALUES (%s,%s,NULL,%s,%s,'',%s)''',
+                (str(uuid.uuid4()), eid, action, f'Status set to {new_status} while editing the event', staff_actor_name()))
         except Exception as e:
             app.logger.warning(f'update_event log entry failed (non-fatal): {e}')
     conn.commit()
@@ -11799,12 +11794,20 @@ def _self_open_event_for_instructor(conn, volunteer_id, event_id):
     if evt.get('status') == 'open':
         return True
     elic = _elic_for_event(conn, volunteer_id, event_id)
-    if not elic:
-        return False
     log_id = str(uuid.uuid4())
-    execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
-        VALUES (%s,%s,%s,'open','Self-opened by instructor (also the assigned ELIC)','')''',
-        (log_id, event_id, elic['id']))
+    if elic:
+        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
+            VALUES (%s,%s,%s,'open','Self-opened by instructor (also the assigned ELIC)','')''',
+            (log_id, event_id, elic['id']))
+    elif determine_kiosk_pay_type(conn, volunteer_id, event_id) == 'paid_instruction':
+        # Private lessons and small workshops usually have no ELIC on site:
+        # the program's own paid instructor can open their class to log time.
+        v = fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (volunteer_id,)) or {}
+        execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature,actor_name)
+            VALUES (%s,%s,NULL,'open','Opened by the class instructor at the kiosk','',%s)''',
+            (log_id, event_id, 'Instructor: ' + (v.get('name') or 'instructor')))
+    else:
+        return False
     execute(conn, "UPDATE events SET status='open' WHERE id=%s", (event_id,))
     return True
 
@@ -14359,7 +14362,7 @@ def get_event_logs():
     if err: return err
     conn = get_db()
     rows = fetchall(conn, '''SELECT el.*, e.name as event_name, e.event_date,
-        v.name as elic_name
+        COALESCE(v.name, el.actor_name) as elic_name
         FROM event_logs el
         LEFT JOIN events e ON el.event_id=e.id
         LEFT JOIN elics eli ON el.elic_id=eli.id
@@ -14378,7 +14381,7 @@ def get_event_log_report(lid):
     if err: return err
     conn = get_db()
     row = fetchone(conn, '''SELECT el.*, e.name as event_name, e.event_date,
-        v.name as elic_name
+        COALESCE(v.name, el.actor_name) as elic_name
         FROM event_logs el
         LEFT JOIN events e ON el.event_id=e.id
         LEFT JOIN elics eli ON el.elic_id=eli.id
@@ -14390,12 +14393,12 @@ def get_event_log_report(lid):
     row['checklist'] = fetchall(conn,
         'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id', (lid,))
     # Opening checklist (find the open log for the same event)
-    open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name
+    open_log = fetchone(conn, '''SELECT el.*, COALESCE(v.name, el.actor_name) as elic_name
         FROM event_logs el
         LEFT JOIN elics eli ON el.elic_id=eli.id
         LEFT JOIN volunteers v ON eli.volunteer_id=v.id
-        WHERE el.event_id=%s AND el.action='open'
-        ORDER BY el.id LIMIT 1''', (row['event_id'],))
+        WHERE el.event_id=%s AND el.action='open' AND el.timestamp <= %s
+        ORDER BY el.timestamp DESC LIMIT 1''', (row['event_id'], row['timestamp']))
     if open_log:
         row['opening_checklist'] = fetchall(conn,
             'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id',
@@ -16207,7 +16210,8 @@ def kiosk_events():
     if paid_instruction and volunteer_id:
         conn2 = get_db()
         for e in events:
-            e['can_self_open'] = (e.get('status') != 'open') and bool(_elic_for_event(conn2, volunteer_id, e['id']))
+            e['can_self_open'] = (e.get('status') != 'open') and (bool(_elic_for_event(conn2, volunteer_id, e['id']))
+                                  or determine_kiosk_pay_type(conn2, volunteer_id, e['id']) == 'paid_instruction')
         conn2.close()
     return jsonify(events)
 
@@ -18133,7 +18137,7 @@ def fix_event_statuses():
         stale = fetchall(conn, """
             SELECT DISTINCT e.id, e.name FROM events e
             JOIN event_logs el ON el.event_id=e.id
-            WHERE el.id = (SELECT MAX(id) FROM event_logs WHERE event_id=e.id)
+            WHERE el.id = (SELECT id FROM event_logs WHERE event_id=e.id ORDER BY timestamp DESC LIMIT 1)
             AND el.action='open'
             AND (e.event_date IS NULL OR e.event_date::date < CURRENT_DATE)
         """) or []
@@ -18141,10 +18145,10 @@ def fix_event_statuses():
         closed = 0
         for ev in stale:
             execute(conn, """INSERT INTO event_logs
-                (id, event_id, elic_id, action, notes, signature)
-                VALUES (%s,%s,%s,'close',%s,'')""",
-                (str(uuid.uuid4()), ev['id'], system_elic_id,
-                 'Auto-closed by system — event date passed without formal close'))
+                (id, event_id, elic_id, action, notes, signature, actor_name)
+                VALUES (%s,%s,NULL,'close',%s,'',%s)""",
+                (str(uuid.uuid4()), ev['id'],
+                 'Auto-closed by system — event date passed without formal close', 'RoleCall (automatic)'))
             execute(conn, "UPDATE events SET status='closed' WHERE id=%s", (ev['id'],))
             closed += 1
 
@@ -18198,10 +18202,10 @@ def auto_close_past_events():
             conn.commit()
         for ev in open_events:
             log_id = str(uuid.uuid4())
-            execute(conn, """INSERT INTO event_logs (id, event_id, elic_id, action, notes, signature)
-                VALUES (%s, %s, %s, 'close', %s, '')""",
-                (log_id, ev['id'], system_elic_id,
-                 'Auto-closed by system — event date passed without formal close'))
+            execute(conn, """INSERT INTO event_logs (id, event_id, elic_id, action, notes, signature, actor_name)
+                VALUES (%s, %s, NULL, 'close', %s, '', %s)""",
+                (log_id, ev['id'],
+                 'Auto-closed by system — event date passed without formal close', 'RoleCall (automatic)'))
             closed += 1
             app.logger.info(f'Auto-closed event: {ev["name"]} ({ev["id"]})')
         conn.commit()
@@ -18375,7 +18379,7 @@ def kiosk_close_event():
                 evt_name = evt['name'] if evt else event_id
                 now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%I:%M %p')
                 # Get opening checklist from the open log
-                open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name FROM event_logs el
+                open_log = fetchone(conn, '''SELECT el.*, COALESCE(v.name, el.actor_name) as elic_name FROM event_logs el
                     LEFT JOIN elics eli ON el.elic_id=eli.id
                     LEFT JOIN volunteers v ON eli.volunteer_id=v.id
                     WHERE el.event_id=%s AND el.action='open' ORDER BY el.timestamp DESC LIMIT 1''', (event_id,))
@@ -19226,22 +19230,22 @@ def email_send_report(rid):
     conn = get_db()
     # rid can be event_id  -  find the most recent close log
     close_log = fetchone(conn, '''SELECT el.*, e.name as event_name, e.event_date,
-        v.name as elic_name
+        COALESCE(v.name, el.actor_name) as elic_name
         FROM event_logs el
         LEFT JOIN events e ON el.event_id=e.id
         LEFT JOIN elics eli ON el.elic_id=eli.id
         LEFT JOIN volunteers v ON eli.volunteer_id=v.id
         WHERE el.event_id=%s AND el.action='close'
-        ORDER BY el.id DESC LIMIT 1''', (rid,))
+        ORDER BY el.timestamp DESC LIMIT 1''', (rid,))
     if not close_log:
         conn.close(); return jsonify({'error': 'No closed event log found'}), 404
     # Get opening log
-    open_log = fetchone(conn, '''SELECT el.*, v.name as elic_name
+    open_log = fetchone(conn, '''SELECT el.*, COALESCE(v.name, el.actor_name) as elic_name
         FROM event_logs el
         LEFT JOIN elics eli ON el.elic_id=eli.id
         LEFT JOIN volunteers v ON eli.volunteer_id=v.id
-        WHERE el.event_id=%s AND el.action='open'
-        ORDER BY el.id LIMIT 1''', (rid,))
+        WHERE el.event_id=%s AND el.action='open' AND el.timestamp <= %s
+        ORDER BY el.timestamp DESC LIMIT 1''', (rid, close_log['timestamp']))
     closing_checklist = fetchall(conn,
         'SELECT * FROM event_checklist_responses WHERE event_log_id=%s ORDER BY id',
         (close_log['id'],))
@@ -24943,6 +24947,10 @@ def api_registration_add_session(rid):
                     execute(conn, 'UPDATE program_registrations SET ' + col + '=%s WHERE id=%s', (reg.get(col), rid))
                     execute(conn, 'UPDATE program_registrations SET ' + col + '=%s WHERE id=%s', (None if reg.get(col) is None else 0, new_id))
             conn.commit()
+        try:
+            ensure_session_events(conn, reg['program_id'])
+        except Exception as e:
+            app.logger.warning(f'ensure_session_events after add-session failed: {e}')
         return jsonify({'ok': True, 'registration_ids': ids})
     finally:
         conn.close()
@@ -24957,6 +24965,11 @@ def api_split_registration_sessions(rid):
         ids = split_registration_by_session(conn, rid)
         if not ids:
             return jsonify({'error': 'Registration not found'}), 404
+        try:
+            r0 = fetchone(conn, 'SELECT program_id FROM program_registrations WHERE id=%s', (rid,)) or {}
+            ensure_session_events(conn, r0.get('program_id'))
+        except Exception as e:
+            app.logger.warning(f'ensure_session_events after split failed: {e}')
         return jsonify({'ok': True, 'registration_ids': ids, 'count': len(ids)})
     finally:
         conn.close()
@@ -25275,15 +25288,69 @@ def _auto_create_events_for_registration(conn, reg, prog):
             if not s or not s.get('start_date'):
                 continue
             eid = str(uuid.uuid4())
+            pname = (prog.get('name') if prog else '') or ''
+            sname = s.get('name') or ''
+            # "Private Vocal Workshops — Tue 4 PM" rather than just the slot
+            # name, so the event is findable by the class name everywhere
+            ename = (pname + ' — ' + sname) if (pname and sname and pname.lower() not in sname.lower()) else (sname or pname or 'Class Session')
             execute(conn, '''INSERT INTO events
                 (id,name,event_date,start_time,end_time,location,program_id,linked_session_id,status,auto_log_hours)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'draft',TRUE)''',
-                (eid, s.get('name') or (prog.get('name') if prog else '') or 'Class Session',
+                (eid, ename[:200],
                  s['start_date'], s.get('start_time') or None, s.get('end_time') or None,
                  s.get('location') or '', prog['id'], sid))
             conn.commit()
         except Exception as e:
             app.logger.warning(f'Auto-create event for session {sid} (registration {reg.get("id")}) failed: {e}')
+
+def ensure_session_events(conn, program_id=None):
+    """Catch-up for _auto_create_events_for_registration: registrations that
+    were confirmed some other way (added by staff, marked paid by hand,
+    split into one per date, moved to another slot) never got their
+    session's event, so instructors had nothing to log time against.
+    Creates any missing event for sessions with a confirmed registration,
+    from a week ago onward. Returns how many were created."""
+    q = '''SELECT DISTINCT pr.id, pr.session_ids, pr.program_id FROM program_registrations pr
+        JOIN youth_programs yp ON yp.id=pr.program_id
+        WHERE yp.sessions_enabled=TRUE AND pr.status IN ('confirmed','paid','active')
+          AND COALESCE(pr.session_ids,'[]') NOT IN ('[]','')'''
+    params = []
+    if program_id:
+        q += ' AND pr.program_id=%s'; params.append(program_id)
+    regs = fetchall(conn, q, tuple(params)) or []
+    cutoff = (today_eastern() - __import__('datetime').timedelta(days=7)).isoformat()
+    before = (fetchone(conn, 'SELECT COUNT(*) AS n FROM events WHERE linked_session_id IS NOT NULL') or {}).get('n') or 0
+    progs = {}
+    for r in regs:
+        try:
+            sids = [x for x in json.loads(r.get('session_ids') or '[]') if x]
+        except Exception:
+            continue
+        keep = []
+        for sid in sids:
+            srow = fetchone(conn, 'SELECT start_date FROM program_sessions WHERE id=%s', (sid,))
+            if srow and str(srow.get('start_date') or '')[:10] >= cutoff:
+                keep.append(sid)
+        if not keep:
+            continue
+        if r['program_id'] not in progs:
+            progs[r['program_id']] = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (r['program_id'],))
+        _auto_create_events_for_registration(conn, {'id': r['id'], 'session_ids': json.dumps(keep)}, progs[r['program_id']])
+    after = (fetchone(conn, 'SELECT COUNT(*) AS n FROM events WHERE linked_session_id IS NOT NULL') or {}).get('n') or 0
+    return int(after) - int(before)
+
+
+@app.route('/api/youth-programs/<pid>/ensure-session-events', methods=['POST'])
+def api_ensure_session_events(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        n = ensure_session_events(conn, pid)
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'created': n})
+
 
 def _registration_not_yet_open(prog):
     """Return (True, message) if this program/production has a scheduled open
@@ -31328,10 +31395,10 @@ def _start_oncall_scheduler():
                               fetchone(conn, 'SELECT id FROM elics LIMIT 1') or {}
                 system_elic_id = system_elic.get('id')
                 for ev in open_events:
-                    execute(conn, """INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
-                        VALUES (%s,%s,%s,'close',%s,'')""",
-                        (str(uuid.uuid4()), ev['id'], system_elic_id,
-                         'Auto-closed by system — event date passed without formal close'))
+                    execute(conn, """INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature,actor_name)
+                        VALUES (%s,%s,NULL,'close',%s,'',%s)""",
+                        (str(uuid.uuid4()), ev['id'],
+                         'Auto-closed by system — event date passed without formal close', 'RoleCall (automatic)'))
                     app.logger.info(f'Scheduler auto-closed: {ev["name"]}')
                 if open_events: conn.commit()
                 conn.close()
@@ -31366,6 +31433,16 @@ def _start_oncall_scheduler():
                 post_sale_countdown_alerts()
             except Exception as e:
                 app.logger.warning(f'Sale countdown alerts error: {e}')
+            try:
+                if now_eastern().minute % 15 == 3:
+                    _c = get_db()
+                    try:
+                        _n = ensure_session_events(_c)
+                        if _n: app.logger.info(f'Created {_n} missing class session event(s)')
+                    finally:
+                        _c.close()
+            except Exception as e:
+                app.logger.warning(f'Session event catch-up error: {e}')
             try:
                 if now_eastern().minute % 15 == 7:
                     sync_ticket_square_fees()
@@ -39533,6 +39610,13 @@ def update_registration(pid, rid):
          _jur.dumps(d.get('custom_field_values') or {}),
          rid, pid))
     conn.commit()
+    # moved to another session / confirmed by hand: make sure that session has an event
+    try:
+        ensure_session_events(conn, pid)
+    except Exception as e:
+        app.logger.warning(f'ensure_session_events after registration edit failed: {e}')
+        try: conn.rollback()
+        except Exception: pass
     conn.close()
     return jsonify({'ok': True})
 

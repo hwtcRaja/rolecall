@@ -29866,6 +29866,60 @@ def _process_inbound_email(conn, raw_bytes, gmail_msgid=''):
     # from update_inbox_thread / assign_inbox_thread_to_me instead).
     return thread_id
 
+def _process_gmail_sent_reply(conn, raw_bytes, gmail_msgid=''):
+    """A reply someone sent straight from Gmail (not from RoleCall): add it
+    to the ticket it answers, the same way a RoleCall reply would show.
+    Matched through the email's In-Reply-To/References to a message
+    RoleCall already has. Returns 'added', 'known' (RoleCall already has
+    this message, e.g. its own reply's copy in Sent) or 'no_ticket'."""
+    import email as _emlib, base64 as _b64s
+    from email.utils import getaddresses
+    msg = _emlib.message_from_bytes(raw_bytes)
+    message_id = (msg.get('Message-ID') or '').strip()
+    if message_id:
+        known = fetchone(conn, 'SELECT id, gmail_msgid FROM inbox_messages WHERE message_id=%s', (message_id,))
+        if known:
+            if not known.get('gmail_msgid') and gmail_msgid:
+                execute(conn, 'UPDATE inbox_messages SET gmail_msgid=%s WHERE id=%s', (gmail_msgid, known['id']))
+            return 'known'
+    refs = []
+    for h in ('In-Reply-To', 'References'):
+        refs += _re_module().findall(r'<[^>]+>', msg.get(h) or '')
+    thread = None
+    for ref in reversed(refs):   # most recent reference first
+        row = fetchone(conn, 'SELECT thread_id FROM inbox_messages WHERE message_id=%s', (ref,))
+        if row:
+            thread = row['thread_id']; break
+    if not thread:
+        return 'no_ticket'
+    to_list = getaddresses([msg.get('To') or ''])
+    to_email = (to_list[0][1] if to_list else '').lower()
+    subject = _decode_mime_words(msg.get('Subject') or '(no subject)')
+    html_body, text_body = _extract_email_body(msg)
+    from_name, from_email = getaddresses([msg.get('From') or ''])[0] if msg.get('From') else ('', '')
+    mid = str(uuid.uuid4())
+    res = fetchone(conn, """INSERT INTO inbox_messages
+        (id, thread_id, direction, from_email, from_name, to_emails, subject, body_html, body_text, message_id, in_reply_to, sent_by, gmail_msgid, cc_emails)
+        VALUES (%s,%s,'outbound',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (message_id) WHERE message_id IS NOT NULL AND message_id!='' DO NOTHING
+        RETURNING id""",
+        (mid, thread, (from_email or _inbox_credentials()[0] or '').lower(), _decode_mime_words(from_name) or 'Horizon West Theater Company',
+         to_email, subject, html_body, text_body, message_id or None, (msg.get('In-Reply-To') or '').strip(),
+         'Sent from Gmail', gmail_msgid or '', msg.get('Cc') or ''))
+    if not res:
+        return 'known'
+    for att in _extract_email_attachments(msg):
+        if len(att['data']) > 15 * 1024 * 1024:
+            continue
+        execute(conn, """INSERT INTO inbox_attachments (id, message_id, filename, content_type, file_data_b64, size_bytes)
+            VALUES (%s,%s,%s,%s,%s,%s)""", (str(uuid.uuid4()), mid, att['filename'], att['content_type'],
+            _b64s.b64encode(att['data']).decode(), len(att['data'])))
+    # same as replying from RoleCall: the ticket now waits on the other person
+    execute(conn, """UPDATE inbox_threads SET last_message_at=NOW(),
+        status=CASE WHEN status='open' THEN 'pending' ELSE status END WHERE id=%s""", (thread,))
+    return 'added'
+
+
 def _process_outbound_historical_email(conn, raw_bytes, gmail_msgid=''):
     """Imports a message found in Gmail's Sent folder — i.e. something
     sent before RoleCall's shared inbox existed, including anything that
@@ -30132,7 +30186,9 @@ def _gmail_parse_labels(header_line):
     for qm in _re_module().finditer(r'"((?:[^"\\]|\\.)*)"|(\S+)', inner):
         val = qm.group(1) if qm.group(1) is not None else qm.group(2)
         if val:
-            labels.add(val.replace('\\"', '"'))
+            # Gmail may send system labels quoted with an escaped backslash
+            # ("\\\\Inbox"); unescape so they compare equal to \\Inbox
+            labels.add(val.replace('\\"', '"').replace('\\\\', '\\'))
     return labels
 
 def _re_module():
@@ -30550,6 +30606,43 @@ def check_inbox_for_new_mail():
                     try: conn.rollback()
                     except Exception: pass
                     app.logger.warning(f'Inbox: could not import Gmail message {gmsgid}: {e}')
+            # Replies sent straight from Gmail: add them to their tickets
+            try:
+                sent = _imap_msgids(m, 'X-GM-RAW "newer_than:3d in:sent"')
+                sent_ids = list(sent.keys())
+                known_sent = set()
+                for i in range(0, len(sent_ids), 500):
+                    known_sent |= {r['gmail_msgid'] for r in (fetchall(conn, 'SELECT gmail_msgid FROM inbox_messages WHERE gmail_msgid = ANY(%s)', (sent_ids[i:i + 500],)) or [])}
+                skipped = set(json.loads((fetchone(conn, "SELECT value FROM settings WHERE key='inbox_sent_skipped'") or {}).get('value') or '[]'))
+                for gmsgid in sent_ids:
+                    if gmsgid in known_sent or gmsgid in skipped:
+                        continue
+                    try:
+                        typ, data = m.uid('search', None, f'X-GM-MSGID {gmsgid}')
+                        uid = data[0].split()[0] if typ == 'OK' and data and data[0] else None
+                        if not uid:
+                            continue
+                        typ, msg_data = m.uid('fetch', uid, '(BODY.PEEK[])')
+                        raw = next((p[1] for p in (msg_data or []) if isinstance(p, tuple) and len(p) > 1), None)
+                        if not raw:
+                            continue
+                        result = _process_gmail_sent_reply(conn, raw, gmsgid)
+                        if result == 'added':
+                            processed += 1
+                        elif result == 'no_ticket':
+                            skipped.add(gmsgid)   # an email not about a ticket: don't re-read it every 2 minutes
+                        conn.commit()
+                    except Exception as e:
+                        try: conn.rollback()
+                        except Exception: pass
+                        app.logger.warning(f'Inbox: could not import sent message {gmsgid}: {e}')
+                execute(conn, "INSERT INTO settings (key,value) VALUES ('inbox_sent_skipped',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                        (json.dumps(sorted(skipped)[-2000:]),))
+                conn.commit()
+            except Exception as e:
+                try: conn.rollback()
+                except Exception: pass
+                app.logger.warning(f'Inbox: checking Sent mail failed: {e}')
         finally:
             conn.close()
             try: m.logout()

@@ -30455,6 +30455,15 @@ def check_inbox_for_new_mail():
                     if not raw:
                         continue
                     tid = _process_inbound_email(conn, raw, gmsgid)
+                    if not tid:
+                        # already in RoleCall (imported before Gmail ids were
+                        # recorded): just remember its Gmail id so it can sync
+                        import email as _em
+                        _mid = (_em.message_from_bytes(raw).get('Message-ID') or '').strip()
+                        if _mid:
+                            execute(conn, "UPDATE inbox_messages SET gmail_msgid=%s WHERE message_id=%s AND COALESCE(gmail_msgid,'')=''", (gmsgid, _mid))
+                        conn.commit()
+                        continue
                     if tid and labels is not None:
                         # mirror where it is in Gmail right now
                         if '\\Spam' in labels:
@@ -30523,7 +30532,33 @@ def sync_inbox_from_gmail():
             if inbox is None or allmail is None:
                 return False, 'Could not read the Inbox / All Mail folders from Gmail', len(all_labels)
             threads = fetchall(conn, """SELECT id, status, tags, gmail_synced_status, gmail_synced_tags
-                FROM inbox_threads WHERE last_message_at > NOW() - INTERVAL '90 days'""") or []
+                FROM inbox_threads WHERE last_message_at > NOW() - INTERVAL '90 days'
+                   OR status IN ('open','pending')""") or []
+            # Messages imported before RoleCall recorded Gmail's id for each
+            # message (older imports) had nothing to match, so those tickets
+            # never followed Gmail and stayed open. Look them up by their
+            # email Message-ID and remember the Gmail id from now on.
+            missing = fetchall(conn, """SELECT m.id, m.message_id FROM inbox_messages m
+                WHERE m.direction='inbound' AND COALESCE(m.gmail_msgid,'')='' AND COALESCE(m.message_id,'')<>''
+                  AND m.thread_id = ANY(%s) LIMIT 300""", ([t['id'] for t in threads],)) or []
+            if missing and _imap_select(m, folders['all']):
+                for row in missing:
+                    mid = row['message_id'].strip().strip('<>').replace('"', '')
+                    if not mid:
+                        continue
+                    try:
+                        typ, data = m.uid('search', None, f'X-GM-RAW "rfc822msgid:{mid}"')
+                        uid = data[0].split()[0] if typ == 'OK' and data and data[0] else None
+                        if uid:
+                            typ, rows = m.uid('fetch', uid, '(X-GM-MSGID)')
+                            line = (rows[0][0] if rows and isinstance(rows[0], tuple) else (rows[0] if rows else b'')) or b''
+                            if isinstance(line, str): line = line.encode()
+                            mm = _re_module().search(rb'X-GM-MSGID\s+(\d+)', line)
+                            if mm:
+                                execute(conn, 'UPDATE inbox_messages SET gmail_msgid=%s WHERE id=%s', (mm.group(1).decode(), row['id']))
+                    except Exception as e:
+                        app.logger.warning(f'Gmail id lookup failed for message {row["id"]}: {e}')
+                conn.commit()
             msg_rows = fetchall(conn, """SELECT thread_id, gmail_msgid FROM inbox_messages
                 WHERE gmail_msgid IS NOT NULL AND gmail_msgid <> '' AND thread_id = ANY(%s)""", ([t['id'] for t in threads],)) or []
             by_thread = {}
@@ -30602,8 +30637,30 @@ def sync_inbox_from_gmail():
             elif to_delete:
                 execute(conn, 'DELETE FROM inbox_threads WHERE id = ANY(%s)', (to_delete,))
                 conn.commit(); changed += len(to_delete)
+            # How RoleCall compares with Gmail right now
+            gmail_inbox_convos = 0
+            try:
+                if _imap_select(m, 'INBOX'):
+                    typ, data = m.uid('search', None, 'ALL')
+                    uids = data[0].split() if typ == 'OK' and data and data[0] else []
+                    thr = set()
+                    for i in range(0, len(uids), 400):
+                        typ, rows = m.uid('fetch', b','.join(uids[i:i + 400]), '(X-GM-THRID)')
+                        for r in rows or []:
+                            line = r[0] if isinstance(r, tuple) else r
+                            if isinstance(line, str): line = line.encode()
+                            mm = _re_module().search(rb'X-GM-THRID\s+(\d+)', line or b'')
+                            if mm: thr.add(mm.group(1))
+                    gmail_inbox_convos = len(thr)
+            except Exception:
+                pass
+            counts = {r['status']: int(r['n']) for r in (fetchall(conn, 'SELECT status, COUNT(*) AS n FROM inbox_threads GROUP BY status') or [])}
+            unmatched = int((fetchone(conn, """SELECT COUNT(*) AS n FROM inbox_threads t WHERE t.status IN ('open','pending')
+                AND NOT EXISTS (SELECT 1 FROM inbox_messages m WHERE m.thread_id=t.id AND COALESCE(m.gmail_msgid,'')<>'')""") or {}).get('n') or 0)
             execute(conn, "INSERT INTO settings (key,value) VALUES ('inbox_last_sync',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
-                    (json.dumps({'at': now_eastern().strftime('%Y-%m-%d %H:%M:%S'), 'changed': changed, 'threads': len(threads)}),))
+                    (json.dumps({'at': now_eastern().strftime('%Y-%m-%d %H:%M:%S'), 'changed': changed, 'threads': len(threads),
+                                 'gmail_inbox_conversations': gmail_inbox_convos, 'rolecall_counts': counts,
+                                 'open_without_gmail_match': unmatched, 'held_deletes': len(to_delete) if len(to_delete) > 25 else 0}),))
             conn.commit()
             return True, None, len(all_labels)
         finally:
@@ -31427,7 +31484,12 @@ def trigger_inbox_check_now():
         # sync was previously invisible (it would just quietly never
         # populate the tag list, with nothing in the UI explaining why).
         return jsonify({'ok': True, 'checked': count, 'label_warning': f'Mail checked OK, but the Gmail label sync failed: {label_err}'})
-    return jsonify({'ok': True, 'checked': count, 'labels_synced': label_count})
+    conn = get_db()
+    try:
+        h = json.loads((fetchone(conn, "SELECT value FROM settings WHERE key='inbox_last_sync'") or {}).get('value') or '{}')
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'checked': count, 'labels_synced': label_count, 'health': h})
 
 _inbox_import_status = {'running': False, 'months': 0, 'imported': 0, 'error': None, 'finished_at': None}
 

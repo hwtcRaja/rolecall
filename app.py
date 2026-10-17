@@ -30207,7 +30207,73 @@ def _get_thread_gmail_msgids(conn, thread_id):
         WHERE thread_id=%s AND gmail_msgid IS NOT NULL AND gmail_msgid!=''""", (thread_id,)) or []
     return [r['gmail_msgid'] for r in rows]
 
+_GMAIL_PUSH_BUSY = [0]   # >0 while a batch of RoleCall changes is being sent to Gmail
+
+
+def _gmail_push_many_bg(changes):
+    """Sends many RoleCall changes to Gmail over ONE connection, in the
+    background. changes: list of (gmail_msgids, add_labels, remove_labels).
+    Bulk archive/delete used to open a new Gmail connection and hunt for
+    every message separately while you waited, which took minutes for a
+    few dozen conversations (and the page's 'Updating…' never cleared)."""
+    if not changes or not _inbox_configured():
+        return
+    import threading, imaplib
+    def run():
+        _GMAIL_PUSH_BUSY[0] += 1
+        try:
+            imap_email, imap_password = _inbox_credentials()
+            m = imaplib.IMAP4_SSL('imap.gmail.com', 993)
+            m.login(imap_email, imap_password)
+            folders = _gmail_special_folders(m)
+            def fmt(labels):
+                return '(' + ' '.join('"' + l.replace('\\', '\\\\').replace('"', '\\"') + '"' if not l.startswith('\\') else l for l in labels) + ')'
+            for folder_key in ('all', 'spam', 'trash'):
+                if not changes:
+                    break
+                if not _imap_select(m, folders[folder_key], readonly=False):
+                    continue
+                remaining = []
+                for msgids, add, remove in changes:
+                    left = []
+                    for gid in msgids:
+                        try:
+                            typ, data = m.uid('search', None, f'X-GM-MSGID {gid}')
+                            uid = data[0].split()[0] if typ == 'OK' and data and data[0] else None
+                            if not uid:
+                                left.append(gid); continue
+                            # remove first: adding \\Trash moves the message out of
+                            # this folder, after which it can't be changed here
+                            if remove:
+                                m.uid('store', uid, '-X-GM-LABELS', fmt(remove))
+                            if add:
+                                m.uid('store', uid, '+X-GM-LABELS', fmt(add))
+                        except Exception as e:
+                            app.logger.warning(f'Gmail push failed for message {gid}: {e}')
+                    if left:
+                        remaining.append((left, add, remove))
+                changes[:] = remaining
+            try: m.logout()
+            except Exception: pass
+        except Exception as e:
+            app.logger.warning(f'Gmail batch push failed (non-fatal): {e}')
+        finally:
+            _GMAIL_PUSH_BUSY[0] -= 1
+    threading.Thread(target=run, daemon=True).start()
+
+
 def _gmail_push_thread_change(conn, thread_id, add_labels=None, remove_labels=None):
+    # During a bulk action, collect the change and send them all together
+    # afterwards (see _gmail_push_many_bg) instead of one connection each.
+    try:
+        from flask import g as _g
+        if getattr(_g, 'defer_gmail_push', None) is not None:
+            ids = _get_thread_gmail_msgids(conn, thread_id)
+            if ids:
+                _g.defer_gmail_push.append((ids, list(add_labels or []), list(remove_labels or [])))
+            return
+    except RuntimeError:
+        pass   # not inside a web request (e.g. a background job)
     """Pushes a status/tag change made in RoleCall out to Gmail right
     away, rather than waiting for the periodic pull to (wrongly) treat it
     as a Gmail-side change on the next cycle. Applies to every Gmail
@@ -30509,6 +30575,10 @@ def sync_inbox_from_gmail():
     pushes to Gmail itself) isn't undone. Returns (ok, error, label_count)."""
     if not _inbox_configured():
         return False, 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set', 0
+    if _GMAIL_PUSH_BUSY[0] > 0:
+        # RoleCall is still sending a bulk change to Gmail; reading Gmail now
+        # would see the old state and undo it. Next run (3 minutes) catches up.
+        return True, None, 0
     import imaplib, datetime as _dt
     try:
         imap_email, imap_password = _inbox_credentials()
@@ -31427,6 +31497,8 @@ def bulk_update_inbox_threads():
     if not thread_ids:
         return jsonify({'error': 'No conversations selected'}), 400
     updated, errors = 0, []
+    from flask import g as _g
+    _g.defer_gmail_push = []
     for tid in thread_ids:
         try:
             resp = update_inbox_thread(tid)
@@ -31438,6 +31510,8 @@ def bulk_update_inbox_threads():
         except Exception as e:
             app.logger.warning(f'Bulk inbox update error for {tid}: {e}')
             errors.append(tid)
+    _gmail_push_many_bg(_g.defer_gmail_push)
+    _g.defer_gmail_push = None
     return jsonify({'ok': True, 'updated': updated, 'errors': errors})
 
 
@@ -31452,6 +31526,8 @@ def bulk_delete_inbox_threads():
     if not thread_ids:
         return jsonify({'error': 'No conversations selected'}), 400
     deleted, errors = 0, []
+    from flask import g as _g
+    _g.defer_gmail_push = []
     for tid in thread_ids:
         try:
             resp = delete_inbox_thread(tid)
@@ -31463,6 +31539,8 @@ def bulk_delete_inbox_threads():
         except Exception as e:
             app.logger.warning(f'Bulk inbox delete error for {tid}: {e}')
             errors.append(tid)
+    _gmail_push_many_bg(_g.defer_gmail_push)
+    _g.defer_gmail_push = None
     return jsonify({'ok': True, 'deleted': deleted, 'errors': errors})
 
 

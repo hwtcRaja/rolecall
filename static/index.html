@@ -8902,8 +8902,26 @@ async function refreshInboxNow(){
  if(btn){ btn.disabled=false; btn.textContent='↻ Check for New Mail' }
  if(res&&res.ok){
    toast(res.checked ? 'Found '+res.checked+' new message'+(res.checked!==1?'s':'') : 'Checked — nothing new', 'success')
+   if(res.label_warning) toast(res.label_warning, 'error')
+   showInboxSyncHealth(res.health)
    renderInboxThreadList()
  } else toast((res&&res.error)||'Error','error')
+}
+// After a manual check: how RoleCall lines up with Gmail, in plain words
+function showInboxSyncHealth(h){
+ if(!h || h.gmail_inbox_conversations === undefined) return
+ var c = h.rolecall_counts || {}, openN = (c.open||0) + (c.pending||0), g = h.gmail_inbox_conversations
+ var total = Object.keys(c).reduce(function(t,k){ return t + c[k] }, 0)
+ var diff = Math.abs(openN - g)
+ var msg = '<div style="font-size:13px;line-height:1.7">'
+   + '<div><strong>Gmail Inbox:</strong> '+g+' conversation'+(g===1?'':'s')+'</div>'
+   + '<div><strong>RoleCall Open + Pending:</strong> '+openN+' ticket'+(openN===1?'':'s')+(diff <= 3 ? ' <span style="color:#166534;font-weight:700">· in sync</span>' : '')+'</div>'
+   + '<div style="color:var(--text-muted)">All RoleCall tickets: '+total+' ('+(c.closed||0)+' closed'+(c.spam?', '+c.spam+' spam':'')+'). Closed tickets are emails that are archived in Gmail, so they won\'t show in Gmail\'s Inbox.</div>'
+   + (h.open_without_gmail_match ? '<div style="color:#92400e;margin-top:4px">'+h.open_without_gmail_match+' open ticket'+(h.open_without_gmail_match===1?'':'s')+' couldn\'t be matched to a Gmail message (sent from RoleCall, or the original email no longer exists), so Gmail can\'t close '+(h.open_without_gmail_match===1?'it':'them')+'. Close or delete '+(h.open_without_gmail_match===1?'it':'them')+' in RoleCall.</div>' : '')
+   + (h.held_deletes ? '<div style="color:#991b1b;margin-top:4px">'+h.held_deletes+' tickets look deleted in Gmail. That\'s more than RoleCall will delete at once, so it held off. If you really deleted them in Gmail, delete them in RoleCall too.</div>' : '')
+   + (diff > 3 && !h.open_without_gmail_match ? '<div style="color:var(--text-muted);margin-top:4px">A few tickets\' difference is normal: RoleCall groups replies into conversations a little differently from Gmail.</div>' : '')
+   + '<div style="color:var(--text-hint);font-size:11.5px;margin-top:4px">Checked '+escHtml(h.at||'')+'</div></div>'
+ if(typeof showAdHocModal === 'function') showAdHocModal('inbox-health', 'Inbox sync check', msg, 460)
 }
 
 async function backfillInboxAttachments(){

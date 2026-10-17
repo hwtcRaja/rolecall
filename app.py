@@ -30540,7 +30540,7 @@ def sync_inbox_from_gmail():
             # email Message-ID and remember the Gmail id from now on.
             missing = fetchall(conn, """SELECT m.id, m.message_id FROM inbox_messages m
                 WHERE m.direction='inbound' AND COALESCE(m.gmail_msgid,'')='' AND COALESCE(m.message_id,'')<>''
-                  AND m.thread_id = ANY(%s) LIMIT 300""", ([t['id'] for t in threads],)) or []
+                  AND m.thread_id = ANY(%s) LIMIT 80""", ([t['id'] for t in threads],)) or []
             if missing and _imap_select(m, folders['all']):
                 for row in missing:
                     mid = row['message_id'].strip().strip('<>').replace('"', '')
@@ -30566,6 +30566,7 @@ def sync_inbox_from_gmail():
                 by_thread.setdefault(r['thread_id'], []).append(r['gmail_msgid'])
             changed = 0
             to_delete = []
+            slow_lookups = 0   # one-at-a-time Gmail lookups this run (older messages)
             for t in threads:
                 ids = by_thread.get(t['id'])
                 if not ids:
@@ -30585,6 +30586,9 @@ def sync_inbox_from_gmail():
                     # Not in this window (older message) or gone for good: check
                     # individually. Any IMAP hiccup skips the thread this round
                     # rather than risk treating it as deleted.
+                    if slow_lookups >= 40:
+                        continue   # finish the rest on the next run (every 3 minutes) so no single run drags on
+                    slow_lookups += 1
                     found = None
                     try:
                         for i in ids:
@@ -31474,22 +31478,47 @@ def trigger_inbox_check_now():
     if err: return err
     if not _inbox_configured():
         return jsonify({'error': 'INFO_INBOX_EMAIL / INFO_INBOX_APP_PASSWORD are not set on the server yet'}), 400
-    ok, check_err, count = check_inbox_for_new_mail()
+    try:
+        ok, check_err, count = check_inbox_for_new_mail()
+    except Exception as e:
+        app.logger.exception('Inbox check-now failed')
+        return jsonify({'error': f'Inbox check failed: {e}'}), 500
     if not ok:
         return jsonify({'error': f'Could not connect to the inbox: {check_err}'}), 500
-    label_ok, label_err, label_count = sync_inbox_from_gmail()
-    if not label_ok:
-        # New mail check succeeded, so don't fail the whole request — but
-        # do surface this instead of swallowing it, since a broken label
-        # sync was previously invisible (it would just quietly never
-        # populate the tag list, with nothing in the UI explaining why).
-        return jsonify({'ok': True, 'checked': count, 'label_warning': f'Mail checked OK, but the Gmail label sync failed: {label_err}'})
+    # Matching Gmail's archive/delete/labels can take a while (especially the
+    # first time, when older tickets get matched up), longer than a web
+    # request is allowed, which is what produced the server error. Run it
+    # in the background; the page asks for the result.
+    import threading
+    def _bg():
+        try:
+            okk, errr, _n = sync_inbox_from_gmail()
+            if not okk:
+                c = get_db()
+                try:
+                    execute(c, "INSERT INTO settings (key,value) VALUES ('inbox_last_sync_error',%s) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value",
+                            (json.dumps({'error': errr, 'at': now_eastern().strftime('%Y-%m-%d %H:%M:%S')}),))
+                    c.commit()
+                finally:
+                    c.close()
+        except Exception:
+            app.logger.exception('Background Gmail sync failed')
+    started = now_eastern().strftime('%Y-%m-%d %H:%M:%S')
+    threading.Thread(target=_bg, daemon=True).start()
+    return jsonify({'ok': True, 'checked': count, 'sync_started_at': started})
+
+
+@app.route('/api/inbox/sync-health', methods=['GET'])
+def inbox_sync_health():
+    err = require_permission('inbox')
+    if err: return err
     conn = get_db()
     try:
         h = json.loads((fetchone(conn, "SELECT value FROM settings WHERE key='inbox_last_sync'") or {}).get('value') or '{}')
+        e = json.loads((fetchone(conn, "SELECT value FROM settings WHERE key='inbox_last_sync_error'") or {}).get('value') or '{}')
     finally:
         conn.close()
-    return jsonify({'ok': True, 'checked': count, 'labels_synced': label_count, 'health': h})
+    return jsonify({'health': h, 'last_error': e})
 
 _inbox_import_status = {'running': False, 'months': 0, 'imported': 0, 'error': None, 'finished_at': None}
 

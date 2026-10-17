@@ -4424,7 +4424,7 @@ async function api(path,method='GET',body=null){
  try {
  const res=await fetch(path,opts)
  if(!res.ok && res.headers.get('content-type')&&!res.headers.get('content-type').includes('json')){
- return {error: 'Server error '+res.status}
+ return {error: res.status===502||res.status===504 ? 'The server took too long to respond ('+res.status+'). Try again in a minute.' : 'Server error '+res.status}
  }
  return res.json()
  } catch(e){
@@ -8901,11 +8901,21 @@ async function refreshInboxNow(){
  var res = await api('/api/inbox/check-now','POST',{})
  if(btn){ btn.disabled=false; btn.textContent='↻ Check for New Mail' }
  if(res&&res.ok){
-   toast(res.checked ? 'Found '+res.checked+' new message'+(res.checked!==1?'s':'') : 'Checked — nothing new', 'success')
-   if(res.label_warning) toast(res.label_warning, 'error')
-   showInboxSyncHealth(res.health)
+   toast((res.checked ? 'Found '+res.checked+' new message'+(res.checked!==1?'s':'') : 'Checked — nothing new')+'. Matching up with Gmail…', 'success')
    renderInboxThreadList()
+   waitForInboxSync(res.sync_started_at)
  } else toast((res&&res.error)||'Error','error')
+}
+// The Gmail match-up runs in the background; check back until it reports
+async function waitForInboxSync(startedAt, tries){
+ tries = tries || 0
+ if(tries > 40) return   // ~6 minutes; the 3-minute automatic sync carries on regardless
+ await new Promise(function(r){ setTimeout(r, 9000) })
+ var d = await api('/api/inbox/sync-health')
+ var h = d && d.health, e = d && d.last_error
+ if(e && e.at && e.at >= startedAt){ toast('Gmail sync problem: '+e.error, 'error'); return }
+ if(h && h.at && h.at >= startedAt){ renderInboxThreadList(); showInboxSyncHealth(h); return }
+ waitForInboxSync(startedAt, tries + 1)
 }
 // After a manual check: how RoleCall lines up with Gmail, in plain words
 function showInboxSyncHealth(h){

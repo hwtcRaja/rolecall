@@ -9790,8 +9790,8 @@ async function bulkSetInboxStatus(status){
  if(res&&res.ok){
    toast(res.updated+' conversation'+(res.updated!==1?'s':'')+' updated'+(res.errors&&res.errors.length?' ('+res.errors.length+' failed)':''), res.errors&&res.errors.length?'error':'success')
    _inboxSelectedIds.clear()
-   renderInboxThreadList()
  } else toast((res&&res.error)||'Error','error')
+ renderInboxThreadList()
 }
 
 async function bulkAssignInboxThreads(value){
@@ -9820,8 +9820,8 @@ async function bulkAssignInboxThreads(value){
  if(res&&res.ok){
    toast(res.updated+' conversation'+(res.updated!==1?'s':'')+(assigned_to?' assigned to '+assigned_to:' unassigned')+(res.errors&&res.errors.length?' ('+res.errors.length+' failed)':''), res.errors&&res.errors.length?'error':'success')
    _inboxSelectedIds.clear()
-   renderInboxThreadList()
  } else toast((res&&res.error)||'Error','error')
+ renderInboxThreadList()
 }
 
 async function bulkDeleteInboxThreads(){
@@ -9833,8 +9833,8 @@ async function bulkDeleteInboxThreads(){
  if(res&&res.ok){
    toast(res.deleted+' deleted'+(res.errors&&res.errors.length?' ('+res.errors.length+' failed)':''), res.errors&&res.errors.length?'error':'success')
    _inboxSelectedIds.clear()
-   renderInboxThreadList()
  } else toast((res&&res.error)||'Error','error')
+ renderInboxThreadList()
 }
 
 async function sendInboxReply(tid){

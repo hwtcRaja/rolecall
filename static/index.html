@@ -2160,6 +2160,8 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Event Leads In Charge — manage PINs and assignments</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> ELIC Management <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Event Leads In Charge</span></div>
+ <div style="margin:-6px 0 12px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary btn-sm" onclick="openBulkElicAssign()">Assign ELICs to a show or class's events…</button>
+ <button class="btn btn-secondary btn-sm" onclick="openElicPacketSettings()">Welcome packet details…</button></div>
  <div id="elics-list" style="margin-bottom:16px"></div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
  <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Volunteer *</div><select id="new-elic-vol" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"><option value="">— Select volunteer —</option></select></div>
@@ -19632,6 +19634,90 @@ function populateElicVolSelect(){
  volunteers.filter(v=>v.status==='active'&&!existing.has(v.id)).map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
 }
 
+// ── Bulk assign ELICs to a production's or class's events ──
+function openBulkElicAssign(preset){
+ preset = preset || {}
+ var o = document.createElement('div')
+ o.id = 'bulk-elic-overlay'
+ o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px'
+ o.addEventListener('click', function(e){ if(e.target===o) o.remove() })
+ var prods = (allProductions||[]).slice().sort(function(a,b){ return String(b.start_date||'').localeCompare(String(a.start_date||'')) })
+ var progs = (allPrograms||[]).slice().sort(function(a,b){ return String(a.name||'').localeCompare(String(b.name||'')) })
+ var elics = (allElics||[]).filter(function(e){ return e.active })
+ var wd = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+ o.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:640px;max-height:90vh;overflow:auto;padding:20px 22px">'
+   + '<div style="display:flex;align-items:center;margin-bottom:6px"><div style="font-size:16px;font-weight:800;flex:1">Assign ELICs to events</div><button onclick="document.getElementById(\'bulk-elic-overlay\').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button></div>'
+   + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px">Assign one or more ELICs to every event of a show or class at once. Assigned ELICs can open, close and run those events at the kiosk.</div>'
+   + '<div class="form-group"><label>For</label><select id="bea-scope" onchange="beaPreview()">'
+   + '<option value="">Pick a production or class…</option>'
+   + '<optgroup label="Productions">'+prods.map(function(p){ return '<option value="prod:'+p.id+'"'+(preset.production_id===p.id?' selected':'')+'>'+escHtml(p.name)+'</option>' }).join('')+'</optgroup>'
+   + '<optgroup label="Classes & programs">'+progs.map(function(p){ return '<option value="prog:'+p.id+'"'+(preset.program_id===p.id?' selected':'')+'>'+escHtml(p.name)+'</option>' }).join('')+'</optgroup></select></div>'
+   + '<div class="form-group"><label>ELICs</label><div style="display:flex;flex-wrap:wrap;gap:6px 14px;max-height:150px;overflow:auto;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius)">'
+   + (elics.length ? elics.map(function(e){ return '<label style="display:flex;align-items:center;gap:6px;font-size:13px;margin:0;font-weight:500;text-transform:none;letter-spacing:0;cursor:pointer"><input type="checkbox" class="bea-elic" value="'+e.id+'" style="width:auto"/>'+escHtml(e.volunteer_name||'')+(e.is_master?' <span style="font-size:10px;color:var(--text-muted)">(master)</span>':'')+'</label>' }).join('') : '<span style="font-size:13px;color:var(--text-muted)">No active ELICs yet.</span>')
+   + '</div><div style="font-size:11px;color:var(--text-hint);margin-top:4px">Master ELICs can already run every event; assigning them just lists them on each event.</div></div>'
+   + '<div style="display:flex;gap:10px;flex-wrap:wrap"><div class="form-group" style="flex:1;min-width:140px"><label>From</label><input type="date" id="bea-from" value="'+new Date().toISOString().slice(0,10)+'" onchange="beaPreview()"/></div>'
+   + '<div class="form-group" style="flex:1;min-width:140px"><label>To (optional)</label><input type="date" id="bea-to" onchange="beaPreview()"/></div></div>'
+   + '<div class="form-group"><label>Only on (optional)</label><div style="display:flex;gap:10px;flex-wrap:wrap">'+wd.map(function(n,i){ return '<label style="display:flex;align-items:center;gap:4px;font-size:13px;margin:0;font-weight:500;text-transform:none;letter-spacing:0;cursor:pointer"><input type="checkbox" class="bea-wd" value="'+i+'" onchange="beaPreview()" style="width:auto"/>'+n+'</label>' }).join('')+'</div></div>'
+   + '<div class="form-group"><label>How</label><select id="bea-mode">'
+   + '<option value="add">Add these ELICs (keep anyone already assigned)</option>'
+   + '<option value="replace">Replace: these ELICs only</option>'
+   + '<option value="remove">Remove these ELICs</option></select></div>'
+   + '<div id="bea-preview" style="font-size:12.5px;margin:4px 0 12px;color:var(--text-muted)">Pick a production or class to see its events.</div>'
+   + '<button class="btn btn-primary" id="bea-go" style="width:100%" onclick="beaApply()" disabled>Assign</button></div>'
+ document.body.appendChild(o)
+ if(preset.production_id || preset.program_id) beaPreview()
+}
+function _beaBody(){
+ var sc = (document.getElementById('bea-scope')||{}).value || ''
+ return {production_id: sc.indexOf('prod:')===0 ? sc.slice(5) : null, program_id: sc.indexOf('prog:')===0 ? sc.slice(5) : null,
+   elic_ids: Array.from(document.querySelectorAll('.bea-elic:checked')).map(function(c){ return c.value }),
+   weekdays: Array.from(document.querySelectorAll('.bea-wd:checked')).map(function(c){ return parseInt(c.value) }),
+   from: document.getElementById('bea-from').value, to: document.getElementById('bea-to').value,
+   mode: document.getElementById('bea-mode').value}
+}
+async function beaPreview(){
+ var b = _beaBody(), el = document.getElementById('bea-preview'), go = document.getElementById('bea-go')
+ if(!b.production_id && !b.program_id){ el.textContent = 'Pick a production or class to see its events.'; go.disabled = true; return }
+ var r = await api('/api/elics/bulk-assign','POST',Object.assign({}, b, {dry_run: true, elic_ids: b.elic_ids.length ? b.elic_ids : ['x']}))
+ if(r.error){ el.textContent = r.error; go.disabled = true; return }
+ el.innerHTML = '<strong style="color:var(--text)">'+r.count+' event'+(r.count===1?'':'s')+'</strong> match'+(r.count===1?'es':'')
+   + (r.count ? ':<div style="max-height:120px;overflow:auto;margin-top:4px">'+r.events.map(function(e){ return '<div>'+escHtml(tkFmtDate(e.date))+(e.time?' · '+escHtml(tkFmtTime(e.time)):'')+' — '+escHtml(e.name)+'</div>' }).join('')+'</div>' : '. Check the dates, or create the events first.')
+ go.disabled = !r.count
+ go.textContent = r.count ? 'Apply to '+r.count+' event'+(r.count===1?'':'s') : 'Assign'
+}
+async function beaApply(){
+ var b = _beaBody()
+ if(!b.elic_ids.length && b.mode !== 'replace'){ toast('Pick at least one ELIC','error'); return }
+ var verb = b.mode==='remove' ? 'Remove' : b.mode==='replace' ? 'Replace ELICs on' : 'Assign to'
+ if(!confirm(verb+' '+document.getElementById('bea-go').textContent.replace('Apply to ','')+'?')) return
+ var r = await api('/api/elics/bulk-assign','POST',b)
+ if(r.error){ toast(r.error,'error'); return }
+ toast('Updated ELICs on '+r.events+' event'+(r.events===1?'':'s'),'success')
+ document.getElementById('bulk-elic-overlay').remove()
+}
+
+async function emailElicPacket(id, name){
+ if(!confirm('Email '+(name||'this ELIC')+' their welcome packet (with their PIN)?')) return
+ var r = await api('/api/elics/'+id+'/welcome-packet/email','POST',{})
+ if(r.error){ toast(r.error,'error'); return }
+ toast('Welcome packet emailed to '+r.to,'success')
+}
+async function openElicPacketSettings(){
+ var d = await api('/api/elic-packet-settings')
+ if(d.error){ toast(d.error,'error'); return }
+ showAdHocModal('elic-packet-settings','ELIC welcome packet details',
+   '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Used in every ELIC\'s welcome packet PDF, along with their own name, PIN and upcoming events.</div>'
+   + '<div class="form-group"><label>Building address</label><textarea id="ep-addr" rows="3">'+escHtml(d.elic_packet_address)+'</textarea></div>'
+   + '<div class="form-group"><label>Phone (call or text)</label><input id="ep-phone" value="'+escHtml(d.elic_packet_phone)+'"/></div>'
+   + '<div class="form-group"><label>Arrive how early</label><input id="ep-arrive" value="'+escHtml(d.elic_packet_arrive)+'" placeholder="15 minutes"/></div>'
+   + '<button class="btn btn-primary" style="width:100%" onclick="saveElicPacketSettings()">Save</button>', 460)
+}
+async function saveElicPacketSettings(){
+ var r = await api('/api/elic-packet-settings','PUT',{elic_packet_address: document.getElementById('ep-addr').value,
+   elic_packet_phone: document.getElementById('ep-phone').value, elic_packet_arrive: document.getElementById('ep-arrive').value})
+ if(r.error){ toast(r.error,'error'); return }
+ closeAdHocModal('elic-packet-settings'); toast('Saved','success')
+}
 function renderElicsSettings(){
  const el=document.getElementById('elics-list')
  if(!el) return
@@ -19653,6 +19739,8 @@ function renderElicsSettings(){
  <div style="display:flex;gap:6px">
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicTrustMode('${e.id}',${!!e.can_toggle_trust_mode})">${e.can_toggle_trust_mode?'Revoke Trust Toggle':'Allow Trust Toggle'}</button>
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
+ <a class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" href="/api/elics/${e.id}/welcome-packet.pdf" target="_blank" title="Their welcome packet with their PIN and upcoming events">Welcome packet</a>
+ <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="emailElicPacket('${e.id}','${escHtml(e.volunteer_name||'').replace(/'/g,"\\'")}')">Email packet</button>
  <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">Delete</button>
  </div>
  </div>

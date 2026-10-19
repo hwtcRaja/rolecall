@@ -2161,7 +2161,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> ELIC Management <span style="font-size:12px;font-weight:400;color:var(--text-muted)">— Event Leads In Charge</span></div>
  <div style="margin:-6px 0 12px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary btn-sm" onclick="openBulkElicAssign()">Assign ELICs to a show or class's events…</button>
- <button class="btn btn-secondary btn-sm" onclick="openElicPacketSettings()">Welcome packet details…</button></div>
+ <button class="btn btn-secondary btn-sm" onclick="openElicPacketSettings()">Welcome letter details…</button></div>
  <div id="elics-list" style="margin-bottom:16px"></div>
  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
  <div style="flex:2;min-width:160px"><div style="font-size:12px;font-weight:500;color:var(--text-muted);margin-bottom:4px">Volunteer *</div><select id="new-elic-vol" style="width:100%;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none"><option value="">— Select volunteer —</option></select></div>
@@ -19700,7 +19700,7 @@ async function beaApply(){
 }
 
 async function setElicDoorCode(id, current){
- var code = prompt('Front door keypad code for this ELIC (shown on their welcome packet). Leave blank to remove it.', current || '')
+ var code = prompt('Front door keypad code for this ELIC (shown on their welcome letter). Leave blank to remove it.', current || '')
  if(code === null) return
  var r = await api('/api/elics/'+id+'/door-code','PUT',{door_code: code.trim()})
  if(r.error){ toast(r.error,'error'); return }
@@ -19708,16 +19708,16 @@ async function setElicDoorCode(id, current){
  renderElicsSettings(); toast(r.door_code ? 'Door code saved' : 'Door code removed','success')
 }
 async function emailElicPacket(id, name){
- if(!confirm('Email '+(name||'this ELIC')+' their welcome packet (with their PIN)?')) return
+ if(!confirm('Email '+(name||'this ELIC')+' their welcome letter (with their PIN)?')) return
  var r = await api('/api/elics/'+id+'/welcome-packet/email','POST',{})
  if(r.error){ toast(r.error,'error'); return }
- toast('Welcome packet emailed to '+r.to,'success')
+ toast('Welcome letter emailed to '+r.to,'success')
 }
 async function openElicPacketSettings(){
  var d = await api('/api/elic-packet-settings')
  if(d.error){ toast(d.error,'error'); return }
- showAdHocModal('elic-packet-settings','ELIC welcome packet details',
-   '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Used in every ELIC\'s welcome packet PDF, along with their own name, PIN and upcoming events.</div>'
+ showAdHocModal('elic-packet-settings','ELIC welcome letter details',
+   '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Used in every ELIC\'s welcome letter PDF, along with their own name, PIN and upcoming events.</div>'
    + '<div class="form-group"><label>Building address</label><textarea id="ep-addr" rows="3">'+escHtml(d.elic_packet_address)+'</textarea></div>'
    + '<div class="form-group"><label>Phone (call or text)</label><input id="ep-phone" value="'+escHtml(d.elic_packet_phone)+'"/></div>'
    + '<div class="form-group"><label>Arrive how early</label><input id="ep-arrive" value="'+escHtml(d.elic_packet_arrive)+'" placeholder="15 minutes"/></div>'
@@ -19751,8 +19751,8 @@ function renderElicsSettings(){
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicTrustMode('${e.id}',${!!e.can_toggle_trust_mode})">${e.can_toggle_trust_mode?'Revoke Trust Toggle':'Allow Trust Toggle'}</button>
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="setElicDoorCode('${e.id}','${escHtml(e.door_code||'')}')">Door code</button>
- <a class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" href="/api/elics/${e.id}/welcome-packet.pdf" target="_blank" title="Their welcome packet with their PIN and upcoming events">Welcome packet</a>
- <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="emailElicPacket('${e.id}','${escHtml(e.volunteer_name||'').replace(/'/g,"\\'")}')">Email packet</button>
+ <a class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" href="/api/elics/${e.id}/welcome-packet.pdf" target="_blank" title="Their welcome letter with their PIN and upcoming events">Welcome letter</a>
+ <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="emailElicPacket('${e.id}','${escHtml(e.volunteer_name||'').replace(/'/g,"\\'")}')">Email letter</button>
  <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">Delete</button>
  </div>
  </div>

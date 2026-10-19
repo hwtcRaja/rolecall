@@ -3165,6 +3165,8 @@ def init_db():
         # record who/what actually did it instead of borrowing a master ELIC
         "ALTER TABLE event_logs ALTER COLUMN elic_id DROP NOT NULL",
         "ALTER TABLE event_logs ADD COLUMN IF NOT EXISTS actor_name TEXT",
+        # board availability: dates a member can only join virtually
+        "ALTER TABLE board_availability ADD COLUMN IF NOT EXISTS virtual_dates TEXT DEFAULT '[]'",
         """CREATE TABLE IF NOT EXISTS door_scan_log (
             id TEXT PRIMARY KEY,
             performance_id TEXT,
@@ -23179,6 +23181,9 @@ def send_board_availability_request():
             execute(conn, '''INSERT INTO board_availability (id,member_id,month,year,token,blocked_dates)
                 VALUES (%s,%s,%s,%s,%s,'[]')''',
                 (str(uuid.uuid4()), m['id'], month, year, token))
+        link = APP_BASE_URL.rstrip('/') + '/board/availability/' + token
+        if not (m.get('email') or '').strip():
+            continue
         conn2 = get_db()
         tmpl = get_system_template(conn2, 'board_availability')
         conn2.close()
@@ -23195,7 +23200,7 @@ def send_board_availability_request():
             body = f'''<div style="font-family:-apple-system,sans-serif;max-width:560px;margin:0 auto">
           <h2 style="color:#145466">Board Meeting Availability  -  {month_name_str} {year}</h2>
           <p>Hi {m['name']},</p>
-          <p>Please click the link below and mark any dates you <strong>cannot</strong> attend.</p>
+          <p>Please click the link below and mark which dates you can attend <strong>in person</strong>, can only join <strong>virtually</strong>, or <strong>can't make</strong>.</p>
           <div style="text-align:center;margin:28px 0">
             <a href="{link}" style="background:#145466;color:#fff;text-decoration:none;padding:14px 32px;border-radius:8px;font-size:16px;font-weight:700;display:inline-block"> Submit My Availability</a>
           </div>
@@ -23229,13 +23234,13 @@ def recommend_board_dates(month, year):
     total_members = len(members)
     avail = fetchall(conn, 'SELECT * FROM board_availability WHERE month=%s AND year=%s', (month, year))
     # Build blocked date map
-    blocked_map = {}
+    blocked_map, virtual_map = {}, {}
     for a in avail:
         try:
-            dates = json.loads(a['blocked_dates'] or '[]')
-            for d in dates:
-                if d not in blocked_map: blocked_map[d] = 0
-                blocked_map[d] += 1
+            for d in json.loads(a['blocked_dates'] or '[]'):
+                blocked_map[d] = blocked_map.get(d, 0) + 1
+            for d in json.loads(a.get('virtual_dates') or '[]'):
+                virtual_map[d] = virtual_map.get(d, 0) + 1
         except Exception:
             pass
     # Generate all dates in month
@@ -23248,6 +23253,7 @@ def recommend_board_dates(month, year):
         d = _date(year_int, month_int, day)
         date_str = d.strftime('%Y-%m-%d')
         blocked = blocked_map.get(date_str, 0)
+        virtual_only = virtual_map.get(date_str, 0)
         submitted = len(avail)
         # Not blocked = available (members who haven't submitted assumed available)
         available = total_members - blocked
@@ -23258,10 +23264,13 @@ def recommend_board_dates(month, year):
             'available': available,
             'blocked': blocked,
             'total_members': total_members,
+            'virtual_only': virtual_only,
+            'in_person': available - virtual_only,
             'submitted': submitted,
             'pct': round(available / total_members * 100) if total_members else 0
         })
-    results.sort(key=lambda x: (-x['available'], x['date']))
+    # most people able to attend, then most able to attend in person
+    results.sort(key=lambda x: (-x['available'], -x['in_person'], x['date']))
     conn.close()
     return jsonify(results)
 
@@ -23295,6 +23304,8 @@ def board_availability_form(token):
   .day{{border-radius:8px;border:2px solid #e5e7eb;padding:8px 4px;text-align:center;cursor:pointer;transition:all 0.15s;font-size:13px;font-weight:600;background:#fff;color:#374151;user-select:none}}
   .day:hover{{border-color:#145466;background:#f0f8fa}}
   .day.blocked{{background:#fef2f2;border-color:#fca5a5;color:#dc2626}}
+  .day.virtual{{background:#eff6ff;border-color:#93c5fd;color:#1d4ed8}}
+  .day small{{display:block;font-size:9px;font-weight:700;margin-top:2px}}
   .day.empty{{border:none;cursor:default;background:transparent}}
   .day.weekend{{color:#9ca3af}}
   .btn{{width:100%;padding:14px;background:#145466;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;margin-top:8px}}
@@ -23313,10 +23324,11 @@ def board_availability_form(token):
   <p style="font-size:14px;opacity:0.75">{record['member_name']}</p>
 </div>
 <div class="card" id="main-card">
-  <h2>Which dates can't you make it?</h2>
-  <p class="subtitle">Tap any dates you are <strong>NOT available</strong>. Leave dates blank if you can attend.</p>
-  <div class="legend">
-    <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="background:#fff;border:2px solid #e5e7eb"></div> Available</div>
+  <h2>When can you make it?</h2>
+  <p class="subtitle">Every date starts as <strong>in person</strong>. Tap a date once for <strong>virtual only</strong>, twice for <strong>can't make it</strong>, and a third time to go back.</p>
+  <div class="legend" style="flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="background:#fff;border:2px solid #e5e7eb"></div> In person</div>
+    <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="background:#eff6ff;border:2px solid #93c5fd"></div> Virtual only</div>
     <div style="display:flex;align-items:center;gap:6px"><div class="legend-dot" style="background:#fef2f2;border:2px solid #fca5a5"></div> Can't make it</div>
   </div>
   <div style="font-size:20px;font-weight:800;color:#145466;margin-bottom:12px;text-align:center">{month_name} {record['year']}</div>
@@ -23332,6 +23344,7 @@ def board_availability_form(token):
 <script>
 const MONTH={record['month']}, YEAR={record['year']}, TOKEN='{token}'
 var blocked = new Set({json.dumps(json.loads(record['blocked_dates'] or '[]'))})
+var virt = new Set({json.dumps(json.loads(record.get('virtual_dates') or '[]'))})
 
 function buildCalendar(){{
   var cal = document.getElementById('calendar')
@@ -23345,8 +23358,9 @@ function buildCalendar(){{
     var date = YEAR+'-'+(MONTH<10?'0':'')+MONTH+'-'+(d<10?'0':'')+d
     var dow = new Date(YEAR, MONTH-1, d).getDay()
     var el = document.createElement('div')
-    el.className = 'day' + (dow===0||dow===6?' weekend':'') + (blocked.has(date)?' blocked':'')
-    el.textContent = d
+    el.className = 'day' + (dow===0||dow===6?' weekend':'') + (blocked.has(date)?' blocked':(virt.has(date)?' virtual':''))
+    el.innerHTML = d + (blocked.has(date)?'<small>No</small>':(virt.has(date)?'<small>Virtual</small>':''))
+    el.setAttribute('role','button'); el.setAttribute('aria-label', date + (blocked.has(date)?' cannot attend':(virt.has(date)?' virtual only':' in person')))
     el.dataset.date = date
     el.addEventListener('click', function(){{ toggleDay(this) }})
     cal.appendChild(el)
@@ -23354,19 +23368,22 @@ function buildCalendar(){{
 }}
 
 function toggleDay(el){{
+  // in person -> virtual only -> can't make it -> in person
   var date = el.dataset.date
-  if(blocked.has(date)){{ blocked.delete(date); el.classList.remove('blocked') }}
-  else{{ blocked.add(date); el.classList.add('blocked') }}
+  if(blocked.has(date)){{ blocked.delete(date) }}
+  else if(virt.has(date)){{ virt.delete(date); blocked.add(date) }}
+  else{{ virt.add(date) }}
+  buildCalendar()
 }}
 
-function clearAll(){{ blocked.clear(); buildCalendar() }}
+function clearAll(){{ blocked.clear(); virt.clear(); buildCalendar() }}
 
 async function submitAvailability(){{
   var btn = document.getElementById('submit-btn')
   btn.disabled = true; btn.textContent = 'Saving…'
   var r = await fetch('/api/board/availability/submit', {{
     method:'POST', headers:{{'Content-Type':'application/json'}},
-    body: JSON.stringify({{token: TOKEN, blocked_dates: Array.from(blocked)}})
+    body: JSON.stringify({{token: TOKEN, blocked_dates: Array.from(blocked), virtual_dates: Array.from(virt)}})
   }})
   var d = await r.json()
   if(d.error){{ btn.disabled=false; btn.textContent=' Submit My Availability'; alert(d.error); return }}
@@ -23382,15 +23399,16 @@ buildCalendar()
 def submit_board_availability():
     d = request.json or {}
     token = d.get('token','').strip()
-    blocked = d.get('blocked_dates', [])
+    blocked = [x for x in (d.get('blocked_dates') or []) if isinstance(x, str)][:62]
+    virtual = [x for x in (d.get('virtual_dates') or []) if isinstance(x, str) and x not in blocked][:62]
     if not token:
         return jsonify({'error': 'Invalid token'}), 400
     conn = get_db()
     record = fetchone(conn, 'SELECT id FROM board_availability WHERE token=%s', (token,))
     if not record:
         conn.close(); return jsonify({'error': 'Token not found'}), 404
-    execute(conn, 'UPDATE board_availability SET blocked_dates=%s, submitted_at=NOW() WHERE token=%s',
-        (json.dumps(blocked), token))
+    execute(conn, 'UPDATE board_availability SET blocked_dates=%s, virtual_dates=%s, submitted_at=NOW() WHERE token=%s',
+        (json.dumps(blocked), json.dumps(virtual), token))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -31044,6 +31062,21 @@ def list_inbox_team():
         if resolve_perm_level(perms, 'inbox') in ('view', 'edit'):
             result.append(u['name'])
     return jsonify(result)
+
+@app.route('/api/inbox/badge', methods=['GET'])
+def inbox_badge_counts():
+    """Small count for the sidebar badge, so it shows right after login
+    instead of only once the Inbox page has been opened."""
+    if 'user_id' not in session or require_permission('inbox', 'view'):
+        return jsonify({'open': 0, 'unread': 0})
+    conn = get_db()
+    try:
+        r = fetchone(conn, """SELECT COUNT(*) FILTER (WHERE status='open') AS open,
+                COUNT(*) FILTER (WHERE status='open' AND unread) AS unread FROM inbox_threads""") or {}
+    finally:
+        conn.close()
+    return jsonify({'open': int(r.get('open') or 0), 'unread': int(r.get('unread') or 0)})
+
 
 @app.route('/api/inbox/threads', methods=['GET'])
 def list_inbox_threads():

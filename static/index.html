@@ -18302,6 +18302,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '</div>'
  })
  }
+ if(!(p.stage==='rising_stars'||p.stage==='teen_show')) s += '<div id="pending-cast-'+p.id+'" style="padding:0 20px 16px"></div>'
  s += '</div>' // end members tab
 
  // Youth cast tab (RS only)
@@ -18317,6 +18318,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
    + '</div>'
  s += '</div>'
  s += '<div id="youth-prod-members-'+p.id+'"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
+ s += '<div id="pending-cast-'+p.id+'"></div>'
  s += '</div>'
  }
 
@@ -18473,6 +18475,7 @@ function openProductionDetail(prodId, fromPage){
  navTo('production-detail')
  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
  if((p.stage==='rising_stars'||p.stage==='teen_show')){ setTimeout(()=>loadYouthProdMembers(p.id),100); setTimeout(()=>loadCastAnnouncementPanel(p.id),100) }
+ setTimeout(()=>loadPendingCast(p.id),150)
 }
 
 function openProductionModal(){
@@ -26327,6 +26330,7 @@ function switchProductionTab(tab){
  })
  if(tab==='portal') loadProductionPortalContent(pid)
  if(tab==='youth' && pid){ loadYouthProdMembers(pid); loadCastAnnouncementPanel(pid) }
+ if((tab==='youth' || tab==='members') && pid) loadPendingCast(pid)
  if(tab==='waivers' && pid) loadProductionWaiverStatus(pid)
  if(tab==='messages' && pid) loadPortalMessages(null, pid, 'prod-messages-current')
  if(tab==='auditions' && pid){
@@ -30410,6 +30414,93 @@ function startCastTabCountdown(pid, revealAtISO, queued){
  }
  tick()
  _castTabCountdownTimers[pid] = setInterval(tick, 1000)
+}
+
+// ── Cast members added by name (not in RoleCall yet) ──
+async function loadPendingCast(pid){
+ var el = document.getElementById('pending-cast-'+pid); if(!el) return
+ var rows = await api('/api/productions/'+pid+'/pending-cast')
+ if(!Array.isArray(rows)){ el.innerHTML = ''; return }
+ var canEditIt = canEdit('productions') || canEdit('rising_stars')
+ var h = '<div style="margin-top:20px;padding-top:14px;border-top:1px solid var(--border)">'
+   + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font-size:14px;font-weight:700;flex:1">Added by name '
+   + '<span style="font-size:12px;font-weight:500;color:var(--text-muted)">· not in RoleCall yet'+(rows.length?' ('+rows.length+')':'')+'</span></div>'
+   + (canEditIt ? '<button class="btn btn-secondary btn-sm" onclick="openAddCastByName(\''+pid+'\')">+ Add by name</button>' : '') + '</div>'
+ if(!rows.length){
+   h += '<div style="font-size:12.5px;color:var(--text-muted)">Need to list someone who isn\'t in RoleCall yet? Add them by name and link them to their record later.</div>'
+ } else {
+   h += rows.map(function(r){
+     var matches = (r.youth_matches||[]).map(function(m){ return {kind:'youth', id:m.id, label:m.name+(m.dob?' (born '+m.dob+')':'')+' · participant'} })
+       .concat((r.volunteer_matches||[]).map(function(m){ return {kind:'volunteer', id:m.id, label:m.name+(m.email?' ('+m.email+')':'')+' · volunteer'} }))
+     return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);flex-wrap:wrap">'
+       + '<span style="font-size:10.5px;font-weight:800;color:#92400e;background:#fef3c7;border:1px solid #fcd34d;border-radius:10px;padding:1px 8px;white-space:nowrap">NOT IN ROLECALL</span>'
+       + '<div style="flex:1;min-width:160px"><div style="font-weight:600;font-size:13.5px">'+escHtml(r.name)+'</div>'
+       + (r.role||r.cast_section ? '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(r.role||'')+(r.cast_section?' · '+escHtml(r.cast_section):'')+'</div>' : '') + '</div>'
+       + (canEditIt ? (matches.length
+           ? '<select style="width:auto;padding:4px 6px;font-size:12px" onchange="if(this.value){var p=this.value.split(\':\');linkPendingCast(\''+pid+'\',\''+r.id+'\',p[0],p[1])}"><option value="">Link to…</option>'
+             + matches.map(function(m){ return '<option value="'+m.kind+':'+m.id+'">'+escHtml(m.label)+'</option>' }).join('') + '<option value="pick:">Someone else…</option></select>'
+           : '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="pickPendingCastLink(\''+pid+'\',\''+r.id+'\',\''+escHtml(r.name).replace(/'/g,"\\'")+'\')">Link to record…</button>')
+         + '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="editPendingCast(\''+pid+'\',\''+r.id+'\',\''+escHtml(r.name).replace(/'/g,"\\'")+'\',\''+escHtml(r.role||'').replace(/'/g,"\\'")+'\')">Edit</button>'
+         + '<button class="btn btn-danger btn-sm" style="font-size:11px" onclick="removePendingCast(\''+pid+'\',\''+r.id+'\')">Remove</button>' : '')
+       + '</div>'
+   }).join('')
+   h += '<div style="font-size:11.5px;color:var(--text-hint);margin-top:6px">When someone matching the name is in RoleCall, they\'re suggested under "Link to…". Linking adds them to the cast with their role and removes this entry.</div>'
+ }
+ el.innerHTML = h + '</div>'
+}
+function openAddCastByName(pid){
+ showAdHocModal('add-cast-by-name','Add cast by name',
+   '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">One person per line. Add a role after a dash if you like: <code>Jamie Smith - Gabriella</code>. They\'re flagged as <strong>not in RoleCall</strong> until you link them to a participant or volunteer record.</div>'
+   + '<div class="form-group"><label>Names</label><textarea id="acn-names" rows="8" placeholder="Jamie Smith - Gabriella&#10;Alex Rivera - Troy&#10;Sam Lee"></textarea></div>'
+   + '<div style="display:flex;gap:10px"><div class="form-group" style="flex:1"><label>Section (optional)</label><input id="acn-section" list="cast-section-options" placeholder="e.g. Ensemble"/></div>'
+   + '<div class="form-group" style="flex:1"><label>These are</label><select id="acn-kind"><option value="unknown">Not sure</option><option value="youth">Youth</option><option value="adult">Adults</option></select></div></div>'
+   + '<button class="btn btn-primary" style="width:100%" onclick="saveCastByName(\''+pid+'\')">Add</button>', 480)
+}
+async function saveCastByName(pid){
+ var r = await api('/api/productions/'+pid+'/pending-cast','POST',{names: document.getElementById('acn-names').value,
+   cast_section: document.getElementById('acn-section').value, kind: document.getElementById('acn-kind').value})
+ if(r.error){ toast(r.error,'error'); return }
+ closeAdHocModal('add-cast-by-name'); toast('Added '+r.added+' by name','success'); loadPendingCast(pid)
+}
+async function linkPendingCast(pid, cid, kind, personId){
+ if(kind === 'pick'){ return pickPendingCastLink(pid, cid, '') }
+ var r = await api('/api/productions/'+pid+'/pending-cast/'+cid+'/link','POST',{kind: kind, person_id: personId})
+ if(r.error){ toast(r.error,'error'); return }
+ toast('Linked and added to the cast','success')
+ loadPendingCast(pid)
+ if(typeof loadYouthProdMembers === 'function') loadYouthProdMembers(pid)
+}
+function pickPendingCastLink(pid, cid, name){
+ var q = (name||'').toLowerCase()
+ var youth = (allYouth||[]).map(function(y){ return {kind:'youth', id:y.id, label:(y.first_name||'')+' '+(y.last_name||''), sub:'participant'} })
+ var vols = (volunteers||[]).map(function(v){ return {kind:'volunteer', id:v.id, label:v.name||'', sub:'volunteer'+(v.email?' · '+v.email:'')} })
+ var all = youth.concat(vols)
+ showAdHocModal('link-pending-cast','Link to a RoleCall record',
+   '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">Find the participant or volunteer. Not in RoleCall yet? Add them first (Participants or Volunteers), then come back and link.</div>'
+   + '<input id="lpc-q" placeholder="Search name…" value="'+escHtml(name||'')+'" oninput="lpcFilter()" style="margin-bottom:8px"/>'
+   + '<div id="lpc-list" style="max-height:300px;overflow:auto"></div>', 480)
+ window._lpc = {pid: pid, cid: cid, all: all}
+ lpcFilter()
+}
+function lpcFilter(){
+ var q = (document.getElementById('lpc-q').value||'').toLowerCase().trim()
+ var res = _lpc.all.filter(function(p){ return !q || p.label.toLowerCase().indexOf(q) >= 0 }).slice(0, 40)
+ document.getElementById('lpc-list').innerHTML = res.length ? res.map(function(p){
+   return '<div style="display:flex;align-items:center;gap:8px;padding:7px 4px;border-bottom:1px solid var(--border)"><div style="flex:1"><div style="font-weight:600;font-size:13px">'+escHtml(p.label)+'</div><div style="font-size:11.5px;color:var(--text-muted)">'+escHtml(p.sub)+'</div></div>'
+     + '<button class="btn btn-primary btn-sm" style="font-size:11px" onclick="closeAdHocModal(\'link-pending-cast\');linkPendingCast(\''+_lpc.pid+'\',\''+_lpc.cid+'\',\''+p.kind+'\',\''+p.id+'\')">Link</button></div>'
+ }).join('') : '<div style="font-size:12.5px;color:var(--text-muted);padding:8px 0">No one matches.</div>'
+}
+async function editPendingCast(pid, cid, name, role){
+ var n = prompt('Name', name); if(n === null) return
+ var r0 = prompt('Role (optional)', role||''); if(r0 === null) return
+ var r = await api('/api/productions/'+pid+'/pending-cast/'+cid,'PUT',{name: n, role: r0})
+ if(r.error){ toast(r.error,'error'); return }
+ loadPendingCast(pid)
+}
+async function removePendingCast(pid, cid){
+ if(!confirm('Remove this name from the cast list?')) return
+ await api('/api/productions/'+pid+'/pending-cast/'+cid,'DELETE')
+ loadPendingCast(pid)
 }
 
 async function loadYouthProdMembers(prodId){

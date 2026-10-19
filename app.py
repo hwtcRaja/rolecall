@@ -29472,8 +29472,10 @@ def post_oncall_slack_report():
     import datetime as _dtrep, json as _jrep
     from zoneinfo import ZoneInfo as _ZIrep
     now = _dtrep.datetime.now(_ZIrep('America/New_York'))
-    # Get start/end of current week (Mon–Sun)
-    week_start = now.date() - _dtrep.timedelta(days=now.weekday())
+    # The 7 days starting today. It used to be the Monday–Sunday calendar
+    # week, so a report sent on a Sunday showed the week that was ending
+    # (looking backward) instead of the week ahead.
+    week_start = now.date()
     week_end = week_start + _dtrep.timedelta(days=6)
     week_label = week_start.strftime('%b %d') + ' – ' + week_end.strftime('%b %d, %Y')
     try:
@@ -29501,7 +29503,7 @@ def post_oncall_slack_report():
         day_shifts = [s for s in shifts if s['start_date'] <= day_str <= s['end_date']
                       and dow in (_jrep.loads(s.get('days_of_week') or '[0,1,2,3,4,5,6]') or [0,1,2,3,4,5,6])]
         is_today = day_str == now.date().isoformat()
-        day_label = f'*{DAY_NAMES[i]} {day.strftime("%m/%d")}*' + (' ← today' if is_today else '')
+        day_label = f'*{DAY_NAMES[dow]} {day.strftime("%m/%d")}*' + (' ← today' if is_today else '')
         if day_shifts:
             names = ', '.join(f'{s["person_name"]} ({fmt12h(s.get("start_time","08:00"))}–{fmt12h(s.get("end_time","22:00"))})' for s in day_shifts)
             day_lines.append(f'{day_label}: {names}')

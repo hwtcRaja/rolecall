@@ -3167,6 +3167,8 @@ def init_db():
         "ALTER TABLE event_logs ADD COLUMN IF NOT EXISTS actor_name TEXT",
         # board availability: dates a member can only join virtually
         "ALTER TABLE board_availability ADD COLUMN IF NOT EXISTS virtual_dates TEXT DEFAULT '[]'",
+        # the front-door keypad code given to this ELIC (shown on their welcome packet)
+        "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS door_scan_log (
             id TEXT PRIMARY KEY,
             performance_id TEXT,
@@ -13933,7 +13935,21 @@ def get_elics():
     elics = fetchall(conn, '''SELECT e.*, v.name as volunteer_name
         FROM elics e LEFT JOIN volunteers v ON e.volunteer_id=v.id ORDER BY v.name''')
     conn.close()
+    if session.get('role') != 'admin':
+        for e in elics or []:
+            e.pop('door_code', None)   # building access: admins only
     return jsonify(elics)
+
+
+@app.route('/api/elics/<eid>/door-code', methods=['PUT'])
+def set_elic_door_code(eid):
+    err = require_admin()
+    if err: return err
+    code = ((request.json or {}).get('door_code') or '').strip()[:20]
+    conn = get_db()
+    execute(conn, 'UPDATE elics SET door_code=%s WHERE id=%s', (code, eid))
+    conn.commit(); conn.close()
+    return jsonify({'ok': True, 'door_code': code})
 
 @app.route('/api/elics', methods=['POST'])
 def create_elic():
@@ -19406,6 +19422,35 @@ def _elic_packet_settings(conn):
     return out
 
 
+
+def _packet_img(name):
+    import base64, os
+    try:
+        with open(os.path.join(app.root_path, 'static', 'images', 'elic-packet', name), 'rb') as f:
+            return 'data:image/jpeg;base64,' + base64.b64encode(f.read()).decode()
+    except Exception:
+        return ''
+
+
+def _packet_steps_html():
+    """The Inox app steps for passage mode, each with its screenshot and the
+    spot to tap circled in red."""
+    steps = [
+        ('1', 'Go to the iPad that has the <b>Inox</b> app open.', None),
+        ('2', 'Tap the <b>gear icon</b> at the bottom of the screen.', 'step2-gear.jpg'),
+        ('3', 'Tap the lock, <b>ISK-B300</b>.', 'step3-lock.jpg'),
+        ('4', 'Scroll down until you see <b>Passage Mode</b>.', None),
+        ('5', 'Toggle <b>Passage Mode</b> on. The door beeps.', 'step45-passage.jpg'),
+        ('6', 'Tap <b>Confirm</b>. The door beeps again and unlocks.', 'step6-confirm.jpg'),
+    ]
+    rows = ''
+    for n, text, img in steps:
+        src = _packet_img(img) if img else ''
+        rows += ('<tr><td style="width:46%"><span class="sn">' + n + '</span> ' + text + '</td><td>'
+                 + ('<img src="' + src + '" style="width:250px"/>' if src else '') + '</td></tr>')
+    return '<table class="steps">' + rows + '</table>'
+
+
 def elic_packet_html(elic, settings, events):
     h = _h
     name = elic.get('volunteer_name') or 'ELIC'
@@ -19431,7 +19476,9 @@ def elic_packet_html(elic, settings, events):
         f'<div class="for">For {h(name)}</div></div>'
         f'<table class="card"><tr><td><div class="lbl">Your ELIC PIN</div><div class="pin">{h(str(elic.get("pin") or ""))}</div>'
         f'<div class="small">Use it at the kiosk to open and close events. Don\'t share it.</div></td>'
-        f'<td><div class="lbl">Questions or problems</div><div class="big">{phone}</div><div class="small">Call or text. Emergencies: call 911 first.</div></td>'
+        + (f'<td><div class="lbl">Front door code</div><div class="pin">{h(str(elic.get("door_code") or ""))}</div>'
+           f'<div class="small">For the keypad on the front door. Don\'t share it.</div></td>' if (elic.get("door_code") or "").strip() else '')
+        + f'<td><div class="lbl">Questions or problems</div><div class="big">{phone}</div><div class="small">Call or text. Emergencies: call 911 first.</div></td>'
         f'<td><div class="lbl">Address</div><div>{addr}</div></td></tr></table>'
         + sec('Welcome', f'<p>Hi {h(first)}, thank you for being an ELIC (Event Lead In Charge). While you\'re there, you\'re the person responsible '
               'for the building and the event: you unlock, open the event in RoleCall, make sure everyone is signed in, and close up when it\'s over. '
@@ -19440,12 +19487,13 @@ def elic_packet_html(elic, settings, events):
             f'Arrive <b>{arrive}</b> before the event starts, so the door is open and the event is open in RoleCall before anyone shows up.',
             'Have your PIN ready (above).',
             f'If you\'re covering an event that isn\'t on your list below, {call}.']))
-        + sec('Unlocking the building', ol([
-            'Get the iPad and open the <b>Innox</b> app.',
-            'Unlock the front door.',
-            'Put the door in <b>passage mode</b> so it stays unlocked while people arrive.',
-            'Check the door opens from outside.']) +
-            f'<p><b>At the end of the night:</b> take the door <b>out of passage mode</b> so it locks, check it from outside, and put the iPad back on its charger. '
+        + sec('Unlocking the building',
+            ('<p>Get in with your front door code on the keypad. Then put the door in <b>passage mode</b> so it stays unlocked while people arrive:</p>'
+             if (elic.get('door_code') or '').strip() else
+             '<p>Put the door in <b>passage mode</b> so it stays unlocked while people arrive:</p>')
+            + _packet_steps_html()
+            + f'<p><b>At the end of the night:</b> do the same steps but toggle <b>Passage Mode off</b> and confirm. The door locks again. '
+            f'Pull on it from outside to check, and put the iPad back on its charger. '
             f'If the app won\'t connect or the door won\'t respond, don\'t prop it open and leave: {call}.</p>')
         + sec('Opening the event', ol([
             'On the kiosk (rolecall.hwtco.org/kiosk), tap <b>ELIC</b> and enter your PIN.',
@@ -19489,6 +19537,8 @@ def elic_packet_html(elic, settings, events):
             '.lbl { font-size: 8pt; color: #5f6b72; text-transform: uppercase; font-weight: bold; }'
             '.pin { font-size: 24pt; font-weight: bold; letter-spacing: 4px; color: #0f5566; } .big { font-size: 15pt; font-weight: bold; }'
             '.small { font-size: 8.5pt; color: #5f6b72; } li { margin-bottom: 3px; } p { margin: 4px 0; }'
+            'table.steps { width: 100%; } table.steps td { vertical-align: top; padding: 4px 6px 8px 0; }'
+            '.sn { display: inline; background: #ff3b30; color: #fff; font-weight: bold; padding: 1px 6px; }'
             'table.ev { width: 100%; } table.ev th { text-align: left; background: #e3f1f5; padding: 3px 5px; } table.ev td { padding: 3px 5px; border-bottom: 1px solid #eef2f4; }'
             '</style></head><body>' + body + '</body></html>')
 

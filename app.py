@@ -19388,6 +19388,245 @@ def remove_event_waiver(eid, wid):
     return jsonify({'ok': True})
 
 # ── Event ELICs ──
+# ── ELIC welcome packet (PDF, per ELIC) ───────────────────────────────────
+# Settings → ELIC management → "Welcome packet" on each ELIC. Address and
+# phone come from the packet settings; each PDF is personalized with the
+# ELIC's name, their PIN and their upcoming assigned events.
+ELIC_PACKET_DEFAULTS = {
+    'elic_packet_address': 'HWTC Studio\n1220 Winter Garden Vineland Rd, Suite 108\nWinter Garden, FL 34787',
+    'elic_packet_phone': '407.554.9152',
+    'elic_packet_arrive': '15 minutes',
+}
+
+
+def _elic_packet_settings(conn):
+    out = {}
+    for k, v in ELIC_PACKET_DEFAULTS.items():
+        out[k] = _setting(conn, k) or v
+    return out
+
+
+def elic_packet_html(elic, settings, events):
+    h = _h
+    name = elic.get('volunteer_name') or 'ELIC'
+    first = name.split(' ')[0]
+    phone = h(settings['elic_packet_phone'])
+    addr = '<br/>'.join(h(x) for x in settings['elic_packet_address'].splitlines() if x.strip())
+    arrive = h(settings['elic_packet_arrive'])
+    call = f'call or text HWTC at <b>{phone}</b>'
+    import datetime as _dtp
+    def _d(v):
+        try:
+            x = _dtp.date.fromisoformat(str(v)[:10]); return x.strftime('%a, %b ') + str(x.day)
+        except Exception:
+            return str(v or '')[:10]
+    ev_rows = ''.join(
+        f'<tr><td style="width:22%">{h(_d(e.get("event_date")))}</td><td style="width:16%">{h(_fmt_time12(e.get("start_time")))}</td><td>{h(e.get("name") or "")}</td></tr>'
+        for e in events[:25])
+    sec = lambda title, body: f'<h2>{title}</h2>{body}'
+    ol = lambda items: '<ol>' + ''.join(f'<li>{i}</li>' for i in items) + '</ol>'
+    ul = lambda items: '<ul>' + ''.join(f'<li>{i}</li>' for i in items) + '</ul>'
+    body = (
+        f'<div class="top"><div class="org">Horizon West Theater Company</div><h1>ELIC Welcome Packet</h1>'
+        f'<div class="for">For {h(name)}</div></div>'
+        f'<table class="card"><tr><td><div class="lbl">Your ELIC PIN</div><div class="pin">{h(str(elic.get("pin") or ""))}</div>'
+        f'<div class="small">Use it at the kiosk to open and close events. Don\'t share it.</div></td>'
+        f'<td><div class="lbl">Questions or problems</div><div class="big">{phone}</div><div class="small">Call or text. Emergencies: call 911 first.</div></td>'
+        f'<td><div class="lbl">Address</div><div>{addr}</div></td></tr></table>'
+        + sec('Welcome', f'<p>Hi {h(first)}, thank you for being an ELIC (Event Lead In Charge). While you\'re there, you\'re the person responsible '
+              'for the building and the event: you unlock, open the event in RoleCall, make sure everyone is signed in, and close up when it\'s over. '
+              f'Follow the checklists on the kiosk, and {call} if anything is unclear.</p>')
+        + sec('Before you arrive', ul([
+            f'Arrive <b>{arrive}</b> before the event starts, so the door is open and the event is open in RoleCall before anyone shows up.',
+            'Have your PIN ready (above).',
+            f'If you\'re covering an event that isn\'t on your list below, {call}.']))
+        + sec('Unlocking the building', ol([
+            'Get the iPad and open the <b>Innox</b> app.',
+            'Unlock the front door.',
+            'Put the door in <b>passage mode</b> so it stays unlocked while people arrive.',
+            'Check the door opens from outside.']) +
+            f'<p><b>At the end of the night:</b> take the door <b>out of passage mode</b> so it locks, check it from outside, and put the iPad back on its charger. '
+            f'If the app won\'t connect or the door won\'t respond, don\'t prop it open and leave: {call}.</p>')
+        + sec('Opening the event', ol([
+            'On the kiosk (rolecall.hwtco.org/kiosk), tap <b>ELIC</b> and enter your PIN.',
+            'Pick today\'s event.',
+            'Go through the <b>opening checklist</b>, ticking each item as you do it.',
+            'Submit. The event shows as <b>open</b>, recorded under your name.']) +
+            f'<p>Volunteers can\'t start their time until the event is open. Event missing? Check the date and your PIN, then {call}.</p>')
+        + sec('Signing people in', ul([
+            '<b>Volunteers (and you):</b> on the kiosk choose <b>Start volunteering</b>, find your name, pick the event, start. Tap <b>Stop</b> when you leave.',
+            '<b>Cast members</b> (performers, not crew) don\'t log volunteer hours. You can still sign them in and out on the kiosk to take attendance.',
+            '<b>Paid instructors</b> sign in with their own instructor PIN and start their time on their class.',
+            '<b>Kids:</b> a parent or guardian signs each child in at drop-off and out at pickup. Only release a child to an approved pickup; if unsure, keep the child with you and call the parent.',
+            f'<b>Someone forgot to sign in or out:</b> text HWTC at {phone} with the name and times. Hours can be fixed later.']))
+        + sec('Closing the event', ol([
+            'Make sure every child has been signed out and picked up.',
+            'Remind volunteers to tap <b>Stop</b>.',
+            'On the kiosk, tap <b>ELIC</b>, enter your PIN, pick the event.',
+            'Go through the <b>closing checklist</b> and sign.',
+            'Submit. The event shows as <b>closed</b>.',
+            'Lock up: door out of passage mode, check it from outside.']) +
+            '<p>Events left open are closed automatically overnight, but without your checklist or signature.</p>')
+        + sec('Good to know', ul([
+            f'<b>Emergencies:</b> call 911 first, then HWTC at {phone}.',
+            '<b>Kids are never alone with one adult.</b> Keep two adults in the room or within sight.',
+            f'<b>Injuries or incidents:</b> take care of the person first, then {call} the same day.',
+            '<b>Something broken or running low:</b> note it in the closing checklist.',
+            f'<b>Running late or can\'t make it:</b> {call} as early as you can.']))
+        + (sec('Your upcoming events', '<table class="ev"><tr><th style="width:22%">Date</th><th style="width:16%">Time</th><th>Event</th></tr>' + ev_rows + '</table>'
+               + ('<p class="small">Showing the next 25.</p>' if len(events) > 25 else '')) if events else
+           sec('Your upcoming events', '<p>No events are assigned to you yet. You\'ll see them in RoleCall once they are.</p>' if not elic.get('is_master') else
+               '<p>As a master ELIC you can open and close any event.</p>'))
+    )
+    return ('<html><head><meta charset="utf-8"><style>'
+            '@page { size: letter; margin: 0.6in; }'
+            'body { font-family: Helvetica, Arial, sans-serif; font-size: 10.5pt; color: #1f2a30; line-height: 1.4; }'
+            '.top { border-bottom: 3px solid #16728b; padding-bottom: 6px; margin-bottom: 10px; }'
+            '.org { color: #16728b; font-size: 9pt; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }'
+            'h1 { font-size: 22pt; margin: 2px 0; color: #0f5566; } .for { color: #5f6b72; }'
+            'h2 { font-size: 13pt; color: #0f5566; margin: 14px 0 4px; border-bottom: 1px solid #dfe5e8; padding-bottom: 2px; }'
+            'table.card { width: 100%; background: #f4f8f9; } table.card td { padding: 8px; vertical-align: top; width: 33%; }'
+            '.lbl { font-size: 8pt; color: #5f6b72; text-transform: uppercase; font-weight: bold; }'
+            '.pin { font-size: 24pt; font-weight: bold; letter-spacing: 4px; color: #0f5566; } .big { font-size: 15pt; font-weight: bold; }'
+            '.small { font-size: 8.5pt; color: #5f6b72; } li { margin-bottom: 3px; } p { margin: 4px 0; }'
+            'table.ev { width: 100%; } table.ev th { text-align: left; background: #e3f1f5; padding: 3px 5px; } table.ev td { padding: 3px 5px; border-bottom: 1px solid #eef2f4; }'
+            '</style></head><body>' + body + '</body></html>')
+
+
+@app.route('/api/elics/<eid>/welcome-packet.pdf')
+def elic_welcome_packet_pdf(eid):
+    err = require_admin()
+    if err: return err
+    import base64
+    conn = get_db()
+    try:
+        elic = fetchone(conn, '''SELECT e.*, v.name AS volunteer_name, v.email AS volunteer_email FROM elics e
+            LEFT JOIN volunteers v ON v.id=e.volunteer_id WHERE e.id=%s''', (eid,))
+        if not elic:
+            return jsonify({'error': 'ELIC not found'}), 404
+        settings = _elic_packet_settings(conn)
+        events = fetchall(conn, '''SELECT ev.name, ev.event_date, ev.start_time FROM event_elics ee JOIN events ev ON ev.id=ee.event_id
+            WHERE ee.elic_id=%s AND ev.event_date >= %s AND COALESCE(ev.status,'') <> 'cancelled'
+            ORDER BY ev.event_date, ev.start_time''', (eid, today_eastern().isoformat())) or []
+    finally:
+        conn.close()
+    b64 = _html_to_pdf_b64(elic_packet_html(elic, settings, events))
+    if not b64:
+        return jsonify({'error': 'Could not build the PDF'}), 500
+    fname = 'ELIC-Welcome-Packet-' + re.sub(r'[^A-Za-z0-9]+', '-', elic.get('volunteer_name') or 'ELIC').strip('-') + '.pdf'
+    resp = app.response_class(base64.b64decode(b64), mimetype='application/pdf')
+    resp.headers['Content-Disposition'] = ('attachment' if request.args.get('download') else 'inline') + f'; filename="{fname}"'
+    return resp
+
+
+@app.route('/api/elics/<eid>/welcome-packet/email', methods=['POST'])
+def elic_welcome_packet_email(eid):
+    """Email the ELIC their personal packet as a PDF attachment."""
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    try:
+        elic = fetchone(conn, '''SELECT e.*, v.name AS volunteer_name, v.email AS volunteer_email FROM elics e
+            LEFT JOIN volunteers v ON v.id=e.volunteer_id WHERE e.id=%s''', (eid,))
+        if not elic or not (elic.get('volunteer_email') or '').strip():
+            return jsonify({'error': 'This ELIC has no email address on their volunteer record.'}), 400
+        settings = _elic_packet_settings(conn)
+        events = fetchall(conn, '''SELECT ev.name, ev.event_date, ev.start_time FROM event_elics ee JOIN events ev ON ev.id=ee.event_id
+            WHERE ee.elic_id=%s AND ev.event_date >= %s AND COALESCE(ev.status,'') <> 'cancelled'
+            ORDER BY ev.event_date, ev.start_time''', (eid, today_eastern().isoformat())) or []
+    finally:
+        conn.close()
+    b64 = _html_to_pdf_b64(elic_packet_html(elic, settings, events))
+    if not b64:
+        return jsonify({'error': 'Could not build the PDF'}), 500
+    first = (elic.get('volunteer_name') or '').split(' ')[0] or 'there'
+    body = (f'<p>Hi {_h(first)},</p><p>Thank you for being an ELIC with Horizon West Theater Company. Your welcome packet is attached: '
+            'how to unlock the building, open and close events, sign people in, and your PIN.</p>'
+            f'<p>Questions? Call or text us at <b>{_h(settings["elic_packet_phone"])}</b>.</p>')
+    res = send_email([elic['volunteer_email']], 'Your HWTC ELIC welcome packet', build_hwtc_email_html('Your ELIC welcome packet', body),
+                     source='elic_welcome_packet', attachments=[{'filename': 'ELIC-Welcome-Packet.pdf', 'content_b64': b64}])
+    ok = res[0] if isinstance(res, tuple) else bool(res)
+    return jsonify({'ok': True, 'to': elic['volunteer_email']}) if ok else (jsonify({'error': 'The email didn\'t send.'}), 400)
+
+
+@app.route('/api/elic-packet-settings', methods=['GET', 'PUT'])
+def elic_packet_settings_api():
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            d = request.json or {}
+            for k in ELIC_PACKET_DEFAULTS:
+                if k in d:
+                    _set_setting(conn, k, (d.get(k) or '').strip()[:500])
+            conn.commit()
+        return jsonify(_elic_packet_settings(conn))
+    finally:
+        conn.close()
+
+
+@app.route('/api/elics/bulk-assign', methods=['POST'])
+def bulk_assign_elics():
+    """Add (or remove, or replace with) one or more ELICs on every event of
+    a production or class, optionally only between two dates and/or on
+    certain weekdays. dry_run returns the matching events without changing
+    anything, for the preview."""
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    elic_ids = [x for x in (d.get('elic_ids') or []) if x]
+    mode = d.get('mode') if d.get('mode') in ('add', 'replace', 'remove') else 'add'
+    prod_id, prog_id = d.get('production_id') or None, d.get('program_id') or None
+    if not (prod_id or prog_id):
+        return jsonify({'error': 'Pick a production or a class.'}), 400
+    if not elic_ids and mode != 'replace':
+        return jsonify({'error': 'Pick at least one ELIC.'}), 400
+    q = '''SELECT id, name, event_date, start_time FROM events WHERE COALESCE(status,'') <> 'cancelled' '''
+    params = []
+    if prod_id:
+        q += ' AND production_id=%s'; params.append(prod_id)
+    if prog_id:
+        q += ' AND program_id=%s'; params.append(prog_id)
+    frm = (d.get('from') or '')[:10] or (today_eastern().isoformat() if not d.get('include_past') else '')
+    to = (d.get('to') or '')[:10]
+    if frm:
+        q += ' AND event_date >= %s'; params.append(frm)
+    if to:
+        q += ' AND event_date <= %s'; params.append(to)
+    conn = get_db()
+    try:
+        events = fetchall(conn, q + ' ORDER BY event_date, start_time', tuple(params)) or []
+        days = set(int(x) for x in (d.get('weekdays') or []) if str(x).isdigit())   # 0=Mon … 6=Sun
+        if days:
+            import datetime as _dt
+            def _wd(e):
+                try: return _dt.date.fromisoformat(str(e['event_date'])[:10]).weekday()
+                except Exception: return -1
+            events = [e for e in events if _wd(e) in days]
+        if d.get('dry_run'):
+            return jsonify({'count': len(events), 'events': [{'id': e['id'], 'name': e['name'], 'date': str(e['event_date'])[:10],
+                                                               'time': e.get('start_time') or ''} for e in events[:300]]})
+        ids = [e['id'] for e in events]
+        changed = 0
+        if ids:
+            if mode == 'replace':
+                execute(conn, 'DELETE FROM event_elics WHERE event_id = ANY(%s)', (ids,))
+            if mode == 'remove':
+                execute(conn, 'DELETE FROM event_elics WHERE event_id = ANY(%s) AND elic_id = ANY(%s)', (ids, elic_ids))
+                changed = len(ids)
+            else:
+                for eid in ids:
+                    for lid in elic_ids:
+                        execute(conn, 'INSERT INTO event_elics (id,event_id,elic_id) VALUES (%s,%s,%s) ON CONFLICT DO NOTHING',
+                                (str(uuid.uuid4()), eid, lid))
+                changed = len(ids)
+        conn.commit()
+        return jsonify({'ok': True, 'events': changed})
+    finally:
+        conn.close()
+
+
 @app.route('/api/events/<eid>/elics', methods=['POST'])
 def add_event_elic(eid):
     err = require_auth()

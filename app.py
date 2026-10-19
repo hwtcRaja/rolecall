@@ -19682,6 +19682,19 @@ def _packet_steps_html():
     return '<table class="steps">' + rows + '</table>'
 
 
+def _pk_pic_steps(steps, width=230):
+    """Numbered steps; a step can carry a screenshot (with the tap target
+    circled in red) shown beside it."""
+    rows = ''
+    for i, st in enumerate(steps):
+        text, img = st[0], st[1]
+        w = st[2] if len(st) > 2 else width
+        src = _packet_img(img) if img else ''
+        rows += ('<tr><td class="numc">' + _pk_badge(str(i + 1)) + '</td><td class="stxt">' + text + '</td><td class="simg">'
+                 + ('<img src="' + src + '" width="' + str(w) + '"/>' if src else '') + '</td></tr>')
+    return '<table class="steps">' + rows + '</table>'
+
+
 def _pk_steps(items):
     """Numbered steps as a table (xhtml2pdf has no flexbox / rounded badges)."""
     return '<table class="steps">' + ''.join(
@@ -19773,12 +19786,19 @@ def elic_packet_html(elic, settings, events):
             'and put it back in the drawer when you\'re done.</p></td>'
             '</tr></table>')
 
-        + section('5', 'Open the event', _pk_steps([
-            'On the kiosk (<b>rolecall.hwtco.org/kiosk</b>), tap <b>ELIC</b> and enter your PIN.',
-            'Pick today\'s event from the list.',
-            'Work through the <b>opening checklist</b>, ticking each item as you do it.',
-            'Submit. The event shows as <b>open</b>, recorded under your name.'])
-            + f'<p class="note">Volunteers can\'t start their time until the event is open. Event missing? Check the date and your PIN, then {call}.</p>')
+        + section('5', 'Open the event', '<p>On the kiosk (<b>rolecall.hwtco.org/kiosk</b>). The spot to tap is circled in red.</p>' + _pk_pic_steps([
+            ('Tap <b>Check-In</b> on the start screen (or tap <b>ELIC Login</b> at the bottom to skip step 2).', 'kiosk-1-start.jpg', 190),
+            ('Tap <b>Event Lead</b>.', 'kiosk-2-eventlead.jpg', 210),
+            ('Enter your <b>4-digit ELIC PIN</b>.', 'kiosk-3-pin.jpg', 140),
+            ('Find today\'s event and tap <b>Open Event</b>.', 'kiosk-4-openevent.jpg'),
+            ('Work through the <b>opening checklist</b>: tap <b>Done</b> (or <b>Not Done</b>) for each item as you actually do it. '
+             'Items marked <b>REQUIRED</b> must be answered.', 'kiosk-5-checklist.jpg', 200),
+            ('Tap <b>Open Event &rarr;</b> at the bottom. The event is now open, recorded under your name.', None)])
+            + tip('Button says &ldquo;Opens at&hellip;&rdquo;?',
+                  '<img src="' + _packet_img('kiosk-4b-locked.jpg') + '" width="330"/><br/>'
+                  'An event can\'t be opened until shortly before it starts (here, an hour before a 7:00 PM event). '
+                  f'Wait until that time. Event missing altogether? Check the date and your PIN, then {call}.', 'teal')
+            + '<p class="note">Volunteers can\'t start their time until the event is open.</p>')
 
         + section('6', 'Sign people in',
             '<p>Everyone who helps or attends is signed in on the kiosk. It records volunteer hours, instructor pay time and attendance.</p>'
@@ -19794,6 +19814,10 @@ def elic_packet_html(elic, settings, events):
               '<p>A parent or guardian signs each child <b>in at drop-off</b> and <b>out at pickup</b> on the kiosk.</p>'
               '<p>Only release a child to an approved pickup. If unsure, keep the child with you and call the parent.</p></td>'
               '</tr></table>'
+            + '<div class="whot" style="margin-top:12px">Signing cast and crew in and out</div>'
+            + '<p>On the event\'s sign-in screen, everyone on the show is listed by group (Cast, Crew&hellip;). '
+              '<b>Tap a person\'s name</b> to sign them in: <b>OUT</b> changes to <b>IN</b>. Tap again when they leave to sign them out.</p>'
+            + '<img src="' + _packet_img('kiosk-6-cast.jpg') + '" width="420"/>'
             + f'<p class="note">Someone forgot to sign in or out? Text HWTC at {phone} with the name and times. Hours can be fixed later.</p>')
 
         + section('7', 'Close the event', _pk_steps([

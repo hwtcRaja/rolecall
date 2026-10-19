@@ -9214,6 +9214,133 @@ async function renderInboxThreadList(){
  })
 }
 
+// ── Conversation view: find the latest reply quickly ──
+// Long email chains repeat every earlier message inside each reply, and
+// each message used to show in full, oldest first. Now: newest first (or
+// oldest first, your choice), only the latest message opened, older ones
+// one line each until clicked, and the quoted history inside each email
+// tucked behind "Show quoted text".
+function inboxNewestFirst(){ try{ return localStorage.getItem('inbox_newest_first') !== '0' }catch(e){ return true } }
+function inboxMessagesHtml(messages){
+ var list = (messages||[]).slice()
+ if(!list.length) return ''
+ var latestId = list[list.length-1].id
+ if(inboxNewestFirst()) list.reverse()
+ var bar = '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;color:var(--text-muted)">'
+   + '<span><strong style="color:var(--text)">'+messages.length+'</strong> message'+(messages.length===1?'':'s')+'</span>'
+   + '<a href="#" onclick="inboxToggleOrder();return false">'+(inboxNewestFirst()?'Newest first ⇅':'Oldest first ⇅')+'</a>'
+   + '<a href="#" onclick="inboxExpandAll(true);return false">Expand all</a>'
+   + '<a href="#" onclick="inboxExpandAll(false);return false">Collapse older</a></div>'
+ return bar + list.map(function(m){
+   var out = m.direction==='outbound', latest = m.id===latestId
+   var who = out ? 'HWTC ('+(m.sent_by||'')+')' : (m.from_name||m.from_email||'')
+   var when = m.created_at ? m.created_at.slice(0,16).replace('T',' ') : ''
+   var attHtml = (m.attachments||[]).length ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'
+     + m.attachments.map(function(a){
+         return '<a href="/api/inbox/attachments/'+a.id+'" target="_blank" style="font-size:11px;padding:3px 9px;border-radius:12px;background:var(--surface);border:1px solid var(--border);color:var(--teal-dark);text-decoration:none">'+escHtml(a.filename)+' ('+Math.round((a.size_bytes||0)/1024)+'KB)</a>'
+       }).join('') + '</div>' : ''
+   var ccHtml = m.cc_emails ? '<div style="font-size:11px;color:var(--text-muted)">Cc: '+escHtml(m.cc_emails)+'</div>' : ''
+   var snippet = String(m.body_text || String(m.body_html||'').replace(/<style[\s\S]*?<\/style>/gi,'').replace(/<[^>]+>/g,' ')).replace(/\s+/g,' ').trim().slice(0,140)
+   return '<div class="inbox-msg'+(latest?' inbox-msg-latest':'')+'" data-open="'+(latest?'1':'0')+'" style="margin-bottom:10px;border-radius:10px;background:'+(out?'#f0f8fa':'var(--bg)')+';border:'+(latest?'2px solid var(--teal)':'1px solid '+(out?'#d3e9ee':'var(--border)'))+'">'
+     + '<div class="inbox-msg-head" onclick="inboxToggleMsg(this.parentNode)" style="display:flex;gap:10px;align-items:baseline;padding:10px 14px;cursor:pointer">'
+     + '<strong style="font-size:12px;color:'+(out?'#145466':'#374151')+';white-space:nowrap">'+escHtml(who)+'</strong>'
+     + (latest ? '<span style="font-size:10px;font-weight:800;color:#fff;background:var(--teal);border-radius:10px;padding:1px 8px">LATEST</span>' : '')
+     + '<span class="inbox-msg-snippet" style="flex:1;min-width:0;font-size:12px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'+(latest?'visibility:hidden':'')+'">'+escHtml(snippet)+'</span>'
+     + '<span style="font-size:11.5px;color:var(--text-muted);white-space:nowrap">'+escHtml(when)+'</span></div>'
+     + '<div class="inbox-msg-full" style="padding:0 14px 12px;'+(latest?'':'display:none')+'">' + ccHtml
+     + '<div class="inbox-msg-body" style="font-size:13.5px;line-height:1.5">'+(m.body_html
+         ? (function(){ var sp = splitInboxQuote(m.body_html); return sanitizeInboxHtml(sp.main) + (sp.quoted ? inboxQuotedBlock(sanitizeInboxHtml(sp.quoted)) : '') })()
+         : ('<div class="inbox-plain" style="white-space:pre-wrap">'+escHtml(m.body_text||'')+'</div>'))+'</div>'
+     + attHtml + '</div></div>'
+ }).join('')
+}
+function splitInboxQuote(html){
+ try{
+   var doc = new DOMParser().parseFromString('<div id="__root">'+html+'</div>', 'text/html')   // inert: nothing runs
+   var root = doc.getElementById('__root')
+   var q = root.querySelector('.gmail_quote, blockquote[type="cite"], .yahoo_quoted, #divRplyFwdMsg, #appendonsend, .moz-cite-prefix, #mail-editor-reference-message-container')
+   if(!q) return {main: html, quoted: ''}
+   // climb to the child of the root that holds the quote, so siblings after it go too
+   var node = q
+   while(node.parentNode && node.parentNode !== root && !(node.previousSibling && node.previousSibling.textContent.trim())) node = node.parentNode
+   if((node.id === 'divRplyFwdMsg' || node.id === 'appendonsend') && node.previousElementSibling && node.previousElementSibling.tagName === 'HR') node = node.previousElementSibling
+   var p = node.previousSibling
+   while(p && p.nodeType === 3 && !p.textContent.trim()) p = p.previousSibling
+   if(p && /wrote:\s*$/i.test((p.textContent||'').trim()) && (p.textContent||'').length < 300) node = p
+   var quoted = document.createElement('div'), n = node
+   var holder = doc.createElement('div')
+   while(n){ var next = n.nextSibling; holder.appendChild(n); n = next }
+   var main = root.innerHTML
+   if(!main.replace(/<[^>]+>/g,'').trim()) return {main: html, quoted: ''}   // nothing new above the quote: show it all
+   return {main: main, quoted: holder.innerHTML}
+ }catch(e){ return {main: html, quoted: ''} }
+}
+function inboxQuotedBlock(innerHtml){
+ return '<button type="button" onclick="var w=this.nextElementSibling,s=w.style.display===\'none\';w.style.display=s?\'\':\'none\';this.textContent=s?\'··· Hide quoted text\':\'··· Show quoted text\'" style="margin-top:6px;font-size:11px;border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:2px 9px;cursor:pointer;color:var(--text-muted)">··· Show quoted text</button>'
+   + '<div style="display:none;margin-top:8px;padding-left:10px;border-left:3px solid var(--border);color:var(--text-muted)">'+innerHtml+'</div>'
+}
+function inboxToggleMsg(el, force){
+ var open = force !== undefined ? force : el.dataset.open !== '1'
+ el.dataset.open = open ? '1' : '0'
+ el.querySelector('.inbox-msg-full').style.display = open ? '' : 'none'
+ var sn = el.querySelector('.inbox-msg-snippet'); if(sn) sn.style.visibility = open ? 'hidden' : ''
+}
+function inboxExpandAll(open){
+ document.querySelectorAll('#inbox-thread-overlay .inbox-msg').forEach(function(el){
+   if(!el.classList.contains('inbox-msg-latest')) inboxToggleMsg(el, open)
+ })
+}
+function inboxToggleOrder(){
+ try{ localStorage.setItem('inbox_newest_first', inboxNewestFirst() ? '0' : '1') }catch(e){}
+ if(_inboxOpenThreadId){ var o = document.getElementById('inbox-thread-overlay'); if(o) o.remove(); openInboxThread(_inboxOpenThreadId) }
+}
+// Hide the earlier conversation each email quotes beneath its new text
+function tidyInboxQuotes(root){
+ (root || document).querySelectorAll('.inbox-msg-body').forEach(function(body){
+   if(body.dataset.tidied) return
+   body.dataset.tidied = '1'
+   var hidden = []
+   // (HTML emails are split before sanitizing; see splitInboxQuote)
+   var q = null
+   if(q){
+     // take the quote and everything after it at the same level
+     var node = q
+     if(node.id === 'divRplyFwdMsg' || node.id === 'appendonsend'){
+       var prev = node.previousElementSibling
+       if(prev && prev.tagName === 'HR') node = prev
+     }
+     var n = node; while(n){ var next = n.nextSibling; hidden.push(n); n = next }
+     // a lone "On … wrote:" line just before the quote goes with it
+     var p = node.previousSibling
+     while(p && p.nodeType === 3 && !p.textContent.trim()) p = p.previousSibling
+     if(p && /wrote:\s*$/i.test((p.textContent||'').trim()) && (p.textContent||'').length < 300) hidden.unshift(p)
+   } else {
+     // plain-text emails
+     var plain = body.querySelector('.inbox-plain') || (body.children.length === 0 ? body : null)
+     if(plain){
+       var txt = plain.textContent, mm = txt.match(/\n[^\n]*\bOn\b[^\n]{0,200}\bwrote:\s*\n|\n-{2,}\s*Original Message\s*-{2,}|\n>[^\n]*/)
+       if(mm && mm.index > 0){
+         plain.textContent = txt.slice(0, mm.index).replace(/\s+$/,'')
+         var span = document.createElement('div'); span.style.whiteSpace = 'pre-wrap'; span.textContent = txt.slice(mm.index).replace(/^\n/,'')
+         plain.parentNode.insertBefore(span, plain.nextSibling)
+         hidden.push(span)
+       }
+     }
+   }
+   if(!hidden.length) return
+   var wrap = document.createElement('div')
+   wrap.style.cssText = 'display:none;margin-top:8px;padding-left:10px;border-left:3px solid var(--border);color:var(--text-muted)'
+   hidden[0].parentNode.insertBefore(wrap, hidden[0])
+   hidden.forEach(function(n){ wrap.appendChild(n) })
+   var btn = document.createElement('button')
+   btn.type = 'button'
+   btn.textContent = '··· Show quoted text'
+   btn.style.cssText = 'margin-top:6px;font-size:11px;border:1px solid var(--border);background:var(--surface);border-radius:10px;padding:2px 9px;cursor:pointer;color:var(--text-muted)'
+   btn.onclick = function(){ var show = wrap.style.display === 'none'; wrap.style.display = show ? '' : 'none'; btn.textContent = show ? '··· Hide quoted text' : '··· Show quoted text' }
+   wrap.parentNode.insertBefore(btn, wrap)
+ })
+}
+
 async function openInboxThread(tid){
  var t = await api('/api/inbox/threads/'+tid)
  if(!t || t.error){ toast((t&&t.error)||'Could not load conversation','error'); return }
@@ -9223,21 +9350,7 @@ async function openInboxThread(tid){
  overlay.id = 'inbox-thread-overlay'
  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
  var statusMeta = {open:{c:'#166534',bg:'#dcfce7'}, pending:{c:'#92400e',bg:'#fef3c7'}, closed:{c:'#6b7280',bg:'#f3f4f6'}, spam:{c:'#991b1b',bg:'#fee2e2'}}[t.status] || {c:'#6b7280',bg:'#f3f4f6'}
- var messagesHtml = (t.messages||[]).map(function(m){
-   var out = m.direction==='outbound'
-   var attHtml = (m.attachments||[]).length ? '<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">'
-     + m.attachments.map(function(a){
-         return '<a href="/api/inbox/attachments/'+a.id+'" target="_blank" style="font-size:11px;padding:3px 9px;border-radius:12px;background:var(--surface);border:1px solid var(--border);color:var(--teal-dark);text-decoration:none"> '+escHtml(a.filename)+' ('+Math.round((a.size_bytes||0)/1024)+'KB)</a>'
-       }).join('') + '</div>' : ''
-   var ccHtml = m.cc_emails ? '<div style="font-size:11px;color:var(--text-muted)">Cc: '+escHtml(m.cc_emails)+'</div>' : ''
-   return '<div style="margin-bottom:14px;padding:12px 14px;border-radius:10px;background:'+(out?'#f0f8fa':'var(--bg)')+';border:1px solid '+(out?'#d3e9ee':'var(--border)')+'">'
-     + '<div style="display:flex;justify-content:space-between;font-size:11.5px;color:var(--text-muted);margin-bottom:6px">'
-     + '<strong style="color:'+(out?'#145466':'#374151')+'">'+(out?'HWTC ('+escHtml(m.sent_by||'')+')':escHtml(m.from_name||m.from_email||''))+'</strong>'
-     + '<span>'+(m.created_at?m.created_at.slice(0,16).replace('T',' '):'')+'</span></div>'
-     + ccHtml
-     + '<div class="inbox-msg-body" style="font-size:13.5px;line-height:1.5">'+(m.body_html?sanitizeInboxHtml(m.body_html):('<div style="white-space:pre-wrap">'+escHtml(m.body_text||'')+'</div>'))+'</div>'
-     + attHtml + '</div>'
- }).join('')
+ var messagesHtml = inboxMessagesHtml(t.messages)
 
  var linkedHtml = ''
  var allAttachments = []
@@ -9381,9 +9494,10 @@ async function openInboxThread(tid){
    + '</div></div>'
  overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
  document.body.appendChild(overlay)
- // Scroll message list to the bottom (most recent) once rendered
+ tidyInboxQuotes(overlay)
+ // Show the latest message: top of the list when newest-first, else scroll to the bottom
  var msgWrap = overlay.querySelector('div[style*="overflow-y:auto"]')
- if(msgWrap) msgWrap.scrollTop = msgWrap.scrollHeight
+ if(msgWrap) msgWrap.scrollTop = inboxNewestFirst() ? 0 : msgWrap.scrollHeight
  // Comments render oldest-first, so a newly-posted one lands at the
  // bottom of this panel — without this it'd be scrolled out of view,
  // making a successful post look like it silently failed.

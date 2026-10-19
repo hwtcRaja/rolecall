@@ -3169,6 +3169,16 @@ def init_db():
         "ALTER TABLE board_availability ADD COLUMN IF NOT EXISTS virtual_dates TEXT DEFAULT '[]'",
         # the front-door keypad code given to this ELIC (shown on their welcome packet)
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS production_pending_cast (
+            id TEXT PRIMARY KEY,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            role TEXT DEFAULT '',
+            cast_section TEXT DEFAULT '',
+            kind TEXT DEFAULT 'unknown',
+            notes TEXT DEFAULT '',
+            created_by TEXT,
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS door_scan_log (
             id TEXT PRIMARY KEY,
             performance_id TEXT,
@@ -15400,6 +15410,99 @@ def sync_prod_cast_from_registrations(pid):
                     'skipped_no_match': skipped_no_match, 'total_checked': len(regs)})
 
 
+# ── Cast members not in RoleCall yet ──────────────────────────────────────
+# Add people to a production by name only (for example, a cast list from
+# auditions before everyone has a RoleCall record). They show with a
+# "Not in RoleCall" flag; "Link" connects one to their real record once it
+# exists, carrying their role over, and the placeholder goes away.
+@app.route('/api/productions/<pid>/pending-cast', methods=['GET', 'POST'])
+def production_pending_cast(pid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            d = request.json or {}
+            lines = [l.strip() for l in (d.get('names') or '').replace('\r', '').split('\n') if l.strip()]
+            added = 0
+            for line in lines[:300]:
+                # "Name - Role" or "Name, Role" (role optional)
+                parts = re.split(r'\s+[-–]\s+|\t|,\s*', line, maxsplit=1)
+                name = parts[0].strip()[:120]
+                role = (parts[1].strip() if len(parts) > 1 else (d.get('role') or '')).strip()[:120]
+                if not name:
+                    continue
+                execute(conn, '''INSERT INTO production_pending_cast (id, production_id, name, role, cast_section, kind, notes, created_by)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (str(uuid.uuid4()), pid, name, role, (d.get('cast_section') or '')[:60],
+                    d.get('kind') if d.get('kind') in ('youth', 'adult') else 'unknown', '', session.get('name') or ''))
+                added += 1
+            conn.commit()
+            return jsonify({'ok': True, 'added': added})
+        rows = fetchall(conn, 'SELECT * FROM production_pending_cast WHERE production_id=%s ORDER BY name', (pid,)) or []
+        # suggest likely matches already in RoleCall (same name)
+        for r in rows:
+            nm = (r['name'] or '').strip().lower()
+            r['youth_matches'] = fetchall(conn, '''SELECT id, first_name||' '||last_name AS name, dob FROM youth_participants
+                WHERE LOWER(TRIM(first_name||' '||last_name))=%s LIMIT 5''', (nm,)) or []
+            r['volunteer_matches'] = fetchall(conn, "SELECT id, name, email FROM volunteers WHERE LOWER(TRIM(name))=%s LIMIT 5", (nm,)) or []
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+@app.route('/api/productions/<pid>/pending-cast/<cid>', methods=['PUT', 'DELETE'])
+def production_pending_cast_item(pid, cid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'DELETE':
+            execute(conn, 'DELETE FROM production_pending_cast WHERE id=%s AND production_id=%s', (cid, pid))
+        else:
+            d = request.json or {}
+            execute(conn, '''UPDATE production_pending_cast SET name=COALESCE(NULLIF(%s,''),name), role=%s, cast_section=%s, notes=%s
+                WHERE id=%s AND production_id=%s''', ((d.get('name') or '').strip()[:120], (d.get('role') or '')[:120],
+                (d.get('cast_section') or '')[:60], (d.get('notes') or '')[:500], cid, pid))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/productions/<pid>/pending-cast/<cid>/link', methods=['POST'])
+def production_pending_cast_link(pid, cid):
+    """Connect a by-name cast member to their real RoleCall record:
+    kind 'youth' (a participant) or 'volunteer' (an adult)."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        pc = fetchone(conn, 'SELECT * FROM production_pending_cast WHERE id=%s AND production_id=%s', (cid, pid))
+        if not pc:
+            return jsonify({'error': 'Not found'}), 404
+        person = d.get('person_id')
+        if d.get('kind') == 'youth':
+            if not fetchone(conn, 'SELECT 1 AS x FROM youth_participants WHERE id=%s', (person,)):
+                return jsonify({'error': 'Participant not found'}), 404
+            if not fetchone(conn, 'SELECT 1 AS x FROM youth_production_members WHERE production_id=%s AND youth_id=%s', (pid, person)):
+                execute(conn, '''INSERT INTO youth_production_members (id, production_id, youth_id, role, cast_section)
+                    VALUES (%s,%s,%s,%s,%s)''', (str(uuid.uuid4()), pid, person, pc.get('role') or '', pc.get('cast_section') or ''))
+        elif d.get('kind') == 'volunteer':
+            if not fetchone(conn, 'SELECT 1 AS x FROM volunteers WHERE id=%s', (person,)):
+                return jsonify({'error': 'Volunteer not found'}), 404
+            if not fetchone(conn, 'SELECT 1 AS x FROM production_members WHERE production_id=%s AND volunteer_id=%s', (pid, person)):
+                execute(conn, '''INSERT INTO production_members (id, production_id, volunteer_id, role)
+                    VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), pid, person, pc.get('role') or 'Cast'))
+        else:
+            return jsonify({'error': 'Pick who this is.'}), 400
+        execute(conn, 'DELETE FROM production_pending_cast WHERE id=%s', (cid,))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
 @app.route('/api/productions/<pid>/youth-members')
 def get_prod_youth_members(pid):
     err = require_auth()
@@ -19423,13 +19526,17 @@ def _elic_packet_settings(conn):
 
 
 
-def _packet_img(name):
+def _packet_file_b64(name, mime):
     import base64, os
     try:
         with open(os.path.join(app.root_path, 'static', 'images', 'elic-packet', name), 'rb') as f:
-            return 'data:image/jpeg;base64,' + base64.b64encode(f.read()).decode()
+            return 'data:' + mime + ';base64,' + base64.b64encode(f.read()).decode()
     except Exception:
         return ''
+
+
+def _packet_img(name):
+    return _packet_file_b64(name, 'image/jpeg')
 
 
 def _packet_steps_html():
@@ -19446,101 +19553,179 @@ def _packet_steps_html():
     rows = ''
     for n, text, img in steps:
         src = _packet_img(img) if img else ''
-        rows += ('<tr><td style="width:46%"><span class="sn">' + n + '</span> ' + text + '</td><td>'
-                 + ('<img src="' + src + '" style="width:250px"/>' if src else '') + '</td></tr>')
+        rows += ('<tr><td class="numc">' + _pk_badge(n) + '</td><td class="stxt">' + text + '</td><td class="simg">'
+                 + ('<img src="' + src + '" width="230"/>' if src else '') + '</td></tr>')
     return '<table class="steps">' + rows + '</table>'
+
+
+def _pk_steps(items):
+    """Numbered steps as a table (xhtml2pdf has no flexbox / rounded badges)."""
+    return '<table class="steps">' + ''.join(
+        '<tr><td class="numc">' + _pk_badge(str(i + 1)) + '</td><td class="stxt" colspan="2">' + t + '</td></tr>' for i, t in enumerate(items)) + '</table>'
+
+
+def _pk_badge(n):
+    return '<table class="badge"><tr><td>' + n + '</td></tr></table>'
 
 
 def elic_packet_html(elic, settings, events):
     h = _h
+    import datetime as _dtp
     name = elic.get('volunteer_name') or 'ELIC'
     first = name.split(' ')[0]
     phone = h(settings['elic_packet_phone'])
     addr = '<br/>'.join(h(x) for x in settings['elic_packet_address'].splitlines() if x.strip())
     arrive = h(settings['elic_packet_arrive'])
+    door = (elic.get('door_code') or '').strip()
     call = f'call or text HWTC at <b>{phone}</b>'
-    import datetime as _dtp
+    logo_band = _packet_file_b64('logo-on-teal.jpg', 'image/jpeg')
+    logo_small = _packet_file_b64('logo-on-white.jpg', 'image/jpeg')
+
     def _d(v):
         try:
             x = _dtp.date.fromisoformat(str(v)[:10]); return x.strftime('%a, %b ') + str(x.day)
         except Exception:
             return str(v or '')[:10]
+
+    def section(num, title, body):
+        return ('<table class="sh"><tr><td class="shn">' + num + '</td><td class="sht">' + title + '</td></tr></table>'
+                + '<div class="sb">' + body + '</div>')
+
+    def tip(title, body, kind='gold'):
+        return f'<table class="tip {kind}"><tr><td><div class="tipt">{title}</div>{body}</td></tr></table>'
+
+    def li(items):
+        return '<table class="bl">' + ''.join(f'<tr><td class="dot">&#9679;</td><td>{i}</td></tr>' for i in items) + '</table>'
+
+    tiles = [('Your ELIC PIN', f'<div class="code">{h(str(elic.get("pin") or ""))}</div><div class="tsm">Opens &amp; closes events at the kiosk</div>')]
+    if door:
+        tiles.append(('Front door code', f'<div class="code">{h(door)}</div><div class="tsm">Keypad on the front door</div>'))
+    tiles.append(('Call or text', f'<div class="phone">{phone}</div><div class="tsm">Questions, problems, running late. Emergencies: 911 first.</div>'))
+    tiles.append(('Address', f'<div class="addr">{addr}</div>'))
+    tile_html = '<table class="tiles"><tr>' + ''.join(f'<td class="tile"><div class="tl">{t}</div>{b}</td>' for t, b in tiles) + '</tr></table>'
+
     ev_rows = ''.join(
-        f'<tr><td style="width:22%">{h(_d(e.get("event_date")))}</td><td style="width:16%">{h(_fmt_time12(e.get("start_time")))}</td><td>{h(e.get("name") or "")}</td></tr>'
+        f'<tr><td>{h(_d(e.get("event_date")))}</td><td>{h(_fmt_time12(e.get("start_time")))}</td><td>{h(e.get("name") or "")}</td></tr>'
         for e in events[:25])
-    sec = lambda title, body: f'<h2>{title}</h2>{body}'
-    ol = lambda items: '<ol>' + ''.join(f'<li>{i}</li>' for i in items) + '</ol>'
-    ul = lambda items: '<ul>' + ''.join(f'<li>{i}</li>' for i in items) + '</ul>'
+
     body = (
-        f'<div class="top"><div class="org">Horizon West Theater Company</div><h1>ELIC Welcome Packet</h1>'
-        f'<div class="for">For {h(name)}</div></div>'
-        f'<table class="card"><tr><td><div class="lbl">Your ELIC PIN</div><div class="pin">{h(str(elic.get("pin") or ""))}</div>'
-        f'<div class="small">Use it at the kiosk to open and close events. Don\'t share it.</div></td>'
-        + (f'<td><div class="lbl">Front door code</div><div class="pin">{h(str(elic.get("door_code") or ""))}</div>'
-           f'<div class="small">For the keypad on the front door. Don\'t share it.</div></td>' if (elic.get("door_code") or "").strip() else '')
-        + f'<td><div class="lbl">Questions or problems</div><div class="big">{phone}</div><div class="small">Call or text. Emergencies: call 911 first.</div></td>'
-        f'<td><div class="lbl">Address</div><div>{addr}</div></td></tr></table>'
-        + sec('Welcome', f'<p>Hi {h(first)}, thank you for being an ELIC (Event Lead In Charge). While you\'re there, you\'re the person responsible '
-              'for the building and the event: you unlock, open the event in RoleCall, make sure everyone is signed in, and close up when it\'s over. '
-              f'Follow the checklists on the kiosk, and {call} if anything is unclear.</p>')
-        + sec('Before you arrive', ul([
-            f'Arrive <b>{arrive}</b> before the event starts, so the door is open and the event is open in RoleCall before anyone shows up.',
-            'Have your PIN ready (above).',
-            f'If you\'re covering an event that isn\'t on your list below, {call}.']))
-        + sec('Unlocking the building',
-            ('<p>Get in with your front door code on the keypad. Then put the door in <b>passage mode</b> so it stays unlocked while people arrive:</p>'
-             if (elic.get('door_code') or '').strip() else
-             '<p>Put the door in <b>passage mode</b> so it stays unlocked while people arrive:</p>')
+        # cover band
+        '<table class="band"><tr>'
+        + (f'<td class="bandlogo"><img src="{logo_band}" width="150"/></td>' if logo_band else '')
+        + f'<td class="bandtxt"><div class="kicker">Event Lead In Charge</div><div class="title">Welcome Packet</div>'
+          f'<div class="for">Prepared for {h(name)}</div></td></tr></table>'
+        '<div class="gold"></div>'
+        + tile_html
+        + f'<p class="intro">Hi {h(first)}, thank you for being an ELIC. While you\'re there, you\'re the person responsible for the building and the event: '
+          'you unlock, open the event in RoleCall, make sure everyone is signed in, and close up when it\'s over. '
+          f'Follow the checklists on the kiosk, and {call} if anything is unclear.</p>'
+
+        + section('1', 'Before you arrive', li([
+            f'Arrive <b>{arrive}</b> before the event starts, so the door is open and the event is open before anyone shows up.',
+            'Have your PIN' + (' and door code' if door else '') + ' handy (top of this page).',
+            f'Covering an event that isn\'t on your list (last page)? {call}.']))
+
+        + section('2', 'Unlock the building',
+            ('<p>Get in with your <b>front door code</b> on the keypad. Then put the door in <b>passage mode</b> so it stays unlocked while people arrive. '
+             if door else '<p>Put the door in <b>passage mode</b> so it stays unlocked while people arrive. ')
+            + 'The spot to tap is circled in red.</p>'
             + _packet_steps_html()
-            + f'<p><b>At the end of the night:</b> do the same steps but toggle <b>Passage Mode off</b> and confirm. The door locks again. '
-            f'Pull on it from outside to check, and put the iPad back on its charger. '
-            f'If the app won\'t connect or the door won\'t respond, don\'t prop it open and leave: {call}.</p>')
-        + sec('Opening the event', ol([
-            'On the kiosk (rolecall.hwtco.org/kiosk), tap <b>ELIC</b> and enter your PIN.',
-            'Pick today\'s event.',
-            'Go through the <b>opening checklist</b>, ticking each item as you do it.',
-            'Submit. The event shows as <b>open</b>, recorded under your name.']) +
-            f'<p>Volunteers can\'t start their time until the event is open. Event missing? Check the date and your PIN, then {call}.</p>')
-        + sec('Signing people in', ul([
-            '<b>Volunteers (and you):</b> on the kiosk choose <b>Start volunteering</b>, find your name, pick the event, start. Tap <b>Stop</b> when you leave.',
-            '<b>Cast members</b> (performers, not crew) don\'t log volunteer hours. You can still sign them in and out on the kiosk to take attendance.',
-            '<b>Paid instructors</b> sign in with their own instructor PIN and start their time on their class.',
-            '<b>Kids:</b> a parent or guardian signs each child in at drop-off and out at pickup. Only release a child to an approved pickup; if unsure, keep the child with you and call the parent.',
-            f'<b>Someone forgot to sign in or out:</b> text HWTC at {phone} with the name and times. Hours can be fixed later.']))
-        + sec('Closing the event', ol([
+            + tip('Locking up at the end of the night',
+                  'Do the same steps but toggle <b>Passage Mode off</b> and confirm. The door locks again. Pull on it from outside to check, '
+                  f'and put the iPad back on its charger. If the app won\'t connect, don\'t prop the door open and leave: {call}.'))
+
+        + section('3', 'Set the thermostat',
+            '<p>The thermostat is in <b>Studio B</b>, on the wall closest to the bathroom, between the prop shelves.</p>'
+            + tip('Keep it around 72&ndash;74&deg;F', 'Adjust a little for the weather. The studio gets cold very quickly, so check it again partway through.', 'teal'))
+
+        + section('4', 'Open the event', _pk_steps([
+            'On the kiosk (<b>rolecall.hwtco.org/kiosk</b>), tap <b>ELIC</b> and enter your PIN.',
+            'Pick today\'s event from the list.',
+            'Work through the <b>opening checklist</b>, ticking each item as you do it.',
+            'Submit. The event shows as <b>open</b>, recorded under your name.'])
+            + f'<p class="note">Volunteers can\'t start their time until the event is open. Event missing? Check the date and your PIN, then {call}.</p>')
+
+        + section('5', 'Sign people in',
+            '<p>Everyone who helps or attends is signed in on the kiosk. It records volunteer hours, instructor pay time and attendance.</p>'
+            + '<table class="who"><tr>'
+              '<td class="whoc"><div class="whot">Volunteers &amp; crew (and you)</div>'
+              + _pk_steps(['On the kiosk, tap <b>Start volunteering</b>.', 'Find your name.', 'Pick the event and start.', 'Tap <b>Stop</b> when you leave.'])
+              + '</td>'
+              '<td class="whoc"><div class="whot">Cast members</div>'
+              '<p>Performers (not crew) <b>don\'t log volunteer hours</b>. Sign them in and out on the kiosk to take attendance for the rehearsal or show.</p>'
+              '<div class="whot" style="margin-top:8px">Paid instructors</div>'
+              '<p>They sign in with their own instructor PIN and start their time on their class. With no ELIC there, they can open their own class.</p></td>'
+              '<td class="whoc"><div class="whot">Kids</div>'
+              '<p>A parent or guardian signs each child <b>in at drop-off</b> and <b>out at pickup</b> on the kiosk.</p>'
+              '<p>Only release a child to an approved pickup. If unsure, keep the child with you and call the parent.</p></td>'
+              '</tr></table>'
+            + f'<p class="note">Someone forgot to sign in or out? Text HWTC at {phone} with the name and times. Hours can be fixed later.</p>')
+
+        + section('6', 'Close the event', _pk_steps([
             'Make sure every child has been signed out and picked up.',
             'Remind volunteers to tap <b>Stop</b>.',
-            'On the kiosk, tap <b>ELIC</b>, enter your PIN, pick the event.',
-            'Go through the <b>closing checklist</b> and sign.',
+            'On the kiosk, tap <b>ELIC</b>, enter your PIN and pick the event.',
+            'Work through the <b>closing checklist</b> and sign.',
             'Submit. The event shows as <b>closed</b>.',
-            'Lock up: door out of passage mode, check it from outside.']) +
-            '<p>Events left open are closed automatically overnight, but without your checklist or signature.</p>')
-        + sec('Good to know', ul([
+            'Lock up: Passage Mode off in the Inox app, then check the door from outside.'])
+            + '<p class="note">Events left open are closed automatically overnight, but without your checklist or signature.</p>')
+
+        + section('7', 'Good to know', li([
             f'<b>Emergencies:</b> call 911 first, then HWTC at {phone}.',
             '<b>Kids are never alone with one adult.</b> Keep two adults in the room or within sight.',
             f'<b>Injuries or incidents:</b> take care of the person first, then {call} the same day.',
             '<b>Something broken or running low:</b> note it in the closing checklist.',
             f'<b>Running late or can\'t make it:</b> {call} as early as you can.']))
-        + (sec('Your upcoming events', '<table class="ev"><tr><th style="width:22%">Date</th><th style="width:16%">Time</th><th>Event</th></tr>' + ev_rows + '</table>'
-               + ('<p class="small">Showing the next 25.</p>' if len(events) > 25 else '')) if events else
-           sec('Your upcoming events', '<p>No events are assigned to you yet. You\'ll see them in RoleCall once they are.</p>' if not elic.get('is_master') else
-               '<p>As a master ELIC you can open and close any event.</p>'))
+
+        + section('8', 'Your upcoming events',
+            ('<table class="ev"><tr><th width="24%">Date</th><th width="16%">Time</th><th>Event</th></tr>' + ev_rows + '</table>'
+             + ('<p class="note">Showing the next 25.</p>' if len(events) > 25 else '')) if events else
+            ('<p>As a master ELIC you can open and close any event.</p>' if elic.get('is_master') else
+             '<p>No events are assigned to you yet. You\'ll see them in RoleCall once they are.</p>'))
     )
-    return ('<html><head><meta charset="utf-8"><style>'
-            '@page { size: letter; margin: 0.6in; }'
-            'body { font-family: Helvetica, Arial, sans-serif; font-size: 10.5pt; color: #1f2a30; line-height: 1.4; }'
-            '.top { border-bottom: 3px solid #16728b; padding-bottom: 6px; margin-bottom: 10px; }'
-            '.org { color: #16728b; font-size: 9pt; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; }'
-            'h1 { font-size: 22pt; margin: 2px 0; color: #0f5566; } .for { color: #5f6b72; }'
-            'h2 { font-size: 13pt; color: #0f5566; margin: 14px 0 4px; border-bottom: 1px solid #dfe5e8; padding-bottom: 2px; }'
-            'table.card { width: 100%; background: #f4f8f9; } table.card td { padding: 8px; vertical-align: top; width: 33%; }'
-            '.lbl { font-size: 8pt; color: #5f6b72; text-transform: uppercase; font-weight: bold; }'
-            '.pin { font-size: 24pt; font-weight: bold; letter-spacing: 4px; color: #0f5566; } .big { font-size: 15pt; font-weight: bold; }'
-            '.small { font-size: 8.5pt; color: #5f6b72; } li { margin-bottom: 3px; } p { margin: 4px 0; }'
-            'table.steps { width: 100%; } table.steps td { vertical-align: top; padding: 4px 6px 8px 0; }'
-            '.sn { display: inline; background: #ff3b30; color: #fff; font-weight: bold; padding: 1px 6px; }'
-            'table.ev { width: 100%; } table.ev th { text-align: left; background: #e3f1f5; padding: 3px 5px; } table.ev td { padding: 3px 5px; border-bottom: 1px solid #eef2f4; }'
-            '</style></head><body>' + body + '</body></html>')
+    footer = ('<div id="footer"><table class="foot"><tr>'
+              + (f'<td width="90"><img src="{logo_small}" width="70"/></td>' if logo_small else '')
+              + f'<td class="footmid">Horizon West Theater Company &middot; {phone} &middot; ELIC Welcome Packet for {h(name)}</td>'
+                '<td class="footr">Page <pdf:pagenumber/> of <pdf:pagecount/></td></tr></table></div>')
+    teal, deep, gold, ink, muted, soft = '#16728b', '#0f5566', '#f4b740', '#1f2a30', '#5f6b72', '#eaf4f6'
+    css = (
+        '@page { size: letter; margin: 0.55in 0.6in 0.85in 0.6in; @frame footer { -pdf-frame-content: footer; bottom: 0.3in; margin-left: 0.6in; margin-right: 0.6in; height: 0.45in; } }'
+        f'body {{ font-family: Helvetica; font-size: 10pt; color: {ink}; line-height: 1.45; }}'
+        f'table.band {{ width: 100%; background-color: {deep}; }} table.band td {{ padding: 14px 16px; vertical-align: middle; }}'
+        'td.bandlogo { width: 175px; }'
+        f'.kicker {{ color: {gold}; font-size: 9pt; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; }}'
+        '.title { color: #ffffff; font-size: 26pt; font-weight: bold; line-height: 1.1; }'
+        '.for { color: #cdeef5; font-size: 10.5pt; margin-top: 2px; }'
+        f'.gold {{ height: 5px; background-color: {gold}; margin-bottom: 10px; }}'
+        f'table.tiles {{ width: 100%; margin-bottom: 4px; }} td.tile {{ background-color: {soft}; border-top: 3px solid {teal}; padding: 8px 10px; vertical-align: top; }}'
+        f'.tl {{ font-size: 7.5pt; color: {muted}; text-transform: uppercase; font-weight: bold; letter-spacing: 1px; }}'
+        f'.code {{ font-size: 21pt; font-weight: bold; color: {deep}; letter-spacing: 3px; }}'
+        f'.phone {{ font-size: 14pt; font-weight: bold; color: {deep}; margin-top: 3px; }}'
+        '.addr { font-size: 9.5pt; margin-top: 3px; }'
+        f'.tsm {{ font-size: 7.5pt; color: {muted}; }}'
+        '.intro { font-size: 10.5pt; margin: 8px 0 4px; }'
+        f'table.sh {{ width: 100%; margin-top: 14px; }} td.shn {{ width: 24px; background-color: {teal}; color: #fff; font-weight: bold; font-size: 12pt; text-align: center; padding: 3px 0; }}'
+        f'td.sht {{ font-size: 14pt; font-weight: bold; color: {deep}; padding: 2px 10px; border-bottom: 2px solid {gold}; }}'
+        '.sb { margin: 6px 0 0 0; } p { margin: 4px 0; }'
+        f'.note {{ font-size: 9pt; color: {muted}; }}'
+        'table.steps { width: 100%; } table.steps td { vertical-align: top; padding: 3px 4px; }'
+        'td.numc { width: 22px; padding: 2px 0 0 0; }'
+        f'table.badge {{ width: 18px; }} table.badge td {{ background-color: {deep}; color: #fff; font-weight: bold; text-align: center; font-size: 9pt; padding: 1px 0; }}'
+        'td.stxt { padding-left: 8px; } td.simg { width: 245px; padding-bottom: 8px; }'
+        'table.bl td { padding: 2px 3px; vertical-align: top; } td.dot { width: 10px; color: ' + teal + '; font-size: 7pt; padding-top: 4px; }'
+        'table.tip { width: 100%; margin-top: 8px; } table.tip td { padding: 8px 12px; }'
+        f'table.gold td {{ background-color: #fff8e6; border-left: 4px solid {gold}; }}'
+        f'table.teal td {{ background-color: {soft}; border-left: 4px solid {teal}; }}'
+        f'.tipt {{ font-weight: bold; color: {deep}; margin-bottom: 2px; }}'
+        'table.who { width: 100%; } td.whoc { width: 33%; vertical-align: top; padding: 8px 9px; background-color: #f7fafb; border-top: 3px solid ' + teal + '; }'
+        f'.whot {{ font-weight: bold; color: {deep}; margin-bottom: 4px; }}'
+        f'table.ev {{ width: 100%; }} table.ev th {{ text-align: left; background-color: {deep}; color: #fff; padding: 4px 6px; font-size: 9pt; }}'
+        'table.ev td { padding: 4px 6px; border-bottom: 1px solid #e3e9ec; }'
+        f'table.foot {{ width: 100%; border-top: 1px solid #dfe5e8; }} table.foot td {{ padding-top: 5px; font-size: 7.5pt; color: {muted}; vertical-align: middle; }}'
+        'td.footr { text-align: right; width: 90px; }'
+    )
+    return f'<html><head><meta charset="utf-8"><style>{css}</style></head><body>{footer}{body}</body></html>'
+
 
 
 @app.route('/api/elics/<eid>/welcome-packet.pdf')

@@ -4525,6 +4525,8 @@ async function loginSuccess(user){
  clearTimeout(loadTimeout)
  const overlay = document.getElementById('app-loading-overlay')
  if(overlay) overlay.remove()
+ refreshInboxNavBadge()
+ if(!window._inboxBadgeTimer) window._inboxBadgeTimer = setInterval(refreshInboxNavBadge, 120000)
  // Deep-link support — a link like #refund-requests (used in email
  // notifications) should actually land there instead of always dumping
  // everyone on the dashboard regardless of what URL they followed.
@@ -8486,7 +8488,9 @@ async function loadScheduleRecommendations(){
  '#8bc34a','#ff9800','#607d8b','#795548','#673ab7'
  ]
  var memberColors={}
- avail.forEach(function(a,i){ memberColors[a.member_id]={color:COLORS[i%COLORS.length],name:a.member_name,blocked:JSON.parse(a.blocked_dates||'[]'),submitted:!!a.submitted_at} })
+ avail.forEach(function(a,i){ memberColors[a.member_id]={color:COLORS[i%COLORS.length],name:a.member_name,blocked:JSON.parse(a.blocked_dates||'[]'),virtual:JSON.parse(a.virtual_dates||'[]'),submitted:!!a.submitted_at} })
+ var virtualByDate={}
+ Object.values(memberColors).forEach(function(m){ (m.virtual||[]).forEach(function(d){ (virtualByDate[d]=virtualByDate[d]||[]).push(m.name) }) })
 
  // Build blocked-by-date map: date -> array of {name, color}
  var blockedByDate={}
@@ -8561,6 +8565,7 @@ async function loadScheduleRecommendations(){
  } else {
  cal+='<div style="font-size:10px;color:#16a34a;font-weight:600"> All free</div>'
  }
+ if((virtualByDate[dateStr]||[]).length) cal+='<div style="font-size:10px;color:#1d4ed8;font-weight:700;margin-top:2px" title="Virtual only: '+escHtml(virtualByDate[dateStr].join(', '))+'">'+virtualByDate[dateStr].length+' virtual</div>'
  cal+='</div>'
  }
  cal+='</div>'
@@ -8573,7 +8578,9 @@ async function loadScheduleRecommendations(){
  var whoBlocked=(blockedByDate[r.date]||[]).map(function(b){return '<span style="color:'+b.color+';font-weight:600">'+escHtml(b.name.split(' ')[0])+'</span>'}).join(', ')
  return '<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
  +'<div style="min-width:140px;font-weight:600;font-size:13px">'+r.day_name+', '+formatDate(r.date)+badge+'</div>'
- +'<div style="flex:1;font-size:12px;color:var(--text-muted)">'+(whoBlocked?'Unavailable: '+whoBlocked:'<span style="color:var(--green-600);font-weight:600">Everyone free!</span>')+'</div>'
+ +'<div style="flex:1;font-size:12px;color:var(--text-muted)">'+(whoBlocked?'Unavailable: '+whoBlocked:'<span style="color:var(--green-600);font-weight:600">Everyone free!</span>')
+   +((virtualByDate[r.date]||[]).length?'<div style="color:#1d4ed8">Virtual only: '+virtualByDate[r.date].map(function(n){ return escHtml(n.split(' ')[0]) }).join(', ')+'</div>':'')
+   +'<div style="color:var(--text-hint)">'+(r.in_person!=null?r.in_person+' in person · '+(r.virtual_only||0)+' virtual':'')+'</div></div>'
  +'<div style="min-width:60px;text-align:right;font-size:13px;font-weight:700;color:'+bc+'">'+r.available+'/'+r.total_members+'</div>'
  +'<button data-date="'+r.date+'" onclick="scheduleMeetingOnDate(this.dataset.date)" class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 8px">Pick</button>'
  +'</div>'
@@ -9052,6 +9059,17 @@ function onInboxSearchInput(){
  _inboxSearchDebounce = setTimeout(function(){ renderInboxThreadList() }, 400)
 }
 
+// Sidebar badge: number of Open tickets (with unread in the tooltip),
+// loaded at login and every 2 minutes, not just when the Inbox is opened
+async function refreshInboxNavBadge(){
+ var badge = document.getElementById('inbox-nav-badge'); if(!badge) return
+ var r = await api('/api/inbox/badge')
+ if(!r || r.error) return
+ badge.textContent = r.open
+ badge.title = r.open+' open'+(r.unread?' · '+r.unread+' unread':'')
+ badge.style.display = r.open ? '' : 'none'
+ badge.style.background = r.unread ? '' : 'var(--text-muted)'
+}
 async function renderInboxThreadList(){
  var qs = []
  if(_inboxFilter.status!=='all') qs.push('status='+_inboxFilter.status)
@@ -9066,9 +9084,7 @@ async function renderInboxThreadList(){
  // without letting a stale checkbox silently apply to a thread you can't
  // even see anymore.
  _inboxSelectedIds = new Set([..._inboxSelectedIds].filter(function(id){ return _inboxThreads.some(function(t){ return t.id===id }) }))
- var unreadCount = _inboxThreads.filter(function(t){ return t.unread }).length
- var badge = document.getElementById('inbox-nav-badge')
- if(badge){ badge.textContent = unreadCount; badge.style.display = unreadCount?'':'none' }
+ refreshInboxNavBadge()
  document.getElementById('inbox-subtitle').textContent = _inboxThreads.length+' conversation'+(_inboxThreads.length!==1?'s':'')
 
  // 'Assigned to Me' and 'Open' are combo views — each pins both the
@@ -10295,6 +10311,27 @@ async function saveAttendance(meetingId){
  await loadBoardPage()
 }
 
+
+function openBoardAvailability(){
+ closeAvailReqOverlay()
+ var now = new Date(), next = new Date(now.getFullYear(), now.getMonth()+1, 1)
+ var months = ['January','February','March','April','May','June','July','August','September','October','November','December']
+ var active = (_boardMembers||[]).filter(function(m){ return m.status==='active' })
+ var noEmail = active.filter(function(m){ return !(m.email||'').trim() })
+ var o = document.createElement('div')
+ o.id = 'avail-req-overlay'
+ o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:16px'
+ o.addEventListener('click', function(e){ if(e.target===o) closeAvailReqOverlay() })
+ o.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:460px;padding:20px 22px">'
+   + '<div style="display:flex;align-items:center;margin-bottom:6px"><div style="font-size:16px;font-weight:800;flex:1">Request availability</div><button onclick="closeAvailReqOverlay()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button></div>'
+   + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:14px;line-height:1.6">Emails each active board member a private link to mark every date in the month as <strong>in person</strong>, <strong>virtual only</strong> or <strong>can\'t make it</strong>. Results show under Schedule a Meeting.</div>'
+   + '<div style="display:flex;gap:10px;margin-bottom:12px"><div class="form-group" style="margin:0;flex:1"><label>Month</label><select id="avail-month">'+months.map(function(n,i){ return '<option value="'+(i+1)+'"'+(i===next.getMonth()?' selected':'')+'>'+n+'</option>' }).join('')+'</select></div>'
+   + '<div class="form-group" style="margin:0;width:110px"><label>Year</label><input type="number" id="avail-year" value="'+next.getFullYear()+'"/></div></div>'
+   + '<div style="font-size:12.5px;margin-bottom:12px">'+active.length+' active board member'+(active.length===1?'':'s')+' will get the email.'
+   + (noEmail.length ? '<div style="color:#92400e;margin-top:4px">No email on file for: '+noEmail.map(function(m){ return escHtml(m.name) }).join(', ')+'. Add one to include them.</div>' : '')+'</div>'
+   + '<button class="btn btn-primary" id="avail-send-btn" style="width:100%" onclick="sendAvailabilityRequest()"> Send Emails</button></div>'
+ document.body.appendChild(o)
+}
 
 async function sendAvailabilityRequest(){
  var month=document.getElementById('avail-month').value, year=document.getElementById('avail-year').value

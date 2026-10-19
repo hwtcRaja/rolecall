@@ -19696,6 +19696,14 @@ async function beaApply(){
  document.getElementById('bulk-elic-overlay').remove()
 }
 
+async function setElicDoorCode(id, current){
+ var code = prompt('Front door keypad code for this ELIC (shown on their welcome packet). Leave blank to remove it.', current || '')
+ if(code === null) return
+ var r = await api('/api/elics/'+id+'/door-code','PUT',{door_code: code.trim()})
+ if(r.error){ toast(r.error,'error'); return }
+ var e = (allElics||[]).find(function(x){ return x.id===id }); if(e) e.door_code = r.door_code
+ renderElicsSettings(); toast(r.door_code ? 'Door code saved' : 'Door code removed','success')
+}
 async function emailElicPacket(id, name){
  if(!confirm('Email '+(name||'this ELIC')+' their welcome packet (with their PIN)?')) return
  var r = await api('/api/elics/'+id+'/welcome-packet/email','POST',{})
@@ -19734,11 +19742,12 @@ function renderElicsSettings(){
  ${e.can_toggle_trust_mode?'<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 6px;border-radius:8px;font-weight:700">TRUST MODE</span>':''}
  ${bgcBadgeHTML(bgcStatus, true)}
  </div>
- <div class="setting-item-sub">PIN: ${e.pin} · ${e.active?'Active':'Inactive'}</div>
+ <div class="setting-item-sub">PIN: ${e.pin} · Door code: ${e.door_code?escHtml(e.door_code):'<span style="color:var(--text-hint)">not set</span>'} · ${e.active?'Active':'Inactive'}</div>
  </div>
  <div style="display:flex;gap:6px">
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicTrustMode('${e.id}',${!!e.can_toggle_trust_mode})">${e.can_toggle_trust_mode?'Revoke Trust Toggle':'Allow Trust Toggle'}</button>
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="toggleElicActive('${e.id}',${e.active})">${e.active?'Deactivate':'Activate'}</button>
+ <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="setElicDoorCode('${e.id}','${escHtml(e.door_code||'')}')">Door code</button>
  <a class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" href="/api/elics/${e.id}/welcome-packet.pdf" target="_blank" title="Their welcome packet with their PIN and upcoming events">Welcome packet</a>
  <button class="btn btn-secondary btn-sm" style="padding:3px 8px;font-size:11px" onclick="emailElicPacket('${e.id}','${escHtml(e.volunteer_name||'').replace(/'/g,"\\'")}')">Email packet</button>
  <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px" onclick="deleteElic('${e.id}')">Delete</button>

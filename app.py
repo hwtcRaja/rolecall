@@ -3179,6 +3179,13 @@ def init_db():
             notes TEXT DEFAULT '',
             created_by TEXT,
             created_at TIMESTAMP DEFAULT NOW())""",
+        # kiosk sign-in/out for cast added by name (no RoleCall record yet)
+        """CREATE TABLE IF NOT EXISTS pending_cast_attendance (
+            id TEXT PRIMARY KEY,
+            pending_cast_id TEXT NOT NULL REFERENCES production_pending_cast(id) ON DELETE CASCADE,
+            event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+            signed_in_at TIMESTAMP DEFAULT NOW(),
+            signed_out_at TIMESTAMP)""",
         """CREATE TABLE IF NOT EXISTS door_scan_log (
             id TEXT PRIMARY KEY,
             performance_id TEXT,
@@ -15496,6 +15503,18 @@ def production_pending_cast_link(pid, cid):
                     VALUES (%s,%s,%s,%s)''', (str(uuid.uuid4()), pid, person, pc.get('role') or 'Cast'))
         else:
             return jsonify({'error': 'Pick who this is.'}), 400
+        # keep the attendance taken while they were "by name"
+        for a in fetchall(conn, 'SELECT * FROM pending_cast_attendance WHERE pending_cast_id=%s', (cid,)) or []:
+            try:
+                if d.get('kind') == 'youth':
+                    execute(conn, '''INSERT INTO youth_sign_ins (id, youth_id, event_id, signed_in_at, signed_out_at, notes)
+                        VALUES (%s,%s,%s,%s,%s,'Recorded before they were in RoleCall')''',
+                        (str(uuid.uuid4()), person, a['event_id'], a['signed_in_at'], a['signed_out_at'] or a['signed_in_at']))
+                else:
+                    execute(conn, 'INSERT INTO prod_attendance (id, volunteer_id, event_id, signed_in_at, signed_out_at) VALUES (%s,%s,%s,%s,%s)',
+                            (str(uuid.uuid4()), person, a['event_id'], a['signed_in_at'], a['signed_out_at'] or a['signed_in_at']))
+            except Exception as e:
+                app.logger.warning(f'Carrying attendance over for {cid} failed: {e}')
         execute(conn, 'DELETE FROM production_pending_cast WHERE id=%s', (cid,))
         conn.commit()
         return jsonify({'ok': True})
@@ -16656,6 +16675,9 @@ def kiosk_youth_sign_in():
     yid = d.get('youth_id')
     eid = d.get('event_id')
     if not yid: conn.close(); return jsonify({'error': 'Missing youth_id'}), 400
+    if _pc_id(yid):
+        r = _pending_cast_sign(conn, _pc_id(yid), eid, True); conn.close()
+        return (jsonify(r), 400) if r.get('error') else jsonify(r)
     existing = fetchone(conn, "SELECT id FROM youth_sign_ins WHERE youth_id=%s AND event_id=%s AND signed_out_at IS NULL", (yid, eid))
     if existing: conn.close(); return jsonify({'error': 'Already signed in'}), 400
     sid = str(uuid.uuid4())
@@ -16670,6 +16692,9 @@ def kiosk_youth_sign_out():
     conn = get_db()
     yid = d.get('youth_id')
     eid = d.get('event_id')
+    if _pc_id(yid):
+        r = _pending_cast_sign(conn, _pc_id(yid), eid, False); conn.close()
+        return jsonify({'ok': True})
     execute(conn, "UPDATE youth_sign_ins SET signed_out_at=NOW() WHERE youth_id=%s AND event_id=%s AND signed_out_at IS NULL",
         (yid, eid))
     conn.commit(); conn.close()
@@ -18114,6 +18139,38 @@ def after_request_cron(response):
 #  PRODUCTION SIGN-IN (ELIC Kiosk)
 # ─────────────────────────────────────────────
 
+
+# Cast added by name show up on the kiosk rosters with ids like "pc:<id>",
+# so the kiosk can sign them in and out like anyone else. They're recorded
+# in pending_cast_attendance (attendance only, never volunteer hours).
+def _pc_id(x):
+    return x[3:] if isinstance(x, str) and x.startswith('pc:') else None
+
+
+def _pending_cast_roster(conn, prod_id, event_id):
+    return fetchall(conn, """SELECT pc.id, pc.name, pc.role, pc.cast_section,
+            pa.id AS attendance_id, pa.signed_in_at
+        FROM production_pending_cast pc
+        LEFT JOIN pending_cast_attendance pa ON pa.pending_cast_id=pc.id AND pa.event_id=%s AND pa.signed_out_at IS NULL
+        WHERE pc.production_id=%s ORDER BY pc.name""", (event_id, prod_id)) or []
+
+
+def _pending_cast_sign(conn, pcid, event_id, sign_in):
+    open_row = fetchone(conn, 'SELECT id FROM pending_cast_attendance WHERE pending_cast_id=%s AND event_id=%s AND signed_out_at IS NULL',
+                        (pcid, event_id))
+    if sign_in:
+        if open_row:
+            return {'error': 'Already signed in', 'attendance_id': open_row['id']}
+        aid = str(uuid.uuid4())
+        execute(conn, 'INSERT INTO pending_cast_attendance (id, pending_cast_id, event_id) VALUES (%s,%s,%s)', (aid, pcid, event_id))
+        conn.commit()
+        return {'ok': True, 'attendance_id': aid}
+    if not open_row:
+        return {'error': 'No active sign-in found'}
+    execute(conn, 'UPDATE pending_cast_attendance SET signed_out_at=NOW() WHERE id=%s', (open_row['id'],))
+    conn.commit()
+    return {'ok': True, 'hours': 0, 'note': 'Attendance recorded (cast, no volunteer hours).'}
+
 @app.route('/api/kiosk/production-roster/<event_id>')
 def kiosk_production_roster(event_id):
     conn = get_db()
@@ -18136,7 +18193,14 @@ def kiosk_production_roster(event_id):
             ON pa.volunteer_id=pm.volunteer_id AND pa.event_id=%s AND pa.signed_out_at IS NULL
         WHERE pm.production_id=%s AND pm.status != 'dropped'
         ORDER BY pm.department, v.name
-    ''', (event_id, prod_id))
+    ''', (event_id, prod_id)) or []
+    prod = fetchone(conn, 'SELECT stage FROM productions WHERE id=%s', (prod_id,)) or {}
+    if prod.get('stage') not in ('rising_stars', 'teen_show'):   # youth shows list them on the youth roster instead
+        for r in _pending_cast_roster(conn, prod_id, event_id):
+            members.append({'member_id': 'pc:' + r['id'], 'volunteer_id': 'pc:' + r['id'], 'role': r.get('role') or 'Cast',
+                            'department': r.get('cast_section') or 'Cast', 'status': 'confirmed', 'volunteer_name': r['name'],
+                            'attendance_id': r.get('attendance_id'), 'signed_in_at': r.get('signed_in_at'),
+                            'signed_in': bool(r.get('attendance_id')), 'not_in_rolecall': True})
     conn.close()
     return jsonify({'ok': True, 'members': members, 'production_id': prod_id})
 
@@ -18147,6 +18211,13 @@ def kiosk_production_signin():
     event_id = d.get('event_id')
     if not vol_id or not event_id:
         return jsonify({'error': 'Missing volunteer_id or event_id'}), 400
+    if _pc_id(vol_id):
+        conn = get_db()
+        try:
+            r = _pending_cast_sign(conn, _pc_id(vol_id), event_id, True)
+        finally:
+            conn.close()
+        return jsonify(r)
     conn = get_db()
     existing = fetchone(conn,
         'SELECT id FROM prod_attendance WHERE volunteer_id=%s AND event_id=%s AND signed_out_at IS NULL',
@@ -18169,6 +18240,13 @@ def kiosk_production_signout():
     role     = d.get('role', '')
     if not vol_id or not event_id:
         return jsonify({'error': 'Missing required fields'}), 400
+    if _pc_id(vol_id):
+        conn = get_db()
+        try:
+            r = _pending_cast_sign(conn, _pc_id(vol_id), event_id, False)
+        finally:
+            conn.close()
+        return (jsonify(r), 404) if r.get('error') else jsonify(r)
     conn = get_db()
     att = None
     if att_id:
@@ -18617,7 +18695,15 @@ def kiosk_youth_for_event(event_id):
             LEFT JOIN youth_sign_ins ysi ON ysi.youth_id=yp.id
                 AND ysi.event_id=%s AND ysi.signed_out_at IS NULL
             WHERE ypm.production_id=%s
-            ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id']))
+            ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id'])) or []
+        _ps = fetchone(conn, 'SELECT stage FROM productions WHERE id=%s', (evt['production_id'],)) or {}
+        if _ps.get('stage') in ('rising_stars', 'teen_show'):
+            for r in _pending_cast_roster(conn, evt['production_id'], event_id):
+                nm = (r['name'] or '').strip().split(' ', 1)
+                youth.append({'id': 'pc:' + r['id'], 'first_name': nm[0], 'last_name': nm[1] if len(nm) > 1 else '', 'dob': None,
+                              'role': r.get('role') or '', 'individual_passphrase': None, 'family_passphrase': None,
+                              'sign_in_id': r.get('attendance_id'), 'signed_in_at': r.get('signed_in_at'), 'signed_out_at': None,
+                              'not_in_rolecall': True})
 
     elif evt.get('program_id'):
         program_id = evt['program_id']
@@ -19535,6 +19621,44 @@ def _packet_file_b64(name, mime):
         return ''
 
 
+_PK_LOGO_CACHE = {}
+def _packet_long_logo():
+    """The long HWTC logo used in emails (static/images/hwtc_logo_white.png),
+    turned into white-on-teal for the letter's header band. The email logo
+    is white on a transparent or black background (emails blend it), so the
+    logo's shape is taken from its alpha or its brightness and drawn in
+    white on the band colour; flattened to JPEG because the PDF renderer
+    mishandles PNG transparency. Falls back to the stacked logo."""
+    if 'band' in _PK_LOGO_CACHE:
+        return _PK_LOGO_CACHE['band']
+    import base64, io, os
+    out = ''
+    try:
+        from PIL import Image
+        src = os.path.join(app.root_path, 'static', 'images', 'hwtc_logo_white.png')
+        im = Image.open(src)
+        if im.mode in ('RGBA', 'LA') or 'transparency' in im.info:
+            im = im.convert('RGBA')
+            mask = im.split()[3]
+            # transparent PNG whose shape is also bright: keep alpha as is
+        else:
+            mask = im.convert('L')   # white logo on black: brightness = shape
+        if mask.getbbox():
+            im2 = Image.new('RGB', mask.size, (15, 85, 102))
+            im2.paste(Image.new('RGB', mask.size, (255, 255, 255)), (0, 0), mask)
+            im2 = im2.crop(mask.getbbox())
+            buf = io.BytesIO(); im2.save(buf, 'JPEG', quality=92)
+            out = 'data:image/jpeg;base64,' + base64.b64encode(buf.getvalue()).decode()
+            _PK_LOGO_CACHE['ratio'] = im2.width / max(1, im2.height)
+    except Exception as e:
+        app.logger.info(f'Long logo not used for the ELIC letter: {e}')
+    if not out:
+        out = _packet_file_b64('logo-on-teal.jpg', 'image/jpeg')
+        _PK_LOGO_CACHE['ratio'] = 683 / 331
+    _PK_LOGO_CACHE['band'] = out
+    return out
+
+
 def _packet_img(name):
     return _packet_file_b64(name, 'image/jpeg')
 
@@ -19578,7 +19702,9 @@ def elic_packet_html(elic, settings, events):
     arrive = h(settings['elic_packet_arrive'])
     door = (elic.get('door_code') or '').strip()
     call = f'call or text HWTC at <b>{phone}</b>'
-    logo_band = _packet_file_b64('logo-on-teal.jpg', 'image/jpeg')
+    logo_band = _packet_long_logo()
+    logo_ratio = _PK_LOGO_CACHE.get('ratio') or 2
+    logo_w = 260 if logo_ratio >= 3 else 150
     logo_small = _packet_file_b64('logo-on-white.jpg', 'image/jpeg')
 
     def _d(v):
@@ -19611,9 +19737,9 @@ def elic_packet_html(elic, settings, events):
     body = (
         # cover band
         '<table class="band"><tr>'
-        + (f'<td class="bandlogo"><img src="{logo_band}" width="150"/></td>' if logo_band else '')
-        + f'<td class="bandtxt"><div class="kicker">Event Lead In Charge</div><div class="title">Welcome Packet</div>'
-          f'<div class="for">Prepared for {h(name)}</div></td></tr></table>'
+        + (f'<td class="bandlogo" width="{logo_w + 25}"><img src="{logo_band}" width="{logo_w}"/></td>' if logo_band else '')
+        + f'<td class="bandtxt"><div class="kicker">EVENT LEAD IN CHARGE</div><div class="title">Welcome Letter</div>'
+          f'<div class="for">For {h(name)}</div></td></tr></table>'
         '<div class="gold"></div>'
         + tile_html
         + f'<p class="intro">Hi {h(first)}, thank you for being an ELIC. While you\'re there, you\'re the person responsible for the building and the event: '
@@ -19638,14 +19764,23 @@ def elic_packet_html(elic, settings, events):
             '<p>The thermostat is in <b>Studio B</b>, on the wall closest to the bathroom, between the prop shelves.</p>'
             + tip('Keep it around 72&ndash;74&deg;F', 'Adjust a little for the weather. The studio gets cold very quickly, so check it again partway through.', 'teal'))
 
-        + section('4', 'Open the event', _pk_steps([
+        + section('4', 'Around the building',
+            '<table class="who"><tr>'
+            '<td class="whoc" style="width:50%"><div class="whot">Fire extinguisher</div><p>In the <b>lobby</b>.</p></td>'
+            '<td class="whoc" style="width:50%"><div class="whot">Supplies</div>'
+            '<p>The <b>cabinet in the bathroom</b> has supplies. It\'s locked with a <b>child-safety magnetic lock</b>.</p>'
+            '<p>The magnet key is in the <b>front desk drawer</b>. It looks like a round puck: hold it against the cabinet door where the lock is to open it, '
+            'and put it back in the drawer when you\'re done.</p></td>'
+            '</tr></table>')
+
+        + section('5', 'Open the event', _pk_steps([
             'On the kiosk (<b>rolecall.hwtco.org/kiosk</b>), tap <b>ELIC</b> and enter your PIN.',
             'Pick today\'s event from the list.',
             'Work through the <b>opening checklist</b>, ticking each item as you do it.',
             'Submit. The event shows as <b>open</b>, recorded under your name.'])
             + f'<p class="note">Volunteers can\'t start their time until the event is open. Event missing? Check the date and your PIN, then {call}.</p>')
 
-        + section('5', 'Sign people in',
+        + section('6', 'Sign people in',
             '<p>Everyone who helps or attends is signed in on the kiosk. It records volunteer hours, instructor pay time and attendance.</p>'
             + '<table class="who"><tr>'
               '<td class="whoc"><div class="whot">Volunteers &amp; crew (and you)</div>'
@@ -19661,7 +19796,7 @@ def elic_packet_html(elic, settings, events):
               '</tr></table>'
             + f'<p class="note">Someone forgot to sign in or out? Text HWTC at {phone} with the name and times. Hours can be fixed later.</p>')
 
-        + section('6', 'Close the event', _pk_steps([
+        + section('7', 'Close the event', _pk_steps([
             'Make sure every child has been signed out and picked up.',
             'Remind volunteers to tap <b>Stop</b>.',
             'On the kiosk, tap <b>ELIC</b>, enter your PIN and pick the event.',
@@ -19670,14 +19805,14 @@ def elic_packet_html(elic, settings, events):
             'Lock up: Passage Mode off in the Inox app, then check the door from outside.'])
             + '<p class="note">Events left open are closed automatically overnight, but without your checklist or signature.</p>')
 
-        + section('7', 'Good to know', li([
+        + section('8', 'Good to know', li([
             f'<b>Emergencies:</b> call 911 first, then HWTC at {phone}.',
             '<b>Kids are never alone with one adult.</b> Keep two adults in the room or within sight.',
             f'<b>Injuries or incidents:</b> take care of the person first, then {call} the same day.',
             '<b>Something broken or running low:</b> note it in the closing checklist.',
             f'<b>Running late or can\'t make it:</b> {call} as early as you can.']))
 
-        + section('8', 'Your upcoming events',
+        + section('9', 'Your upcoming events',
             ('<table class="ev"><tr><th width="24%">Date</th><th width="16%">Time</th><th>Event</th></tr>' + ev_rows + '</table>'
              + ('<p class="note">Showing the next 25.</p>' if len(events) > 25 else '')) if events else
             ('<p>As a master ELIC you can open and close any event.</p>' if elic.get('is_master') else
@@ -19685,15 +19820,15 @@ def elic_packet_html(elic, settings, events):
     )
     footer = ('<div id="footer"><table class="foot"><tr>'
               + (f'<td width="90"><img src="{logo_small}" width="70"/></td>' if logo_small else '')
-              + f'<td class="footmid">Horizon West Theater Company &middot; {phone} &middot; ELIC Welcome Packet for {h(name)}</td>'
+              + f'<td class="footmid">Horizon West Theater Company &middot; {phone} &middot; ELIC Welcome Letter for {h(name)}</td>'
                 '<td class="footr">Page <pdf:pagenumber/> of <pdf:pagecount/></td></tr></table></div>')
     teal, deep, gold, ink, muted, soft = '#16728b', '#0f5566', '#f4b740', '#1f2a30', '#5f6b72', '#eaf4f6'
     css = (
         '@page { size: letter; margin: 0.55in 0.6in 0.85in 0.6in; @frame footer { -pdf-frame-content: footer; bottom: 0.3in; margin-left: 0.6in; margin-right: 0.6in; height: 0.45in; } }'
         f'body {{ font-family: Helvetica; font-size: 10pt; color: {ink}; line-height: 1.45; }}'
         f'table.band {{ width: 100%; background-color: {deep}; }} table.band td {{ padding: 14px 16px; vertical-align: middle; }}'
-        'td.bandlogo { width: 175px; }'
-        f'.kicker {{ color: {gold}; font-size: 9pt; font-weight: bold; text-transform: uppercase; letter-spacing: 2px; }}'
+        'td.bandtxt { text-align: right; }'
+        f'.kicker {{ color: {gold}; font-size: 9pt; font-weight: bold; }}'
         '.title { color: #ffffff; font-size: 26pt; font-weight: bold; line-height: 1.1; }'
         '.for { color: #cdeef5; font-size: 10.5pt; margin-top: 2px; }'
         f'.gold {{ height: 5px; background-color: {gold}; margin-bottom: 10px; }}'
@@ -19748,7 +19883,7 @@ def elic_welcome_packet_pdf(eid):
     b64 = _html_to_pdf_b64(elic_packet_html(elic, settings, events))
     if not b64:
         return jsonify({'error': 'Could not build the PDF'}), 500
-    fname = 'ELIC-Welcome-Packet-' + re.sub(r'[^A-Za-z0-9]+', '-', elic.get('volunteer_name') or 'ELIC').strip('-') + '.pdf'
+    fname = 'ELIC-Welcome-Letter-' + re.sub(r'[^A-Za-z0-9]+', '-', elic.get('volunteer_name') or 'ELIC').strip('-') + '.pdf'
     resp = app.response_class(base64.b64decode(b64), mimetype='application/pdf')
     resp.headers['Content-Disposition'] = ('attachment' if request.args.get('download') else 'inline') + f'; filename="{fname}"'
     return resp
@@ -19775,11 +19910,11 @@ def elic_welcome_packet_email(eid):
     if not b64:
         return jsonify({'error': 'Could not build the PDF'}), 500
     first = (elic.get('volunteer_name') or '').split(' ')[0] or 'there'
-    body = (f'<p>Hi {_h(first)},</p><p>Thank you for being an ELIC with Horizon West Theater Company. Your welcome packet is attached: '
+    body = (f'<p>Hi {_h(first)},</p><p>Thank you for being an ELIC with Horizon West Theater Company. Your welcome letter is attached: '
             'how to unlock the building, open and close events, sign people in, and your PIN.</p>'
             f'<p>Questions? Call or text us at <b>{_h(settings["elic_packet_phone"])}</b>.</p>')
-    res = send_email([elic['volunteer_email']], 'Your HWTC ELIC welcome packet', build_hwtc_email_html('Your ELIC welcome packet', body),
-                     source='elic_welcome_packet', attachments=[{'filename': 'ELIC-Welcome-Packet.pdf', 'content_b64': b64}])
+    res = send_email([elic['volunteer_email']], 'Your HWTC ELIC welcome letter', build_hwtc_email_html('Your ELIC welcome letter', body),
+                     source='elic_welcome_packet', attachments=[{'filename': 'ELIC-Welcome-Letter.pdf', 'content_b64': b64}])
     ok = res[0] if isinstance(res, tuple) else bool(res)
     return jsonify({'ok': True, 'to': elic['volunteer_email']}) if ok else (jsonify({'error': 'The email didn\'t send.'}), 400)
 

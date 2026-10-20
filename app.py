@@ -16326,7 +16326,9 @@ def kiosk_events():
                p.name as production_name,
                COALESCE(p.stage,'mainstage') as stage,
                p.stage as production_stage,
-               el.action as current_status
+               el.action as current_status,
+               (SELECT COUNT(*) FROM youth_production_members ypm WHERE ypm.production_id=e.production_id)
+               + (SELECT COUNT(*) FROM production_pending_cast pc WHERE pc.production_id=e.production_id AND pc.kind='youth') AS youth_cast_count
         FROM events e
         LEFT JOIN productions p ON e.production_id=p.id
         {extra_join}
@@ -18148,7 +18150,7 @@ def _pc_id(x):
 
 
 def _pending_cast_roster(conn, prod_id, event_id):
-    return fetchall(conn, """SELECT pc.id, pc.name, pc.role, pc.cast_section,
+    return fetchall(conn, """SELECT pc.id, pc.name, pc.role, pc.cast_section, pc.kind,
             pa.id AS attendance_id, pa.signed_in_at
         FROM production_pending_cast pc
         LEFT JOIN pending_cast_attendance pa ON pa.pending_cast_id=pc.id AND pa.event_id=%s AND pa.signed_out_at IS NULL
@@ -18197,6 +18199,8 @@ def kiosk_production_roster(event_id):
     prod = fetchone(conn, 'SELECT stage FROM productions WHERE id=%s', (prod_id,)) or {}
     if prod.get('stage') not in ('rising_stars', 'teen_show'):   # youth shows list them on the youth roster instead
         for r in _pending_cast_roster(conn, prod_id, event_id):
+            if r.get('kind') == 'youth':
+                continue   # youth sign in on the youth list (with parent pickup), even on a mainstage show
             members.append({'member_id': 'pc:' + r['id'], 'volunteer_id': 'pc:' + r['id'], 'role': r.get('role') or 'Cast',
                             'department': r.get('cast_section') or 'Cast', 'status': 'confirmed', 'volunteer_name': r['name'],
                             'attendance_id': r.get('attendance_id'), 'signed_in_at': r.get('signed_in_at'),
@@ -18697,8 +18701,9 @@ def kiosk_youth_for_event(event_id):
             WHERE ypm.production_id=%s
             ORDER BY yp.last_name, yp.first_name''', (event_id, evt['production_id'])) or []
         _ps = fetchone(conn, 'SELECT stage FROM productions WHERE id=%s', (evt['production_id'],)) or {}
-        if _ps.get('stage') in ('rising_stars', 'teen_show'):
-            for r in _pending_cast_roster(conn, evt['production_id'], event_id):
+        _youth_show = _ps.get('stage') in ('rising_stars', 'teen_show')
+        for r in _pending_cast_roster(conn, evt['production_id'], event_id):
+            if _youth_show or r.get('kind') == 'youth':
                 nm = (r['name'] or '').strip().split(' ', 1)
                 youth.append({'id': 'pc:' + r['id'], 'first_name': nm[0], 'last_name': nm[1] if len(nm) > 1 else '', 'dob': None,
                               'role': r.get('role') or '', 'individual_passphrase': None, 'family_passphrase': None,
@@ -19796,7 +19801,7 @@ def elic_packet_html(elic, settings, events):
             ('Tap <b>Open Event &rarr;</b> at the bottom. The event is now open, recorded under your name.', None)])
             + tip('Button says &ldquo;Opens at&hellip;&rdquo;?',
                   '<img src="' + _packet_img('kiosk-4b-locked.jpg') + '" width="330"/><br/>'
-                  'An event can\'t be opened until shortly before it starts (here, an hour before a 7:00 PM event). '
+                  'An event can\'t be opened until <b>1 hour before</b> it starts (here, 6:00 PM for a 7:00 PM event). '
                   f'Wait until that time. Event missing altogether? Check the date and your PIN, then {call}.', 'teal')
             + '<p class="note">Volunteers can\'t start their time until the event is open.</p>')
 
@@ -19815,8 +19820,9 @@ def elic_packet_html(elic, settings, events):
               '<p>Only release a child to an approved pickup. If unsure, keep the child with you and call the parent.</p></td>'
               '</tr></table>'
             + '<div class="whot" style="margin-top:12px">Signing cast and crew in and out</div>'
-            + '<p>On the event\'s sign-in screen, everyone on the show is listed by group (Cast, Crew&hellip;). '
-              '<b>Tap a person\'s name</b> to sign them in: <b>OUT</b> changes to <b>IN</b>. Tap again when they leave to sign them out.</p>'
+            + '<p>Once the event is open, its card on the kiosk has sign-in buttons. <b>Production Sign-In</b> lists everyone on the show by group (Cast, Crew&hellip;): '
+              '<b>tap a person\'s name</b> to sign them in (<b>OUT</b> changes to <b>IN</b>), and tap again when they leave. '
+              'Shows and classes with kids also have <b>Participant Pickup</b>, where a parent signs each child in and out with the approved-pickup check.</p>'
             + '<img src="' + _packet_img('kiosk-6-cast.jpg') + '" width="420"/>'
             + f'<p class="note">Someone forgot to sign in or out? Text HWTC at {phone} with the name and times. Hours can be fixed later.</p>')
 

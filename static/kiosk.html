@@ -1421,7 +1421,10 @@ function renderElicMenu(){
     const mins=minsUntilOpen(e)
     let actionArea=''
     if(status==='open'){
-      const hasYouth = (e.production_id && isRS) || e.program_id
+      // Youth sign in with a parent and the approved-pickup check: always for
+      // Rising Stars / teen shows and classes, and for any other show that
+      // has youth in its cast (youth_cast_count comes from the server)
+      const hasYouth = (e.production_id && (isRS || e.stage==='teen_show' || (e.youth_cast_count||0) > 0)) || e.program_id
       const kioskMode = e.kiosk_signin_mode || 'auto'
       let showProdBtn=false, showStandardProgramBtn=false, showPickupBtn=false
       if(kioskMode==='standard'){

@@ -18302,10 +18302,20 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '</div>'
  })
  }
- if(!(p.stage==='rising_stars'||p.stage==='teen_show')) s += '<div id="pending-cast-'+p.id+'" style="padding:0 20px 16px"></div>'
+ if(!(p.stage==='rising_stars'||p.stage==='teen_show')){
+ // Youth (under 18) in a mainstage cast: listed here with the rest of the
+ // cast, and signed in/out at the kiosk by a parent with the pickup check
+ s += '<div style="margin-top:8px">'
+ s += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);flex:1">Youth cast <span style="text-transform:none;letter-spacing:0;font-weight:500">· signed in and out by a parent with pickup at the kiosk</span></div>'
+ if(isAdmin) s += '<button class="btn btn-secondary btn-sm" onclick="loadAndShowYouthProdEnroll(\'' + p.id + '\')">+ Add Youth</button>'
+ s += '</div>'
+ s += '<div id="youth-prod-members-'+p.id+'"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
+ s += '</div>'
+ s += '<div id="pending-cast-'+p.id+'" style="padding:0 0 16px"></div>'
+ }
  s += '</div>' // end members tab
 
- // Youth cast tab (RS only)
+ // Youth cast tab (Rising Stars / teen shows)
  if((p.stage==='rising_stars'||p.stage==='teen_show')){
  s += '<div id="prodtab-youth" class="card" style="padding:20px;display:none">'
  s += '<div id="cast-announcement-'+p.id+'" style="margin-bottom:20px"><div style="color:var(--text-muted);font-size:13px">Loading…</div></div>'
@@ -18476,6 +18486,7 @@ function openProductionDetail(prodId, fromPage){
  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
  if((p.stage==='rising_stars'||p.stage==='teen_show')){ setTimeout(()=>loadYouthProdMembers(p.id),100); setTimeout(()=>loadCastAnnouncementPanel(p.id),100) }
  setTimeout(()=>loadPendingCast(p.id),150)
+ if(!(p.stage==='rising_stars'||p.stage==='teen_show')) setTimeout(()=>loadYouthProdMembers(p.id),150)
 }
 
 function openProductionModal(){
@@ -26331,6 +26342,7 @@ function switchProductionTab(tab){
  if(tab==='portal') loadProductionPortalContent(pid)
  if(tab==='youth' && pid){ loadYouthProdMembers(pid); loadCastAnnouncementPanel(pid) }
  if((tab==='youth' || tab==='members') && pid) loadPendingCast(pid)
+ if(tab==='members' && pid && document.getElementById('youth-prod-members-'+pid)) loadYouthProdMembers(pid)
  if(tab==='waivers' && pid) loadProductionWaiverStatus(pid)
  if(tab==='messages' && pid) loadPortalMessages(null, pid, 'prod-messages-current')
  if(tab==='auditions' && pid){
@@ -30507,7 +30519,7 @@ async function loadYouthProdMembers(prodId){
  const container=document.getElementById('youth-prod-members-'+prodId)
  if(!container) return
  const members=await api('/api/productions/'+prodId+'/youth-members')
- const isAdmin=canEdit('rising_stars')
+ const isAdmin=canEdit('rising_stars')||canEdit('productions')
  if(!members.length){
  container.innerHTML='<div style="color:var(--text-muted);font-size:13px">No cast members enrolled yet.'+(isAdmin?' Use "+ Enroll" to add cast members.':'')+'</div>'
  return

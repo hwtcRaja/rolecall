@@ -6147,7 +6147,10 @@ async function saveLogTime(){
  const date=document.getElementById('lt-date').value
  const hours=parseFloat(document.getElementById('lt-hours').value)
  if(!volId||!eventName||!date||!hours){toast('Please fill all required fields','error');return}
- const res=await api('/api/hours','POST',{volunteer_id:volId,event:eventName,event_id:eventId,date,hours,role:document.getElementById('lt-role').value.trim(),pay_type:(document.getElementById('lt-pay-type')||{}).value||'volunteer',notes:document.getElementById('lt-notes').value.trim()})
+ var _body={volunteer_id:volId,event:eventName,event_id:eventId,date,hours,role:document.getElementById('lt-role').value.trim(),pay_type:(document.getElementById('lt-pay-type')||{}).value||'volunteer',notes:document.getElementById('lt-notes').value.trim()}
+ var res=await api('/api/hours','POST',_body)
+ // already has time for this event: only add a second entry on purpose
+ if(res&&res.duplicate){ if(!confirm(res.error+'\n\nAdd these hours anyway?')) return; _body.allow_duplicate=true; res=await api('/api/hours','POST',_body) }
  if(res.error){toast(res.error,'error');return}
  toast('Time logged!','success')
  closeModal('modal-log-time')
@@ -6274,7 +6277,9 @@ async function quickAddTime(){
  eventId = null
  notes = desc
  }
- var res = await api('/api/hours','POST',{volunteer_id:volId,event:eventName,event_id:eventId,date:dateVal,hours:hoursVal,role,pay_type:(document.getElementById('qt-pay-type')||{}).value||'volunteer',notes})
+ var _qb = {volunteer_id:volId,event:eventName,event_id:eventId,date:dateVal,hours:hoursVal,role,pay_type:(document.getElementById('qt-pay-type')||{}).value||'volunteer',notes}
+ var res = await api('/api/hours','POST',_qb)
+ if(res&&res.duplicate){ if(!confirm(res.error+'\n\nAdd these hours anyway?')) return; _qb.allow_duplicate=true; res = await api('/api/hours','POST',_qb) }
  if(res&&res.error){ toast(res.error,'error'); return }
  // Add to recent list
  var volName = document.getElementById('qt-volunteer').options[document.getElementById('qt-volunteer').selectedIndex]?.text||'?'
@@ -18274,6 +18279,7 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += "<button id='prodtab-btn-members' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid var(--teal-mid);margin-bottom:-2px;color:var(--teal-dark)' onclick='switchProductionTab(&quot;members&quot;)'>Cast &amp; Crew</button>"
  if((p.stage==='rising_stars'||p.stage==='teen_show')) s += "<button id='prodtab-btn-youth' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;youth&quot;)'>Cast</button>"
  s += "<button id='prodtab-btn-schedule' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;schedule&quot;)'>Schedule &amp; Conflicts</button>"
+ s += "<button id='prodtab-btn-attendance' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;attendance&quot;)'>Attendance</button>"
  s += "<button id='prodtab-btn-waivers' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;waivers&quot;)'>Waivers</button>"
  s += "<button id='prodtab-btn-info' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;info&quot;)'>Info</button>"
  s += "<button id='prodtab-btn-messages' style='padding:10px 18px;font-size:13px;font-weight:700;border:none;background:none;cursor:pointer;font-family:inherit;border-bottom:3px solid transparent;margin-bottom:-2px;color:var(--text-muted)' onclick='switchProductionTab(&quot;messages&quot;)'>Messages</button>"
@@ -18344,6 +18350,11 @@ function buildProductionDetailHTML(p, isAdmin, members, byDept, memberStatusColo
  s += '<div id="pending-cast-'+p.id+'" style="padding:0 0 16px"></div>'
  }
  s += '</div>' // end members tab
+ s += '<div id="prodtab-attendance" class="card" style="padding:20px;display:none">'
+ s += '<div style="font-size:15px;font-weight:600;margin-bottom:4px">Attendance</div>'
+ s += '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Everyone on the show across every rehearsal and performance, from kiosk sign-ins (adults, youth pickup, and names added by hand).</div>'
+ s += '<div id="run-attendance-'+p.id+'"></div>'
+ s += '</div>'
 
  // Youth cast tab (Rising Stars / teen shows)
  if((p.stage==='rising_stars'||p.stage==='teen_show')){
@@ -19434,7 +19445,13 @@ async function deleteConflict(pid, cid){
 function updatePendingBadge(count){ updateNotifBadge(count) }
 async function loadPendingHours(){ await loadNotifications() }
 async function approveHours(pid){
- await api(`/api/pending-hours/${pid}/approve`,'POST')
+ var r = await api(`/api/pending-hours/${pid}/approve`,'POST',{})
+ if(r && r.duplicate){
+   // they already have approved time for this event
+   if(!confirm(r.error+'\n\nApprove this one anyway (they\'ll have two entries)?')) return
+   r = await api(`/api/pending-hours/${pid}/approve`,'POST',{allow_duplicate:true})
+ }
+ if(r && r.error){ toast(r.error,'error'); return }
  toast('Hours approved!','success')
  await loadAllData()
  loadNotifications()
@@ -26362,7 +26379,7 @@ function openProductionRegistrationSettingsModal(pid){
 
 function switchProductionTab(tab){
  const pid = window._currentProductionDetailId
- const tabs = ['members','youth','schedule','waivers','info','messages','portal','auditions','registrations','tickets']
+ const tabs = ['members','youth','schedule','attendance','waivers','info','messages','portal','auditions','registrations','tickets']
  tabs.forEach(t=>{
  const el = document.getElementById('prodtab-'+t)
  if(el) el.style.display = t===tab?'':'none'
@@ -26373,6 +26390,7 @@ function switchProductionTab(tab){
  if(tab==='youth' && pid){ loadYouthProdMembers(pid); loadCastAnnouncementPanel(pid) }
  if((tab==='youth' || tab==='members') && pid) loadPendingCast(pid)
  if(tab==='members' && pid && document.getElementById('youth-prod-members-'+pid)) loadYouthProdMembers(pid)
+ if(tab==='attendance' && pid) loadRunAttendance(pid)
  if(tab==='waivers' && pid) loadProductionWaiverStatus(pid)
  if(tab==='messages' && pid) loadPortalMessages(null, pid, 'prod-messages-current')
  if(tab==='auditions' && pid){
@@ -30459,6 +30477,75 @@ function startCastTabCountdown(pid, revealAtISO, queued){
 }
 
 // ── Cast members added by name (not in RoleCall yet) ──
+// ── Production → Attendance: everyone × every rehearsal and show ──
+var _runAtt = {}
+async function loadRunAttendance(pid){
+ var el = document.getElementById('run-attendance-'+pid); if(!el) return
+ el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">Loading attendance…</div>'
+ var d = await api('/api/productions/'+pid+'/run-attendance')
+ if(!d || d.error){ el.innerHTML = '<div style="color:var(--text-muted)">'+escHtml((d&&d.error)||'Could not load')+'</div>'; return }
+ _runAtt[pid] = Object.assign({group: (_runAtt[pid]||{}).group || 'all'}, d)
+ renderRunAttendance(pid)
+}
+function renderRunAttendance(pid){
+ var el = document.getElementById('run-attendance-'+pid), d = _runAtt[pid]; if(!el || !d) return
+ if(!d.events.length){ el.innerHTML = '<div style="color:var(--text-muted);font-size:13px">No rehearsals or performances on this show\'s schedule yet.</div>'; return }
+ var groups = ['all'].concat(Array.from(new Set(d.people.map(function(p){ return p.group }))))
+ var people = d.people.filter(function(p){ return d.group === 'all' || p.group === d.group })
+ var fmt = function(iso){ var x = new Date(iso+'T12:00:00'); return (x.getMonth()+1)+'/'+x.getDate() }
+ var wk = function(iso){ return new Date(iso+'T12:00:00').toLocaleDateString('en-US',{weekday:'short'}) }
+ var h = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px">'
+   + groups.map(function(g){ var on = d.group===g; return '<button class="btn btn-sm '+(on?'btn-primary':'btn-secondary')+'" onclick="_runAtt[\''+pid+'\'].group=\''+escHtml(g).replace(/'/g,"\\'")+'\';renderRunAttendance(\''+pid+'\')">'+escHtml(g==='all'?'Everyone':g)+'</button>' }).join('')
+   + '<span style="flex:1"></span><button class="btn btn-secondary btn-sm" onclick="exportRunAttendance(\''+pid+'\')">Export CSV</button>'
+   + '<button class="btn btn-secondary btn-sm" onclick="loadRunAttendance(\''+pid+'\')">Refresh</button></div>'
+   + '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-muted);margin-bottom:8px">'
+   + '<span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#16a34a;vertical-align:-2px"></span> Signed in</span>'
+   + '<span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#f59e0b;vertical-align:-2px"></span> Reported conflict</span>'
+   + '<span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:#fecaca;border:1px solid #f87171;vertical-align:-2px"></span> Missed</span>'
+   + '<span><span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:var(--bg);border:1px solid var(--border);vertical-align:-2px"></span> Upcoming</span>'
+   + '<span>Hover a box for times and hours.</span></div>'
+ h += '<div style="overflow:auto;border:1px solid var(--border);border-radius:10px;max-height:70vh"><table style="border-collapse:separate;border-spacing:0;font-size:12px">'
+   + '<thead><tr><th style="position:sticky;left:0;top:0;z-index:3;background:var(--surface);text-align:left;padding:8px 10px;min-width:190px;border-bottom:1px solid var(--border)">Person</th>'
+   + '<th style="position:sticky;top:0;z-index:2;background:var(--surface);padding:8px 6px;border-bottom:1px solid var(--border);white-space:nowrap">Attended</th>'
+   + '<th style="position:sticky;top:0;z-index:2;background:var(--surface);padding:8px 6px;border-bottom:1px solid var(--border);white-space:nowrap">Hours</th>'
+   + d.events.map(function(e){ return '<th title="'+escHtml(e.name)+'" style="position:sticky;top:0;z-index:2;background:var(--surface);padding:6px 3px;border-bottom:1px solid var(--border);font-weight:600;color:'+(e.past?'var(--text)':'var(--text-hint)')+';min-width:34px;text-align:center;line-height:1.2"><div style="font-size:10px">'+wk(e.date)+'</div>'+fmt(e.date)+'</th>' }).join('')
+   + '</tr></thead><tbody>'
+ people.forEach(function(p){
+   var row = d.cells[p.key] || {}
+   var rate = d.past_count ? Math.round(p.attended*100/Math.max(1, d.past_count - p.conflicts)) : null
+   h += '<tr><td style="position:sticky;left:0;z-index:1;background:var(--surface);padding:6px 10px;border-bottom:1px solid var(--border)">'
+     + '<div style="font-weight:600;font-size:12.5px">'+escHtml(p.name)+(p.kind==='youth'?' <span style="font-size:9.5px;font-weight:800;color:#6d28d9;background:#ede9fe;border-radius:8px;padding:0 6px">YOUTH</span>':'')
+     + (p.not_in_rolecall?' <span style="font-size:9.5px;font-weight:800;color:#92400e;background:#fef3c7;border-radius:8px;padding:0 6px">NOT IN ROLECALL</span>':'')+'</div>'
+     + '<div style="color:var(--text-muted);font-size:11px">'+escHtml(p.role||p.group)+'</div></td>'
+     + '<td style="text-align:center;padding:6px;border-bottom:1px solid var(--border);white-space:nowrap"><strong>'+p.attended+'</strong>/'+d.past_count
+     + (rate!==null?'<div style="font-size:10.5px;color:'+(rate>=90?'#166534':rate>=75?'#92400e':'#b91c1c')+'">'+rate+'%</div>':'')+'</td>'
+     + '<td style="text-align:center;padding:6px;border-bottom:1px solid var(--border)">'+(p.kind==='adult'&&p.hours?p.hours:'—')+'</td>'
+     + d.events.map(function(e){
+         var c = row[e.id], bg, tip = e.name+' · '+e.date
+         if(c && c.status==='in'){ bg='#16a34a'; tip += ' · signed in'+(c.in?' '+c.in:'')+(c.out?' – '+c.out:'')+(c.hours?' · '+c.hours+' h'+(c.hours_status==='pending'?' (pending approval)':''):'') }
+         else if(c && c.status==='conflict'){ bg='#f59e0b'; tip += ' · conflict'+(c.note?': '+c.note:'') }
+         else if(e.past){ bg='#fecaca'; tip += ' · no sign-in' }
+         else { bg='var(--bg)'; tip += ' · upcoming' }
+         return '<td style="padding:4px 3px;border-bottom:1px solid var(--border);text-align:center"><div title="'+escHtml(tip)+'" style="width:22px;height:18px;margin:0 auto;border-radius:4px;background:'+bg+';'+(e.past||c?'':'border:1px solid var(--border)')+(c&&c.hours_status==='pending'?';box-shadow:inset 0 0 0 2px #fbbf24':'')+'"></div></td>'
+       }).join('') + '</tr>'
+ })
+ h += '</tbody></table></div>'
+   + '<div style="font-size:11.5px;color:var(--text-hint);margin-top:6px">Attended counts past sessions only. The % leaves out sessions with a reported conflict. A yellow outline means the hours are still waiting for approval.</div>'
+ el.innerHTML = h
+}
+function exportRunAttendance(pid){
+ var d = _runAtt[pid]; if(!d) return
+ var esc = function(v){ v = String(v==null?'':v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v }
+ var head = ['Name','Group','Role','Attended','Past sessions','Conflicts','Hours'].concat(d.events.map(function(e){ return e.date+' '+e.name }))
+ var rows = d.people.map(function(p){ var row = d.cells[p.key] || {}
+   return [p.name, p.group, p.role, p.attended, d.past_count, p.conflicts, p.kind==='adult'?p.hours:''].concat(d.events.map(function(e){
+     var c = row[e.id]; return c ? (c.status==='in' ? 'In'+(c.in?' '+c.in:'')+(c.out?'-'+c.out:'') : 'Conflict') : (e.past?'Missed':'') })) })
+ var csv = '\ufeff'+[head].concat(rows).map(function(r){ return r.map(esc).join(',') }).join('\n')
+ var prod = (allProductions||[]).find(function(x){ return x.id===pid }) || {}
+ var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'}))
+ a.download = String(prod.name||'show').toLowerCase().replace(/[^a-z0-9]+/g,'-')+'-attendance.csv'; document.body.appendChild(a); a.click(); a.remove()
+}
+
 async function loadPendingCast(pid){
  var el = document.getElementById('pending-cast-'+pid); if(!el) return
  var rows = await api('/api/productions/'+pid+'/pending-cast')

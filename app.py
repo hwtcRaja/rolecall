@@ -3169,6 +3169,15 @@ def init_db():
         "ALTER TABLE board_availability ADD COLUMN IF NOT EXISTS virtual_dates TEXT DEFAULT '[]'",
         # the front-door keypad code given to this ELIC (shown on their welcome packet)
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS patron_profiles (
+            email_key TEXT PRIMARY KEY,
+            notes TEXT DEFAULT '',
+            tags TEXT DEFAULT '[]',
+            do_not_email BOOLEAN DEFAULT FALSE,
+            updated_at TIMESTAMP DEFAULT NOW(),
+            updated_by TEXT)""",
+        # default sidebar icon for the Patrons tab (change it in Settings → Nav icons)
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('patrons', 'users-round') ON CONFLICT (key) DO NOTHING",
         """CREATE TABLE IF NOT EXISTS production_pending_cast (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -39524,6 +39533,179 @@ def bloombooks_key_settings():
             conn.commit()
             return jsonify({'ok': True})
         return jsonify({'configured': bool(_setting(conn, 'bloombooks_api_key_hash')), 'hint': _setting(conn, 'bloombooks_api_key_hint') or ''})
+    finally:
+        conn.close()
+
+
+# ── Patron Database ───────────────────────────────────────────────────────
+# Everyone who has bought tickets, built from ticket orders (grouped by the
+# buyer's email, with Gmail dots / +tags folded together like the purchase
+# limits do), plus staff notes and tags. Cross-linked with Donors and
+# Volunteers by email. Test orders are never included.
+def _patron_rows(conn):
+    rows = fetchall(conn, """SELECT o.id, o.guardian_name, o.guardian_email, o.guardian_phone,
+            COALESCE(o.buyer_email_key, LOWER(TRIM(o.guardian_email))) AS ek,
+            o.total_cents, o.service_fee_cents, COALESCE(o.sale_channel,'public') AS channel,
+            COALESCE(o.completed_at, o.created_at) AS bought_at,
+            pf.performance_date, pf.performance_time, pr.id AS production_id, pr.name AS production_name,
+            (SELECT COUNT(*) FROM tickets t WHERE t.ticket_order_id=o.id) AS tickets,
+            (SELECT COUNT(*) FROM tickets t WHERE t.ticket_order_id=o.id AND t.checked_in_at IS NOT NULL) AS checked_in
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id JOIN productions pr ON pr.id=pf.production_id
+        WHERE o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test'
+          AND COALESCE(o.guardian_email,'') <> ''
+        ORDER BY COALESCE(o.completed_at, o.created_at)""") or []
+    return rows
+
+
+def build_patrons(conn):
+    import datetime as _dt
+    orders = _patron_rows(conn)
+    pats = {}
+    for o in orders:
+        k = o['ek'] or (o['guardian_email'] or '').lower()
+        p = pats.setdefault(k, {'key': k, 'name': '', 'email': '', 'phone': '', 'orders': 0, 'tickets': 0, 'spent_cents': 0,
+                                'first': None, 'last': None, 'shows': {}, 'presale': 0, 'checked_in': 0, 'weekdays': {}, 'lead_days': []})
+        p['name'] = o['guardian_name'] or p['name']            # most recent wins
+        p['email'] = (o['guardian_email'] or p['email']).strip()
+        p['phone'] = o['guardian_phone'] or p['phone']
+        p['orders'] += 1
+        p['tickets'] += int(o['tickets'] or 0)
+        p['checked_in'] += int(o['checked_in'] or 0)
+        p['spent_cents'] += int(o['total_cents'] or 0) + int(o['service_fee_cents'] or 0)
+        b = o['bought_at']
+        p['first'] = p['first'] or b
+        p['last'] = b
+        p['shows'][o['production_id']] = o['production_name']
+        if o['channel'] == 'presale':
+            p['presale'] += 1
+        try:
+            pd = _dt.date.fromisoformat(str(o['performance_date'])[:10])
+            wd = pd.strftime('%a')
+            p['weekdays'][wd] = p['weekdays'].get(wd, 0) + 1
+            if hasattr(b, 'date'):
+                p['lead_days'].append(max(0, (pd - b.date()).days))
+        except Exception:
+            pass
+    # cross-reference donors and volunteers by email
+    donors = {}
+    for d in fetchall(conn, "SELECT id, LOWER(TRIM(email)) AS e FROM donors WHERE COALESCE(email,'')<>''") or []:
+        donors[ticket_email_key(d['e'])] = d['id']
+    vols = {}
+    for v in fetchall(conn, "SELECT id, LOWER(TRIM(email)) AS e FROM volunteers WHERE COALESCE(email,'')<>''") or []:
+        vols[ticket_email_key(v['e'])] = v['id']
+    prof = {r['email_key']: r for r in (fetchall(conn, 'SELECT * FROM patron_profiles') or [])}
+    out = []
+    for k, p in pats.items():
+        pr = prof.get(k) or {}
+        try: tags = json.loads(pr.get('tags') or '[]')
+        except Exception: tags = []
+        fav = max(p['weekdays'].items(), key=lambda x: x[1])[0] if p['weekdays'] else ''
+        out.append({'key': k, 'name': p['name'], 'email': p['email'], 'phone': p['phone'], 'orders': p['orders'], 'tickets': p['tickets'],
+                    'spent_cents': p['spent_cents'], 'shows_count': len(p['shows']), 'shows': list(p['shows'].values()),
+                    'first_purchase': str(p['first'])[:10] if p['first'] else '', 'last_purchase': str(p['last'])[:10] if p['last'] else '',
+                    'presale_orders': p['presale'], 'avg_party': round(p['tickets'] / p['orders'], 1) if p['orders'] else 0,
+                    'favorite_day': fav, 'avg_lead_days': round(sum(p['lead_days']) / len(p['lead_days'])) if p['lead_days'] else None,
+                    'attended_rate': round(p['checked_in'] * 100 / p['tickets']) if p['tickets'] else None,
+                    'is_donor': k in donors, 'donor_id': donors.get(k), 'is_volunteer': k in vols, 'volunteer_id': vols.get(k),
+                    'tags': tags, 'has_notes': bool((pr.get('notes') or '').strip()), 'do_not_email': bool(pr.get('do_not_email'))})
+    return out, orders
+
+
+@app.route('/api/patrons', methods=['GET'])
+def list_patrons():
+    err = require_permission('patrons', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        pats, orders = build_patrons(conn)
+        # trends
+        import datetime as _dt
+        by_show = {}
+        seen = {}
+        for o in orders:
+            k = o['ek']
+            s = by_show.setdefault(o['production_id'], {'production_id': o['production_id'], 'name': o['production_name'], 'patrons': set(),
+                                                         'new': set(), 'first_date': str(o['performance_date'])[:10], 'tickets': 0, 'cents': 0})
+            s['patrons'].add(k)
+            s['tickets'] += int(o['tickets'] or 0)
+            s['cents'] += int(o['total_cents'] or 0)
+            if k not in seen:
+                seen[k] = o['production_id']
+            if seen[k] == o['production_id']:
+                s['new'].add(k)
+        shows = sorted(by_show.values(), key=lambda s: s['first_date'])
+        show_trend = [{'production_id': s['production_id'], 'name': s['name'], 'date': s['first_date'], 'patrons': len(s['patrons']),
+                       'new': len(s['new']), 'returning': len(s['patrons']) - len(s['new']), 'tickets': s['tickets'], 'cents': s['cents']} for s in shows]
+        weekday = {}
+        for o in orders:
+            try:
+                wd = _dt.date.fromisoformat(str(o['performance_date'])[:10]).strftime('%a')
+                weekday[wd] = weekday.get(wd, 0) + int(o['tickets'] or 0)
+            except Exception:
+                pass
+        total = len(pats)
+        repeat = sum(1 for p in pats if p['shows_count'] >= 2)
+        return jsonify({'patrons': pats,
+                        'summary': {'patrons': total, 'repeat': repeat, 'repeat_rate': round(repeat * 100 / total) if total else 0,
+                                    'orders': len(orders), 'tickets': sum(p['tickets'] for p in pats),
+                                    'revenue_cents': sum(p['spent_cents'] for p in pats),
+                                    'avg_party': round(sum(p['tickets'] for p in pats) / len(orders), 1) if orders else 0,
+                                    'donors': sum(1 for p in pats if p['is_donor']), 'volunteers': sum(1 for p in pats if p['is_volunteer'])},
+                        'show_trend': show_trend, 'weekday_tickets': weekday,
+                        'productions': [{'id': s['production_id'], 'name': s['name']} for s in shows]})
+    finally:
+        conn.close()
+
+
+@app.route('/api/patrons/detail', methods=['GET'])
+def patron_detail():
+    err = require_permission('patrons', 'view')
+    if err: return err
+    key = (request.args.get('key') or '').strip().lower()
+    conn = get_db()
+    try:
+        pats, orders = build_patrons(conn)
+        p = next((x for x in pats if x['key'] == key), None)
+        if not p:
+            return jsonify({'error': 'Patron not found'}), 404
+        mine = [o for o in orders if o['ek'] == key]
+        for o in mine:
+            o['seats'] = [t['seat_label'] for t in (fetchall(conn, 'SELECT seat_label FROM tickets WHERE ticket_order_id=%s ORDER BY seat_label', (o['id'],)) or [])]
+            o['bought_at'] = str(o['bought_at'])[:16]
+            o['performance_date'] = str(o['performance_date'])[:10]
+        prof = fetchone(conn, 'SELECT * FROM patron_profiles WHERE email_key=%s', (key,)) or {}
+        donations = []
+        if p.get('donor_id'):
+            donations = fetchall(conn, '''SELECT dd.amount, dd.donation_date, c.name AS campaign FROM donor_donations dd
+                LEFT JOIN donor_campaigns c ON c.id=dd.campaign_id
+                WHERE dd.donor_id=%s AND COALESCE(dd.payment_status,'received')='received' ORDER BY dd.donation_date DESC LIMIT 20''',
+                                 (p['donor_id'],)) or []
+            for dn in donations:
+                dn['donation_date'] = str(dn.get('donation_date') or '')[:10]
+                dn['amount'] = float(dn.get('amount') or 0)
+        p.update({'orders_list': list(reversed(mine)), 'notes': prof.get('notes') or '', 'donations': donations})
+        return jsonify(p)
+    finally:
+        conn.close()
+
+
+@app.route('/api/patrons/profile', methods=['PUT'])
+def patron_profile_save():
+    err = require_permission('patrons', 'edit')
+    if err: return err
+    d = request.json or {}
+    key = (d.get('key') or '').strip().lower()
+    if not key:
+        return jsonify({'error': 'Missing patron'}), 400
+    tags = [t.strip()[:40] for t in (d.get('tags') or []) if str(t).strip()][:20]
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO patron_profiles (email_key, notes, tags, do_not_email, updated_at, updated_by)
+            VALUES (%s,%s,%s,%s,NOW(),%s) ON CONFLICT (email_key) DO UPDATE SET notes=EXCLUDED.notes, tags=EXCLUDED.tags,
+            do_not_email=EXCLUDED.do_not_email, updated_at=NOW(), updated_by=EXCLUDED.updated_by''',
+            (key, (d.get('notes') or '')[:5000], json.dumps(tags), bool(d.get('do_not_email')), session.get('name') or ''))
+        conn.commit()
+        return jsonify({'ok': True})
     finally:
         conn.close()
 

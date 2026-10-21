@@ -37,6 +37,15 @@ body{font-family:'DM Sans',-apple-system,sans-serif;background:#0b0714;color:rgb
 .how-it-works-body{font-size:15px;color:rgba(255,255,255,0.75);text-align:center;margin-bottom:36px}
 .how-step{display:flex;align-items:flex-start;gap:12px;text-align:left;margin-bottom:16px}
 .how-num{flex-shrink:0;width:24px;height:24px;border-radius:50%;background:rgba(236,72,153,0.18);color:#f472b6;font-size:12.5px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px}
+.opt-row{text-transform:none;letter-spacing:0;font-size:inherit;font-weight:400;color:inherit}
+.ms-jump{display:inline-block;margin-top:12px;background:linear-gradient(90deg,#ec4899,#f472b6);color:#fff;font-weight:700;font-size:14px;padding:9px 18px;border-radius:10px;text-decoration:none}
+.must-signup{background:rgba(236,72,153,0.14);border:1.5px solid rgba(244,114,182,0.55);border-radius:14px;padding:18px 20px;margin:0 0 30px;text-align:left}
+.must-signup .ms-title{font-size:18px;font-weight:800;color:#fff;line-height:1.3;margin-bottom:6px}
+.must-signup p{font-size:14.5px;color:rgba(255,255,255,0.85);margin:0}
+.facts{display:flex;justify-content:center;gap:10px;flex-wrap:wrap;margin:-18px 0 28px}
+.fact{font-size:13px;color:rgba(255,255,255,0.75);background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);border-radius:20px;padding:5px 12px}
+.section-title{font-size:13px;font-weight:800;letter-spacing:0.14em;color:#f472b6;text-align:center;margin:0 0 16px}
+.how-step strong{color:#fff}
 .tagline{font-family:'Playfair Display',Georgia,serif;font-size:17px;font-weight:700;color:#fff;text-align:center;margin-bottom:36px}
 .card{background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.14);border-radius:16px;padding:28px 24px;margin-bottom:48px}
 .form-group{margin-bottom:16px}
@@ -70,17 +79,24 @@ footer a{color:#f472b6;text-decoration:none}
 </div>
 <div class="wrap">
  <div id="perf-block"><div class="perf-block"><div class="perf-eyebrow">Loading…</div></div></div>
+ <div class="facts"><span class="fact">HWTC Studio, Winter Garden</span><span class="fact">Free</span><span class="fact">For the HWTC family</span></div>
+ <div class="must-signup" role="note">
+  <div class="ms-title">Everyone needs to sign up, whether you're performing or just watching.</div>
+  <p id="must-signup-text">Space in the studio is limited, so you can't just show up. Spots are given out by a random drawing (a lottery), not first come, first served. Sign up below to be in it.</p>
+  <a href="#form-area" class="ms-jump" id="ms-jump" style="display:none">Sign up now &darr;</a>
+ </div>
  <div class="intro">
   <p>Welcome to <strong>Studio After Dark</strong>, our monthly series created exclusively for our HWTC family.</p>
   <p>Try a song, read a monologue, share something you wrote, experiment with a character, do something completely ridiculous, or just come hang out and cheer on your fellow theater kids.</p>
  </div>
  <div class="no-pressure">No auditions. No pressure. No expectations.</div>
  <div class="monthly-note">Studio After Dark happens the <strong>first Saturday of every month</strong>, so if you can't make this one, there's always next month.</div>
- <div class="how-it-works-link">HOW IT WORKS</div>
+ <div class="section-title">HOW IT WORKS</div>
  <div class="how-it-works-body">
-  <div class="how-step"><span class="how-num">1</span><span>Enter the lottery as a <strong style="color:#fff">Performer</strong> or an <strong style="color:#fff">Audience Member</strong>.</span></div>
-  <div class="how-step"><span class="how-num">2</span><span>The drawing happens the <strong style="color:#fff">Friday before</strong> the show. If you're selected, we'll email you to confirm your spot.</span></div>
-  <div class="how-step"><span class="how-num">3</span><span>Performer order is picked live, at random, <strong style="color:#fff">during the event itself</strong> — so stick around all night, you never know when you'll be called up!</span></div>
+  <div class="how-step"><span class="how-num">1</span><span><strong>Sign up below</strong> with the email you use with HWTC. Choose <strong>Performer</strong> (you'll perform and watch) or <strong>Audience Member</strong> (just watching). <span id="how-open-when"></span></span></div>
+  <div class="how-step"><span class="how-num">2</span><span>We hold a <strong>random drawing</strong> <span id="how-draw-when">the Friday before the show</span>. Everyone who signed up gets an email saying whether they got a spot.</span></div>
+  <div class="how-step"><span class="how-num">3</span><span>Got a spot? <strong>Confirm it</strong> using the link in that email, or it goes to the next person on the list.</span></div>
+  <div class="how-step"><span class="how-num">4</span><span>On the night, check in at the door with your confirmation. Performer order is picked live, at random, <strong>during the event</strong>, so stick around all night. You never know when you'll be called up!</span></div>
  </div>
  <div class="tagline">The studio is yours after dark.</div>
  <div id="form-area"><div class="card closed-card" style="color:rgba(255,255,255,0.4)">Loading…</div></div>
@@ -124,10 +140,19 @@ async function boot(){
 
 function renderPerfBlock(ev){
  var statusHtml = ev.open
-  ? '<span class="lottery-status open"><span class="dot"></span>Lottery Now Open</span>'
-  : '<span class="lottery-status closed"><span class="dot"></span>Lottery Closed</span>'
+  ? '<span class="lottery-status open"><span class="dot"></span>Sign-ups open now</span>'
+  : '<span class="lottery-status closed"><span class="dot"></span>Sign-ups not open</span>'
+ // spell out the spots and dates in the "everyone signs up" box and the steps
+ var ms = document.getElementById('must-signup-text')
+ if(ms) ms.innerHTML = 'There are <strong style="color:#fff">' + escH(ev.performer_slots||15) + ' performer spots</strong> and <strong style="color:#fff">' + escH(ev.audience_slots||40)
+   + ' audience seats</strong>, so you can\'t just show up. Spots are given out by a random drawing (a lottery), not first come, first served. Sign up below to be in it.'
+ var mj = document.getElementById('ms-jump'); if(mj) mj.style.display = ev.open ? 'inline-block' : 'none'
+ var ow = document.getElementById('how-open-when')
+ if(ow && !ev.open && ev.lottery_status === 'not_open' && ev.scheduled_open_at_utc) ow.textContent = 'Sign-ups open ' + formatFullDateTime(ev.scheduled_open_at_utc) + '.'
+ var dw = document.getElementById('how-draw-when')
+ if(dw && ev.scheduled_draw_at_utc) dw.textContent = 'on ' + formatFullDateTime(ev.scheduled_draw_at_utc)
  document.getElementById('perf-block').innerHTML = `<div class="perf-block">
-  <div class="perf-eyebrow">Next Performance</div>
+  <div class="perf-eyebrow">Next Studio After Dark</div>
   <div class="perf-date">${formatEventDate(ev.event_date)}</div>
   <div class="perf-time">${escH(ev.start_time||'')}${ev.end_time?' – '+escH(ev.end_time):''}</div>
   ${statusHtml}
@@ -149,9 +174,9 @@ function renderNotOpenYet(ev){
  if(ev.lottery_status === 'not_open'){
   if(ev.scheduled_open_at){
    body += `<div id="countdown-area"></div>
-    <div class="countdown-note">The lottery opens ${formatFullDateTime(ev.scheduled_open_at_utc)}</div>`
+    <div class="countdown-note">Sign-ups open ${formatFullDateTime(ev.scheduled_open_at_utc)}. Come back then to sign up to perform or watch.</div>`
   } else {
-   body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">The lottery opens the Sunday before the show — check back then!</div>`
+   body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">Sign-ups open the Sunday before the show. Check back then!</div>`
   }
   if(ev.scheduled_draw_at){
    body += `<div class="draw-note"> The lottery drawing takes place ${formatFullDateTime(ev.scheduled_draw_at_utc)}</div>`
@@ -160,7 +185,7 @@ function renderNotOpenYet(ev){
   // Already been through its open period (closed / drawn / confirmations
   // sent / check-in open) — the scheduled_open_at date is in the past now
   // and would be misleading to show as if it's still upcoming.
-  body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">Entries are closed for this one.</div>`
+  body += `<div style="font-size:15px;color:rgba(255,255,255,0.6)">Sign-ups are closed for this one.</div>`
   body += ev.scheduled_draw_at
    ? `<div class="draw-note" style="margin-top:10px">The drawing takes place ${formatFullDateTime(ev.scheduled_draw_at_utc)} — if you entered, watch your email!</div>`
    : `<div class="draw-note" style="margin-top:10px">If you entered, watch your email for the drawing results!</div>`
@@ -205,20 +230,23 @@ function renderForm(ev){
  document.getElementById('form-area').innerHTML = `<div class="card">
  <div id="form-status"></div>
  <div class="form-group">
- <label>Your Email</label>
+ <div style="font-size:18px;font-weight:800;color:#fff;margin-bottom:4px">Sign up</div>
+ <div style="font-size:13.5px;color:rgba(255,255,255,0.65);margin-bottom:16px">Performers and audience both sign up here.</div>
+ <label for="entry-email">Your email</label>
  <input type="email" id="entry-email" placeholder="you@example.com" autocomplete="email"/>
+ <div style="font-size:12px;color:rgba(255,255,255,0.45);margin-top:6px">Use the email you use with HWTC (the one we send emails to).</div>
  </div>
- <label>Enter the lottery as…</label>
+ <label>I'm signing up as…</label>
  <label class="opt-row" for="opt-performer">
  <input type="radio" name="sad-role" id="opt-performer"/>
- <div><div class="opt-title">Performer</div><div class="opt-desc">You'll perform <em>and</em> be there the whole night to support everyone else, too. Performer order is picked live, at random, during the event itself.</div></div>
+ <div><div class="opt-title">Performer</div><div class="opt-desc">You want to perform something. You'll also be there the whole night as part of the audience, so you don't need to sign up twice.</div></div>
  </label>
  <label class="opt-row" for="opt-audience">
  <input type="radio" name="sad-role" id="opt-audience" checked/>
- <div><div class="opt-title">Audience Member</div><div class="opt-desc">You just want to come watch and cheer on your friends — no interest in performing.</div></div>
+ <div><div class="opt-title">Audience Member</div><div class="opt-desc">You want to come watch and cheer everyone on, without performing. You still need to sign up to get a seat.</div></div>
  </label>
- <button class="btn" id="submit-btn" onclick="submitEntry()">Enter the Lottery</button>
- <div class="hint">Entering doesn't guarantee a spot — the drawing happens the Friday before. We'll email you to confirm your spot.</div>
+ <button class="btn" id="submit-btn" onclick="submitEntry()">Sign me up</button>
+ <div class="hint">Signing up puts you in the drawing; it doesn't guarantee a spot. We'll email you either way after the drawing.</div>
  </div>`
 }
 
@@ -233,7 +261,7 @@ async function submitEntry(){
  var statusEl = document.getElementById('form-status')
  if(!email){ statusEl.innerHTML = '<div class="status-msg error">Please enter your email.</div>'; return }
  var btn = document.getElementById('submit-btn')
- btn.disabled = true; btn.textContent = 'Entering…'
+ btn.disabled = true; btn.textContent = 'Signing you up…'
  statusEl.innerHTML = ''
  try{
   var res = await fetch('/api/public/sad/enter', {
@@ -243,17 +271,17 @@ async function submitEntry(){
   var data = await res.json()
   if(!data.ok){
    statusEl.innerHTML = '<div class="status-msg error">'+escH(data.error||'Something went wrong.')+'</div>'
-   btn.disabled = false; btn.textContent = 'Enter the Lottery'
+   btn.disabled = false; btn.textContent = 'Sign me up'
    return
   }
   document.getElementById('form-area').innerHTML = `<div class="card confirm-box">
    <div class="check">✓</div>
-   <h2>You're entered!</h2>
-   <p>We've sent a confirmation to your email. The lottery drawing happens the Friday before the show — if you're selected, we'll email you to confirm your spot. Keep an eye out!</p>
+   <h2>You're signed up!</h2>
+   <p>You're in the drawing. We've emailed you a confirmation. After the drawing we'll email you whether you got a spot, and if you did, how to confirm it. Keep an eye on your inbox (and spam folder).</p>
   </div>`
  } catch(e){
   statusEl.innerHTML = '<div class="status-msg error">Something went wrong — please try again.</div>'
-  btn.disabled = false; btn.textContent = 'Enter the Lottery'
+  btn.disabled = false; btn.textContent = 'Sign me up'
  }
 }
 

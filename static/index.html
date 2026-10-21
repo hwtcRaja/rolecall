@@ -455,6 +455,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('surveys',this)"><span class="nav-icon" id="ni-surveys"></span>Surveys</div>
         <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers"></span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors"></span>Directors</div>
+        <div class="nav-item" onclick="navTo('patrons',this)"><span class="nav-icon" id="ni-patrons"></span>Patrons</div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
         <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
@@ -1288,6 +1289,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </section>
 
  <!-- TALENT DATABASE PAGE -->
+ <section class="page" id="page-patrons">
+ <div class="page-header">
+ <div><div class="page-title">Patrons</div>
+ <div class="page-subtitle">Everyone who has bought tickets: what they've seen, how often they come back, and how to reach them. Test orders aren't included.</div></div>
+ </div>
+ <div class="page-body"><div id="patrons-body"></div></div>
+ </section>
+
  <section class="page" id="page-talent">
  <div class="page-header">
  <div><div class="page-title">Talent Database</div>
@@ -3060,6 +3069,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-patrons">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Patrons</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-patrons" placeholder="users-round" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('patrons',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-responsibility">
  <span style="font-size:16px"></span>
  </div>
@@ -4644,6 +4664,7 @@ const NAV_PERM_MAP = {
  'show-contracts': 'show_contracts',
  'licensing': 'licensing',
  'talent': 'talent',
+ 'patrons': 'patrons',
  'youth': 'youth',
  'youth-programs-page': 'programs',
  'rising-stars-page':'rising_stars',
@@ -4845,6 +4866,7 @@ function navTo(page,el){
  if(page==='show-contracts') loadShowContractsPage()
  if(page==='licensing') loadLicensingPage()
  if(page==='talent') loadTalentPage()
+ if(page==='patrons') loadPatronsPage()
  if(page==='settings') loadSettings()
  if(page==='email-templates-page') loadEmailTemplatesPage()
  if(page==='portal-admin'){ renderPortalAdmin() }
@@ -11078,7 +11100,7 @@ const NAV_ICON_DEFAULTS = {
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-benefits':'', 'donor-templates':'',
   board:'', directors:'', 'my-time':'', 'space-requests':'', surveys:'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
-  oncall:'', 'hours-store':'', responsibility:'', licensing:'', talent:'', inbox:'',
+  oncall:'', 'hours-store':'', responsibility:'', licensing:'', talent:'', inbox:'', patrons:'',
  'instructor-dashboard':'', 'director-dashboard':'', 'foh-training':'', 'studio-after-dark':''
 }
 
@@ -13965,6 +13987,150 @@ async function toggleAuditionTabVisible(contextType, contextId, containerId, new
 // ── Talent Database ──────────────────────────────────────────────────────
 var _talentQuery = ''
 var _talentTimer = null
+// ── Patron Database ──
+var _pat = {data: null, q: '', seg: 'all', show: '', sort: 'last', tag: ''}
+async function loadPatronsPage(){
+ var body = document.getElementById('patrons-body'); if(!body) return
+ body.innerHTML = '<div class="loading"><div class="spinner"></div>Loading patrons…</div>'
+ var d = await api('/api/patrons')
+ if(!d || d.error){ body.innerHTML = '<div style="padding:20px;color:var(--text-muted)">'+escHtml((d&&d.error)||'Could not load patrons')+'</div>'; return }
+ _pat.data = d
+ renderPatronsPage()
+}
+function _patMoney(c){ return '$'+((c||0)/100).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0}) }
+function _patFiltered(){
+ var d = _pat.data, q = _pat.q.toLowerCase().trim()
+ var yearAgo = new Date(Date.now()-365*86400000).toISOString().slice(0,10)
+ var list = d.patrons.filter(function(p){
+   if(q && [p.name,p.email,p.phone].join(' ').toLowerCase().indexOf(q) < 0) return false
+   if(_pat.show && p.shows.indexOf(_pat.show) < 0) return false
+   if(_pat.tag && (p.tags||[]).indexOf(_pat.tag) < 0) return false
+   switch(_pat.seg){
+     case 'repeat': return p.shows_count >= 2
+     case 'once': return p.shows_count === 1
+     case 'lapsed': return p.last_purchase && p.last_purchase < yearAgo
+     case 'donors': return p.is_donor
+     case 'notdonors': return !p.is_donor
+     case 'volunteers': return p.is_volunteer
+     case 'presale': return p.presale_orders > 0
+   }
+   return true
+ })
+ var by = {last: function(a,b){ return String(b.last_purchase).localeCompare(String(a.last_purchase)) },
+   spent: function(a,b){ return b.spent_cents - a.spent_cents }, shows: function(a,b){ return b.shows_count - a.shows_count || b.tickets - a.tickets },
+   name: function(a,b){ return String(a.name).localeCompare(String(b.name)) }, first: function(a,b){ return String(a.first_purchase).localeCompare(String(b.first_purchase)) }}
+ return list.sort(by[_pat.sort] || by.last)
+}
+function renderPatronsPage(){
+ var d = _pat.data, sm = d.summary, body = document.getElementById('patrons-body')
+ var tags = Array.from(new Set([].concat.apply([], d.patrons.map(function(p){ return p.tags||[] })))).sort()
+ var card = function(v, l, sub){ return '<div class="card" style="padding:14px 16px"><div style="font-size:22px;font-weight:800">'+v+'</div><div style="font-size:12px;color:var(--text-muted);font-weight:600">'+l+'</div>'+(sub?'<div style="font-size:11px;color:var(--text-hint)">'+sub+'</div>':'')+'</div>' }
+ var h = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:10px;margin-bottom:14px">'
+   + card(sm.patrons.toLocaleString(), 'Patrons', 'have bought tickets')
+   + card(sm.repeat_rate+'%', 'Come back', sm.repeat+' bought for 2+ shows')
+   + card(sm.tickets.toLocaleString(), 'Tickets', sm.orders+' orders')
+   + card(_patMoney(sm.revenue_cents), 'Spent on tickets', 'incl. service fees')
+   + card(sm.avg_party, 'Avg. party size', 'tickets per order')
+   + card(sm.donors, 'Are donors', 'of '+sm.patrons+' patrons')
+   + card(sm.volunteers, 'Are volunteers', 'of '+sm.patrons+' patrons')
+   + '</div>'
+ // trends: new vs returning by show, and favorite days
+ var tr = d.show_trend, maxP = Math.max.apply(null, tr.map(function(s){ return s.patrons }).concat([1]))
+ var wd = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'], wmax = Math.max.apply(null, wd.map(function(x){ return d.weekday_tickets[x]||0 }).concat([1]))
+ h += '<div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;margin-bottom:14px">'
+   + '<div class="card" style="padding:14px 16px"><div style="font-size:13px;font-weight:700;margin-bottom:2px">New vs. returning patrons by show</div>'
+   + '<div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px"><span style="display:inline-block;width:10px;height:10px;background:#16728b;border-radius:2px"></span> returning (bought before) &nbsp; <span style="display:inline-block;width:10px;height:10px;background:#f4b740;border-radius:2px"></span> first-time</div>'
+   + (tr.length ? tr.map(function(s){
+       var rw = s.returning*100/maxP, nw = s.new*100/maxP
+       return '<div style="display:grid;grid-template-columns:150px 1fr 110px;gap:8px;align-items:center;margin-bottom:6px;font-size:12px">'
+         + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(s.name)+'">'+escHtml(s.name)+'</span>'
+         + '<div style="display:flex;height:14px;background:var(--bg);border-radius:4px;overflow:hidden"><div style="width:'+rw+'%;background:#16728b"></div><div style="width:'+nw+'%;background:#f4b740"></div></div>'
+         + '<span style="text-align:right;color:var(--text-muted);white-space:nowrap">'+s.patrons+' · '+(s.patrons?Math.round(s.returning*100/s.patrons):0)+'% returning</span></div>' }).join('')
+     : '<div style="color:var(--text-muted);font-size:12.5px">No ticket sales yet.</div>')
+   + '</div>'
+   + '<div class="card" style="padding:14px 16px"><div style="font-size:13px;font-weight:700;margin-bottom:10px">Tickets by performance day</div>'
+   + wd.map(function(x){ var n = d.weekday_tickets[x]||0; return '<div style="display:grid;grid-template-columns:34px 1fr 40px;gap:6px;align-items:center;margin-bottom:5px;font-size:12px"><span>'+x+'</span><div style="height:12px;background:var(--bg);border-radius:4px"><div style="height:100%;width:'+(n*100/wmax)+'%;background:#16728b;border-radius:4px"></div></div><span style="text-align:right;color:var(--text-muted)">'+n+'</span></div>' }).join('')
+   + '</div></div>'
+ // filters
+ var segs = [['all','Everyone'],['repeat','Repeat (2+ shows)'],['once','One show'],['lapsed','Lapsed (12+ months)'],['presale','Pre-sale buyers'],['donors','Donors'],['notdonors','Not donors yet'],['volunteers','Volunteers']]
+ h += '<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border)">'
+   + '<input id="pat-q" placeholder="Search name, email or phone…" value="'+escHtml(_pat.q)+'" oninput="_pat.q=this.value;clearTimeout(window._patT);window._patT=setTimeout(renderPatronList,200)" style="width:240px;padding:7px 10px;font-size:13px"/>'
+   + '<select onchange="_pat.seg=this.value;renderPatronList()" style="width:auto;padding:6px 8px;font-size:13px">'+segs.map(function(s){ return '<option value="'+s[0]+'"'+(_pat.seg===s[0]?' selected':'')+'>'+s[1]+'</option>' }).join('')+'</select>'
+   + '<select onchange="_pat.show=this.value;renderPatronList()" style="width:auto;max-width:200px;padding:6px 8px;font-size:13px"><option value="">Any show</option>'+d.productions.map(function(p){ return '<option'+(_pat.show===p.name?' selected':'')+'>'+escHtml(p.name)+'</option>' }).join('')+'</select>'
+   + (tags.length ? '<select onchange="_pat.tag=this.value;renderPatronList()" style="width:auto;padding:6px 8px;font-size:13px"><option value="">Any tag</option>'+tags.map(function(t){ return '<option'+(_pat.tag===t?' selected':'')+'>'+escHtml(t)+'</option>' }).join('')+'</select>' : '')
+   + '<select onchange="_pat.sort=this.value;renderPatronList()" style="width:auto;padding:6px 8px;font-size:13px">'+[['last','Most recent buyer'],['spent','Spent most'],['shows','Most shows'],['first','Longest-standing'],['name','Name A–Z']].map(function(s){ return '<option value="'+s[0]+'"'+(_pat.sort===s[0]?' selected':'')+'>'+s[1]+'</option>' }).join('')+'</select>'
+   + '<span id="pat-count" style="font-size:12px;color:var(--text-muted)"></span><span style="flex:1"></span>'
+   + '<button class="btn btn-secondary btn-sm" onclick="copyPatronEmails()">Copy emails</button>'
+   + '<button class="btn btn-secondary btn-sm" onclick="exportPatrons()">Export CSV</button></div>'
+   + '<div id="pat-list" style="max-height:62vh;overflow:auto"></div></div>'
+ body.innerHTML = h
+ renderPatronList()
+}
+function renderPatronList(){
+ var list = _patFiltered(), el = document.getElementById('pat-list'); if(!el) return
+ document.getElementById('pat-count').textContent = list.length.toLocaleString()+' patron'+(list.length===1?'':'s')
+ var badge = function(t, bg, fg){ return '<span style="font-size:10px;font-weight:800;color:'+fg+';background:'+bg+';border-radius:8px;padding:1px 7px;margin-left:4px">'+t+'</span>' }
+ el.innerHTML = list.length ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;background:var(--bg);position:sticky;top:0">'
+   + '<th style="padding:8px 14px">Patron</th><th style="padding:8px">Shows</th><th style="padding:8px">Tickets</th><th style="padding:8px">Spent</th><th style="padding:8px">Last bought</th><th style="padding:8px">Usually</th></tr></thead><tbody>'
+   + list.slice(0, 500).map(function(p){
+       return '<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="openPatron(\''+escHtml(p.key).replace(/'/g,"\\'")+'\')">'
+         + '<td style="padding:9px 14px"><div style="font-weight:600">'+escHtml(p.name||p.email)
+         + (p.is_donor?badge('DONOR','#fce7f3','#9d174d'):'')+(p.is_volunteer?badge('VOLUNTEER','#e0f2fe','#075985'):'')+(p.do_not_email?badge('NO EMAIL','#f1f5f9','#64748b'):'')
+         + (p.tags||[]).map(function(t){ return badge(escHtml(t).toUpperCase(),'#fef3c7','#92400e') }).join('') + '</div>'
+         + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(p.email)+(p.phone?' · '+escHtml(p.phone):'')+'</div></td>'
+         + '<td style="padding:9px 8px" title="'+escHtml(p.shows.join(', '))+'"><strong>'+p.shows_count+'</strong></td>'
+         + '<td style="padding:9px 8px">'+p.tickets+'</td>'
+         + '<td style="padding:9px 8px">'+_patMoney(p.spent_cents)+'</td>'
+         + '<td style="padding:9px 8px;white-space:nowrap">'+escHtml(p.last_purchase ? tkFmtDate(p.last_purchase) : '')+'</td>'
+         + '<td style="padding:9px 8px;font-size:12px;color:var(--text-muted)">'+(p.favorite_day?escHtml(p.favorite_day)+'s':'')+(p.avg_party?' · '+p.avg_party+' tix':'')+'</td></tr>'
+     }).join('') + '</tbody></table>' + (list.length > 500 ? '<div style="padding:10px 14px;font-size:12px;color:var(--text-muted)">Showing the first 500. Narrow the search, or export for the full list.</div>' : '')
+   : '<div style="padding:24px;color:var(--text-muted);font-size:13px">No patrons match.</div>'
+}
+async function openPatron(key){
+ var p = await api('/api/patrons/detail?key='+encodeURIComponent(key))
+ if(!p || p.error){ toast((p&&p.error)||'Could not load','error'); return }
+ window._patOpen = p
+ var stat = function(v,l){ return '<div style="background:var(--bg);border-radius:8px;padding:8px 10px"><div style="font-size:16px;font-weight:800">'+v+'</div><div style="font-size:11px;color:var(--text-muted)">'+l+'</div></div>' }
+ var html = '<div style="font-size:13px;margin-bottom:10px">'+(p.email?'<a href="mailto:'+escHtml(p.email)+'">'+escHtml(p.email)+'</a>':'')+(p.phone?' · <a href="tel:'+escHtml(p.phone)+'">'+escHtml(p.phone)+'</a>':'')
+   + (p.is_donor?' · <a href="#" onclick="closeAdHocModal(\'patron-modal\');navTo(\'donors\');return false">Donor record</a>':'')
+   + (p.is_volunteer?' · <a href="#" onclick="closeAdHocModal(\'patron-modal\');openVolunteerProfile&&openVolunteerProfile(\''+p.volunteer_id+'\');return false">Volunteer profile</a>':'')+'</div>'
+   + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">'
+   + stat(p.shows_count,'shows') + stat(p.tickets,'tickets') + stat(_patMoney(p.spent_cents),'spent') + stat(p.attended_rate!=null?p.attended_rate+'%':'—','tickets scanned in')
+   + '</div><div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">First bought '+escHtml(tkFmtDate(p.first_purchase))+' · usually '+(p.favorite_day?escHtml(p.favorite_day)+'s, ':'')+p.avg_party+' tickets'
+   + (p.avg_lead_days!=null?' · buys about '+p.avg_lead_days+' days ahead':'')+(p.presale_orders?' · '+p.presale_orders+' pre-sale order'+(p.presale_orders===1?'':'s'):'')+'</div>'
+   + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Orders</div>'
+   + '<div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin-bottom:12px">'
+   + p.orders_list.map(function(o){ return '<div style="display:flex;gap:10px;padding:7px 10px;border-bottom:1px solid var(--border);font-size:12.5px"><div style="flex:1"><strong>'+escHtml(o.production_name)+'</strong> · '+escHtml(tkFmtDate(o.performance_date))+(o.performance_time?' '+escHtml(tkFmtTime(o.performance_time)):'')
+       + '<div style="color:var(--text-muted)">'+escHtml((o.seats||[]).join(', '))+(o.channel==='presale'?' · pre-sale':o.channel==='box_office'?' · box office':'')+' · bought '+escHtml(o.bought_at.slice(0,10))+'</div></div>'
+       + '<div style="white-space:nowrap">'+_patMoney((o.total_cents||0)+(o.service_fee_cents||0))+'</div></div>' }).join('') + '</div>'
+   + (p.donations && p.donations.length ? '<div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Donations</div><div style="font-size:12.5px;margin-bottom:12px">'
+       + p.donations.map(function(dn){ return '<div>$'+Number(dn.amount).toLocaleString()+' · '+escHtml(dn.donation_date)+(dn.campaign?' · '+escHtml(dn.campaign):'')+'</div>' }).join('')+'</div>' : '')
+   + '<div class="form-group"><label>Tags (comma separated)</label><input id="pat-tags" value="'+escHtml((p.tags||[]).join(', '))+'" placeholder="e.g. Season subscriber, Cast family, Group sales"/></div>'
+   + '<div class="form-group"><label>Notes</label><textarea id="pat-notes" rows="3" placeholder="Seating needs, preferences, history…">'+escHtml(p.notes||'')+'</textarea></div>'
+   + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:12px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500"><input type="checkbox" id="pat-dne" '+(p.do_not_email?'checked':'')+' style="width:auto"/> Don\'t include in patron email lists</label>'
+   + (canEdit('patrons')||canEdit('ticketing') ? '<button class="btn btn-primary" style="width:100%" onclick="savePatron()">Save</button>' : '')
+ showAdHocModal('patron-modal', escHtml(p.name || p.email), html, 620)
+}
+async function savePatron(){
+ var p = window._patOpen
+ var r = await api('/api/patrons/profile','PUT',{key: p.key, notes: document.getElementById('pat-notes').value,
+   tags: document.getElementById('pat-tags').value.split(',').map(function(t){ return t.trim() }).filter(Boolean),
+   do_not_email: document.getElementById('pat-dne').checked})
+ if(r.error){ toast(r.error,'error'); return }
+ closeAdHocModal('patron-modal'); toast('Saved','success'); loadPatronsPage()
+}
+function copyPatronEmails(){
+ var list = _patFiltered().filter(function(p){ return !p.do_not_email && p.email })
+ navigator.clipboard.writeText(list.map(function(p){ return p.email }).join(', ')).then(function(){ toast('Copied '+list.length+' emails (skipping anyone marked no email)','success') })
+}
+function exportPatrons(){
+ var esc = function(v){ v = String(v==null?'':v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v }
+ var rows = [['Name','Email','Phone','Shows','Show names','Orders','Tickets','Spent','First purchase','Last purchase','Favorite day','Avg party','Pre-sale orders','Donor','Volunteer','Tags','No email']]
+ _patFiltered().forEach(function(p){ rows.push([p.name,p.email,p.phone,p.shows_count,p.shows.join('; '),p.orders,p.tickets,(p.spent_cents/100).toFixed(2),p.first_purchase,p.last_purchase,p.favorite_day,p.avg_party,p.presale_orders,p.is_donor?'Yes':'',p.is_volunteer?'Yes':'',(p.tags||[]).join('; '),p.do_not_email?'Yes':'']) })
+ var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff'+rows.map(function(r){ return r.map(esc).join(',') }).join('\n')],{type:'text/csv'}))
+ a.download = 'hwtc-patrons.csv'; document.body.appendChild(a); a.click(); a.remove()
+}
+
 async function loadTalentPage(){
  const el = document.getElementById('talent-list'); if(!el) return
  el.innerHTML = '<div class="loading"><div class="spinner"></div>Loading…</div>'
@@ -19144,6 +19310,7 @@ async function resetUserPassword(uid, name){
 
 const PERM_SECTIONS = [
  {key:'volunteers', label:'Volunteers', desc:'Volunteer profiles & history'},
+ {key:'patrons', label:'Patrons', desc:'Patron database: everyone who has bought tickets, contact info, shows seen, spending, trends, notes and tags. Has buyers\' emails and phone numbers.'},
  {key:'waivers', label:'  ↳ Waivers', desc:'Waivers page: signed waivers and waiver types', parent:'volunteers'},
  {key:'directors', label:'Directors', desc:'Director interest & submissions'},
  {key:'events', label:'Events & Calendar', desc:'Create and manage events'},

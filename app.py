@@ -8960,9 +8960,10 @@ def send_sad_announcement():
     volunteers = fetchall(conn, "SELECT name, email FROM volunteers WHERE status='active' AND email IS NOT NULL AND email != ''") or []
     conn.close()
     sent = 0
+    facts = _sad_next_event_facts()
     for v in volunteers:
         try:
-            _send_sad_announcement_email(v)
+            _send_sad_announcement_email(v, facts)
             sent += 1
         except Exception as e:
             app.logger.warning(f'SAD announcement email failed for {v.get("email")}: {e}')
@@ -8989,30 +8990,99 @@ def send_sad_announcement_test():
         return jsonify({'error': str(e)}), 500
     return jsonify({'ok': True})
 
-def _send_sad_announcement_email(volunteer):
+def _sad_next_event_facts(conn=None):
+    """Date, time, place and lottery dates of the next Studio After Dark,
+    formatted for emails. Empty values when nothing is scheduled."""
+    own = conn is None
+    conn = conn or get_db()
+    try:
+        ev = fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status != 'completed'
+            ORDER BY event_date ASC LIMIT 1""")
+    finally:
+        if own:
+            conn.close()
+    if not ev:
+        return {}
+    d = parse_db_datetime(ev['event_date'])
+    opens = parse_db_datetime(ev.get('scheduled_open_at') or ev.get('lottery_opens_at'))
+    closes = parse_db_datetime(ev.get('lottery_closes_at'))
+    draw = parse_db_datetime(ev.get('scheduled_draw_at'))
+    return {
+        'date': d.strftime('%A, %B %-d') if d else str(ev['event_date']),
+        'time': f"{ev.get('start_time') or '7:30 PM'} to {ev.get('end_time') or '10:00 PM'}",
+        'performers': ev.get('performer_slots') or 15,
+        'audience': ev.get('audience_slots') or 40,
+        'opens': opens.strftime('%A, %B %-d at %-I:%M %p') if opens else '',
+        'closes': closes.strftime('%A, %B %-d at %-I:%M %p') if closes else '',
+        'draw': draw.strftime('%A, %B %-d at %-I:%M %p') if draw else '',
+        'is_open': ev.get('lottery_status') == 'open',
+    }
+
+
+def _sad_explainer_html(f):
+    """The plain-English 'what is this and how do I go' block shared by the
+    Studio After Dark emails."""
+    pink = '#f472b6'
+    row = lambda k, v: (f'<tr><td style="padding:6px 0;color:rgba(255,255,255,0.55);font-size:13px;width:92px;vertical-align:top">{k}</td>'
+                        f'<td style="padding:6px 0;color:#fff;font-size:14.5px;font-weight:600">{v}</td></tr>')
+    when = (f'{f["date"]}<br><span style="font-weight:500;color:rgba(255,255,255,0.75)">{f["time"]}</span>' if f.get('date')
+            else 'The first Saturday of every month')
+    facts = ('<table style="width:100%;border-collapse:collapse;margin:4px 0 18px">'
+             + row('When', when)
+             + row('Where', 'HWTC Studio<br><span style="font-weight:500;color:rgba(255,255,255,0.75)">1220 Winter Garden Vineland Rd, Suite 108, Winter Garden</span>')
+             + row('Cost', 'Free')
+             + '</table>')
+    step = lambda n, t: (f'<tr><td style="width:30px;vertical-align:top;padding:5px 0"><div style="width:22px;height:22px;border-radius:11px;background:{pink};'
+                         f'color:#0b0714;font-weight:800;font-size:12px;text-align:center;line-height:22px">{n}</div></td>'
+                         f'<td style="padding:5px 0;font-size:14.5px;line-height:1.55;color:rgba(255,255,255,0.88)">{t}</td></tr>')
+    lottery_when = ''
+    if f.get('opens') and not f.get('is_open'):
+        lottery_when = f' Sign-ups open <strong>{f["opens"]} ET</strong>.'
+    if f.get('draw'):
+        lottery_when += f' The drawing is <strong>{f["draw"]} ET</strong>.'
+    elif f.get('closes'):
+        lottery_when += f' Sign-ups close <strong>{f["closes"]} ET</strong>.'
+    return (
+        '<p style="margin:0 0 14px"><strong>Studio After Dark</strong> is our monthly night in the HWTC Studio, just for the HWTC family. '
+        'Try a song, read a monologue, share something you wrote, experiment with a character, do something completely ridiculous, '
+        'or just come hang out and cheer everyone on. <strong>No auditions. No pressure. No expectations.</strong></p>'
+        + facts
+        + f'<div style="background:rgba(236,72,153,0.14);border:1px solid rgba(244,114,182,0.45);border-radius:10px;padding:14px 16px;margin:0 0 18px">'
+          f'<div style="font-size:15px;font-weight:800;color:#fff;margin-bottom:4px">Everyone needs to sign up, performers and audience.</div>'
+          f'<div style="font-size:14px;line-height:1.55;color:rgba(255,255,255,0.85)">Space is limited ({f.get("performers", 15)} performer spots and '
+          f'{f.get("audience", 40)} audience seats), so you can\'t just show up. Spots are given out by a random draw, not first come, first served.{lottery_when}</div></div>'
+        + '<div style="font-size:14px;font-weight:800;color:#fff;margin:0 0 4px">How it works</div>'
+        + '<table style="width:100%;border-collapse:collapse;margin:0 0 18px">'
+        + step(1, 'Tap the button below and enter <strong>the email you use with HWTC</strong>.')
+        + step(2, 'Choose <strong>Performer</strong> (you\'ll perform and watch) or <strong>Audience Member</strong> (just watching).')
+        + step(3, 'We hold a random drawing ' + (f'on <strong>{f["draw"]} ET</strong>' if f.get('draw') else '<strong>the Friday before the show</strong>')
+               + ' and <strong>email everyone</strong> whether they got a spot.')
+        + step(4, 'Got a spot? <strong>Confirm it</strong> from that email by the deadline, or it goes to someone else.')
+        + step(5, 'On the night, check in at the door with your confirmation. Performer order is picked live, at random, so stick around all night.')
+        + '</table>'
+    )
+
+
+def _send_sad_announcement_email(volunteer, facts=None):
+    """The program announcement: what Studio After Dark is, when and where,
+    that performers AND audience both have to sign up, and exactly how."""
     from html import escape
+    f = facts if facts is not None else _sad_next_event_facts()
     first_name = (volunteer.get('name') or '').strip().split(' ')[0]
     landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
     ghost_light_url = 'https://rolecall.hwtco.org/static/images/ghost-light.png'
-    # Personalized tagline as the subject and the email's headline, e.g.
-    # "Ryan, the studio is yours after dark." Falls back to the plain
-    # tagline when there's no name on file. The name IS the greeting now,
-    # so there's no separate "Hi Ryan," line above the image.
-    if first_name:
-        subject = f"{first_name}, the studio is yours after dark."
-    else:
-        subject = "The studio is yours after dark."
-    # The tagline already appears once as the subject/header (via
-    # build_sad_email_html) — repeating it again in the body was piling up
-    # logo + heading + ghost light + tagline + button into one crowded
-    # email. Just the image and the button here; the header carries the rest.
+    when = f' on {f["date"]}' if f.get('date') else ''
+    subject = (f"{first_name}, sign up for Studio After Dark{when}" if first_name else f"Sign up for Studio After Dark{when}")
+    cta = 'Sign up to perform or watch' if f.get('is_open') or not f.get('opens') else 'See the details'
     body = (
-        f'<div style="text-align:center;margin:8px 0 28px">'
-        f'<img src="{ghost_light_url}" alt="A ghost light" width="120" style="width:120px;height:auto;display:inline-block"/></div>'
-        f'<p style="text-align:center;margin:0 0 22px">Every <strong>first Saturday of the month</strong> at the HWTC Studio. '
-        f'Can\'t make the next one? There\'s always next month.</p>'
-        f'<p style="text-align:center;margin:0 0 8px">'
-        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Learn More</a></p>'
+        f'<div style="text-align:center;margin:4px 0 18px">'
+        f'<img src="{ghost_light_url}" alt="A ghost light" width="90" style="width:90px;height:auto;display:inline-block"/></div>'
+        + (f'<p style="margin:0 0 14px">Hi {escape(first_name)},</p>' if first_name else '')
+        + _sad_explainer_html(f)
+        + f'<p style="text-align:center;margin:0 0 10px">'
+          f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 30px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">{cta}</a></p>'
+        + (f'<p style="text-align:center;font-size:13px;color:rgba(255,255,255,0.6);margin:0">Sign-ups open {escape(f["opens"])}. The button takes you to the page either way.</p>'
+           if f.get('opens') and not f.get('is_open') else '')
     )
     send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
 
@@ -9037,22 +9107,20 @@ def _send_sad_lottery_open_email(volunteer, ev):
     first_name = (volunteer.get('name') or '').strip().split(' ')[0]
     landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
     ghost_light_url = 'https://rolecall.hwtco.org/static/images/ghost-light.png'
+    f = _sad_next_event_facts()
+    f['is_open'] = True
     event_dt = parse_db_datetime(ev['event_date'])
     event_date_fmt = event_dt.strftime('%A, %B %-d') if event_dt else str(ev['event_date'])
-    subject = f"{first_name}, the lottery is open!" if first_name else "The lottery is open!"
-    deadline_dt = parse_db_datetime(ev.get('lottery_closes_at'))
-    deadline_line = ''
-    if deadline_dt:
-        deadline_line = (f'<p style="text-align:center;font-size:13px;color:rgba(255,255,255,0.6);margin:0 0 22px">'
-            f'Entries close {deadline_dt.strftime("%A, %B %-d at %-I:%M %p")} ET</p>')
+    subject = (f"{first_name}, sign-ups are open: Studio After Dark {event_date_fmt}" if first_name
+               else f"Sign-ups are open: Studio After Dark {event_date_fmt}")
     body = (
-        f'<div style="text-align:center;margin:8px 0 20px">'
-        f'<img src="{ghost_light_url}" alt="A ghost light" width="100" style="width:100px;height:auto;display:inline-block"/></div>'
-        f'<p style="text-align:center;font-size:19px;font-weight:700;color:#fff;margin:0 0 8px">Studio After Dark — {event_date_fmt}</p>'
-        f'<p style="text-align:center;margin:0 0 18px">The lottery is open. Get your name in before it closes.</p>'
-        f'{deadline_line}'
-        f'<p style="text-align:center;margin:0 0 8px">'
-        f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Enter Now</a></p>'
+        f'<div style="text-align:center;margin:4px 0 18px">'
+        f'<img src="{ghost_light_url}" alt="A ghost light" width="90" style="width:90px;height:auto;display:inline-block"/></div>'
+        + (f'<p style="margin:0 0 14px">Hi {escape(first_name)},</p>' if first_name else '')
+        + '<p style="margin:0 0 14px">Sign-ups for the next Studio After Dark are <strong>open now</strong>.</p>'
+        + _sad_explainer_html(f)
+        + f'<p style="text-align:center;margin:0 0 8px">'
+          f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 30px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Sign up to perform or watch</a></p>'
     )
     send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
 

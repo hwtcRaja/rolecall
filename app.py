@@ -6434,6 +6434,38 @@ def get_hours():
     conn.close()
     return jsonify(rows)
 
+
+# ── One block of time per person per event ────────────────────────────────
+# People were getting credited twice for the same event: an ELIC opens an
+# event (their time is logged automatically when they close it) and then
+# also logs hours at the kiosk, or someone submits the same event twice.
+def existing_event_credit(conn, volunteer_id, event_id, ignore_attendance_id=None):
+    """A plain-English reason if this person already has (or will get) time
+    for this event, else None."""
+    if not volunteer_id or not event_id:
+        return None
+    h = fetchone(conn, 'SELECT hours FROM hours WHERE volunteer_id=%s AND event_id=%s LIMIT 1', (volunteer_id, event_id))
+    if h:
+        return f'You already have {h["hours"]:g} hours logged for this event.'
+    ph = fetchone(conn, "SELECT hours FROM pending_hours WHERE volunteer_id=%s AND event_id=%s AND status IN ('pending','approved') LIMIT 1",
+                  (volunteer_id, event_id))
+    if ph:
+        return f'You already submitted {ph["hours"]:g} hours for this event (waiting for approval).'
+    ks = fetchone(conn, "SELECT 1 AS x FROM kiosk_sessions WHERE volunteer_id=%s AND event_id=%s AND status='active'", (volunteer_id, event_id))
+    if ks:
+        return 'You\'re already signed in for this event. Your time is counting.'
+    pa = fetchone(conn, 'SELECT id FROM prod_attendance WHERE volunteer_id=%s AND event_id=%s AND signed_out_at IS NULL', (volunteer_id, event_id))
+    if pa and pa['id'] != ignore_attendance_id:
+        return 'You\'re already signed in to this production session. Your time is counting.'
+    # the ELIC who opened the event gets their time automatically at close
+    el = fetchone(conn, """SELECT 1 AS x FROM event_logs l JOIN elics e ON e.id=l.elic_id
+        WHERE l.event_id=%s AND e.volunteer_id=%s AND l.action='open'
+          AND NOT EXISTS (SELECT 1 FROM event_logs c WHERE c.event_id=l.event_id AND c.action='close' AND c.timestamp > l.timestamp)""",
+        (event_id, volunteer_id))
+    if el:
+        return 'You opened this event as the ELIC, so your time is logged automatically when you close it. No need to log hours too.'
+    return None
+
 @app.route('/api/hours', methods=['POST'])
 def create_hours():
     err = require_permission('hours')
@@ -6442,6 +6474,13 @@ def create_hours():
     hid = str(uuid.uuid4())
     pay_type = 'paid_instruction' if d.get('pay_type') == 'paid_instruction' else 'volunteer'
     conn = get_db()
+    if d.get('event_id') and not d.get('allow_duplicate'):
+        dup = existing_event_credit(conn, d.get('volunteer_id'), d.get('event_id'))
+        if dup:
+            conn.close()
+            return jsonify({'error': dup.replace('You already have', 'They already have').replace('You already submitted', 'They already submitted')
+                            .replace("You're", "They're").replace('You opened', 'They opened').replace('your time', 'their time'),
+                            'duplicate': True}), 409
     execute(conn, 'INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
             (hid, d.get('volunteer_id'), d.get('event',''), d.get('event_id'), d.get('date',''), d.get('hours',0), d.get('role',''), d.get('notes',''), pay_type))
     conn.commit()
@@ -14397,6 +14436,12 @@ def approve_pending_hours(hid):
     conn = get_db()
     ph = fetchone(conn, 'SELECT * FROM pending_hours WHERE id=%s', (hid,))
     if not ph: conn.close(); return jsonify({'error': 'Not found'}), 404
+    if ph.get('event_id') and not (request.json or {}).get('allow_duplicate'):
+        have = fetchone(conn, 'SELECT hours FROM hours WHERE volunteer_id=%s AND event_id=%s LIMIT 1', (ph['volunteer_id'], ph['event_id']))
+        if have:
+            conn.close()
+            return jsonify({'error': f'They already have {have["hours"]:g} approved hours for this event. Reject this entry, or edit the existing one if it\'s wrong.',
+                            'duplicate': True}), 409
     pid = str(uuid.uuid4())
     try:
         execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type)
@@ -15490,6 +15535,77 @@ def sync_prod_cast_from_registrations(pid):
 # auditions before everyone has a RoleCall record). They show with a
 # "Not in RoleCall" flag; "Link" connects one to their real record once it
 # exists, carrying their role over, and the placeholder goes away.
+@app.route('/api/productions/<pid>/run-attendance', methods=['GET'])
+def production_run_attendance(pid):
+    """Everyone on the show x every rehearsal/performance: who signed in,
+    for how long, who had a reported conflict, and who was missing. Covers
+    adults (production sign-in), youth (parent pickup sign-in) and names
+    added by hand."""
+    err = require_auth()
+    if err: return err
+    import datetime as _dt
+    conn = get_db()
+    try:
+        events = fetchall(conn, '''SELECT id, name, event_date, start_time FROM events
+            WHERE production_id=%s AND COALESCE(status,'') <> 'cancelled' ORDER BY event_date, start_time''', (pid,)) or []
+        today = today_eastern().isoformat()
+        ev_ids = [e['id'] for e in events]
+        people = []
+        for m in fetchall(conn, '''SELECT pm.volunteer_id AS pid, v.name, pm.role, pm.department FROM production_members pm
+                JOIN volunteers v ON v.id=pm.volunteer_id WHERE pm.production_id=%s AND COALESCE(pm.status,'') <> 'dropped'
+                ORDER BY pm.department, v.name''', (pid,)) or []:
+            people.append({'key': 'v:' + m['pid'], 'kind': 'adult', 'name': m['name'], 'role': m.get('role') or '',
+                           'group': m.get('department') or 'Cast & Crew'})
+        for y in fetchall(conn, '''SELECT ypm.youth_id AS pid, y.first_name||' '||y.last_name AS name, ypm.role FROM youth_production_members ypm
+                JOIN youth_participants y ON y.id=ypm.youth_id WHERE ypm.production_id=%s ORDER BY y.last_name, y.first_name''', (pid,)) or []:
+            people.append({'key': 'y:' + y['pid'], 'kind': 'youth', 'name': y['name'], 'role': y.get('role') or '', 'group': 'Youth'})
+        for c in fetchall(conn, 'SELECT id, name, role, kind FROM production_pending_cast WHERE production_id=%s ORDER BY name', (pid,)) or []:
+            people.append({'key': 'pc:' + c['id'], 'kind': 'pending', 'name': c['name'], 'role': c.get('role') or '',
+                           'group': 'Added by name', 'not_in_rolecall': True})
+        cells = {}
+        def put(key, eid, cell):
+            cur = cells.setdefault(key, {}).get(eid)
+            if not cur or cell.get('status') == 'in':
+                cells[key][eid] = cell
+        if ev_ids:
+            def _t(v):
+                return v.strftime('%-I:%M %p') if hasattr(v, 'strftime') else ''
+            for a in fetchall(conn, 'SELECT volunteer_id, event_id, signed_in_at, signed_out_at FROM prod_attendance WHERE event_id = ANY(%s)', (ev_ids,)) or []:
+                put('v:' + a['volunteer_id'], a['event_id'], {'status': 'in', 'in': _t(a['signed_in_at']), 'out': _t(a['signed_out_at'])})
+            for a in fetchall(conn, 'SELECT youth_id, event_id, signed_in_at, signed_out_at FROM youth_sign_ins WHERE event_id = ANY(%s)', (ev_ids,)) or []:
+                put('y:' + a['youth_id'], a['event_id'], {'status': 'in', 'in': _t(a['signed_in_at']), 'out': _t(a['signed_out_at'])})
+            for a in fetchall(conn, 'SELECT pending_cast_id, event_id, signed_in_at, signed_out_at FROM pending_cast_attendance WHERE event_id = ANY(%s)', (ev_ids,)) or []:
+                put('pc:' + a['pending_cast_id'], a['event_id'], {'status': 'in', 'in': _t(a['signed_in_at']), 'out': _t(a['signed_out_at'])})
+            # time credited by any route (kiosk session, ELIC, staff) also counts as being there
+            hrs = {}
+            for h in fetchall(conn, '''SELECT volunteer_id, event_id, SUM(hours) AS h FROM hours WHERE event_id = ANY(%s) GROUP BY volunteer_id, event_id''', (ev_ids,)) or []:
+                hrs[(h['volunteer_id'], h['event_id'])] = ('approved', float(h['h'] or 0))
+            for h in fetchall(conn, '''SELECT volunteer_id, event_id, SUM(hours) AS h FROM pending_hours WHERE event_id = ANY(%s) AND status='pending' GROUP BY volunteer_id, event_id''', (ev_ids,)) or []:
+                hrs.setdefault((h['volunteer_id'], h['event_id']), ('pending', float(h['h'] or 0)))
+            for (vid, eid), (st, h) in hrs.items():
+                key = 'v:' + vid
+                c = cells.setdefault(key, {}).get(eid) or {'status': 'in'}
+                c['hours'] = round(h, 2); c['hours_status'] = st
+                cells[key][eid] = c
+            for c in fetchall(conn, '''SELECT event_id, youth_id, volunteer_id, status, notes FROM production_conflicts
+                    WHERE production_id=%s AND event_id IS NOT NULL''', (pid,)) or []:
+                key = ('y:' + c['youth_id']) if c.get('youth_id') else ('v:' + c['volunteer_id']) if c.get('volunteer_id') else None
+                if key and not (cells.get(key) or {}).get(c['event_id']):
+                    cells.setdefault(key, {})[c['event_id']] = {'status': 'conflict', 'note': c.get('notes') or c.get('status') or ''}
+        past = [e for e in events if str(e['event_date'])[:10] <= today]
+        for p in people:
+            row = cells.get(p['key'], {})
+            p['attended'] = sum(1 for e in past if (row.get(e['id']) or {}).get('status') == 'in')
+            p['conflicts'] = sum(1 for e in past if (row.get(e['id']) or {}).get('status') == 'conflict')
+            p['missed'] = len(past) - p['attended'] - p['conflicts']
+            p['hours'] = round(sum((c.get('hours') or 0) for c in row.values()), 2)
+        return jsonify({'events': [{'id': e['id'], 'name': e['name'], 'date': str(e['event_date'])[:10], 'time': e.get('start_time') or '',
+                                    'past': str(e['event_date'])[:10] <= today} for e in events],
+                        'people': people, 'cells': cells, 'past_count': len(past)})
+    finally:
+        conn.close()
+
+
 @app.route('/api/productions/<pid>/pending-cast', methods=['GET', 'POST'])
 def production_pending_cast(pid):
     err = require_auth()
@@ -16438,6 +16554,9 @@ def kiosk_submit():
         return jsonify({'error': 'Invalid hours value'}), 400
     pid = str(uuid.uuid4())
     conn = get_db()
+    dup = existing_event_credit(conn, d.get('volunteer_id'), d.get('event_id'))
+    if dup:
+        conn.close(); return jsonify({'error': dup, 'duplicate': True}), 409
     pay_type = determine_kiosk_pay_type(conn, d.get('volunteer_id'), d.get('event_id'))
     if d.get('paid_instruction'):
         pay_type = 'paid_instruction'
@@ -16570,6 +16689,9 @@ def kiosk_begin_session():
                 return jsonify({'error': 'This event is not open yet. Please wait for staff to open it.'}), 400
     existing = fetchone(conn, "SELECT id FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (vol_id,))
     if existing: conn.close(); return jsonify({'error': 'Already volunteering  -  please stop your current session first.'}), 400
+    dup = existing_event_credit(conn, vol_id, event_id) if event_id else None
+    if dup:
+        conn.close(); return jsonify({'error': dup, 'duplicate': True}), 409
     event_name = d.get('event_name','')
     if event_id and not event_name:
         evt = fetchone(conn, 'SELECT name FROM events WHERE id=%s', (event_id,))
@@ -16680,6 +16802,9 @@ def kiosk_log_full_event():
         pay_type = 'paid_instruction'
     evt = fetchone(conn, 'SELECT * FROM events WHERE id=%s', (event_id,))
     if not evt: conn.close(); return jsonify({'error': 'Event not found'}), 404
+    dup = existing_event_credit(conn, vol_id, event_id)
+    if dup:
+        conn.close(); return jsonify({'error': dup, 'duplicate': True}), 409
     hours = None
     if evt.get('start_time') and evt.get('end_time'):
         try:
@@ -18291,6 +18416,11 @@ def kiosk_production_signin():
             conn.close()
         return jsonify(r)
     conn = get_db()
+    _h0 = fetchone(conn, 'SELECT hours FROM hours WHERE volunteer_id=%s AND event_id=%s LIMIT 1', (vol_id, event_id)) or \
+          fetchone(conn, "SELECT hours FROM pending_hours WHERE volunteer_id=%s AND event_id=%s AND status IN ('pending','approved') LIMIT 1", (vol_id, event_id))
+    if _h0:
+        conn.close()
+        return jsonify({'error': f'Already credited {_h0["hours"]:g} hours for this session, so they can\'t be signed in again.', 'duplicate': True}), 409
     existing = fetchone(conn,
         'SELECT id FROM prod_attendance WHERE volunteer_id=%s AND event_id=%s AND signed_out_at IS NULL',
         (vol_id, event_id))
@@ -18349,6 +18479,12 @@ def kiosk_production_signout():
     today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
 
     execute(conn, 'UPDATE prod_attendance SET signed_out_at=NOW() WHERE id=%s', (att['id'],))
+    dup = existing_event_credit(conn, vol_id, event_id, ignore_attendance_id=att['id'])
+    if dup and 'signed in' not in dup:
+        # already credited for this event another way (e.g. they're the ELIC,
+        # or hours were logged separately): attendance is kept, no second entry
+        conn.commit(); conn.close()
+        return jsonify({'ok': True, 'hours': 0, 'note': 'Signed out. Time for this event was already credited, so no extra hours were added.'})
     pid = str(uuid.uuid4())
     execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
@@ -18589,6 +18725,8 @@ def kiosk_close_event():
             "SELECT * FROM pending_hours WHERE event_id=%s AND status='pending'", (event_id,))
         for ph in pending:
             hid = str(uuid.uuid4())
+            if fetchone(conn, 'SELECT 1 AS x FROM hours WHERE volunteer_id=%s AND event_id=%s', (ph['volunteer_id'], ph['event_id'])):
+                continue   # already has approved time for this event
             try:
                 execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type)
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
@@ -18611,7 +18749,8 @@ def kiosk_close_event():
                 JOIN volunteers v ON v.id=el.volunteer_id
                 JOIN events e ON e.id=%s
                 WHERE el.id=%s''', (event_id, elic_id))
-            if open_log and elic_vol:
+            already = elic_vol and fetchone(conn, 'SELECT 1 AS x FROM hours WHERE volunteer_id=%s AND event_id=%s', (elic_vol['id'], event_id))
+            if open_log and elic_vol and not already:
                 import datetime as _dtel
                 from zoneinfo import ZoneInfo as _ZIelic
                 open_time = open_log['timestamp']
@@ -19880,7 +20019,7 @@ def elic_packet_html(elic, settings, events):
               + _pk_steps(['On the kiosk, tap <b>Start volunteering</b>.', 'Find your name.', 'Pick the event and start.', 'Tap <b>Stop</b> when you leave.'])
               + '</td>'
               '<td class="whoc"><div class="whot">Cast members</div>'
-              '<p>Performers (not crew) <b>don\'t log volunteer hours</b>. Sign them in and out on the kiosk to take attendance for the rehearsal or show.</p>'
+              '<p>Cast sign in and out on <b>Production Sign-In</b>, like crew. Their rehearsal and show time counts as <b>volunteer hours</b> and their attendance is tracked.</p>'
               '<div class="whot" style="margin-top:8px">Paid instructors</div>'
               '<p>They sign in with their own instructor PIN and start their time on their class. With no ELIC there, they can open their own class.</p></td>'
               '<td class="whoc"><div class="whot">Kids</div>'
@@ -19908,7 +20047,9 @@ def elic_packet_html(elic, settings, events):
             '<b>Kids are never alone with one adult.</b> Keep two adults in the room or within sight.',
             f'<b>Injuries or incidents:</b> take care of the person first, then {call} the same day.',
             '<b>Something broken or running low:</b> note it in the closing checklist.',
-            f'<b>Running late or can\'t make it:</b> {call} as early as you can.']))
+            f'<b>Running late or can\'t make it:</b> {call} as early as you can.',
+            '<b>Your own hours:</b> as the ELIC, your time is logged automatically from when you open the event to when you close it. '
+            'Don\'t log hours for it separately; the kiosk won\'t let anyone log the same event twice.']))
 
         + section('9', 'Your upcoming events',
             ('<table class="ev"><tr><th width="24%">Date</th><th width="16%">Time</th><th>Event</th></tr>' + ev_rows + '</table>'
@@ -29756,6 +29897,9 @@ def my_submit_hours():
         return jsonify({'error': 'Hours must be greater than 0'}), 400
     hid = str(_umh.uuid4())
     event_id = d.get('event_id') or None
+    dup = existing_event_credit(conn, vol['id'], event_id) if event_id else None
+    if dup:
+        conn.close(); return jsonify({'error': dup, 'duplicate': True}), 409
     # Same auto-detection the kiosk uses — paid-instruction status shouldn't
     # depend on which of the two hour-logging paths someone happens to use.
     pay_type = determine_kiosk_pay_type(conn, vol['id'], event_id)

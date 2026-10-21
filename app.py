@@ -31545,7 +31545,7 @@ def _gmail_list_all_labels(imap_conn):
     except Exception:
         return []
 
-def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in_reply_to=None, cc_emails='', bcc_emails='', attachments=None):
+def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in_reply_to=None, cc_emails='', bcc_emails='', attachments=None, references=None):
     """Inserts a copy of a message RoleCall just sent (via Resend) into
     Gmail's own Sent Mail folder, using IMAP APPEND. Resend delivers the
     email but never touches Gmail's servers, so without this step a
@@ -31574,7 +31574,7 @@ def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in
         msg['Message-ID'] = message_id
         if in_reply_to:
             msg['In-Reply-To'] = in_reply_to
-            msg['References'] = in_reply_to
+            msg['References'] = references or in_reply_to
         msg.set_content('This message contains HTML content. Please view it in an HTML-capable mail client.')
         msg.add_alternative(html_body, subtype='html')
         for att in (attachments or []):
@@ -31603,7 +31603,7 @@ def _imap_append_sent_copy(to_email, to_name, subject, html_body, message_id, in
     except Exception as e:
         app.logger.warning(f'IMAP append to Sent folder failed (non-fatal, message was still sent): {e}')
 
-def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name, in_reply_to_message_id=None, to_name='', cc_emails='', bcc_emails='', attachments=None):
+def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name, in_reply_to_message_id=None, to_name='', cc_emails='', bcc_emails='', attachments=None, references=None):
     """Sends a reply as info@ and records it on the thread. Threads
     properly in the recipient's client via In-Reply-To/References when we
     have a message-id to reference; always safe to call without one.
@@ -31632,7 +31632,7 @@ def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name
     headers = {'Message-ID': our_message_id}
     if in_reply_to_message_id:
         headers['In-Reply-To'] = in_reply_to_message_id
-        headers['References'] = in_reply_to_message_id
+        headers['References'] = references or in_reply_to_message_id
     from_email = _inbox_credentials()[0] or 'info@hwtco.org'
     resend_attachments = None
     if attachments:
@@ -31663,7 +31663,7 @@ def send_inbox_reply(conn, thread_id, to_email, subject, html_body, sent_by_name
         status=CASE WHEN status='open' THEN 'pending' ELSE status END WHERE id=%s""", (thread_id,))
     try:
         _imap_append_sent_copy(to_email, to_name, subject, html_body, our_message_id, in_reply_to_message_id,
-            cc_emails, bcc_emails, attachments)
+            cc_emails, bcc_emails, attachments, references)
     except Exception as e:
         app.logger.warning(f'Sent-folder sync error (non-fatal): {e}')
     return ok, err
@@ -32186,16 +32186,32 @@ def reply_to_inbox_thread(tid):
     if not thread.get('participant_email'):
         conn.close()
         return jsonify({'error': 'This thread has no reply-to email on file'}), 400
-    last_inbound = fetchone(conn, """SELECT message_id FROM inbox_messages WHERE thread_id=%s AND direction='inbound'
-        ORDER BY created_at DESC LIMIT 1""", (tid,))
+    # Reply to the latest message in the conversation (theirs or ours), and
+    # list every earlier message in References, so it lands in the same
+    # thread in Gmail, Outlook and Apple Mail.
+    chain = fetchall(conn, """SELECT message_id, direction, from_name, from_email, body_html, body_text, created_at
+        FROM inbox_messages WHERE thread_id=%s AND COALESCE(message_id,'')<>'' ORDER BY created_at""", (tid,)) or []
+    last_msg = chain[-1] if chain else None
     subject = thread.get('subject') or '(no subject)'
     if not subject.lower().startswith('re:'):
         subject = f'Re: {subject}'
     user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
     sent_by_name = (user or {}).get('name', 'Staff')
+    # Quote the message being answered under the reply, like any email
+    # program does, so the person sees what we're responding to.
+    if last_msg and d.get('include_quote', True):
+        import html as _hm
+        when = last_msg['created_at'].strftime('%a, %b %-d, %Y at %-I:%M %p') if hasattr(last_msg.get('created_at'), 'strftime') else ''
+        who = 'Horizon West Theater Company' if last_msg.get('direction') == 'outbound' else (last_msg.get('from_name') or last_msg.get('from_email') or '')
+        prev = last_msg.get('body_html') or ('<div style="white-space:pre-wrap">' + _hm.escape(last_msg.get('body_text') or '') + '</div>')
+        prev = _re_module().sub(r'(?is)<(script|style)[^>]*>.*?</\1>', '', prev)
+        body_html = (body_html + '<br><div class="gmail_quote" style="margin-top:16px">'
+                     + f'<div style="color:#5f6b72;font-size:13px">On {_hm.escape(when)}, {_hm.escape(who)} wrote:</div>'
+                     + '<blockquote style="margin:6px 0 0;padding:0 0 0 12px;border-left:3px solid #d0d7db;color:#5f6b72">' + prev + '</blockquote></div>')
     ok, send_err = send_inbox_reply(conn, tid, thread['participant_email'], subject, body_html, sent_by_name,
-        (last_inbound or {}).get('message_id'), thread.get('participant_name') or '',
-        (d.get('cc_emails') or '').strip(), (d.get('bcc_emails') or '').strip(), attachments)
+        (last_msg or {}).get('message_id'), thread.get('participant_name') or '',
+        (d.get('cc_emails') or '').strip(), (d.get('bcc_emails') or '').strip(), attachments,
+        references=' '.join(m['message_id'] for m in chain[-20:]))
     conn.commit(); conn.close()
     if not ok:
         return jsonify({'error': send_err or 'Could not send reply'}), 400

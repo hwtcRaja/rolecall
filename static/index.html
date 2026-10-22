@@ -2196,8 +2196,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn btn-primary btn-sm" onclick="addPaidInstructor()">Add</button>
  </div>
  </div>
+    <div class="settings-section" style="font-size:13px;color:var(--text-muted)">Instructors teaching on their own do a short opening checklist once a day and a closing checklist after their last lesson. <a href="#" onclick="switchSettingsPanel('checklists', Array.from(document.querySelectorAll('.settings-nav-btn')).find(function(b){ return /Checklists/.test(b.textContent) }));return false">Edit those lists in Checklists →</a></div>
+   </div>
+
+   <div id="settings-panel-checklists" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Checklists</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Opening and closing checklist templates for events</div>
     <div class="settings-section">
-     <div style="font-weight:600;font-size:15px;margin-bottom:4px">Once-a-day open &amp; close</div>
+     <div style="font-weight:600;font-size:15px;margin-bottom:4px">Paid instructors: once-a-day open &amp; close</div>
      <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">When an instructor is teaching on their own (no ELIC has the building open), the first time they check in each day they tick the opening list, and once after their last lesson they tick the closing list from the kiosk menu. Not per lesson. One item per line.</div>
      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
       <div><label style="font-size:12px;font-weight:600;color:var(--text-muted)">Opening</label><textarea id="idc-open" rows="5" style="width:100%"></textarea></div>
@@ -2207,11 +2213,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
      <div style="font-weight:600;font-size:13px;margin:18px 0 6px">Recent days</div>
      <div id="idc-logs" style="font-size:12.5px"></div>
     </div>
-   </div>
 
-   <div id="settings-panel-checklists" class="settings-panel" style="display:none;">
-    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Checklists</div>
-    <div style="font-size:13px;color:var(--text-muted);margin-bottom:24px">Opening and closing checklist templates for events</div>
     <div class="settings-section">
  <div style="font-weight:600;font-size:15px;margin-bottom:16px"> Closing Checklist Template</div>
  <div id="checklist-items-list" style="margin-bottom:16px"></div>
@@ -12273,7 +12275,7 @@ function switchSettingsPanel(id, btn){
  if(id==='email'||id==='general') loadEmailSettings()
  if(id==='twilio') loadTwilioSettings()
  if(id==='slack') loadSlackTicketSettings()
- if(id==='kiosk') loadInstructorDayLogs()
+ if(id==='kiosk' || id==='checklists') loadInstructorDayLogs()
  if(id==='integrations') bbLoad()
  if(id==='lobby'){ loadLobbyTheme(); loadLobbyImages() }
  if(id==='nav-icons') loadNavIconSettings()

@@ -2196,6 +2196,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button class="btn btn-primary btn-sm" onclick="addPaidInstructor()">Add</button>
  </div>
  </div>
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:15px;margin-bottom:4px">Once-a-day open &amp; close</div>
+     <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px;line-height:1.6">When an instructor is teaching on their own (no ELIC has the building open), the first time they check in each day they tick the opening list, and once after their last lesson they tick the closing list from the kiosk menu. Not per lesson. One item per line.</div>
+     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div><label style="font-size:12px;font-weight:600;color:var(--text-muted)">Opening</label><textarea id="idc-open" rows="5" style="width:100%"></textarea></div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--text-muted)">Closing</label><textarea id="idc-close" rows="5" style="width:100%"></textarea></div>
+     </div>
+     <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveInstructorDayItems()">Save checklists</button>
+     <div style="font-weight:600;font-size:13px;margin:18px 0 6px">Recent days</div>
+     <div id="idc-logs" style="font-size:12.5px"></div>
+    </div>
    </div>
 
    <div id="settings-panel-checklists" class="settings-panel" style="display:none;">
@@ -12262,6 +12273,7 @@ function switchSettingsPanel(id, btn){
  if(id==='email'||id==='general') loadEmailSettings()
  if(id==='twilio') loadTwilioSettings()
  if(id==='slack') loadSlackTicketSettings()
+ if(id==='kiosk') loadInstructorDayLogs()
  if(id==='integrations') bbLoad()
  if(id==='lobby'){ loadLobbyTheme(); loadLobbyImages() }
  if(id==='nav-icons') loadNavIconSettings()
@@ -20067,6 +20079,22 @@ function renderPaidInstructorsSettings(){
  </div>`).join('')
 }
 
+async function loadInstructorDayLogs(){
+ var d = await api('/api/instructor-day-logs'); if(!d || d.error) return
+ var o = document.getElementById('idc-open'), c = document.getElementById('idc-close')
+ if(o && !o.dataset.loaded){ o.value = (d.items.open||[]).join('\n'); c.value = (d.items.close||[]).join('\n'); o.dataset.loaded = '1' }
+ var el = document.getElementById('idc-logs'); if(!el) return
+ el.innerHTML = (d.logs||[]).length ? '<table style="width:100%;border-collapse:collapse">'
+   + '<tr style="text-align:left;color:var(--text-muted)"><th style="padding:4px 6px">Day</th><th style="padding:4px 6px">Instructor</th><th style="padding:4px 6px">Opened</th><th style="padding:4px 6px">Closed</th></tr>'
+   + d.logs.map(function(l){ return '<tr style="border-top:1px solid var(--border)"><td style="padding:5px 6px">'+escHtml(tkFmtDate(l.day))+'</td><td style="padding:5px 6px">'+escHtml(l.name)+'</td><td style="padding:5px 6px">'+(l.opened_at||'—')+'</td><td style="padding:5px 6px;'+(l.opened_at&&!l.closed_at?'color:#b91c1c;font-weight:600':'')+'">'+(l.closed_at||(l.opened_at?'Not closed':'—'))+'</td></tr>' }).join('') + '</table>'
+   : '<div style="color:var(--text-muted)">No instructor open/close days yet.</div>'
+}
+async function saveInstructorDayItems(){
+ var split = function(id){ return document.getElementById(id).value.split('\n').map(function(x){ return x.trim() }).filter(Boolean) }
+ var r = await api('/api/instructor-day-logs','PUT',{open: split('idc-open'), close: split('idc-close')})
+ if(r.error){ toast(r.error,'error'); return }
+ toast('Checklists saved','success')
+}
 async function addPaidInstructor(){
  const volId=document.getElementById('new-pi-vol').value
  const pin=document.getElementById('new-pi-pin').value.trim()

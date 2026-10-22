@@ -996,6 +996,18 @@ function goVolMenu(){
   applySessionModeTheme()
   updateWaiverMenuBtn(waiverIssues.length)
   hideActiveSessionBanner()
+  var cb = document.getElementById('instr-close-day-btn')
+  var day = window._instrDay || {}
+  if(paidInstructionMode && day.opened && !day.closed){
+    if(!cb){
+      cb = document.createElement('button')
+      cb.id = 'instr-close-day-btn'; cb.className = 'menu-btn p'; cb.style.gridColumn = '1/-1'
+      cb.onclick = function(){ showInstructorDayChecklist('close', (window._instrDay||{}).close_items || []) }
+      cb.innerHTML = '<div class="menu-label">Done teaching for today? Close up</div><div class="menu-desc">Do this once, after your last lesson of the day</div>'
+      document.getElementById('vol-menu-grid').appendChild(cb)
+    }
+    cb.style.display = ''
+  } else if(cb){ cb.style.display = 'none' }
   showScreen('screen-vol-menu')
   checkActiveSession()
 }
@@ -1248,7 +1260,57 @@ async function submitPaidInstructionCode(){
   selVol=d.volunteer
   waiverIssues=[]
   paidInstructionMode=true
+  // Teaching on their own today? Open the building once (first check-in of
+  // the day), not for every lesson.
+  try{
+    const day = await (await fetch('/api/kiosk/instructor-day?volunteer_id='+encodeURIComponent(selVol.id))).json()
+    window._instrDay = day
+    if(day && day.needs_open){ showInstructorDayChecklist('open', day.open_items); return }
+  }catch(e){}
   goVolMenu()
+}
+
+// ── Instructor once-a-day checklist ──
+function showInstructorDayChecklist(which, items){
+  var old = document.getElementById('instr-day-ov'); if(old) old.remove()
+  var o = document.createElement('div')
+  o.id = 'instr-day-ov'
+  o.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px'
+  var title = which==='open' ? 'Opening up for today' : 'Closing up for today'
+  var sub = which==='open'
+    ? 'You\'re the first one teaching today, so please open the building. You only do this once today, not for each lesson.'
+    : 'Done teaching for the day? Please close up the building.'
+  o.innerHTML = '<div style="background:#fff;border-radius:20px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:26px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.3)">'
+    + '<div style="font-size:24px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">'+title+'</div>'
+    + '<div style="font-size:14px;color:var(--muted);margin-bottom:14px">'+sub+'</div>'
+    + items.map(function(t,i){ return '<button type="button" class="idc-item" data-i="'+i+'" onclick="this.dataset.on=this.dataset.on===\'1\'?\'0\':\'1\';idcPaint()" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;margin-bottom:10px;border-radius:14px;border:2px solid var(--border);background:var(--surface);font-family:inherit;font-size:16px;font-weight:600;cursor:pointer"><span class="idc-box" style="width:28px;height:28px;border-radius:8px;border:2px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:900"></span><span>'+t.replace(/</g,'&lt;')+'</span></button>' }).join('')
+    + '<div id="idc-err" style="color:#b91c1c;font-size:13px;min-height:18px;margin:4px 0"></div>'
+    + '<div style="display:flex;gap:10px">'
+    + (which==='close' ? '<button type="button" onclick="document.getElementById(\'instr-day-ov\').remove()" style="flex:1;padding:16px;border-radius:14px;border:2px solid var(--border);background:var(--surface);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer">Not yet</button>' : '')
+    + '<button type="button" id="idc-go" onclick="submitInstructorDay(\''+which+'\')" style="flex:2;padding:16px;border-radius:14px;border:none;background:linear-gradient(135deg,#5b21b6,#7c3aed);color:#fff;font-family:inherit;font-size:17px;font-weight:800;cursor:pointer">'+(which==='open'?'Building is open \u2192':'Building is closed')+'</button></div></div>'
+  document.body.appendChild(o)
+  idcPaint()
+}
+function idcPaint(){
+  document.querySelectorAll('.idc-item').forEach(function(b){
+    var on = b.dataset.on === '1'
+    b.style.borderColor = on ? '#16a34a' : 'var(--border)'; b.style.background = on ? '#f0fdf4' : 'var(--surface)'
+    var box = b.querySelector('.idc-box'); box.textContent = on ? '\u2713' : ''; box.style.background = on ? '#16a34a' : '#fff'; box.style.color = '#fff'; box.style.borderColor = on ? '#16a34a' : 'var(--border)'
+  })
+}
+async function submitInstructorDay(which){
+  var items = Array.from(document.querySelectorAll('.idc-item'))
+  if(items.some(function(b){ return b.dataset.on !== '1' })){ document.getElementById('idc-err').textContent = 'Tick each item once it\'s done.'; return }
+  var btn = document.getElementById('idc-go'); btn.disabled = true
+  var responses = items.map(function(b){ return {item: b.querySelector('span:last-child').textContent, done: true} })
+  try{
+    var r = await (await fetch('/api/kiosk/instructor-day/'+which, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({volunteer_id: selVol.id, responses: responses})})).json()
+    if(r.error){ document.getElementById('idc-err').textContent = r.error; btn.disabled = false; return }
+  }catch(e){ document.getElementById('idc-err').textContent = 'Could not save. Try again.'; btn.disabled = false; return }
+  document.getElementById('instr-day-ov').remove()
+  window._instrDay = Object.assign(window._instrDay||{}, which==='open' ? {opened:true, needs_open:false} : {closed:true})
+  if(which==='open') goVolMenu()
+  else { showConfirm('','All closed up','Thanks! The building is closed for today.','', ()=>goIdle()) }
 }
 
 

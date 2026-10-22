@@ -16666,7 +16666,24 @@ def kiosk_events():
             # start and end time; otherwise the timer is used
             if e.get('start_time') and e.get('end_time'):
                 e['auto_log_hours'] = True
+            # what this instructor already has for the class
+            ap = fetchone(conn2, 'SELECT SUM(hours) AS h FROM hours WHERE volunteer_id=%s AND event_id=%s', (volunteer_id, e['id'])) or {}
+            if ap.get('h'):
+                e['my_credit'] = {'status': 'approved', 'hours': float(ap['h'])}
+            else:
+                pd = fetchone(conn2, "SELECT SUM(hours) AS h FROM pending_hours WHERE volunteer_id=%s AND event_id=%s AND status='pending'",
+                              (volunteer_id, e['id'])) or {}
+                if pd.get('h'):
+                    e['my_credit'] = {'status': 'pending', 'hours': float(pd['h'])}
         conn2.close()
+        # next class first (soonest start), then earlier classes (most recent first)
+        now_hm = now_eastern().strftime('%H:%M')
+        def _end(e): return str(e.get('end_time') or e.get('start_time') or '23:59')[:5]
+        upcoming = sorted([e for e in events if _end(e) > now_hm], key=lambda e: str(e.get('start_time') or '99:99')[:5])
+        earlier = sorted([e for e in events if _end(e) <= now_hm], key=lambda e: str(e.get('start_time') or '')[:5], reverse=True)
+        for e in upcoming: e['when'] = 'next'
+        for e in earlier: e['when'] = 'earlier'
+        events = upcoming + earlier
     return jsonify(events)
 
 @app.route('/api/kiosk/submit', methods=['POST'])

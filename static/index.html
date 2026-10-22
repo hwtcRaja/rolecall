@@ -23392,7 +23392,15 @@ async function submitSadTestEmail(){
 }
 
 async function sendSadAnnouncement(){
- if(!confirm("Send the introductory Studio After Dark email to every active volunteer? This is a one-time announcement, not tied to a specific occurrence — best used once, when first launching (or re-launching) the program.")) return
+ // what the email will say, so the confirm matches it
+ var next = (_sadEvents||[]).filter(function(e){ return e.lottery_status !== 'completed' }).sort(function(a,b){ return String(a.event_date).localeCompare(String(b.event_date)) })[0]
+ var when = next ? new Date(String(next.event_date).slice(0,10)+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : ''
+ var msg = 'Send the Studio After Dark announcement to every active volunteer now?\n\n'
+   + (when ? 'It covers the next one, '+when+': what it is, that everyone (performers and audience) has to sign up, and the sign-up and drawing dates.\n\n'
+           : 'No upcoming date is set up, so it will explain the program without a date.\n\n')
+   + 'You don\'t need this every month: RoleCall automatically emails everyone a "sign-ups are open" email when each month\'s sign-ups open. '
+   + 'Use this for an early heads-up or an extra reminder. If you send it the same day sign-ups open, people will get both.'
+ if(!confirm(msg)) return
  const res = await api('/api/sad/announce','POST',{})
  if(res.error){ toast(res.error,'error'); return }
  toast(`Sent to ${res.sent} volunteers!`,'success')

@@ -620,6 +620,27 @@ async function goBeginVolunteering(){
       grid.innerHTML = paidInstructionMode
         ? '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">No paid instruction classes are open for you right now</div>'
         : '<div style="font-size:12px;color:var(--muted);grid-column:1/-1">No events scheduled for today</div>'
+    } else if(paidInstructionMode){
+      // Instructors: next class first, then earlier today. Classes already
+      // logged show what was submitted/approved instead of a button.
+      const t12 = t => { t=(t||'').slice(0,5); if(t.length<5) return ''; const h=+t.slice(0,2), m=t.slice(3,5); return ((h%12)||12)+(m!=='00'?':'+m:'')+(h>=12?' PM':' AM') }
+      const head = txt => '<div style="grid-column:1/-1;font-size:12px;font-weight:800;letter-spacing:0.06em;color:var(--muted);margin:6px 0 0">'+txt+'</div>'
+      let html = '', lastWhen = ''
+      events.forEach(e=>{
+        if(e.when !== lastWhen){ html += head(e.when==='earlier' ? 'EARLIER TODAY' : 'UP NEXT'); lastWhen = e.when }
+        const time = e.start_time ? t12(e.start_time)+(e.end_time?' – '+t12(e.end_time):'') : ''
+        if(e.my_credit){
+          const ok = e.my_credit.status === 'approved'
+          html += '<div id="bv-evt-'+e.id+'" style="padding:12px 14px;border:2px solid '+(ok?'#86efac':'#fcd34d')+';border-radius:var(--radius);background:'+(ok?'#f0fdf4':'#fffbeb')+';font-size:14px;font-weight:600;text-align:left;cursor:default">'
+            + '<div>'+e.name+'</div>'+(time?'<div style="font-size:12px;color:var(--muted);margin-top:2px">'+time+'</div>':'')
+            + '<div style="font-size:11px;font-weight:800;margin-top:6px;color:'+(ok?'#166534':'#92400e')+'">\u2713 '+e.my_credit.hours+' h '+(ok?'approved':'submitted · waiting for approval')+'</div></div>'
+          return
+        }
+        html += '<button id="bv-evt-'+e.id+'" onclick="bvSelectEvent('+JSON.stringify(e).replace(/"/g,'&quot;')+')" style="padding:12px 14px;border:2px solid #a78bfa;border-radius:var(--radius);background:var(--surface);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;text-align:left">'
+          + '<div>'+e.name+'</div>'+(time?'<div style="font-size:12px;color:var(--muted);margin-top:2px">'+time+'</div>':'')
+          + '<div style="font-size:11px;font-weight:700;background:#5b21b6;color:#fff;padding:2px 8px;border-radius:20px;margin-top:6px;display:inline-block">Tap to log this class</div></button>'
+      })
+      grid.innerHTML = html
     } else {
       grid.innerHTML = events.map(e=>{
         const isOpen = e.status === 'open'

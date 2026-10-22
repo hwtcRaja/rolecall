@@ -3169,6 +3169,15 @@ def init_db():
         "ALTER TABLE board_availability ADD COLUMN IF NOT EXISTS virtual_dates TEXT DEFAULT '[]'",
         # the front-door keypad code given to this ELIC (shown on their welcome packet)
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS instructor_day_logs (
+            id TEXT PRIMARY KEY,
+            volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
+            day DATE NOT NULL,
+            opened_at TIMESTAMP,
+            open_responses TEXT DEFAULT '[]',
+            closed_at TIMESTAMP,
+            close_responses TEXT DEFAULT '[]',
+            UNIQUE (volunteer_id, day))""",
         """CREATE TABLE IF NOT EXISTS patron_profiles (
             email_key TEXT PRIMARY KEY,
             notes TEXT DEFAULT '',
@@ -14228,6 +14237,110 @@ def kiosk_elic_auth():
     conn.close()
     return jsonify({'ok': True, 'elic': elic, 'events': events})
 
+def _is_paid_instructor(vid):
+    c = get_db()
+    try:
+        return bool(fetchone(c, 'SELECT 1 AS x FROM paid_instructors WHERE volunteer_id=%s', (vid,)))
+    finally:
+        c.close()
+
+
+# ── Instructor day checklist (once per day, not per lesson) ───────────────
+# A paid instructor teaching on their own (no ELIC has the building open)
+# does a short opening checklist the first time they check in for the day,
+# and a closing checklist once when they're done for the day — not for
+# every lesson. Items are editable in Settings → Paid instructors.
+INSTRUCTOR_DAY_DEFAULTS = {
+    'open': ['Front door unlocked (Inox app, Passage Mode on)', 'Lights on', 'Thermostat set to 72–74°F'],
+    'close': ['All students picked up', 'Lights off', 'Thermostat set back', 'Passage Mode off and front door locked (check it from outside)'],
+}
+
+
+def _instructor_day_items(conn):
+    try:
+        v = json.loads(_setting(conn, 'instructor_day_checklist') or '{}')
+    except Exception:
+        v = {}
+    return {'open': v.get('open') or INSTRUCTOR_DAY_DEFAULTS['open'], 'close': v.get('close') or INSTRUCTOR_DAY_DEFAULTS['close']}
+
+
+def _building_opened_by_elic_today(conn):
+    """An ELIC has an event open right now (opened today, not closed)."""
+    return bool(fetchone(conn, """SELECT 1 AS x FROM event_logs l JOIN events e ON e.id=l.event_id
+        WHERE l.action='open' AND l.elic_id IS NOT NULL
+          AND (l.timestamp AT TIME ZONE 'America/New_York')::date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date
+          AND NOT EXISTS (SELECT 1 FROM event_logs c WHERE c.event_id=l.event_id AND c.action='close' AND c.timestamp > l.timestamp)
+        LIMIT 1"""))
+
+
+@app.route('/api/kiosk/instructor-day', methods=['GET'])
+def kiosk_instructor_day():
+    vid = request.args.get('volunteer_id')
+    if not vid or not _is_paid_instructor(vid):
+        return jsonify({'error': 'Not a paid instructor'}), 400
+    conn = get_db()
+    try:
+        day = today_eastern().isoformat()
+        row = fetchone(conn, 'SELECT * FROM instructor_day_logs WHERE volunteer_id=%s AND day=%s', (vid, day))
+        items = _instructor_day_items(conn)
+        elic_open = _building_opened_by_elic_today(conn)
+        return jsonify({'opened': bool(row and row.get('opened_at')), 'closed': bool(row and row.get('closed_at')),
+                        'needs_open': not (row and row.get('opened_at')) and not elic_open, 'elic_has_building': elic_open,
+                        'open_items': items['open'], 'close_items': items['close']})
+    finally:
+        conn.close()
+
+
+@app.route('/api/kiosk/instructor-day/<which>', methods=['POST'])
+def kiosk_instructor_day_submit(which):
+    if which not in ('open', 'close'):
+        return jsonify({'error': 'Unknown'}), 404
+    d = request.json or {}
+    vid = d.get('volunteer_id')
+    if not vid or not _is_paid_instructor(vid):
+        return jsonify({'error': 'Not a paid instructor'}), 400
+    responses = d.get('responses') or []
+    conn = get_db()
+    try:
+        day = today_eastern().isoformat()
+        row = fetchone(conn, 'SELECT id FROM instructor_day_logs WHERE volunteer_id=%s AND day=%s', (vid, day))
+        if not row:
+            execute(conn, 'INSERT INTO instructor_day_logs (id, volunteer_id, day) VALUES (%s,%s,%s)', (str(uuid.uuid4()), vid, day))
+        col = 'opened_at' if which == 'open' else 'closed_at'
+        rcol = 'open_responses' if which == 'open' else 'close_responses'
+        execute(conn, f'UPDATE instructor_day_logs SET {col}=NOW(), {rcol}=%s WHERE volunteer_id=%s AND day=%s',
+                (json.dumps(responses)[:5000], vid, day))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/instructor-day-logs', methods=['GET', 'PUT'])
+def instructor_day_logs_admin():
+    """Staff: recent instructor open/close days, and (PUT) the checklist items."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            e2 = require_admin()
+            if e2: return e2
+            d = request.json or {}
+            clean = lambda xs: [str(x).strip()[:200] for x in (xs or []) if str(x).strip()][:15]
+            _set_setting(conn, 'instructor_day_checklist', json.dumps({'open': clean(d.get('open')), 'close': clean(d.get('close'))}))
+            conn.commit()
+        rows = fetchall(conn, '''SELECT l.*, v.name FROM instructor_day_logs l JOIN volunteers v ON v.id=l.volunteer_id
+            ORDER BY l.day DESC, v.name LIMIT 60''') or []
+        for r in rows:
+            for k in ('opened_at', 'closed_at'):
+                r[k] = r[k].strftime('%-I:%M %p') if hasattr(r.get(k), 'strftime') else None
+            r['day'] = str(r['day'])[:10]
+        return jsonify({'items': _instructor_day_items(conn), 'logs': rows})
+    finally:
+        conn.close()
+
+
 @app.route('/api/kiosk/paid-instruction-login', methods=['POST'])
 def kiosk_paid_instruction_auth():
     """Per-instructor PIN, same pattern as ELIC login: identifies the person
@@ -16510,7 +16623,8 @@ def kiosk_events():
     params = []
     if paid_instruction:
         extra_join = "LEFT JOIN youth_programs pg ON e.program_id=pg.id"
-        extra_where = "AND pg.is_paid_instruction=TRUE"
+        # instructors only see today's classes (Eastern time)
+        extra_where = "AND pg.is_paid_instruction=TRUE AND e.event_date::date = (CURRENT_TIMESTAMP AT TIME ZONE 'America/New_York')::date"
         if volunteer_id:
             extra_where += " AND pg.instructor_id=%s"
             params.append(volunteer_id)
@@ -16547,6 +16661,11 @@ def kiosk_events():
         for e in events:
             e['can_self_open'] = (e.get('status') != 'open') and (bool(_elic_for_event(conn2, volunteer_id, e['id']))
                                   or determine_kiosk_pay_type(conn2, volunteer_id, e['id']) == 'paid_instruction')
+            # paid instructors are credited for the whole scheduled class in
+            # one tap (no timer to remember to stop), when the class has a
+            # start and end time; otherwise the timer is used
+            if e.get('start_time') and e.get('end_time'):
+                e['auto_log_hours'] = True
         conn2.close()
     return jsonify(events)
 

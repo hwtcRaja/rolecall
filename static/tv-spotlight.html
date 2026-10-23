@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="robots" content="noindex"/>
+<title>Production Mode · HWTC</title>
+<style>
+html,body{margin:0;height:100%;background:#000;overflow:hidden;cursor:none}
+#stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center}
+#stage img,#stage video{width:100%;height:100%;display:block}
+#msg{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.6);font:500 22px -apple-system,Segoe UI,sans-serif;text-align:center;padding:40px}
+</style>
+</head>
+<body>
+<div id="stage"></div>
+<div id="msg">Loading…</div>
+<script>
+// One image or video, filling the screen. Checks every 20 seconds so a
+// replaced file or a changed fit/background shows up without touching the TV.
+var SID = location.pathname.split('/').filter(Boolean).pop()
+var shownVersion = null
+function render(d){
+  document.getElementById('msg').style.display = 'none'
+  document.body.style.background = d.bg || '#000'
+  var stage = document.getElementById('stage'), fit = d.fit === 'cover' ? 'cover' : 'contain'
+  if(d.media_type === 'video'){
+    // muted is required for autoplay on TVs and browsers
+    stage.innerHTML = '<video autoplay muted loop playsinline preload="auto" style="object-fit:'+fit+'"></video>'
+    var v = stage.querySelector('video'); v.src = d.media_url
+    v.play && v.play().catch(function(){})
+  } else {
+    stage.innerHTML = '<img alt="" style="object-fit:'+fit+'"/>'
+    stage.querySelector('img').src = d.media_url
+  }
+  shownVersion = d.version + '|' + d.fit + '|' + d.bg
+}
+async function check(){
+  try{
+    var r = await fetch('/api/public/tv/spotlight/' + encodeURIComponent(SID), {cache:'no-store'})
+    if(r.status === 404){ document.getElementById('stage').innerHTML = ''; var m = document.getElementById('msg'); m.style.display = 'flex'; m.textContent = 'This display was removed.'; return }
+    var d = await r.json()
+    if(d.version + '|' + d.fit + '|' + d.bg !== shownVersion) render(d)
+  }catch(e){}
+}
+check()
+setInterval(check, 20000)
+</script>
+</body>
+</html>

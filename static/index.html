@@ -1919,6 +1919,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <button class="settings-nav-btn" onclick="switchSettingsPanel('twilio',this)">Phone &amp; Twilio</button>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('slack',this)">Slack alerts</button>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('integrations',this)">Integrations</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('tvdisplays',this)">TV Displays</button>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('lobby',this)">Lobby TV</button>
    </div>
 
@@ -2306,6 +2307,21 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div id="email-templates-settings-list" style="margin-bottom:16px"></div>
  <button class="btn btn-primary btn-sm" onclick="openSaveTemplateModal()">+ New Template</button>
  </div>
+   </div>
+
+   <div id="settings-panel-tvdisplays" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">TV Displays</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6">Production Mode: one image or video, full screen, on the lobby TV. Great for a show promo, the cast list, or a sponsor slide. Anything switched <strong>on</strong> here appears as a choice in the TV menu at <strong>rolecall.hwtco.org/tv</strong>.</div>
+    <div class="settings-section">
+     <div style="font-weight:600;font-size:14px;margin-bottom:10px">Add a display</div>
+     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div class="form-group" style="margin:0;flex:1;min-width:200px"><label>Name (shown in the TV menu)</label><input id="tvs-title" placeholder="e.g. Les Mis promo, HSM cast list"/></div>
+      <div class="form-group" style="margin:0;flex:1;min-width:200px"><label>Image or video</label><input type="file" id="tvs-file" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm" style="padding:6px 0"/></div>
+      <button class="btn btn-primary btn-sm" id="tvs-add" onclick="addTvSpotlight()">Upload</button>
+     </div>
+     <div style="font-size:11.5px;color:var(--text-hint);margin-top:6px">Images: JPG, PNG, GIF, WebP. Videos: MP4 works best on TVs; they play muted and loop. For a TV, 1920×1080 (landscape) looks best.</div>
+    </div>
+    <div id="tvs-list"></div>
    </div>
 
    <div id="settings-panel-integrations" class="settings-panel" style="display:none;">
@@ -12277,6 +12293,7 @@ function switchSettingsPanel(id, btn){
  if(id==='slack') loadSlackTicketSettings()
  if(id==='kiosk' || id==='checklists') loadInstructorDayLogs()
  if(id==='integrations') bbLoad()
+ if(id==='tvdisplays') loadTvSpotlights()
  if(id==='lobby'){ loadLobbyTheme(); loadLobbyImages() }
  if(id==='nav-icons') loadNavIconSettings()
 }
@@ -32019,13 +32036,15 @@ const RENTAL_STATUS_COLORS = {
   contracted:'#ede9fe;color:#6d28d9', sent:'#ede9fe;color:#6d28d9',
   signed:'#dcfce7;color:#166534', active:'#dcfce7;color:#166534',
   completed:'#f3f4f6;color:#6b7280', cancelled:'#fee2e2;color:#991b1b',
-  denied:'#fee2e2;color:#991b1b', sent_back:'#fef3c7;color:#92400e'
+  denied:'#fee2e2;color:#991b1b', sent_back:'#fef3c7;color:#92400e',
+  archived:'#f1f5f9;color:#475569'
 }
 const RENTAL_STATUS_LABELS = {
   pending:'Pending Review', approved:'Approved', contracted:'Contract Drafted',
   sent:'Awaiting Signature', signed:'Signed', active:'Active',
   completed:'Completed', cancelled:'Cancelled',
-  denied:'Denied', sent_back:'Sent Back for Changes'
+  denied:'Denied', sent_back:'Sent Back for Changes',
+  archived:'Archived (partner not told)'
 }
 
 // Three partnership categories per HWTC Partnership/Space Use Guidelines —
@@ -32136,7 +32155,7 @@ function renderRentalsPage(){
   // left to make here, so they come out of Needs Attention for good.
   const today = todayLocalISO()
   const hasUpcomingTour = r => !!(r.tour_scheduled_date && r.tour_scheduled_date >= today)
-  const needsAttention = r => !r.awaiting_feedback && !hasUpcomingTour(r) && !['denied','cancelled','signed','active','completed'].includes(r.status)
+  const needsAttention = r => !r.awaiting_feedback && !hasUpcomingTour(r) && !['denied','cancelled','signed','active','completed','archived'].includes(r.status)
   const isOngoing = r => ['signed','active'].includes(r.status)
   const needsAttentionCount = requests.filter(needsAttention).length
   const awaitingFeedbackCount = requests.filter(r=>r.awaiting_feedback).length
@@ -32149,7 +32168,8 @@ function renderRentalsPage(){
     {v:'awaiting_feedback', l:' Awaiting Feedback', c:awaitingFeedbackCount},
     {v:'tour_scheduled', l:' Tour Scheduled', c:tourScheduledCount},
     {v:'completed', l:' Completed', c:completedCount},
-    {v:'all', l:'All', c:requests.length},
+    {v:'archived', l:' Archived', c:requests.filter(r=>r.status==='archived').length},
+    {v:'all', l:'All', c:requests.filter(r=>r.status!=='archived').length},
   ]
   html += '<div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">'
     + filters.map(function(f){
@@ -32163,7 +32183,8 @@ function renderRentalsPage(){
     : _rentalFilter === 'awaiting_feedback' ? requests.filter(r=>r.awaiting_feedback)
     : _rentalFilter === 'tour_scheduled' ? requests.filter(r=>r.tour_scheduled_date)
     : _rentalFilter === 'completed' ? requests.filter(r=>r.status==='completed')
-    : requests
+    : _rentalFilter === 'archived' ? requests.filter(r=>r.status==='archived')
+    : requests.filter(r=>r.status!=='archived')
 
   if(!requests.length){
     html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">No Artistic Partnership requests yet. Click <strong>+ New Partnership Request</strong> to get started.</div>'
@@ -32286,8 +32307,10 @@ function renderRentalsPage(){
            <button class="btn btn-secondary btn-sm" onclick="openScheduleTourModal('${r.id}')"> ${r.tour_scheduled_date?'Reschedule Tour':'Schedule Tour'}</button>
            <button class="btn btn-secondary btn-sm" onclick="openComplianceCheckModal('${r.id}')">Compliance Check</button>
            ${r.recurring?`<button class="btn btn-secondary btn-sm" onclick="viewRentalOccurrences('${r.id}')">Occurrences</button>`:''}
-           ${!['denied','cancelled','signed','active','completed'].includes(r.status)?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
-           ${!['denied','cancelled','signed','active','completed'].includes(r.status)?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','sendback')" style="background:#fef3c7;color:#92400e;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Send Back</button>`:''}
+           ${r.status==='archived'?`<button class="btn btn-sm" onclick="unarchiveRentalRequest('${r.id}')" style="background:#e0f2fe;color:#075985;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">Restore</button>`:''}
+           ${!['denied','cancelled','signed','active','completed','archived'].includes(r.status)?`<button class="btn btn-sm" onclick="archiveRentalRequest('${r.id}')" title="Set aside without telling the partner" style="background:#f1f5f9;color:#475569;border:none;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer">Archive</button>`:''}
+           ${!['denied','cancelled','signed','active','completed','archived'].includes(r.status)?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','deny')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Deny</button>`:''}
+           ${!['denied','cancelled','signed','active','completed','archived'].includes(r.status)?`<button class="btn btn-sm" onclick="openDenyModal('${r.id}','sendback')" style="background:#fef3c7;color:#92400e;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Send Back</button>`:''}
            <button class="btn btn-sm" onclick="deleteRentalRequest('${r.id}')" style="background:#fee2e2;color:#991b1b;border:none;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer">Delete</button>
           </div>
          </details>
@@ -34256,7 +34279,7 @@ function openDenyModal(rid, action){
    <div style="font-size:16px;font-weight:800;color:${isDeny?'#991b1b':'#92400e'};margin-bottom:12px">${isDeny?'Deny Request':'Send Back for Changes'}</div>
    <div style="font-size:13px;color:var(--text-muted);margin-bottom:14px">${isDeny?'The partner will be notified that their request has been denied.':'The request will be reset to pending so it can be edited and resubmitted.'}</div>
    <div class="form-group" style="margin-bottom:16px">
-    <label style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:6px">${isDeny?'Reason for denial':'Reason / Changes needed'}</label>
+    <label style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:6px">${isDeny?'Reason (included in the email to the partner)':'Changes needed (included in the email to the partner)'}</label>
     <textarea id="deny-reason" rows="4" placeholder="${isDeny?'Please provide a reason...':'What needs to be changed or clarified?'}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box"></textarea>
    </div>
    <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -34268,6 +34291,16 @@ function openDenyModal(rid, action){
   document.body.appendChild(overlay)
 }
 
+async function archiveRentalRequest(rid){
+  const note = prompt('Archive this request?\n\nThe partner is NOT emailed and it moves to the Archived filter. You can restore it any time.\n\nPrivate note for your team (optional):', '')
+  if(note === null) return
+  const res = await api('/api/rental/requests/'+rid+'/archive','POST',{note: note})
+  if(res&&res.ok){ toast('Archived. The partner wasn\'t notified','success'); loadRentalsPage() } else toast((res&&res.error)||'Error','error')
+}
+async function unarchiveRentalRequest(rid){
+  const res = await api('/api/rental/requests/'+rid+'/unarchive','POST',{})
+  if(res&&res.ok){ toast('Restored to '+(RENTAL_STATUS_LABELS[res.status]||res.status),'success'); loadRentalsPage() } else toast((res&&res.error)||'Error','error')
+}
 async function submitDenyAction(rid, action){
   const reason = (document.getElementById('deny-reason')||{}).value||''
   const endpoint = action==='deny' ? '/api/rental/requests/'+rid+'/deny' : '/api/rental/requests/'+rid+'/sendback'
@@ -37613,6 +37646,65 @@ async function openTicketingSettings(pid){
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Anyone with this link can buy before the public on-sale time (cast families, donors, members). Share it privately. If you set a pre-sale open time, the link shows its own countdown until then, so you can send it out early. After the public on-sale time it works like the normal page.</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.6"><strong>Performance statuses:</strong> <span style="color:#6d28d9;font-weight:700">Pre-Sale</span> performances can only be bought through this link, and switch to On Sale by themselves at the Public on-sale time. <span style="color:#047857;font-weight:700">On Sale</span> performances are open to everyone (after the on-sale time, if one is set).</div></div>'
     + '<button class="btn btn-primary" style="width:100%" onclick="saveTicketingSettings(\''+pid+'\')">Save</button>')
+}
+
+// ── Settings → TV Displays: Production Mode (full-screen image/video) ──
+async function loadTvSpotlights(){
+ var el = document.getElementById('tvs-list'); if(!el) return
+ var rows = await api('/api/tv/spotlights')
+ if(!Array.isArray(rows)){ el.innerHTML = ''; return }
+ el.innerHTML = rows.length ? rows.map(function(r){
+   var prev = r.media_type === 'video'
+     ? '<video src="'+r.media_url+'" muted loop autoplay playsinline style="width:100%;height:100%;object-fit:'+r.fit+';background:'+r.bg+'"></video>'
+     : '<img src="'+r.media_url+'" alt="" style="width:100%;height:100%;object-fit:'+r.fit+';background:'+r.bg+'"/>'
+   return '<div class="settings-section" style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">'
+     + '<div style="width:220px;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:#000;flex-shrink:0">'+prev+'</div>'
+     + '<div style="flex:1;min-width:240px">'
+     + '<input value="'+escHtml(r.title)+'" onchange="updateTvSpotlight(\''+r.id+'\',{title:this.value})" style="font-weight:700;font-size:14px;margin-bottom:8px"/>'
+     + '<div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:12.5px">'
+     + '<label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:600"><input type="checkbox" '+(r.active?'checked':'')+' onchange="updateTvSpotlight(\''+r.id+'\',{active:this.checked})" style="width:auto"/> Show in TV menu</label>'
+     + '<select onchange="updateTvSpotlight(\''+r.id+'\',{fit:this.value})" style="width:auto;padding:4px 6px;font-size:12px"><option value="contain"'+(r.fit==='contain'?' selected':'')+'>Fit whole image (bars if needed)</option><option value="cover"'+(r.fit==='cover'?' selected':'')+'>Fill the screen (may crop)</option></select>'
+     + '<label style="display:flex;align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:0;font-weight:500">Background <input type="color" value="'+escHtml(r.bg||'#000000')+'" onchange="updateTvSpotlight(\''+r.id+'\',{bg:this.value})" style="width:36px;height:24px;padding:0;border:none"/></label></div>'
+     + '<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">'
+     + '<a class="btn btn-secondary btn-sm" href="'+r.tv_url+'" target="_blank">Open full screen</a>'
+     + '<label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0">Replace file<input type="file" accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm" style="display:none" onchange="replaceTvSpotlight(\''+r.id+'\',this)"/></label>'
+     + '<button class="btn btn-danger btn-sm" onclick="deleteTvSpotlight(\''+r.id+'\')">Delete</button></div>'
+     + '<div style="font-size:11.5px;color:var(--text-hint);margin-top:6px">TVs already showing it update within about 20 seconds when you replace the file or change these settings.</div>'
+     + '</div></div>'
+ }).join('') : '<div style="font-size:13px;color:var(--text-muted)">No displays yet.</div>'
+}
+async function _tvUpload(fd){
+ var r = await fetch('/api/tv/spotlights', {method:'POST', credentials:'include', body: fd})
+ var d = null; try{ d = await r.json() }catch(e){}
+ return r.ok ? {ok:true} : {error: (d && d.error) || ('Upload failed ('+r.status+')')}
+}
+async function addTvSpotlight(){
+ var f = document.getElementById('tvs-file').files[0]
+ if(!f){ toast('Choose an image or video','error'); return }
+ var btn = document.getElementById('tvs-add'); btn.disabled = true; btn.textContent = 'Uploading…'
+ var fd = new FormData(); fd.append('file', f); fd.append('title', document.getElementById('tvs-title').value)
+ var r = await _tvUpload(fd)
+ btn.disabled = false; btn.textContent = 'Upload'
+ if(r.error){ toast(r.error,'error'); return }
+ document.getElementById('tvs-title').value = ''; document.getElementById('tvs-file').value = ''
+ toast('Added. It\'s now in the TV menu','success'); loadTvSpotlights()
+}
+async function replaceTvSpotlight(id, input){
+ var f = input.files[0]; if(!f) return
+ var fd = new FormData(); fd.append('file', f); fd.append('id', id)
+ toast('Uploading…','success')
+ var r = await _tvUpload(fd)
+ if(r.error){ toast(r.error,'error'); return }
+ toast('Replaced. TVs update within about 20 seconds','success'); loadTvSpotlights()
+}
+async function updateTvSpotlight(id, body){
+ var r = await api('/api/tv/spotlights/'+id,'PUT',body)
+ if(r.error){ toast(r.error,'error'); return }
+ if('fit' in body || 'bg' in body) loadTvSpotlights()
+}
+async function deleteTvSpotlight(id){
+ if(!confirm('Delete this display? TVs showing it will go back to the menu.')) return
+ await api('/api/tv/spotlights/'+id,'DELETE'); loadTvSpotlights()
 }
 
 // ── Settings → Integrations: BloomBooks key ──

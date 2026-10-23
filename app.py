@@ -3169,6 +3169,25 @@ def init_db():
         "ALTER TABLE board_availability ADD COLUMN IF NOT EXISTS virtual_dates TEXT DEFAULT '[]'",
         # the front-door keypad code given to this ELIC (shown on their welcome packet)
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS tv_spotlights (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            media_filename TEXT NOT NULL,
+            media_type TEXT NOT NULL,
+            mime TEXT,
+            fit TEXT DEFAULT 'contain',
+            bg TEXT DEFAULT '#000000',
+            active BOOLEAN DEFAULT TRUE,
+            created_by TEXT,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW())""",
+        # partnership requests set aside quietly (no email to the partner)
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS archived_from_status TEXT",
+        # (these were only added by the manual migrations page; make sure they exist)
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_history TEXT DEFAULT '[]'",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS denial_reason TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS approval_level INTEGER DEFAULT 0",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS archive_note TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS instructor_day_logs (
             id TEXT PRIMARY KEY,
             volunteer_id TEXT NOT NULL REFERENCES volunteers(id) ON DELETE CASCADE,
@@ -34717,6 +34736,127 @@ def tv_page():
     return resp
 
 
+# ── TV "Production Mode": one full-screen image or video ──────────────────
+# Staff upload a promo, cast list, sponsor slide, etc. (Settings → TV
+# Displays). Any that are switched on appear in the /tv menu as a choice;
+# picking one fills the screen with just that image or (looping, muted)
+# video. Replacing the file updates every TV showing it within ~20 s.
+TV_MEDIA_TYPES = {'.jpg': 'image', '.jpeg': 'image', '.png': 'image', '.gif': 'image', '.webp': 'image',
+                  '.mp4': 'video', '.mov': 'video', '.m4v': 'video', '.webm': 'video'}
+
+
+@app.route('/api/tv/spotlights', methods=['GET', 'POST'])
+def tv_spotlights():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            f = request.files.get('file')
+            title = (request.form.get('title') or '').strip()[:120]
+            sid = request.form.get('id') or None
+            if not sid and not f:
+                return jsonify({'error': 'Choose an image or video'}), 400
+            if not sid and not title:
+                title = os.path.splitext(f.filename)[0][:120] if f else 'Production Mode'
+            if f:
+                ext = os.path.splitext(secure_filename(f.filename))[1].lower()
+                kind = TV_MEDIA_TYPES.get(ext)
+                if not kind:
+                    return jsonify({'error': 'Use a JPG, PNG, GIF, WebP image or an MP4, MOV, M4V, WebM video.'}), 400
+                stored = 'tv-' + uuid.uuid4().hex + ext
+                f.save(os.path.join(UPLOAD_FOLDER, stored))
+                import mimetypes
+                mime = f.mimetype or mimetypes.guess_type(f.filename)[0] or ''
+            if sid:
+                old = fetchone(conn, 'SELECT media_filename FROM tv_spotlights WHERE id=%s', (sid,))
+                if not old:
+                    return jsonify({'error': 'Not found'}), 404
+                if f:
+                    execute(conn, 'UPDATE tv_spotlights SET media_filename=%s, media_type=%s, mime=%s, updated_at=NOW() WHERE id=%s',
+                            (stored, kind, mime, sid))
+                    try: os.remove(os.path.join(UPLOAD_FOLDER, old['media_filename']))
+                    except Exception: pass
+                if title:
+                    execute(conn, 'UPDATE tv_spotlights SET title=%s, updated_at=NOW() WHERE id=%s', (title, sid))
+            else:
+                sid = str(uuid.uuid4())
+                execute(conn, '''INSERT INTO tv_spotlights (id, title, media_filename, media_type, mime, fit, bg, active, created_by)
+                    VALUES (%s,%s,%s,%s,%s,'contain','#000000',TRUE,%s)''', (sid, title, stored, kind, mime, session.get('name') or ''))
+            conn.commit()
+        rows = fetchall(conn, 'SELECT * FROM tv_spotlights ORDER BY created_at DESC') or []
+        for r in rows:
+            r['media_url'] = f'/tv/media/{r["id"]}?v={int(r["updated_at"].timestamp()) if hasattr(r.get("updated_at"), "timestamp") else 0}'
+            r['tv_url'] = f'/tv/spotlight/{r["id"]}'
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+@app.route('/api/tv/spotlights/<sid>', methods=['PUT', 'DELETE'])
+def tv_spotlight_item(sid):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        row = fetchone(conn, 'SELECT * FROM tv_spotlights WHERE id=%s', (sid,))
+        if not row:
+            return jsonify({'error': 'Not found'}), 404
+        if request.method == 'DELETE':
+            execute(conn, 'DELETE FROM tv_spotlights WHERE id=%s', (sid,))
+            conn.commit()
+            try: os.remove(os.path.join(UPLOAD_FOLDER, row['media_filename']))
+            except Exception: pass
+            return jsonify({'ok': True})
+        d = request.json or {}
+        fit = d.get('fit') if d.get('fit') in ('contain', 'cover') else row['fit']
+        bg = d.get('bg') if re.match(r'^#[0-9a-fA-F]{6}$', str(d.get('bg') or '')) else row['bg']
+        execute(conn, '''UPDATE tv_spotlights SET title=%s, fit=%s, bg=%s, active=%s, updated_at=NOW() WHERE id=%s''',
+                ((d.get('title') if d.get('title') is not None else row['title'])[:120], fit, bg,
+                 bool(d.get('active')) if 'active' in d else row['active'], sid))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/tv/spotlight/<sid>')
+def tv_spotlight_page(sid):
+    resp = send_from_directory('static', 'tv-spotlight.html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/public/tv/spotlight/<sid>')
+def public_tv_spotlight(sid):
+    conn = get_db()
+    try:
+        r = fetchone(conn, 'SELECT id, title, media_type, fit, bg, active, updated_at FROM tv_spotlights WHERE id=%s', (sid,))
+    finally:
+        conn.close()
+    if not r:
+        return jsonify({'error': 'Not found'}), 404
+    v = int(r['updated_at'].timestamp()) if hasattr(r.get('updated_at'), 'timestamp') else 0
+    resp = jsonify({'id': r['id'], 'title': r['title'], 'media_type': r['media_type'], 'fit': r['fit'], 'bg': r['bg'],
+                    'active': bool(r['active']), 'version': v, 'media_url': f'/tv/media/{r["id"]}?v={v}'})
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/tv/media/<sid>')
+def tv_spotlight_media(sid):
+    conn = get_db()
+    try:
+        r = fetchone(conn, 'SELECT media_filename, mime FROM tv_spotlights WHERE id=%s', (sid,))
+    finally:
+        conn.close()
+    if not r or not os.path.exists(os.path.join(UPLOAD_FOLDER, r['media_filename'])):
+        return 'Not found', 404
+    resp = send_from_directory(UPLOAD_FOLDER, r['media_filename'], mimetype=r.get('mime') or None, conditional=True)
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
+
 @app.route('/api/public/tv/active')
 def public_tv_active():
     """Displays a TV can show right now: today's auditions (slots today or
@@ -34751,6 +34891,11 @@ def public_tv_active():
             out.append({'key': 'pickup', 'name': 'Pick-Up Queue',
                         'detail': ', '.join(r['name'] for r in rs if r.get('name')),
                         'url': '/pickup', 'kind': 'pickup'})
+
+        # Production Mode: full-screen images/videos that are switched on
+        for sp in fetchall(conn, 'SELECT id, title, media_type FROM tv_spotlights WHERE active=TRUE ORDER BY created_at DESC') or []:
+            out.append({'key': 'spotlight:' + sp['id'], 'name': sp['title'], 'detail': 'Production Mode · full-screen ' + sp['media_type'],
+                        'url': '/tv/spotlight/' + sp['id'], 'kind': 'spotlight'})
 
         # The main lobby display is always an option (and the default)
         out.append({'key': 'lobby', 'name': 'Main Lobby Display', 'url': '/lobby', 'kind': 'lobby'})
@@ -35781,6 +35926,64 @@ def deny_rental_request(rid):
         except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+@app.route('/api/rental/requests/<rid>/archive', methods=['POST'])
+def archive_rental_request(rid):
+    """Set a request aside without turning it down: no email to the
+    partner, off the active lists, and it can be brought back any time."""
+    err = require_auth()
+    if err: return err
+    import datetime as _dta
+    d = request.json or {}
+    conn = get_db()
+    try:
+        req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
+        if not req:
+            return jsonify({'error': 'Not found'}), 404
+        if req['status'] in ('signed', 'active', 'completed'):
+            return jsonify({'error': 'This partnership is already under way, so it can\'t be archived. Cancel it instead.'}), 400
+        if req['status'] == 'archived':
+            return jsonify({'ok': True})
+        user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],)) or {}
+        try: history = json.loads(req.get('approval_history') or '[]')
+        except Exception: history = []
+        note = (d.get('note') or '').strip()[:1000]
+        history.append({'action': 'archived', 'by': user.get('name', 'Admin'), 'at': _dta.datetime.now().isoformat(), 'reason': note})
+        execute(conn, '''UPDATE rental_requests SET archived_from_status=status, status='archived', archive_note=%s,
+            approval_history=%s, updated_at=NOW() WHERE id=%s''', (note, json.dumps(history), rid))
+        # if it had been put on the calendar, free those dates
+        execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+        _sync_rental_events_for_request(conn, rid)
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/rental/requests/<rid>/unarchive', methods=['POST'])
+def unarchive_rental_request(rid):
+    err = require_auth()
+    if err: return err
+    import datetime as _dta
+    conn = get_db()
+    try:
+        req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
+        if not req or req['status'] != 'archived':
+            return jsonify({'error': 'Not archived'}), 400
+        back = req.get('archived_from_status') or 'pending'
+        if back == 'approved':
+            back = 'pending'   # its dates were taken off the calendar, so it needs approving again
+        user = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],)) or {}
+        try: history = json.loads(req.get('approval_history') or '[]')
+        except Exception: history = []
+        history.append({'action': 'restored', 'by': user.get('name', 'Admin'), 'at': _dta.datetime.now().isoformat(), 'reason': ''})
+        execute(conn, '''UPDATE rental_requests SET status=%s, archived_from_status=NULL, approval_history=%s, updated_at=NOW() WHERE id=%s''',
+                (back, json.dumps(history), rid))
+        conn.commit()
+        return jsonify({'ok': True, 'status': back})
+    finally:
+        conn.close()
 
 
 @app.route('/api/rental/requests/<rid>/sendback', methods=['POST'])
@@ -38097,7 +38300,7 @@ def partner_portal_data(token):
         outstanding = sum(i['amount_cents'] for i in invoices if i['state'] in ('due', 'overdue'))
         return jsonify({
             'partner': {'name': p['name'], 'contact_name': p.get('contact_name'), 'contact_email': p.get('contact_email')},
-            'partnerships': [{'id': r['id'], 'title': r['title'], 'status': r['status'], 'start_date': r['start_date'], 'end_date': r.get('end_date') or '',
+            'partnerships': [{'id': r['id'], 'title': r['title'], 'status': 'pending' if r['status'] == 'archived' else r['status'], 'start_date': r['start_date'], 'end_date': r.get('end_date') or '',
                               'start_time': r.get('start_time') or '', 'end_time': r.get('end_time') or '', 'space': r.get('space_name') or '',
                               'space_id': r.get('space_id'),
                               'agreement': ({'id': agr_by_req[r['id']]['id'], 'status': agr_by_req[r['id']]['status'],
@@ -38364,7 +38567,7 @@ def rental_portal_page(token):
     conn.commit(); conn.close()
     status_labels = {'pending': 'Pending Review', 'approved': 'Approved', 'denied': 'Not Approved',
         'sent_back': 'Needs Revisions', 'signed': 'Signed — Awaiting Deposit', 'active': 'Active',
-        'completed': 'Completed'}
+        'completed': 'Completed', 'archived': 'Pending Review'}   # archived is internal; the partner isn't told
     status_label = status_labels.get(req.get('status', ''), req.get('status', ''))
     date_line = req.get('start_date', '')
     if req.get('end_date') and req.get('end_date') != req.get('start_date'):

@@ -1384,6 +1384,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <option value="class">Class</option>
    <option value="workshop">Workshop</option>
    <option value="camp">Summer Camp</option>
+   <option value="event">Event</option>
    <option value="other">Other</option>
   </select>
   <select class="filter-select" id="yp-filter-season" onchange="renderYouthProgramsPage()">
@@ -3209,10 +3210,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>Program Name *</label><input type="text" id="program-name" placeholder="e.g. Summer Theater Camp 2025"/></div>
  <div class="form-row">
  <div class="form-group"><label>Type</label>
- <select id="program-type">
+ <select id="program-type" onchange="toggleEventFields()">
  <option value="class">Class</option>
  <option value="workshop">Workshop</option>
  <option value="camp">Summer Camp</option>
+ <option value="event">Event (paid, people sign up to attend)</option>
  <option value="other">Other</option>
  </select>
  </div>
@@ -3257,7 +3259,28 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Pre-fills on events created under this program</div>
  </div>
  </div>
+ <div id="program-event-fields" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 14px 4px;margin-bottom:14px">
+ <div style="font-size:13px;font-weight:700;margin-bottom:2px">Event details</div>
+ <div style="font-size:11.5px;color:var(--text-muted);margin-bottom:10px">Shown on the sign-up page. Price and spots are per person. Open sign-ups from Registration settings as usual.</div>
  <div class="form-row">
+ <div class="form-group"><label>Event date</label><input type="date" id="ev-date"/></div>
+ <div class="form-group"><label>Who it's for</label><select id="ev-audience"><option value="all">Everyone (all ages)</option><option value="adults">Adults (they sign up themselves)</option><option value="youth">Kids &amp; teens (a parent signs them up)</option></select></div>
+ </div>
+ <div class="form-row">
+ <div class="form-group"><label>Doors / arrive by</label><input type="time" id="ev-arrive"/></div>
+ <div class="form-group"><label>Starts</label><input type="time" id="ev-start"/></div>
+ <div class="form-group"><label>Ends</label><input type="time" id="ev-end"/></div>
+ </div>
+ <div class="form-group"><label>Location</label><input id="ev-location" placeholder="e.g. HWTC Studio, 1220 Winter Garden Vineland Rd, Suite 108"/></div>
+ <div class="form-row">
+ <div class="form-group"><label>Price per person ($)</label><input type="number" id="ev-price" min="0" step="0.01" placeholder="0 for free"/></div>
+ <div class="form-group"><label>Spots (max people)</label><input type="number" id="ev-capacity" min="0" placeholder="no limit"/></div>
+ </div>
+ <div class="form-group"><label>What's included</label><textarea id="ev-includes" rows="2" placeholder="e.g. Dinner, a drink ticket, a signed poster"></textarea></div>
+ <div class="form-group"><label>What to bring / wear</label><textarea id="ev-bring" rows="2" placeholder="e.g. Comfortable shoes, your script, dress in black"></textarea></div>
+ <div class="form-group"><label>Refund policy</label><textarea id="ev-refund" rows="2" placeholder="e.g. Full refund up to 7 days before; no refunds after that"></textarea></div>
+ </div>
+ <div class="form-row" id="program-date-range-row">
  <div class="form-group"><label>Start Date</label><input type="date" id="program-start"/></div>
  <div class="form-group"><label>End Date</label><input type="date" id="program-end"/></div>
  </div>
@@ -24759,8 +24782,8 @@ function updateYTabScrollHint(el){
 // YOUTH PROGRAMS PAGE
 // ═══════════════════════════════════════════════════════════════
 
-const PROGRAM_TYPE_LABELS = {class:'Class',workshop:'Workshop',camp:'Summer Camp',production:'Production',other:'Other'}
-const PROGRAM_TYPE_COLORS = {class:['#E6F1FB','#0C447C'],workshop:['#F3EEFF','#6D28D9'],camp:['#FAEEDA','#633806'],production:['#EAF3DE','#27500A'],other:['#EFEFEC','#5F5E5A']}
+const PROGRAM_TYPE_LABELS = {class:'Class',workshop:'Workshop',camp:'Summer Camp',event:'Event',production:'Production',other:'Other'}
+const PROGRAM_TYPE_COLORS = {class:['#E6F1FB','#0C447C'],workshop:['#F3EEFF','#6D28D9'],camp:['#FAEEDA','#633806'],event:['#FDE8EF','#9D174D'],production:['#EAF3DE','#27500A'],other:['#EFEFEC','#5F5E5A']}
 
 var _progView = 'grouped'
 
@@ -24855,7 +24878,7 @@ function _renderGrouped(grid, filtered, isAdmin){
  // 'production' isn't a real group here — actual Productions live in a
  // separate system entirely. This puts anything mistakenly saved with that
  // type into its own flagged group instead of silently disappearing.
- var TYPE_ORDER=['class','workshop','camp','production','other']
+ var TYPE_ORDER=['class','workshop','camp','event','production','other']
  var groups={}
  filtered.forEach(function(p){ var t=p.program_type||'class'; if(!groups[t]) groups[t]=[]; groups[t].push(p) })
  var html=''
@@ -25024,12 +25047,29 @@ async function updateProgramInstructorPayCheck(){
     + '</div>'
 }
 
+// "Event" programs get their own details (date, doors, price per person,
+// spots, what's included / to bring, refund policy) instead of class dates.
+function toggleEventFields(){
+ var isEv = (document.getElementById('program-type')||{}).value === 'event'
+ var f = document.getElementById('program-event-fields'); if(f) f.style.display = isEv ? '' : 'none'
+ var dr = document.getElementById('program-date-range-row'); if(dr) dr.style.display = isEv ? 'none' : ''
+}
+function fillEventFields(p){
+ var set = function(id, v){ var el = document.getElementById(id); if(el) el.value = v == null ? '' : v }
+ set('ev-date', p.single_date || p.start_date || ''); set('ev-audience', p.event_audience || 'all')
+ set('ev-arrive', (p.event_arrival_time||'').slice(0,5)); set('ev-start', (p.meeting_start_time||'').slice(0,5)); set('ev-end', (p.meeting_end_time||'').slice(0,5))
+ set('ev-location', p.program_location || (p.id ? '' : 'HWTC Studio, 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden'))
+ set('ev-price', p.price ? (p.price/100).toFixed(2).replace(/\.00$/,'') : ''); set('ev-capacity', p.capacity == null ? '' : p.capacity)
+ set('ev-includes', p.event_includes || ''); set('ev-bring', p.event_bring || ''); set('ev-refund', p.event_refund_policy || '')
+ toggleEventFields()
+}
 function openNewProgramModal(){
  document.getElementById('program-modal-title').textContent='New Program'
  document.getElementById('program-edit-id').value=''
  ;['program-name','program-desc'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
  ;['program-start','program-end'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value='' })
  document.getElementById('program-type').value='class'
+ fillEventFields({})
  const psel2=document.getElementById('program-status'); if(psel2) psel2.value='active'
  const isel=document.getElementById('program-instructor')
  if(isel) isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('')
@@ -25057,6 +25097,7 @@ function openEditProgramModal(pid){
  document.getElementById('program-start').value=p.start_date||''
  document.getElementById('program-end').value=p.end_date||''
  document.getElementById('program-type').value=p.program_type||'class'
+ fillEventFields(p)
  const psel=document.getElementById('program-status'); if(psel) psel.value=p.status||'active'
  const isel=document.getElementById('program-instructor')
  if(isel){isel.innerHTML='<option value="">— Assign instructor —</option>'+volunteers.filter(v=>v.status==='active').map(v=>`<option value="${v.id}">${v.name}</option>`).join('');isel.value=p.instructor_id||''}
@@ -25419,6 +25460,14 @@ async function saveYouthProgram(){
  pay_rate_type:document.getElementById('program-pay-rate-type')?.value||'hourly',
  pay_rate_amount:parseFloat(document.getElementById('program-pay-rate-amount')?.value)||0,
  default_elic_id:document.getElementById('program-default-elic')?.value||null
+ }
+ if(data.program_type==='event'){
+   var ev = function(id){ return (document.getElementById(id)||{}).value||'' }
+   if(!ev('ev-date')){ toast('Pick the event date','error'); return }
+   Object.assign(data, {event_date: ev('ev-date'), event_audience: ev('ev-audience'), event_arrival_time: ev('ev-arrive'),
+     event_start_time: ev('ev-start'), event_end_time: ev('ev-end'), event_location: ev('ev-location').trim(), event_price: ev('ev-price'),
+     event_capacity: ev('ev-capacity'), event_includes: ev('ev-includes').trim(), event_bring: ev('ev-bring').trim(), event_refund_policy: ev('ev-refund').trim(),
+     start_date: ev('ev-date'), end_date: ev('ev-date')})
  }
  let res
  if(eid) res=await api(`/api/youth-programs/${eid}`,'PUT',data)

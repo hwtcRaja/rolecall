@@ -20,7 +20,9 @@
   .choices{display:flex;flex-direction:column;gap:18px;margin-top:36px;width:min(760px,90vw)}
   .choice{background:rgba(255,255,255,0.08);border:2px solid rgba(255,255,255,0.25);color:#fff;border-radius:16px;padding:26px 28px;font-family:inherit;font-size:30px;font-weight:700;cursor:pointer;text-align:left}
   .choice:focus,.choice:hover{outline:none;border-color:#5eead4;background:rgba(94,234,212,0.12)}
-  #switcher{position:fixed;right:14px;bottom:12px;z-index:5;display:none;background:rgba(0,0,0,0.35);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:8px 12px;font-family:inherit;font-size:13px;cursor:pointer}
+  #switcher{position:fixed;right:18px;bottom:16px;z-index:5;display:none;background:rgba(0,0,0,0.45);color:rgba(255,255,255,0.85);border:1px solid rgba(255,255,255,0.3);border-radius:12px;padding:12px 18px;font-family:inherit;font-size:16px;font-weight:700;cursor:pointer;transition:opacity .4s}
+  #switcher.faint{opacity:0.25}
+  #switcher:focus,#switcher:hover{opacity:1;outline:none;border-color:#5eead4;background:rgba(13,61,77,0.9)}
 </style>
 </head>
 <body>
@@ -30,7 +32,7 @@
   <h1>Getting ready…</h1>
 </div>
 <iframe id="frame" title="Lobby display" allow="autoplay"></iframe>
-<button id="switcher" onclick="showPicker()">Switch display</button>
+<button id="switcher" onclick="showPicker()">☰ Menu</button>
 <!-- One tap turns on announcements for every display this TV shows. It sits
      over everything until tapped, since taps inside a display don't count. -->
 <div id="sound-tap" onclick="enableTvSound()" style="position:fixed;inset:0;z-index:20;cursor:pointer;display:none">
@@ -138,6 +140,7 @@ var currentKey = null
 var pickedKey = null        // an explicit choice made on this TV today
 var askedSig = null         // option set we already asked about
 var askTimer = null
+var holdMenu = false        // after the nightly reset: stay on the menu until someone picks
 try{ var saved = JSON.parse(localStorage.getItem('hwtc_tv_pick')||'null'); if(saved && saved.day === dayStamp()) pickedKey = saved.key }catch(e){}
 
 function dayStamp(){ var d = new Date(); return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate() }
@@ -148,7 +151,8 @@ function stopAskTimer(){ if(askTimer){ clearInterval(askTimer); askTimer = null 
 
 function showDisplay(item){
   stopAskTimer()
-  document.getElementById('switcher').style.display = options.length > 1 ? '' : 'none'
+  document.getElementById('switcher').style.display = 'block'   // always reachable, even with one option
+  wakeSwitcher()
   if(currentKey === item.key) return
   currentKey = item.key
   document.getElementById('screen').style.display = 'none'
@@ -158,7 +162,8 @@ function showDisplay(item){
   updateSoundTap()
 }
 
-function showPicker(){
+function showPicker(hold){
+  holdMenu = !!hold
   currentKey = null
   document.getElementById('sound-tap').style.display = 'none'
   stopAskTimer()
@@ -176,8 +181,9 @@ function showPicker(){
     + '<p id="ask-countdown" style="margin-top:28px;font-size:16px"></p>'
   var first = el.querySelector('.choice'); if(first) first.focus()
   askedSig = sig()
-  var left = ASK_TIMEOUT_S
   var cd = document.getElementById('ask-countdown')
+  if(holdMenu){ cd.textContent = 'Pick what this screen should show today.'; return }
+  var left = ASK_TIMEOUT_S
   cd.textContent = 'Showing the main lobby display in ' + left + 's if nothing is picked.'
   askTimer = setInterval(function(){
     left--
@@ -186,8 +192,52 @@ function showPicker(){
   }, 1000)
 }
 
+// ── Getting back to the menu ──
+// The ☰ Menu button sits faintly in the corner and brightens when the
+// mouse moves or a remote key is pressed. Any arrow / OK / Menu / Esc key
+// (also while the display has focus) opens the menu. And every night at
+// midnight, or when the TV comes back on after being off for a while, the
+// screen goes back to the menu so the day starts fresh.
+var faintTimer = null
+function wakeSwitcher(){
+  var b = document.getElementById('switcher'); if(!b) return
+  b.classList.remove('faint')
+  clearTimeout(faintTimer); faintTimer = setTimeout(function(){ b.classList.add('faint') }, 6000)
+}
+function onTvKey(e){
+  var k = e.key || ''
+  if(document.getElementById('screen').style.display !== 'none') return   // menu already showing
+  if(/^(Arrow(Up|Down|Left|Right)|Enter|Escape|ContextMenu|m|M|Backspace)$/.test(k) || e.keyCode === 10009 || e.keyCode === 461){
+    e.preventDefault && e.preventDefault()
+    showPicker()
+  }
+}
+document.addEventListener('keydown', onTvKey)
+document.addEventListener('mousemove', wakeSwitcher)
+document.getElementById('frame').addEventListener('load', function(){
+  // displays are on our own site, so we can listen for keys inside them too
+  try{
+    var w = this.contentWindow
+    w.document.addEventListener('keydown', onTvKey)
+    w.document.addEventListener('mousemove', wakeSwitcher)
+  }catch(e){}
+})
+function backToMenu(){
+  pickedKey = null; askedSig = null
+  try{ localStorage.removeItem('hwtc_tv_pick') }catch(e){}
+  showPicker(true)   // wait on the menu (no countdown) for whoever turns the TV on
+}
+var lastDay = dayStamp(), lastBeat = Date.now()
+setInterval(function(){
+  var now = Date.now(), gap = now - lastBeat
+  lastBeat = now
+  if(dayStamp() !== lastDay){ lastDay = dayStamp(); backToMenu(); return }       // midnight
+  if(gap > 15 * 60 * 1000) backToMenu()                                            // TV/computer was off or asleep
+}, 30000)
+
 function pick(i){
   var o = options[i]; if(!o) return
+  holdMenu = false
   HwtcAnnouncer.unlock()   // picking with a tap/remote click counts as the unlock
   pickedKey = o.key
   try{ localStorage.setItem('hwtc_tv_pick', JSON.stringify({key:o.key, day:dayStamp()})) }catch(e){}
@@ -204,6 +254,7 @@ async function refresh(){
     return
   }
   if(askTimer) return                       // picker is up; let it finish
+  if(holdMenu){ if(askedSig !== sig()) showPicker(true); return }   // keep waiting; redraw only if the choices changed
   if(options.length === 1){ showDisplay(options[0]); return }
   var chosen = options.find(function(o){ return o.key === pickedKey })
   if(chosen){ showDisplay(chosen); return }
@@ -211,7 +262,7 @@ async function refresh(){
   if(askedSig !== sig()){ showPicker(); return }
   // Already asked about this set and nobody picked: stay on the lobby
   if(currentKey === null || !options.find(function(o){ return o.key === currentKey })) showDisplay(lobbyOption())
-  else document.getElementById('switcher').style.display = ''
+  else document.getElementById('switcher').style.display = 'block'
 }
 
 refresh()

@@ -43,6 +43,15 @@ select{background:#123c48;color:#fff;border:1.5px solid rgba(255,255,255,.2);bor
 .result .sub{font-size:17px;opacity:.95;margin-top:6px;max-width:420px;line-height:1.4}
 .result .party{margin-top:16px}
 .result .tap{margin-top:22px;font-size:13px;opacity:.85}
+.station{margin-top:6px;border-radius:20px;border:3px dashed rgba(255,255,255,.25);padding:42px 20px;text-align:center}
+.station .st-ico{font-size:64px;line-height:1}
+.station .st-t{font-size:30px;font-weight:800;margin-top:8px}
+.station .st-s{font-size:15px;color:rgba(255,255,255,.7);margin-top:6px}
+.mode{display:flex;gap:6px;margin:0 0 14px}
+.mode button{flex:1;padding:10px;border-radius:10px;border:1.5px solid rgba(255,255,255,.2);background:transparent;color:#fff;font-weight:700;cursor:pointer}
+.mode button.on{background:#22a6c4;color:#06222a;border-color:#22a6c4}
+.result .big{transition:none}
+@media (min-width:700px){.result .big{font-size:96px}.result .who{font-size:40px}.result .sub{font-size:22px;max-width:640px}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -54,6 +63,13 @@ select{background:#123c48;color:#fff;border:1.5px solid rgba(255,255,255,.2);bor
 
 <script>
 var PERF = '', stream = null, scanning = false, lastCode = '', lastAt = 0, paused = false
+// "station" = an iPad at the door with a handheld scanner: no camera, a big
+// ready screen, loud distinct sounds. Remembered on this device; ?mode=station
+// in the link turns it on.
+var MODE = (function(){ try{ var m = new URLSearchParams(location.search).get('mode'); if(m) localStorage.setItem('hwtc_door_mode', m === 'station' ? 'station' : 'camera'); return localStorage.getItem('hwtc_door_mode') || 'camera' }catch(e){ return 'camera' } })()
+var SPEAK = (function(){ try{ return localStorage.getItem('hwtc_door_speak') === '1' }catch(e){ return false } })()
+var AC = null
+function audio(){ try{ if(!AC) AC = new (window.AudioContext||window.webkitAudioContext)(); if(AC.state === 'suspended') AC.resume() }catch(e){} return AC }
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
 // Ushers open this from the private usher link (?key=...). The key is kept
 // on this device so the page keeps working; no RoleCall login needed.
@@ -109,14 +125,43 @@ async function boot(){
 }
 function choosePerf(id){
   PERF = id; try{ localStorage.setItem('hwtc_door_perf', id) }catch(e){}
+  var station = MODE === 'station'
   document.getElementById('app').innerHTML =
-    '<div class="count"><b id="cnt-in">0</b><span id="cnt-of">checked in</span></div><div class="prog"><div id="cnt-bar" style="width:0%"></div></div>'
-    + '<div class="cam"><video id="v" playsinline muted></video><canvas id="c" style="display:none"></canvas><div class="frame"></div><div class="msg" id="cam-msg">Starting camera…</div></div>'
+    '<div class="mode"><button class="'+(station?'':'on')+'" onclick="setMode(\'camera\')">Phone camera</button><button class="'+(station?'on':'')+'" onclick="setMode(\'station\')">Handheld scanner</button></div>'
+    + '<div class="count"><b id="cnt-in">0</b><span id="cnt-of">checked in</span></div><div class="prog"><div id="cnt-bar" style="width:0%"></div></div>'
+    + (station
+      ? '<div class="station" id="station"><div class="st-ico">▣</div><div class="st-t">Ready, scan a ticket</div><div class="st-s">Point the scanner at the QR code on the ticket or phone.</div>'
+        + '<div style="margin-top:18px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap"><button class="btn btn-p" id="snd-btn" onclick="enableSound()">🔊 Turn on sound</button>'
+        + '<button class="btn btn-s" onclick="toggleSpeak()" id="spk-btn">'+(SPEAK?'🗣 Spoken result: on':'🗣 Spoken result: off')+'</button></div></div>'
+      : '<div class="cam"><video id="v" playsinline muted></video><canvas id="c" style="display:none"></canvas><div class="frame"></div><div class="msg" id="cam-msg">Starting camera…</div></div>')
     + '<div class="box"><label for="q">Look up by name, email, phone, seat or code</label>'
     + '<div style="display:flex;gap:8px"><input id="q" placeholder="e.g. Smith or A12" onkeydown="if(event.key===\'Enter\')lookup()"/><button class="btn btn-p" onclick="lookup()">Find</button></div>'
     + '<div id="found"></div></div>'
   refreshCounts()
-  startCamera()
+  if(station){ if(stream){ stream.getTracks().forEach(function(t){ t.stop() }); stream = null } scanning = false; if(AC && AC.state === 'running') soundReady() }
+  else startCamera()
+}
+function setMode(m){ MODE = m; try{ localStorage.setItem('hwtc_door_mode', m) }catch(e){} choosePerf(PERF) }
+function soundReady(){ var b = document.getElementById('snd-btn'); if(b){ b.textContent = '🔊 Sound on'; b.className = 'btn btn-s' } }
+function enableSound(){
+  // iPads only allow sound after a tap, so this unlocks it for the session
+  audio(); tone([[660,0.08]], 0.12); soundReady()
+}
+function toggleSpeak(){
+  SPEAK = !SPEAK; try{ localStorage.setItem('hwtc_door_speak', SPEAK?'1':'0') }catch(e){}
+  var b = document.getElementById('spk-btn'); if(b) b.textContent = SPEAK ? '🗣 Spoken result: on' : '🗣 Spoken result: off'
+  if(SPEAK) say('Spoken results on')
+}
+function say(t){ try{ if(!window.speechSynthesis) return; speechSynthesis.cancel(); var u = new SpeechSynthesisUtterance(t); u.rate = 1.05; speechSynthesis.speak(u) }catch(e){} }
+function tone(notes, vol){
+  var a = audio(); if(!a) return
+  var t = a.currentTime
+  notes.forEach(function(n){
+    var o = a.createOscillator(), g = a.createGain()
+    o.type = n[2] || 'sine'; o.frequency.value = n[0]
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(vol||0.35, t+0.01); g.gain.exponentialRampToValueAtTime(0.0001, t+n[1])
+    o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+n[1]+0.02); t += n[1] + 0.03
+  })
 }
 async function refreshCounts(c){
   if(!c){ var d = await api('/api/door/lookup?performance_id='+encodeURIComponent(PERF)+'&q=__none__'); c = d.counts }
@@ -148,12 +193,15 @@ function loop(){
   }
   requestAnimationFrame(loop)
 }
-function beep(ok){
+function beep(kind){
+  // ok: bright rising chime · warn (already in / wrong date): two flat tones · bad: low buzz
+  if(kind === true) kind = 'ok'; if(kind === false) kind = 'bad'
   try{
-    var a = new (window.AudioContext||window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain()
-    o.frequency.value = ok ? 880 : 220; g.gain.value = 0.08; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + (ok?0.12:0.35))
+    if(kind === 'ok') tone([[784,0.11],[1175,0.18]], 0.35)
+    else if(kind === 'warn') tone([[523,0.16],[523,0.16]], 0.35)
+    else tone([[196,0.45,'square']], 0.18)
   }catch(e){}
-  try{ if(navigator.vibrate) navigator.vibrate(ok ? 60 : [80,60,80]) }catch(e){}
+  try{ if(navigator.vibrate) navigator.vibrate(kind==='ok' ? 60 : [80,60,80]) }catch(e){}
 }
 async function scan(code){
   paused = true
@@ -173,7 +221,9 @@ function showResult(r){
   var el = document.getElementById('result')
   var cls = r.result==='ok' ? 'ok' : (r.result==='already' || r.result==='wrong_show') ? 'warn' : 'bad'
   var big = r.result==='ok' ? '✓' : r.result==='already' ? 'Already in' : r.result==='wrong_show' ? 'Wrong date' : '✕'
-  beep(r.result==='ok')
+  beep(cls)
+  if(SPEAK) say(r.result==='ok' ? ('Welcome'+(r.name ? ', '+String(r.name).split(' ')[0] : '')+(r.seat_label ? '. Seat '+r.seat_label : ''))
+    : r.result==='already' ? 'Already checked in' : r.result==='wrong_show' ? 'Wrong date' : 'Not a valid ticket')
   el.className = 'result '+cls
   el.innerHTML = '<div class="big">'+big+'</div>'
     + (r.name ? '<div class="who">'+esc(r.name)+'</div>' : '')
@@ -184,7 +234,8 @@ function showResult(r){
   el.style.display = 'flex'
   if(r.counts) refreshCounts(r.counts)
   clearTimeout(window._resTimer)
-  if(r.result==='ok' && !(r.party && r.party.some(function(p){ return !p.checked_in }))) window._resTimer = setTimeout(hideResult, 2200)
+  if(r.result==='ok' && !(r.party && r.party.some(function(p){ return !p.checked_in }))) window._resTimer = setTimeout(hideResult, MODE==='station' ? 3000 : 2200)
+  else if(MODE==='station') window._resTimer = setTimeout(hideResult, 7000)
 }
 function hideResult(){ document.getElementById('result').style.display = 'none'; paused = false }
 async function toggleTicket(id, isIn){
@@ -213,6 +264,32 @@ async function lookupToggle(id, isIn){
   var r = await api('/api/door/checkin-ticket','POST',{ticket_id: id, undo: !!isIn})
   if(r.error){ alert(r.error); return }
   lookup()
+}
+
+// Handheld USB / Bluetooth scanners (e.g. NETUM NT-1228BL) act like a
+// keyboard: they type the ticket code very fast and press Enter. Catch
+// that anywhere on the page (except while typing in a search box).
+(function(){
+  var buf = '', last = 0
+  document.addEventListener('keydown', function(e){
+    var t = e.target
+    if(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+    var now = Date.now()
+    if(now - last > 100) buf = ''        // people type slower than scanners
+    last = now
+    if(e.key === 'Enter'){
+      if(buf.length >= 4){ e.preventDefault(); var code = buf; buf = ''; onHandheldScan(code) }
+      buf = ''
+      return
+    }
+    if(e.key && e.key.length === 1) buf += e.key
+  })
+})()
+function onHandheldScan(code){
+  audio()
+  if(!PERF){ alert('Pick the performance first.'); return }
+  hideResult()
+  scan(code)
 }
 boot()
 </script>

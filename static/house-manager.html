@@ -295,6 +295,39 @@ async function newUsherLink(){
 
 document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ if(document.getElementById('overlay').style.display==='flex'){ if(SC.on) closeScanner(); else overlay('') } else closeDrawer() } })
 boot()
+
+// Handheld USB / Bluetooth scanners (e.g. NETUM NT-1228BL) act like a
+// keyboard: they type the ticket code very fast and press Enter. Catch
+// that anywhere on the page (except while typing in a search box).
+(function(){
+  var buf = '', last = 0
+  document.addEventListener('keydown', function(e){
+    var t = e.target
+    if(t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return
+    var now = Date.now()
+    if(now - last > 100) buf = ''        // people type slower than scanners
+    last = now
+    if(e.key === 'Enter'){
+      if(buf.length >= 4){ e.preventDefault(); var code = buf; buf = ''; onHandheldScan(code) }
+      buf = ''
+      return
+    }
+    if(e.key && e.key.length === 1) buf += e.key
+  })
+})()
+async function onHandheldScan(code){
+  if(!PERF) return
+  var r = await api('/api/door/scan','POST',{performance_id: PERF, code: code})
+  var ok = r.result === 'ok', warn = r.result === 'already' || r.result === 'wrong_show'
+  var b = document.getElementById('hh-banner')
+  if(!b){ b = document.createElement('div'); b.id = 'hh-banner'; b.style.cssText = 'position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:99;border-radius:12px;padding:12px 18px;min-width:280px;box-shadow:0 10px 30px rgba(0,0,0,.4);font-family:inherit'; document.body.appendChild(b) }
+  b.style.background = ok ? 'var(--in)' : warn ? 'var(--cart)' : 'var(--bad)'; b.style.color = '#06150b'
+  b.innerHTML = '<div style="font-size:18px;font-weight:800">'+(ok ? '✓ Checked in' : r.result === 'already' ? 'Already in' : r.result === 'wrong_show' ? 'Wrong date' : '✕ Not valid')+'</div>'
+    + '<div style="font-weight:700">'+esc(r.name||'')+(r.seat_label ? ' · '+esc(r.seat_label) : '')+'</div><div style="font-size:13px">'+esc(r.message||r.error||'')+'</div>'
+  b.style.display = ''
+  clearTimeout(window._hhT); window._hhT = setTimeout(function(){ b.style.display = 'none' }, 4000)
+  try{ tick() }catch(e){}
+}
 </script>
 </body>
 </html>

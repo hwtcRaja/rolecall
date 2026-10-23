@@ -30137,13 +30137,49 @@ def my_delete_pending_hours(hid):
 
 # ── Lobby TV Display ──────────────────────────────────────────────────────────
 
+# A faint "☰ Menu" button (and remote keys) that take a TV back to /tv.
+# Only shows when the page is open by itself, not inside the /tv menu.
+TV_MENU_LINK_SNIPPET = '''
+<script>
+(function(){
+  if(window.top !== window) return
+  var b = document.createElement('a')
+  b.href = '/tv'; b.textContent = '\u2630 Menu'
+  b.style.cssText = 'position:fixed;right:18px;bottom:16px;z-index:2147483000;background:rgba(0,0,0,0.45);color:rgba(255,255,255,0.9);border:1px solid rgba(255,255,255,0.3);border-radius:12px;padding:12px 18px;font:700 16px -apple-system,Segoe UI,sans-serif;text-decoration:none;transition:opacity .4s;opacity:1'
+  document.body.appendChild(b)
+  var t = null
+  function wake(){ b.style.opacity = '1'; clearTimeout(t); t = setTimeout(function(){ b.style.opacity = '0.25' }, 6000) }
+  wake()
+  document.addEventListener('mousemove', wake)
+  document.addEventListener('keydown', function(e){
+    var k = e.key || ''
+    if(/^(Arrow(Up|Down|Left|Right)|Enter|Escape|ContextMenu|m|M|Backspace)$/.test(k) || e.keyCode === 10009 || e.keyCode === 461){
+      e.preventDefault(); location.href = '/tv'
+    }
+  })
+})()
+</script>
+'''
+
+
 @app.route('/lobby')
 def lobby_page():
     """Always serves lobby.html — the theme system (standard/jungle/seuss,
     each its own separate file) got confusing in practice, since editing
     one theme's file had zero effect if a different theme was actually
     active. Back to one file, one thing to keep updated."""
-    return send_from_directory('static', 'lobby.html')
+    # Opened on its own (not inside the /tv menu)? Add a way back to the
+    # menu so a TV left on /lobby can still switch displays.
+    try:
+        with open(os.path.join(app.root_path, 'static', 'lobby.html'), encoding='utf-8') as f:
+            html = f.read()
+        if '</body>' in html:
+            html = html.replace('</body>', TV_MENU_LINK_SNIPPET + '</body>', 1)
+        resp = app.response_class(html, mimetype='text/html')
+        resp.headers['Cache-Control'] = 'no-store'
+        return resp
+    except Exception:
+        return send_from_directory('static', 'lobby.html')
 
 @app.route('/lobby/standard')
 def lobby_standard_page():
@@ -34861,7 +34897,9 @@ def tv_spotlight_item(sid):
 
 @app.route('/tv/spotlight/<sid>')
 def tv_spotlight_page(sid):
-    resp = send_from_directory('static', 'tv-spotlight.html')
+    with open(os.path.join(app.root_path, 'static', 'tv-spotlight.html'), encoding='utf-8') as f:
+        html = f.read().replace('</body>', TV_MENU_LINK_SNIPPET + '</body>', 1)
+    resp = app.response_class(html, mimetype='text/html')
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 

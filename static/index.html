@@ -21326,8 +21326,9 @@ function renderCalendar(events){
  byDate[e.event_date].push(e)
  })
 
- let cells=''
- // Empty cells for first row
+window._calByDate = byDate   // for the "+N more" day popup
+let cells=''
+// Empty cells for first row
  for(let i=0;i<firstDay;i++) cells+=`<div style="min-height:100px;background:var(--gray-50);border-radius:8px;opacity:0.4"></div>`
 
  for(let d=1;d<=daysInMonth;d++){
@@ -21367,7 +21368,7 @@ function renderCalendar(events){
  ${isCancelled?' ':''}${escHtml(chipText)}<span style="opacity:0.7;font-weight:400">${calTimeStr}</span>
  </div>`
  }).join('')}
- ${dayEvents.length>3?`<div style="font-size:10px;color:var(--text-hint);padding:1px 3px">+${dayEvents.length-3} more</div>`:''}
+ ${dayEvents.length>3?`<div class="cal-more" onclick="event.stopPropagation();showCalDay('${dateStr}')" title="See everything on this day" style="font-size:10.5px;font-weight:700;color:var(--teal-600);padding:2px 4px;border-radius:4px;cursor:pointer;display:inline-block">+${dayEvents.length-3} more</div>`:''}
  </div>`
  }
 
@@ -30126,9 +30127,30 @@ function setEventLocationUI(location, room){
 }
 
 // ── CALENDAR DAY CLICK ──
+// "+N more" on the month grid: everything on that day in a popup, instead
+// of the click falling through to "create an event" on that day
+function showCalDay(dateStr){
+ var list = ((window._calByDate||{})[dateStr]||[]).slice().sort(function(a,b){ return String(a.start_time||'').localeCompare(String(b.start_time||'')) })
+ var d = new Date(dateStr+'T12:00:00')
+ var title = d.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
+ var html = list.map(function(e){
+   var cancelled = e.status==='cancelled'
+   var col = cancelled ? '#DC2626' : typeColorPair(e.event_type_color)[1]
+   var show = e.production_name ? e.production_name+(e.production_stage==='rising_stars'?' (RS)':e.production_stage==='teen_show'?' (Teen)':'') : (e.program_name||'')
+   var time = e.start_time ? fmtTime(e.start_time)+(e.end_time?' – '+fmtTime(e.end_time):'') : 'All day'
+   return '<div onclick="closeAdHocModal(\'cal-day\');openEventChip(\''+e.id+'\')" style="display:flex;gap:10px;align-items:stretch;padding:9px 6px;border-bottom:1px solid var(--border);cursor:pointer;border-radius:6px" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+     + '<div style="width:4px;border-radius:2px;background:'+col+';flex-shrink:0"></div>'
+     + '<div style="width:122px;flex-shrink:0;font-size:12.5px;color:var(--text-muted);padding-top:1px;white-space:nowrap">'+escHtml(time)+'</div>'
+     + '<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13.5px'+(cancelled?';text-decoration:line-through':'')+'">'+escHtml(e.name)+'</div>'
+     + (show||e.location ? '<div style="font-size:12px;color:var(--text-muted)">'+escHtml([show, e.location && e.location!=='HWTC' ? e.location : ''].filter(Boolean).join(' · '))+'</div>' : '')
+     + (cancelled ? '<div style="font-size:11px;font-weight:700;color:#DC2626">CANCELLED</div>' : '') + '</div></div>'
+ }).join('') || '<div style="color:var(--text-muted);font-size:13px">Nothing scheduled.</div>'
+ if(canEdit('events')) html += '<button class="btn btn-secondary btn-sm" style="margin-top:12px" onclick="closeAdHocModal(\'cal-day\');calDayClick(\''+dateStr+'\',{target:document.body})">+ Add an event on this day</button>'
+ showAdHocModal('cal-day', title+' · '+list.length+' event'+(list.length===1?'':'s'), html, 540)
+}
 function calDayClick(dateStr, evt){
- // Don't open if clicking on an event chip
- if(evt.target.closest('[onclick*="openEventDetail"]')) return
+ // Don't open if clicking on an event chip or the "+N more" link
+ if(evt.target.closest('[onclick*="openEventDetail"]') || evt.target.closest('.cal-more')) return
  if(currentUser?.role!=='admin') return
  openEventModal()
  setTimeout(()=>{

@@ -3169,6 +3169,12 @@ def init_db():
         "ALTER TABLE board_availability ADD COLUMN IF NOT EXISTS virtual_dates TEXT DEFAULT '[]'",
         # the front-door keypad code given to this ELIC (shown on their welcome packet)
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
+        # "Event" programs: a paid one-off (or few-date) event people sign up for
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS event_arrival_time TEXT DEFAULT ''",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS event_includes TEXT DEFAULT ''",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS event_bring TEXT DEFAULT ''",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS event_refund_policy TEXT DEFAULT ''",
+        "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS event_audience TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS tv_spotlights (
             id TEXT PRIMARY KEY,
             title TEXT NOT NULL,
@@ -6875,6 +6881,32 @@ def get_youth_programs():
     conn.close()
     return jsonify(programs)
 
+
+def _save_event_program_fields(conn, pid, d):
+    """For program_type='event': the event's date, times, place, who it's
+    for, price, spots and the practical details people need. Maps onto the
+    same columns classes use (single date, meeting times, location, price,
+    capacity) so registration, the calendar and payments all just work."""
+    if (d.get('program_type') or '') != 'event':
+        return
+    date = (d.get('event_date') or '').strip()[:10] or None
+    aud = d.get('event_audience') if d.get('event_audience') in ('adults', 'youth', 'all') else 'all'
+    def cents(v):
+        try: return int(round(float(v) * 100)) if str(v).strip() != '' else 0
+        except Exception: return 0
+    cap = d.get('event_capacity')
+    try: cap = int(cap) if str(cap).strip() != '' else None
+    except Exception: cap = None
+    execute(conn, '''UPDATE youth_programs SET schedule_type='single', single_date=%s, start_date=COALESCE(%s,start_date),
+            end_date=COALESCE(%s,end_date), meeting_start_time=%s, meeting_end_time=%s, event_arrival_time=%s,
+            program_location=%s, price=%s, capacity=%s, event_audience=%s, event_includes=%s, event_bring=%s,
+            event_refund_policy=%s, registration_form_type=%s, requires_guardian=%s WHERE id=%s''',
+        (date or '', date, date, (d.get('event_start_time') or '')[:5], (d.get('event_end_time') or '')[:5],
+         (d.get('event_arrival_time') or '')[:5], (d.get('event_location') or '').strip()[:300], cents(d.get('event_price')), cap, aud,
+         (d.get('event_includes') or '').strip()[:2000], (d.get('event_bring') or '').strip()[:2000],
+         (d.get('event_refund_policy') or '').strip()[:2000],
+         'adult' if aud == 'adults' else 'youth', aud == 'youth', pid))
+
 @app.route('/api/youth-programs', methods=['POST'])
 def create_youth_program():
     err = require_permission('youth')
@@ -6897,6 +6929,7 @@ def create_youth_program():
                  bool(d.get('is_paid_instruction', False)),
                  d.get('pay_rate_type') or 'hourly',
                  float(d.get('pay_rate_amount') or 0)))
+        _save_event_program_fields(conn, pid, d)
         conn.commit()
     except psycopg2.IntegrityError:
         conn.rollback(); conn.close()
@@ -6927,6 +6960,7 @@ def update_youth_program(pid):
              d.get('pay_rate_type') or 'hourly',
              float(d.get('pay_rate_amount') or 0),
              pid))
+    _save_event_program_fields(conn, pid, d)
     conn.commit()
     sync_hours_store_for_program(conn, pid)   # name, status, and bundle feed the store items
     row = fetchone(conn, '''SELECT yp.*, v.name as default_elic_name FROM youth_programs yp LEFT JOIN elics el ON yp.default_elic_id=el.id LEFT JOIN volunteers v ON el.volunteer_id=v.id WHERE yp.id=%s''', (pid,))

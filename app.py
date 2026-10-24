@@ -3169,6 +3169,9 @@ def init_db():
         "ALTER TABLE board_availability ADD COLUMN IF NOT EXISTS virtual_dates TEXT DEFAULT '[]'",
         # the front-door keypad code given to this ELIC (shown on their welcome packet)
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
+        "ALTER TABLE performances ADD COLUMN IF NOT EXISTS auto_sold_out BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS payment_method TEXT",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''",
         # "Event" programs: a paid one-off (or few-date) event people sign up for
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS event_arrival_time TEXT DEFAULT ''",
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS event_includes TEXT DEFAULT ''",
@@ -42999,6 +43002,12 @@ def public_production_performances(slug):
                      else ('presale', 'on_sale', 'sold_out') if (has_key and not sale.get('seconds_until_presale')) else ('on_sale', 'sold_out')))
     if has_key and any(p.get('status') == 'presale' for p in perfs):
         sale['presale'] = True
+    for p in perfs:
+        left = ga_remaining(conn, p)
+        if left is not None:
+            p['ga_remaining'] = left
+            if left <= 0 and p.get('status') in ('on_sale', 'presale'):
+                p['status'] = 'sold_out'
     conn.close()
     return jsonify({'production': prod, 'performances': perfs, 'sale': sale})
 
@@ -43309,6 +43318,7 @@ def public_seat_status(fid):
     ga_sold = 0
     if not perf.get('reserved_seating'):
         ga_sold = (fetchone(conn, "SELECT COUNT(*) AS c FROM tickets WHERE performance_id=%s AND seat_id IS NULL", (fid,)) or {}).get('c', 0)
+        perf['ga_remaining'] = ga_remaining(conn, perf)
     conn.close()
     return jsonify({'performance': perf, 'seats': seats, 'ticket_types': ticket_types, 'ga_sold': ga_sold, 'stage': stage, 'shapes': shapes})
 
@@ -43678,6 +43688,22 @@ def public_ticket_checkout():
             msg = f"{grp['prod_name']} limits {limit} ticket{'s' if limit != 1 else ''} per performance per person"
             msg += f" — you can get {remaining} more for this date." if remaining else " — you've already reached that limit for this date."
             return jsonify({'error': msg}), 400
+
+    # General seating: never sell past capacity. Lock each performance row
+    # so two buyers checking out at the same moment are counted one after
+    # the other, not both against the same last few tickets.
+    for fid, requested in requested_by_perf.items():
+        perf_row = fetchone(conn, 'SELECT * FROM performances WHERE id=%s FOR UPDATE', (fid,))
+        if not perf_row or perf_row.get('reserved_seating'):
+            continue
+        left = ga_remaining(conn, perf_row)
+        if left is not None and requested > left:
+            conn.rollback(); conn.close()
+            grp = next(g for g in groups if g['performance_id'] == fid)
+            if left <= 0:
+                return jsonify({'error': f"Sorry, {grp['prod_name']} is sold out for this date.", 'sold_out': True, 'performance_id': fid}), 409
+            return jsonify({'error': f"Only {left} ticket{'s' if left != 1 else ''} left for {grp['prod_name']} on this date. Please lower your quantity.",
+                            'remaining': left, 'performance_id': fid}), 409
 
     if 0 < donation_cents < 100:
         conn.close()
@@ -45340,8 +45366,9 @@ def ticket_email_html(ctx, kind='confirmation'):
     first = ((o.get('guardian_name') or '').split(' ') or [''])[0]
     show = prod.get('name') or ''
     maps = ('https://www.google.com/maps/search/?api=1&query=' + requests.utils.quote(' '.join(x for x in [v.get('name') or '', ctx['address']] if x))) if (v.get('name') or ctx['address']) else ''
-    intro = (('<p style="margin:0 0 14px">Hi ' + _h(first) + ', you\'re all set for <strong>' + _h(show) + '</strong>! Your tickets are below. '
-              'Show the QR code' + ('s' if len(ctx['tickets']) != 1 else '') + ' at the door from your phone, or print this email.</p>')
+    intro = (('<p style="margin:0 0 14px">Hi ' + _h(first) + ', you\'re all set for <strong>' + _h(show) + '</strong>! '
+              'Tap the button below to open your ticket' + ('s' if len(ctx['tickets']) != 1 else '') + ' on your phone, then show '
+              + ('each QR code' if len(ctx['tickets']) != 1 else 'the QR code') + ' at the door.</p>')
              if kind == 'confirmation' else
              ('<p style="margin:0 0 14px">Hi ' + _h(first) + ', we can\'t wait to see you at <strong>' + _h(show) + '</strong>! '
               'Here\'s everything you need to know before you go.</p>'))
@@ -45356,25 +45383,25 @@ def ticket_email_html(ctx, kind='confirmation'):
                + (row('Where', _h(v.get('name') or '') + ('<br><span style="font-weight:500">' + _h(ctx['address']) + '</span>' if ctx['address'] else '')
                       + ('<br><a href="' + maps + '" style="color:#16728b;font-weight:600">Directions</a>' if maps else '')) if (v.get('name') or ctx['address']) else '')
                + '</table></td></tr></table>')
-    btn = ('<div style="text-align:center;margin:0 0 18px"><a href="' + link + '" style="display:inline-block;background:#16728b;color:#fff;text-decoration:none;'
-           'font-weight:700;padding:13px 26px;border-radius:10px;font-size:15px">View &amp; save your tickets</a>'
-           '<div style="font-size:12px;color:#5f6b72;margin-top:6px">Open on your phone and add it to your home screen for quick access at the door.</div></div>')
-    cards = ''
-    for t in ctx['tickets']:
-        qr = base + '/t/' + ctx['token'] + '/qr/' + t['id'] + '.png'
-        cards += ('<table style="width:100%;border-collapse:collapse;border:1.5px dashed #b9c5ca;border-radius:12px;margin:0 0 10px"><tr>'
-                  '<td style="padding:12px;width:132px"><img src="' + qr + '" width="120" height="120" alt="Ticket QR code" style="display:block;border:0"/></td>'
-                  '<td style="padding:12px;vertical-align:middle"><div style="font-size:17px;font-weight:800">' + _h(t['seat_label'] or 'General admission') + '</div>'
-                  + ('<div style="font-size:13px;color:#5f6b72">' + _h(t['section']) + '</div>' if t.get('section') else '')
-                  + ('<div style="font-size:13px;color:#5f6b72">' + _h(t['type_name']) + '</div>' if t.get('type_name') else '')
-                  + ('<div style="font-size:12px;color:#b45309">Limited view' + (': ' + _h(t['view_note']) if t.get('view_note') else '') + '</div>' if t.get('obstructed_view') else '')
-                  + '<div style="font-size:12px;color:#5f6b72;margin-top:6px">Code: <strong style="font-family:monospace;letter-spacing:1px">' + _h(t['confirmation_code'] or '') + '</strong></div></td></tr></table>')
+    # QR codes live on the ticket page, not in the email: in an email they're
+    # small and hard to scan, and several on one screen get scanned together.
+    btn = ('<div style="text-align:center;margin:4px 0 18px"><a href="' + link + '#show" style="display:inline-block;background:#16728b;color:#fff;text-decoration:none;'
+           'font-weight:800;padding:16px 34px;border-radius:12px;font-size:17px">Open my ticket' + ('s' if len(ctx['tickets']) != 1 else '') + '</a>'
+           '<div style="font-size:12.5px;color:#5f6b72;margin-top:8px">Each ticket opens full screen, one at a time. Swipe sideways for the next one.<br>'
+           'Tip: add the page to your home screen so it\'s one tap away at the door.</div></div>')
+    cards = ('<table style="width:100%;border-collapse:collapse;margin:0 0 6px">'
+             + ''.join('<tr><td style="padding:7px 0;border-bottom:1px solid #e5eaec;font-size:14.5px;font-weight:700">' + _h(t['seat_label'] or 'General admission')
+                       + ((' <span style="font-weight:500;color:#5f6b72">· ' + _h(t['section']) + '</span>') if t.get('section') else '') + '</td>'
+                       + '<td style="padding:7px 0;border-bottom:1px solid #e5eaec;font-size:13px;color:#5f6b72;text-align:right">' + _h(t.get('type_name') or '')
+                       + ('<br><span style="color:#b45309">Limited view</span>' if t.get('obstructed_view') else '') + '</td></tr>'
+                       for t in ctx['tickets'])
+             + '</table>')
     kbyg = (prod.get('kbyg_text') or '').strip()
     extra = ('<div style="margin:18px 0 0;padding:14px 16px;background:#fff8e6;border-radius:10px;font-size:14px;line-height:1.6">'
              '<div style="font-weight:800;margin-bottom:6px">Know before you go</div>'
              + (_h(kbyg).replace('\n', '<br>') if kbyg else
                 'Doors open ' + (_h(ctx['doors_txt']) if ctx['doors_txt'] else '30 minutes before the show') + '. Please arrive a little early so you can find your seats. '
-                'Have your QR code ready on your phone (or printed) at the door.')
+                'Have your tickets open on your phone at the door (use the button above).')
              + '</div>')
     cal = '<p style="font-size:13px;margin:16px 0 0"><a href="' + link + '/calendar.ics" style="color:#16728b;font-weight:600">Add to your calendar</a></p>'
     return build_hwtc_email_html(('Your tickets: ' if kind == 'confirmation' else 'Know before you go: ') + show,
@@ -45415,15 +45442,25 @@ def public_ticket_view(token):
         conn.close()
     prod, v = ctx['prod'], ctx['venue']
     base = '/t/' + token
-    cards = ''.join(
-        '<div class="tk"><img src="' + base + '/qr/' + t['id'] + '.png" alt="QR code for ' + _h(t['seat_label'] or 'ticket') + '"/>'
-        '<div class="tk-info"><div class="seat">' + _h(t['seat_label'] or 'General admission') + '</div>'
-        + ('<div class="meta">' + _h(t['section']) + '</div>' if t.get('section') else '')
-        + ('<div class="meta">' + _h(t['type_name']) + '</div>' if t.get('type_name') else '')
-        + ('<div class="meta warn">Limited view' + (': ' + _h(t['view_note']) if t.get('view_note') else '') + '</div>' if t.get('obstructed_view') else '')
-        + '<div class="code">' + _h(t['confirmation_code'] or '') + '</div>'
-        + ('<div class="used">Checked in</div>' if t.get('checked_in_at') else '') + '</div></div>'
-        for t in ctx['tickets'])
+    n_t = len(ctx['tickets'])
+    # list on the page (no QR here), and one full-screen slide per ticket
+    cards = ('<div class="card"><div style="font-weight:800;margin-bottom:6px">Your ticket' + ('s' if n_t != 1 else '') + '</div>'
+             + ''.join('<div class="row"><span style="color:#1f2a30;font-weight:700">' + _h(t['seat_label'] or 'General admission')
+                       + ((' <span style="font-weight:500;color:#5f6b72">· ' + _h(t['section']) + '</span>') if t.get('section') else '') + '</span>'
+                       + ('<span class="used">Checked in</span>' if t.get('checked_in_at') else '<span style="color:#5f6b72">' + _h(t.get('type_name') or '') + '</span>') + '</div>'
+                       for t in ctx['tickets'])
+             + '<button class="open-btn" onclick="openTickets(0)">Show my ticket' + ('s' if n_t != 1 else '') + ' at the door</button></div>')
+    slides = ''.join(
+        '<section class="sl"><div class="sl-top">Ticket ' + str(i + 1) + ' of ' + str(n_t) + '</div>'
+        '<img src="' + base + '/qr/' + t['id'] + '.png" alt="QR code for ' + _h(t['seat_label'] or 'ticket') + '"/>'
+        '<div class="sl-seat">' + _h(t['seat_label'] or 'General admission') + '</div>'
+        + ('<div class="sl-meta">' + _h(' · '.join(x for x in [t.get('section') or '', t.get('type_name') or ''] if x)) + '</div>' if (t.get('section') or t.get('type_name')) else '')
+        + ('<div class="sl-meta" style="color:#b45309">Limited view' + (': ' + _h(t['view_note']) if t.get('view_note') else '') + '</div>' if t.get('obstructed_view') else '')
+        + '<div class="sl-code">' + _h(t['confirmation_code'] or '') + '</div>'
+        + ('<div class="used" style="margin-top:8px">Checked in</div>' if t.get('checked_in_at') else '')
+        + ('<div class="sl-hint">Swipe for the next ticket &rarr;</div>' if i < n_t - 1 and n_t > 1 else '')
+        + '</section>'
+        for i, t in enumerate(ctx['tickets']))
     maps = ('https://www.google.com/maps/search/?api=1&query=' + requests.utils.quote(' '.join(x for x in [v.get('name') or '', ctx['address']] if x))) if (v.get('name') or ctx['address']) else ''
     kbyg = (prod.get('kbyg_text') or '').strip()
     html = ('<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>'
@@ -45438,7 +45475,20 @@ def public_ticket_view(token):
             '.warn{color:#b45309}.code{font-family:monospace;font-size:15px;letter-spacing:2px;margin-top:8px}.used{display:inline-block;margin-top:6px;font-size:12px;font-weight:800;color:#166534;background:#dcfce7;padding:2px 8px;border-radius:10px}'
             'a{color:#16728b;font-weight:700}.row{display:flex;justify-content:space-between;gap:10px;padding:5px 0;font-size:14.5px}.row span:first-child{color:#5f6b72}'
             '.tip{font-size:12.5px;color:rgba(255,255,255,.85);text-align:center;margin-top:14px;line-height:1.5}'
-            '@media(max-width:380px){.tk img{width:120px;height:120px}}</style></head><body><div class="wrap">'
+            '@media(max-width:380px){.tk img{width:120px;height:120px}}'
+            '.open-btn{display:block;width:100%;margin-top:12px;padding:16px;border:none;border-radius:12px;background:#16728b;color:#fff;font:800 17px "DM Sans",sans-serif;cursor:pointer}'
+            '#viewer{position:fixed;inset:0;background:#fff;z-index:50;display:none}'
+            '#strip{display:flex;height:100%;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none}'
+            '#strip::-webkit-scrollbar{display:none}'
+            '.sl{flex:0 0 100%;height:100%;scroll-snap-align:center;scroll-snap-stop:always;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:56px 18px 40px;text-align:center}'
+            '.sl img{width:min(86vw,58vh);height:min(86vw,58vh);image-rendering:pixelated}'
+            '.sl-top{font-size:14px;font-weight:800;letter-spacing:.06em;color:#5f6b72;text-transform:uppercase;margin-bottom:14px}'
+            '.sl-seat{font-size:30px;font-weight:800;margin-top:14px}.sl-meta{font-size:15px;color:#5f6b72;margin-top:2px}'
+            '.sl-code{font-family:monospace;font-size:16px;letter-spacing:3px;margin-top:8px;color:#5f6b72}.sl-hint{margin-top:14px;font-size:13px;color:#16728b;font-weight:700}'
+            '#vclose{position:fixed;top:12px;right:12px;z-index:51;border:none;background:#eef3f5;border-radius:999px;padding:10px 16px;font:800 15px "DM Sans",sans-serif;color:#1f2a30}'
+            '#dots{position:fixed;bottom:14px;left:0;right:0;display:flex;justify-content:center;gap:7px;z-index:51}'
+            '#dots i{width:8px;height:8px;border-radius:50%;background:#c9d3d7;display:block}#dots i.on{background:#16728b}'
+            '</style></head><body><div class="wrap">'
             '<div class="head"><h1>' + _h(prod.get('name') or '') + '</h1><p>' + _h(ctx['date_txt']) + (' · ' + _h(ctx['time_txt']) if ctx['time_txt'] else '') + '</p>'
             '<p style="font-size:13px">' + str(len(ctx['tickets'])) + ' ticket' + ('' if len(ctx['tickets']) == 1 else 's') + ' for ' + _h(ctx['order'].get('guardian_name') or '') + '</p></div>'
             + cards +
@@ -45446,8 +45496,23 @@ def public_ticket_view(token):
             + ('<div class="row"><span>Where</span><strong style="text-align:right">' + _h(v.get('name') or '') + ('<br><span style="font-weight:500;font-size:13px">' + _h(ctx['address']) + '</span>' if ctx['address'] else '') + '</strong></div>' if (v.get('name') or ctx['address']) else '')
             + ('<div style="margin-top:8px"><a href="' + maps + '" target="_blank">Get directions</a> &nbsp;·&nbsp; <a href="' + base + '/calendar.ics">Add to calendar</a></div>' if maps else '<div style="margin-top:8px"><a href="' + base + '/calendar.ics">Add to calendar</a></div>')
             + ('<div style="margin-top:12px;font-size:14px;line-height:1.6;border-top:1px solid #e5eaec;padding-top:10px"><strong>Know before you go</strong><br>' + _h(kbyg).replace('\n', '<br>') + '</div>' if kbyg else '')
-            + '</div><div class="tip">Show these QR codes at the door. Tip: add this page to your home screen (Share → Add to Home Screen) so it\'s one tap away.</div>'
-            '</div></body></html>')
+            + '</div><div class="tip">At the door, tap <strong>Show my ticket' + ('s' if n_t != 1 else '') + '</strong>: each QR code fills the screen on its own, '
+              + ('and you swipe sideways for the next one. ' if n_t > 1 else '') + 'Turn your screen brightness up for a quick scan. '
+              'Tip: add this page to your home screen (Share → Add to Home Screen) so it\'s one tap away.</div>'
+            '</div>'
+            '<div id="viewer"><button id="vclose" onclick="closeTickets()">Done</button><div id="strip">' + slides + '</div>'
+            + ('<div id="dots">' + ''.join('<i></i>' for _ in ctx['tickets']) + '</div>' if n_t > 1 else '') + '</div>'
+            '<script>'
+            'var strip=document.getElementById("strip"),lock=null;'
+            'function dots(){var i=Math.round(strip.scrollLeft/strip.clientWidth);document.querySelectorAll("#dots i").forEach(function(d,k){d.className=k===i?"on":""})}'
+            'strip.addEventListener("scroll",function(){clearTimeout(window._dt);window._dt=setTimeout(dots,60)});'
+            'async function openTickets(i){document.getElementById("viewer").style.display="block";strip.scrollLeft=i*strip.clientWidth;dots();'
+            ' try{if(navigator.wakeLock)lock=await navigator.wakeLock.request("screen")}catch(e){}'
+            ' try{if(document.documentElement.requestFullscreen)document.documentElement.requestFullscreen().catch(function(){})}catch(e){}}'
+            'function closeTickets(){document.getElementById("viewer").style.display="none";try{lock&&lock.release()}catch(e){}'
+            ' try{document.fullscreenElement&&document.exitFullscreen()}catch(e){}}'
+            'if(location.hash==="#show")openTickets(0);'
+            '</script></body></html>')
     resp = app.response_class(html, mimetype='text/html')
     resp.headers['Cache-Control'] = 'no-store'
     return resp
@@ -45714,6 +45779,200 @@ def house_manager_data(fid):
                         'wheelchair_sold': wheel_sold, 'wheelchair_total': sum(1 for s in seats if s.get('accessible'))},
             'arrivals': buckets, 'seats': seats, 'not_arrived': not_arrived[:200], 'scan_log': log,
             'all_parties': list(parties.values())})
+    finally:
+        conn.close()
+
+
+# ── Door sales (House Manager) ────────────────────────────────────────────
+# Selling at the door on show day: cash, card on your own reader, check or
+# comp. Works for general seating (a quantity) and reserved seating (seats
+# picked on the map). Counts toward capacity, can check the party in on
+# the spot, emails tickets if an address is given, and keeps a per-night
+# total by payment method for counting the cash box.
+DOOR_PAYMENT_METHODS = {'cash': 'Cash', 'card': 'Card (door reader)', 'check': 'Check', 'comp': 'Comp'}
+
+
+@app.route('/api/house/<fid>/door', methods=['GET'])
+def house_door_info(fid):
+    err = require_permission('house_manager', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+        if not perf:
+            return jsonify({'error': 'Performance not found'}), 404
+        types = fetchall(conn, '''SELECT tt.id, tt.name, tt.price_cents FROM ticket_types tt
+            JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
+            WHERE ptt.performance_id=%s AND tt.active=TRUE ORDER BY tt.sort_order, tt.price_cents DESC''', (fid,)) or []
+        totals = fetchall(conn, '''SELECT COALESCE(payment_method,'cash') AS method, COUNT(*) AS orders, SUM(total_cents) AS cents,
+                SUM(jsonb_array_length(COALESCE(NULLIF(seats_json,''),'[]')::jsonb)) AS tickets
+            FROM ticket_orders WHERE performance_id=%s AND sale_channel='door' AND status='completed'
+            GROUP BY 1''', (fid,)) or []
+        return jsonify({'reserved': bool(perf.get('reserved_seating') and perf.get('seat_map_id')),
+                        'ga_remaining': ga_remaining(conn, perf), 'ticket_types': types,
+                        'methods': DOOR_PAYMENT_METHODS,
+                        'totals': [{'method': t['method'], 'label': DOOR_PAYMENT_METHODS.get(t['method'], t['method']),
+                                    'orders': int(t['orders'] or 0), 'tickets': int(t['tickets'] or 0), 'cents': int(t['cents'] or 0)} for t in totals]})
+    finally:
+        conn.close()
+
+
+@app.route('/api/house/<fid>/door-sale', methods=['POST'])
+def house_door_sale(fid):
+    err = require_permission('house_manager', 'edit')
+    if err: return err
+    d = request.json or {}
+    method = d.get('payment_method') if d.get('payment_method') in DOOR_PAYMENT_METHODS else None
+    if not method:
+        return jsonify({'error': 'Pick how they paid.'}), 400
+    name = (d.get('name') or '').strip()[:120] or 'Door sale'
+    email = (d.get('email') or '').strip().lower()[:200]
+    conn = get_db()
+    try:
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s FOR UPDATE', (fid,))
+        if not perf:
+            return jsonify({'error': 'Performance not found'}), 404
+        tt = fetchone(conn, '''SELECT tt.id, tt.name, tt.price_cents FROM ticket_types tt JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
+            WHERE ptt.performance_id=%s AND tt.id=%s''', (fid, d.get('ticket_type_id'))) if d.get('ticket_type_id') else None
+        if not tt:
+            return jsonify({'error': 'Pick a ticket type.'}), 400
+        price = 0 if method == 'comp' else int(tt['price_cents'] or 0)
+        items = []
+        if perf.get('reserved_seating') and perf.get('seat_map_id'):
+            ids = [x for x in (d.get('seat_ids') or []) if x]
+            if not ids:
+                return jsonify({'error': 'Tap the seats on the map first.'}), 400
+            _clear_expired_holds(conn, fid)
+            taken = fetchall(conn, '''SELECT s.seat_label FROM seat_map_seats s WHERE s.id = ANY(%s) AND (
+                    EXISTS (SELECT 1 FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+                            WHERE t.performance_id=%s AND t.seat_id=s.id AND o.status NOT IN ('refunded','cancelled'))
+                    OR EXISTS (SELECT 1 FROM seat_holds h WHERE h.performance_id=%s AND h.seat_id=s.id AND h.expires_at > NOW()))''', (ids, fid, fid)) or []
+            if taken:
+                return jsonify({'error': 'Already sold or in someone\'s cart: ' + ', '.join(t['seat_label'] or '?' for t in taken)}), 409
+            for r in fetchall(conn, 'SELECT id, seat_label, section, obstructed_view, view_note FROM seat_map_seats WHERE id = ANY(%s)', (ids,)) or []:
+                items.append({'seat_id': r['id'], 'ticket_type_id': tt['id'], 'seat_label': r['seat_label'], 'price_cents': price,
+                              'section': r.get('section') or '', 'obstructed_view': bool(r.get('obstructed_view')), 'view_note': r.get('view_note') or ''})
+        else:
+            try: qty = max(1, min(50, int(d.get('quantity') or 1)))
+            except Exception: qty = 1
+            left = ga_remaining(conn, perf)
+            if left is not None and qty > left and not d.get('over_capacity_ok'):
+                return jsonify({'error': ('Sold out.' if left <= 0 else f'Only {left} left.') + ' Sell anyway?', 'over_capacity': True, 'remaining': left}), 409
+            items = [{'seat_id': None, 'ticket_type_id': tt['id'], 'seat_label': tt['name'], 'price_cents': price} for _ in range(qty)]
+        oid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO ticket_orders (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json,
+                total_cents, service_fee_cents, status, cart_id, sale_channel, buyer_email_key, payment_method, notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,0,'pending',%s,'door',%s,%s,%s)''',
+            (oid, fid, name, email or None, (d.get('phone') or '').strip()[:40] or None, json.dumps(items), price * len(items),
+             uuid.uuid4().hex, ticket_email_key(email) if email else None, method,
+             f'Door sale by {session.get("name") or "house manager"}' + (f' · {d.get("note")}' if d.get('note') else '')))
+        conn.commit()
+        _finalize_ticket_order(conn, oid, None, None)
+        if d.get('check_in', True):
+            execute(conn, '''UPDATE tickets SET checked_in_at=NOW(), checked_in_by=%s WHERE ticket_order_id=%s''',
+                    (session.get('name') or 'Door sale', oid))
+            conn.commit()
+        sent = False
+        if email:
+            try: sent = send_ticket_email(conn, oid, 'confirmation')
+            except Exception as e: app.logger.warning(f'Door sale ticket email failed: {e}')
+        labels = [i['seat_label'] for i in items]
+        return jsonify({'ok': True, 'order_id': oid, 'tickets': len(items), 'total_cents': price * len(items),
+                        'seats': labels if items and items[0].get('seat_id') else [], 'emailed': sent})
+    finally:
+        conn.close()
+
+
+# ── House Manager → Volunteers ────────────────────────────────────────────
+# The volunteers who signed up (event sign-up / RSVP roles) for this
+# performance's calendar event(s): the production's events on the same date.
+# Signing someone in starts their volunteer timer for that event (the same
+# as tapping Start volunteering at the kiosk); signing out stops it and
+# sends the hours for approval.
+def _house_events_for_perf(conn, perf):
+    return fetchall(conn, '''SELECT id, name, start_time, end_time FROM events
+        WHERE production_id=%s AND event_date=%s AND COALESCE(status,'') <> 'cancelled'
+        ORDER BY start_time''', (perf['production_id'], str(perf['performance_date'])[:10])) or []
+
+
+@app.route('/api/house/<fid>/volunteers', methods=['GET'])
+def house_volunteers(fid):
+    err = require_permission('house_manager', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+        if not perf:
+            return jsonify({'error': 'Performance not found'}), 404
+        evs = _house_events_for_perf(conn, perf)
+        ids = [e['id'] for e in evs]
+        people = []
+        if ids:
+            rows = fetchall(conn, '''SELECT r.id, r.event_id, r.volunteer_id, COALESCE(v.name, r.volunteer_name) AS name,
+                    COALESCE(v.phone,'') AS phone, r.role_name, r.status, er.block_time, er.block_time_end, er.sort_order,
+                    ks.id AS session_id, EXTRACT(EPOCH FROM (NOW() - ks.started_at)) AS secs_in,
+                    (SELECT hours FROM pending_hours ph WHERE ph.volunteer_id=r.volunteer_id AND ph.event_id=r.event_id AND ph.status IN ('pending','approved') LIMIT 1) AS pending_hours,
+                    (SELECT hours FROM hours h WHERE h.volunteer_id=r.volunteer_id AND h.event_id=r.event_id LIMIT 1) AS approved_hours
+                FROM event_rsvps r
+                LEFT JOIN volunteers v ON v.id=r.volunteer_id
+                LEFT JOIN event_roles er ON er.id=r.role_id
+                LEFT JOIN kiosk_sessions ks ON ks.volunteer_id=r.volunteer_id AND ks.event_id=r.event_id AND ks.status='active'
+                WHERE r.event_id = ANY(%s) AND r.status IN ('confirmed','interested')
+                ORDER BY er.sort_order NULLS LAST, r.role_name, name''', (ids,)) or []
+            for r in rows:
+                st = 'in' if r.get('session_id') else ('done' if (r.get('pending_hours') or r.get('approved_hours')) else 'waiting')
+                people.append({'rsvp_id': r['id'], 'event_id': r['event_id'], 'volunteer_id': r.get('volunteer_id'), 'name': r.get('name') or '',
+                               'phone': r.get('phone') or '', 'role': r.get('role_name') or 'Volunteer', 'status': st,
+                               'signup_status': r.get('status'),
+                               'block': ' – '.join(x for x in [_fmt_time12(r.get('block_time')), _fmt_time12(r.get('block_time_end'))] if x),
+                               'since': (lambda m: (f'{m // 60}h {m % 60}m' if m >= 60 else f'{m} min'))(int(float(r['secs_in']) // 60)) if r.get('secs_in') is not None else '',
+                               'hours': float(r.get('approved_hours') or r.get('pending_hours') or 0) or None})
+        return jsonify({'events': [{'id': e['id'], 'name': e['name'], 'time': _fmt_time12(e.get('start_time'))} for e in evs],
+                        'volunteers': people})
+    finally:
+        conn.close()
+
+
+@app.route('/api/house/<fid>/volunteers/<rid>/<action>', methods=['POST'])
+def house_volunteer_action(fid, rid, action):
+    err = require_permission('house_manager', 'edit')
+    if err: return err
+    if action not in ('signin', 'signout'):
+        return jsonify({'error': 'Unknown action'}), 404
+    conn = get_db()
+    try:
+        r = fetchone(conn, '''SELECT r.*, e.name AS event_name FROM event_rsvps r JOIN events e ON e.id=r.event_id WHERE r.id=%s''', (rid,))
+        if not r:
+            return jsonify({'error': 'Sign-up not found'}), 404
+        if not r.get('volunteer_id'):
+            return jsonify({'error': 'This person isn\'t linked to a volunteer profile, so hours can\'t be logged. Add them in Volunteers first.'}), 400
+        who = session.get('name') or 'House manager'
+        if action == 'signin':
+            dup = existing_event_credit(conn, r['volunteer_id'], r['event_id'])
+            if dup:
+                return jsonify({'error': dup.replace('You\'re', 'They\'re').replace('You already', 'They already').replace('You opened', 'They opened')
+                                .replace('Your time', 'Their time').replace('your time', 'their time')}), 409
+            other = fetchone(conn, "SELECT event_name FROM kiosk_sessions WHERE volunteer_id=%s AND status='active'", (r['volunteer_id'],))
+            if other:
+                return jsonify({'error': f'They\'re already signed in to {other["event_name"] or "another event"}. Sign them out there first.'}), 409
+            execute(conn, '''INSERT INTO kiosk_sessions (id, volunteer_id, event_id, event_name, role, status)
+                VALUES (%s,%s,%s,%s,%s,'active')''', (str(uuid.uuid4()), r['volunteer_id'], r['event_id'], r['event_name'], r.get('role_name') or ''))
+            if r.get('status') != 'confirmed':
+                execute(conn, "UPDATE event_rsvps SET status='confirmed' WHERE id=%s", (rid,))
+            conn.commit()
+            return jsonify({'ok': True})
+        sess = fetchone(conn, "SELECT * FROM kiosk_sessions WHERE volunteer_id=%s AND event_id=%s AND status='active'", (r['volunteer_id'], r['event_id']))
+        if not sess:
+            return jsonify({'error': 'They aren\'t signed in.'}), 400
+        secs = (fetchone(conn, 'SELECT EXTRACT(EPOCH FROM (NOW() - started_at)) AS s FROM kiosk_sessions WHERE id=%s', (sess['id'],)) or {}).get('s') or 0
+        hrs = round(max(0.25, float(secs) / 3600), 2)
+        execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed' WHERE id=%s", (hrs, sess['id']))
+        execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status,pay_type)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending','volunteer')''',
+            (str(uuid.uuid4()), r['volunteer_id'], r['event_name'], r['event_id'], today_eastern().isoformat(), hrs,
+             r.get('role_name') or '', f'Signed in/out by {who} (House Manager)'))
+        conn.commit()
+        return jsonify({'ok': True, 'hours': hrs})
     finally:
         conn.close()
 
@@ -46114,6 +46373,43 @@ def presale_invites(pid):
     return jsonify({'ok': True, 'count': len(todo), 'minutes': max(1, round(len(todo) * 0.7 / 60))})
 
 
+
+# ── General seating capacity ──────────────────────────────────────────────
+# Reserved seating can't oversell (each seat sells once), but general
+# seating only had a number, and nothing checked it at checkout. Now the
+# tickets sold + tickets in checkouts still being paid for can never go
+# over ga_capacity, and the performance flips to Sold Out when it's full
+# (and back to On Sale if tickets are later refunded).
+def ga_remaining(conn, perf, exclude_order_ids=None):
+    """Tickets still available for a general-seating performance, or None
+    if it has no capacity set (unlimited) or is reserved seating."""
+    if perf.get('reserved_seating') or not int(perf.get('ga_capacity') or 0):
+        return None
+    sold = (fetchone(conn, """SELECT COUNT(*) AS c FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+        WHERE t.performance_id=%s AND o.status NOT IN ('refunded','cancelled')""", (perf['id'],)) or {}).get('c') or 0
+    pend = 0
+    for o in fetchall(conn, "SELECT id, seats_json FROM ticket_orders WHERE performance_id=%s AND status='pending' "
+                            "AND created_at > NOW() - INTERVAL '" + str(TICKET_PENDING_WINDOW_MINUTES) + " minutes'", (perf['id'],)) or []:
+        if exclude_order_ids and o['id'] in exclude_order_ids:
+            continue
+        pend += _order_ticket_count(o)
+    return max(0, int(perf['ga_capacity']) - int(sold) - pend)
+
+
+def update_ga_sold_out(conn, performance_id):
+    """Sold Out when full; back On Sale if it had been marked sold out
+    automatically and space opened up (refund, cancelled order)."""
+    perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (performance_id,))
+    if not perf or perf.get('reserved_seating') or not int(perf.get('ga_capacity') or 0):
+        return
+    sold = (fetchone(conn, """SELECT COUNT(*) AS c FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+        WHERE t.performance_id=%s AND o.status NOT IN ('refunded','cancelled')""", (performance_id,)) or {}).get('c') or 0
+    full = int(sold) >= int(perf['ga_capacity'])
+    if full and perf.get('status') == 'on_sale':
+        execute(conn, "UPDATE performances SET status='sold_out', auto_sold_out=TRUE WHERE id=%s", (performance_id,))
+    elif not full and perf.get('status') == 'sold_out' and perf.get('auto_sold_out'):
+        execute(conn, "UPDATE performances SET status='on_sale', auto_sold_out=FALSE WHERE id=%s", (performance_id,))
+
 def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
     """Turns a paid (or free) order into real tickets, releases the seat
     holds that produced them, and marks the order completed."""
@@ -46136,6 +46432,10 @@ def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
     execute(conn, "UPDATE ticket_orders SET status='completed' WHERE id=%s", (order_id,))
     execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND seat_id = ANY(%s)',
         (order['performance_id'], [li['seat_id'] for li in line_items if li.get('seat_id')]))
+    try:
+        update_ga_sold_out(conn, order['performance_id'])
+    except Exception as e:
+        app.logger.warning(f'GA sold-out check failed: {e}')
     conn.commit()
     try:
         fp = _square_card_fingerprint(square_payment_id)
@@ -46441,8 +46741,11 @@ def delete_test_ticket_order(oid):
             return jsonify({'error': 'Order not found'}), 404
         if o.get('sale_channel') != 'test':
             return jsonify({'error': 'Only test orders can be deleted this way.'}), 400
+        pf_row = fetchone(conn, 'SELECT performance_id FROM ticket_orders WHERE id=%s', (oid,)) or {}
         execute(conn, 'DELETE FROM tickets WHERE ticket_order_id=%s', (oid,))
         execute(conn, 'DELETE FROM ticket_orders WHERE id=%s', (oid,))
+        if pf_row.get('performance_id'):
+            update_ga_sold_out(conn, pf_row['performance_id'])
         conn.commit()
         return jsonify({'ok': True})
     finally:

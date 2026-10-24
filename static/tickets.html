@@ -577,6 +577,10 @@ function renderPurchaseScreen(){
       + '</div>'
   } else {
     html += '<div class="section-title">Select your tickets</div>'
+    // general seating: show when it's sold out or nearly
+    var gaLeft = currentPerformance.ga_remaining
+    if(gaLeft != null && gaLeft <= 0) html += '<div class="error-box" style="margin-bottom:10px">This performance is sold out.</div>'
+    else if(gaLeft != null && gaLeft <= 20) html += '<div style="margin:0 0 10px;font-size:13px;font-weight:700;color:#b45309">Only '+gaLeft+' ticket'+(gaLeft===1?'':'s')+' left for this performance</div>'
     html += ticketTypes.map(function(tt){
       var qty = gaQuantities[tt.id] || 0
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">'
@@ -1105,6 +1109,15 @@ function changeGaQty(ticketTypeId, delta){
   }
   var next = Math.max(0, cur+delta)
   if(tt && tt.quantity_limit) next = Math.min(next, tt.quantity_limit)
+  // never more than what's left for a general-seating performance
+  var gaLeft = currentPerformance && currentPerformance.ga_remaining
+  if(delta > 0 && gaLeft != null){
+    var others = 0; Object.keys(gaQuantities).forEach(function(k){ if(k !== ticketTypeId) others += gaQuantities[k]||0 })
+    if(others + next > gaLeft){
+      alert(gaLeft <= 0 ? 'Sorry, this performance is sold out.' : 'Only '+gaLeft+' ticket'+(gaLeft===1?'':'s')+' left for this performance.')
+      next = Math.max(0, gaLeft - others)
+    }
+  }
   gaQuantities[ticketTypeId] = next
   renderPurchaseScreen()
 }

@@ -71,6 +71,7 @@ select,.inp{background:var(--panel2);color:#fff;border:1.5px solid var(--line);b
   <h1 id="title">House Manager</h1>
   <select id="perf" onchange="choose(this.value)"></select>
   <button class="btn p" onclick="openScanner()">Scan tickets</button>
+  <button class="btn g" onclick="openDoorSale()">Sell tickets</button>
   <button class="btn" onclick="openUsherLink()">Usher scanner link</button>
   <div class="clock" id="clock"></div>
 </div>
@@ -79,7 +80,8 @@ select,.inp{background:var(--panel2);color:#fff;border:1.5px solid var(--line);b
 <div id="overlay" style="display:none;position:fixed;inset:0;z-index:40;background:rgba(5,15,19,.92);align-items:center;justify-content:center;padding:18px"></div>
 
 <script>
-var PERF = '', DATA = null, TAB = 'waiting', FIND = '', TIMER = null, OPEN_TICKET = null
+var PERF = '', DATA = null, TAB = 'waiting', FIND = '', TIMER = null, OPEN_TICKET = null, VOLS = null
+var SELL = null   // door sale in progress: {info, tt, qty, seats:{id:label}, method, received}
 function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
 async function api(path, method, body){
   var r = await fetch(path, {method: method||'GET', credentials:'same-origin', headers: body?{'Content-Type':'application/json'}:{}, body: body?JSON.stringify(body):undefined})
@@ -108,6 +110,8 @@ function choose(id){
   clearInterval(TIMER); tick(); TIMER = setInterval(tick, 5000)
 }
 async function tick(){
+  // volunteers who signed up for this performance's event(s)
+  api('/api/house/'+PERF+'/volunteers').then(function(v){ if(v && !v.error){ VOLS = v; if(TAB==='vols' && DATA){ var l = document.getElementById('list'); if(l) l.innerHTML = listHTML() } } })
   var d = await api('/api/house/'+PERF)
   if(d.error){ if(!DATA) document.getElementById('root').innerHTML = '<div class="empty" style="padding:30px 18px">'+esc(d.error)+'</div>'; return }
   DATA = d; render()
@@ -144,6 +148,10 @@ function render(){
       var tip = esc(s.seat_label||'')+(s.who?' — '+esc(s.who):'')+(s.status==='in'?' (here)':s.status==='sold'?' (not here yet)':s.status==='held'?' (held)':s.status==='cart'?' (in a cart)':' (open)')
       var click = s.ticket_id ? ' onclick="openTicket(\''+s.ticket_id+'\')" style="cursor:pointer"' : ''
       var ring = OPEN_TICKET && s.ticket_id===OPEN_TICKET ? ' stroke="var(--gold)" stroke-width="0.14"' : ''
+      if(SELL && SELL.info && SELL.info.reserved && s.status==='open'){
+        click = ' onclick="doorToggleSeat(\''+s.id+'\',\''+esc(s.seat_label||'').replace(/'/g,"\\'")+'\')" style="cursor:pointer"'
+        if(SELL.seats[s.id]) ring = ' stroke="var(--gold)" stroke-width="0.18"'
+      }
       svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="0.4" fill="'+col[s.status]+'"'+ring+click+'><title>'+tip+'</title></circle>'
     })
     svg += '</svg>'
@@ -155,7 +163,7 @@ function render(){
   }
   // side panel
   html += '<div class="panel"><div class="tabs">'
-    + [['waiting','Not here ('+m.parties_waiting+')'],['log','Scan log'],['find','Find']].map(function(t){ return '<button class="tab'+(TAB===t[0]?' on':'')+'" onclick="TAB=\''+t[0]+'\';render()">'+t[1]+'</button>' }).join('')
+    + [['waiting','Not here ('+m.parties_waiting+')'],['vols','Volunteers'+(VOLS&&VOLS.volunteers.length?' ('+VOLS.volunteers.filter(function(v){ return v.status==='in' }).length+'/'+VOLS.volunteers.length+')':'')],['log','Scan log'],['find','Find']].map(function(t){ return '<button class="tab'+(TAB===t[0]?' on':'')+'" onclick="TAB=\''+t[0]+'\';render()">'+t[1]+'</button>' }).join('')
     + '</div><div class="list" id="list">'+listHTML()+'</div></div></div>'
   var keep = document.getElementById('find-q'); var hadFocus = keep && document.activeElement === keep
   document.getElementById('root').innerHTML = html
@@ -168,6 +176,25 @@ function partyRow(p){
 }
 function listHTML(){
   var d = DATA
+  if(TAB==='vols'){
+    if(!VOLS) return '<div class="empty">Loading volunteers…</div>'
+    if(!VOLS.events.length) return '<div class="empty">No calendar event for this show on this date, so there\'s no volunteer sign-up to show. Volunteers sign up through an event\'s sign-up roles.</div>'
+    if(!VOLS.volunteers.length) return '<div class="empty">Nobody has signed up to volunteer for '+esc(VOLS.events.map(function(e){ return e.name }).join(', '))+' yet.</div>'
+    var lab = {in:'<span class="chip c-in">Signed in'+'</span>', done:'<span class="chip c-in">✓ Done</span>', waiting:'<span class="chip c-out">Not here</span>'}
+    var groups = {}
+    VOLS.volunteers.forEach(function(v){ (groups[v.role] = groups[v.role] || []).push(v) })
+    return Object.keys(groups).map(function(role){
+      return '<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:10px 0 4px">'+esc(role)+'</div>'
+        + groups[role].map(function(v){
+          var btn = v.status==='in'
+            ? '<button class="btn r" onclick="volAct(\''+v.rsvp_id+'\',\'signout\')">Sign out</button>'
+            : v.status==='waiting' ? '<button class="btn g" onclick="volAct(\''+v.rsvp_id+'\',\'signin\')">Sign in</button>' : ''
+          return '<div class="item" style="display:flex;align-items:center;gap:10px;cursor:default"><div style="flex:1;min-width:0">'
+            + '<div class="n">'+esc(v.name)+' '+lab[v.status]+'</div>'
+            + '<div class="d">'+(v.block?esc(v.block)+' · ':'')+(v.status==='in'&&v.since?'here '+esc(v.since)+' · ':'')+(v.hours?v.hours+' h logged · ':'')+(v.phone?'<a href="tel:'+esc(v.phone)+'">'+esc(v.phone)+'</a>':'')+'</div></div>'+btn+'</div>'
+        }).join('')
+    }).join('') + '<div class="empty" style="padding:10px 4px;text-align:left">Signing in starts their volunteer time for the event; signing out sends the hours for approval.</div>'
+  }
   if(TAB==='waiting'){
     return d.not_arrived.length ? d.not_arrived.map(partyRow).join('') : '<div class="empty">Everyone is here. 🎉</div>'
   }
@@ -195,6 +222,82 @@ function findRes(){
       || p.tickets.some(function(t){ return (t.seat_label||'').toLowerCase()===q || (t.code||'').toLowerCase().indexOf(q) >= 0 })
   })
   return res.length ? res.map(partyRow).join('') : '<div class="empty">No one matches. They may have bought for a different date, or under another name/email.</div>'
+}
+// ── Door sales ──
+async function openDoorSale(){
+  OPEN_TICKET = null
+  var info = await api('/api/house/'+PERF+'/door')
+  if(info.error){ alert(info.error); return }
+  if(!info.ticket_types.length){ alert('This performance has no ticket types set up. Add them in Ticketing first.'); return }
+  SELL = {info: info, tt: info.ticket_types[0].id, qty: 1, seats: {}, method: 'cash', received: '', name: '', email: '', checkin: true}
+  drawDoorSale(); if(DATA) render()
+}
+function doorToggleSeat(id, label){
+  if(!SELL) return
+  if(SELL.seats[id]) delete SELL.seats[id]; else SELL.seats[id] = label
+  drawDoorSale(); render()
+}
+function doorTotal(){
+  var tt = SELL.info.ticket_types.find(function(t){ return t.id===SELL.tt }) || {price_cents:0}
+  var n = SELL.info.reserved ? Object.keys(SELL.seats).length : SELL.qty
+  return {n: n, cents: SELL.method==='comp' ? 0 : n * (tt.price_cents||0)}
+}
+function money(c){ return '$'+(c/100).toFixed(2).replace(/\.00$/,'') }
+function drawDoorSale(){
+  var dr = document.getElementById('drawer'), I = SELL.info, t = doorTotal()
+  var seg = function(opts, cur, fn){ return '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 12px">'+opts.map(function(o){
+    var on = o[0]===cur; return '<button class="btn" onclick="'+fn+'(\''+o[0]+'\')" style="'+(on?'background:var(--open);border-color:var(--open);color:#fff':'')+'">'+o[1]+'</button>' }).join('')+'</div>' }
+  var change = ''
+  if(SELL.method==='cash' && SELL.received !== ''){
+    var rc = Math.round(parseFloat(SELL.received||'0')*100)
+    change = rc >= t.cents ? '<div style="font-size:22px;font-weight:800;color:var(--in);margin-top:6px">Change: '+money(rc - t.cents)+'</div>'
+                           : '<div style="color:var(--bad);font-weight:700;margin-top:6px">'+money(t.cents - rc)+' short</div>'
+  }
+  dr.innerHTML = '<div style="display:flex;align-items:center;margin-bottom:10px"><h2 style="flex:1;margin:0">Sell at the door</h2><button class="btn" onclick="closeDoorSale()">✕ Close</button></div>'
+    + '<div style="font-size:12px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.05em">Ticket</div>'
+    + seg(I.ticket_types.map(function(x){ return [x.id, esc(x.name)+' · '+money(x.price_cents)] }), SELL.tt, 'doorSet_tt')
+    + (I.reserved
+        ? '<div style="font-size:12px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.05em">Seats</div>'
+          + '<div style="margin:6px 0 12px;font-size:14px">'+(Object.keys(SELL.seats).length ? Object.values(SELL.seats).map(function(l){ return '<span class="chip c-in">'+esc(l)+'</span>' }).join(' ')
+            : '<span style="color:var(--muted)">Tap open (teal) seats on the map to add them.</span>')+'</div>'
+        : '<div style="font-size:12px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.05em">How many'+(I.ga_remaining!=null?' <span style="text-transform:none;font-weight:600">· '+I.ga_remaining+' left</span>':'')+'</div>'
+          + '<div style="display:flex;align-items:center;gap:12px;margin:6px 0 12px"><button class="btn" style="font-size:20px;padding:6px 16px" onclick="doorQty(-1)">−</button>'
+          + '<span style="font-size:26px;font-weight:800;min-width:30px;text-align:center">'+SELL.qty+'</span><button class="btn" style="font-size:20px;padding:6px 16px" onclick="doorQty(1)">+</button></div>')
+    + '<div style="font-size:12px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.05em">Paid with</div>'
+    + seg(['cash','card','check','comp'].filter(function(k){ return I.methods[k] }).map(function(k){ return [k, I.methods[k]] }), SELL.method, 'doorSet_method')
+    + '<div style="display:flex;align-items:baseline;justify-content:space-between;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-bottom:10px">'
+    + '<span style="color:var(--muted)">'+t.n+' ticket'+(t.n===1?'':'s')+'</span><span style="font-size:30px;font-weight:800">'+money(t.cents)+'</span></div>'
+    + (SELL.method==='cash' ? '<label style="font-size:13px;color:var(--muted)">Cash received</label><input class="inp" id="door-rec" inputmode="decimal" style="width:100%;font-size:20px" placeholder="e.g. 40" value="'+esc(SELL.received)+'" oninput="SELL.received=this.value;drawDoorSale();var r=document.getElementById(\'door-rec\');r.focus();r.setSelectionRange(r.value.length,r.value.length)"/>'+change : '')
+    + '<input class="inp" id="door-name" style="width:100%;margin-top:12px" placeholder="Name (optional)" value="'+esc(SELL.name)+'" onchange="SELL.name=this.value"/>'
+    + '<input class="inp" id="door-email" style="width:100%;margin-top:8px" placeholder="Email to send their tickets (optional)" value="'+esc(SELL.email)+'" onchange="SELL.email=this.value"/>'
+    + '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:14px;cursor:pointer"><input type="checkbox" '+(SELL.checkin?'checked':'')+' onchange="SELL.checkin=this.checked"/> Check them in now (they\'re walking in)</label>'
+    + '<button class="btn g" style="width:100%;margin-top:14px;padding:14px;font-size:17px" onclick="completeDoorSale()">Complete sale · '+money(t.cents)+'</button>'
+    + (I.totals.length ? '<div style="margin-top:18px;font-size:12px;color:var(--muted);text-transform:uppercase;font-weight:800;letter-spacing:.05em">Door sales this performance</div>'
+        + I.totals.map(function(x){ return '<div class="kv"><span>'+esc(x.label)+' · '+x.tickets+' ticket'+(x.tickets===1?'':'s')+'</span><strong>'+money(x.cents)+'</strong></div>' }).join('') : '')
+  dr.style.display = 'block'
+}
+function doorSet_tt(v){ SELL.tt = v; drawDoorSale() }
+function doorSet_method(v){ SELL.method = v; drawDoorSale() }
+function doorQty(n){ SELL.qty = Math.max(1, Math.min(50, SELL.qty + n)); drawDoorSale() }
+function closeDoorSale(){ SELL = null; closeDrawer() }
+async function completeDoorSale(){
+  var t = doorTotal(), I = SELL.info
+  if(!t.n){ alert(I.reserved ? 'Tap seats on the map first.' : 'Pick how many.'); return }
+  SELL.name = (document.getElementById('door-name')||{}).value || SELL.name
+  SELL.email = (document.getElementById('door-email')||{}).value || SELL.email
+  var body = {ticket_type_id: SELL.tt, payment_method: SELL.method, name: SELL.name, email: SELL.email, check_in: SELL.checkin,
+              quantity: SELL.qty, seat_ids: Object.keys(SELL.seats)}
+  var r = await api('/api/house/'+PERF+'/door-sale', 'POST', body)
+  if(r.over_capacity){ if(!confirm(r.error)) return; body.over_capacity_ok = true; r = await api('/api/house/'+PERF+'/door-sale', 'POST', body) }
+  if(r.error){ alert(r.error); return }
+  alert('Sold '+r.tickets+' ticket'+(r.tickets===1?'':'s')+' · '+money(r.total_cents)+(r.seats.length?'\nSeats: '+r.seats.join(', '):'')+(r.emailed?'\nTickets emailed.':''))
+  SELL = null; closeDrawer(); tick()
+}
+async function volAct(rid, action){
+  var r = await api('/api/house/'+PERF+'/volunteers/'+rid+'/'+action, 'POST', {})
+  if(r.error){ alert(r.error); return }
+  var v = await api('/api/house/'+PERF+'/volunteers'); if(v && !v.error) VOLS = v
+  render()
 }
 async function openTicket(id, quiet){
   OPEN_TICKET = id

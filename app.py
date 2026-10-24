@@ -45832,16 +45832,27 @@ def house_door_sale(fid):
         perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s FOR UPDATE', (fid,))
         if not perf:
             return jsonify({'error': 'Performance not found'}), 404
-        tt = fetchone(conn, '''SELECT tt.id, tt.name, tt.price_cents FROM ticket_types tt JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
-            WHERE ptt.performance_id=%s AND tt.id=%s''', (fid, d.get('ticket_type_id'))) if d.get('ticket_type_id') else None
-        if not tt:
+        # one sale can mix ticket types (2 adults + 1 child):
+        #   reserved: seat_types {seat_id: ticket_type_id}
+        #   general:  quantities {ticket_type_id: n}
+        # (older single-type form: ticket_type_id + seat_ids / quantity)
+        types = {t['id']: t for t in (fetchall(conn, '''SELECT tt.id, tt.name, tt.price_cents FROM ticket_types tt
+            JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id WHERE ptt.performance_id=%s''', (fid,)) or [])}
+        def price_of(tid):
+            return 0 if method == 'comp' else int((types.get(tid) or {}).get('price_cents') or 0)
+        seat_types = dict(d.get('seat_types') or {})
+        if not seat_types and d.get('seat_ids') and d.get('ticket_type_id'):
+            seat_types = {sid: d['ticket_type_id'] for sid in d['seat_ids']}
+        quantities = dict(d.get('quantities') or {})
+        if not quantities and d.get('ticket_type_id') and not d.get('seat_ids'):
+            quantities = {d['ticket_type_id']: d.get('quantity') or 1}
+        if any(t not in types for t in list(seat_types.values()) + list(quantities.keys())):
             return jsonify({'error': 'Pick a ticket type.'}), 400
-        price = 0 if method == 'comp' else int(tt['price_cents'] or 0)
         items = []
         if perf.get('reserved_seating') and perf.get('seat_map_id'):
-            ids = [x for x in (d.get('seat_ids') or []) if x]
+            ids = [x for x in seat_types.keys() if x]
             if not ids:
-                return jsonify({'error': 'Tap the seats on the map first.'}), 400
+                return jsonify({'error': 'Pick seats first.'}), 400
             _clear_expired_holds(conn, fid)
             taken = fetchall(conn, '''SELECT s.seat_label FROM seat_map_seats s WHERE s.id = ANY(%s) AND (
                     EXISTS (SELECT 1 FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
@@ -45850,20 +45861,24 @@ def house_door_sale(fid):
             if taken:
                 return jsonify({'error': 'Already sold or in someone\'s cart: ' + ', '.join(t['seat_label'] or '?' for t in taken)}), 409
             for r in fetchall(conn, 'SELECT id, seat_label, section, obstructed_view, view_note FROM seat_map_seats WHERE id = ANY(%s)', (ids,)) or []:
-                items.append({'seat_id': r['id'], 'ticket_type_id': tt['id'], 'seat_label': r['seat_label'], 'price_cents': price,
+                tid = seat_types[r['id']]
+                items.append({'seat_id': r['id'], 'ticket_type_id': tid, 'seat_label': r['seat_label'], 'price_cents': price_of(tid),
                               'section': r.get('section') or '', 'obstructed_view': bool(r.get('obstructed_view')), 'view_note': r.get('view_note') or ''})
         else:
-            try: qty = max(1, min(50, int(d.get('quantity') or 1)))
-            except Exception: qty = 1
+            for tid, n in quantities.items():
+                try: n = max(0, min(50, int(n or 0)))
+                except Exception: n = 0
+                items += [{'seat_id': None, 'ticket_type_id': tid, 'seat_label': types[tid]['name'], 'price_cents': price_of(tid)} for _ in range(n)]
+            if not items:
+                return jsonify({'error': 'Pick how many.'}), 400
             left = ga_remaining(conn, perf)
-            if left is not None and qty > left and not d.get('over_capacity_ok'):
+            if left is not None and len(items) > left and not d.get('over_capacity_ok'):
                 return jsonify({'error': ('Sold out.' if left <= 0 else f'Only {left} left.') + ' Sell anyway?', 'over_capacity': True, 'remaining': left}), 409
-            items = [{'seat_id': None, 'ticket_type_id': tt['id'], 'seat_label': tt['name'], 'price_cents': price} for _ in range(qty)]
         oid = str(uuid.uuid4())
         execute(conn, '''INSERT INTO ticket_orders (id, performance_id, guardian_name, guardian_email, guardian_phone, seats_json,
                 total_cents, service_fee_cents, status, cart_id, sale_channel, buyer_email_key, payment_method, notes)
             VALUES (%s,%s,%s,%s,%s,%s,%s,0,'pending',%s,'door',%s,%s,%s)''',
-            (oid, fid, name, email or None, (d.get('phone') or '').strip()[:40] or None, json.dumps(items), price * len(items),
+            (oid, fid, name, email or None, (d.get('phone') or '').strip()[:40] or None, json.dumps(items), sum(i['price_cents'] for i in items),
              uuid.uuid4().hex, ticket_email_key(email) if email else None, method,
              f'Door sale by {session.get("name") or "house manager"}' + (f' · {d.get("note")}' if d.get('note') else '')))
         conn.commit()
@@ -45877,7 +45892,7 @@ def house_door_sale(fid):
             try: sent = send_ticket_email(conn, oid, 'confirmation')
             except Exception as e: app.logger.warning(f'Door sale ticket email failed: {e}')
         labels = [i['seat_label'] for i in items]
-        return jsonify({'ok': True, 'order_id': oid, 'tickets': len(items), 'total_cents': price * len(items),
+        return jsonify({'ok': True, 'order_id': oid, 'tickets': len(items), 'total_cents': sum(i['price_cents'] for i in items),
                         'seats': labels if items and items[0].get('seat_id') else [], 'emailed': sent})
     finally:
         conn.close()

@@ -470,6 +470,17 @@ function fmtPerfDate(d, t){
   return dt
 }
 
+// "Only 6 left!" / "Almost sold out" / "Limited availability" under each date
+function availabilityBadge(a){
+  if(!a) return ''
+  var b = {
+    last:     ['#fee2e2','#b91c1c', 'Only '+a.left+' '+(a.left===1?'seat':'seats')+' left!'],
+    almost:   ['#ffedd5','#c2410c', 'Almost sold out'],
+    limited:  ['#fef9c3','#a16207', 'Limited availability'],
+    none_now: ['#f1f5f9','#475569', 'All remaining seats are in other buyers\' carts. Check back in a few minutes.']
+  }[a.level]
+  return b ? '<div style="display:inline-block;margin-top:6px;font-size:12px;font-weight:800;background:'+b[0]+';color:'+b[1]+';border-radius:999px;padding:3px 10px">'+escH(b[2])+'</div>' : ''
+}
 function renderPerformancePicker(prod, perfs){
   setTimeout(function(){ var a = document.getElementById('app'); if(a && presaleBannerHTML() && a.innerHTML.indexOf('Pre-sale access.') < 0) a.insertAdjacentHTML('afterbegin', presaleBannerHTML()) }, 0)
   setTimeout(function(){ var a = document.getElementById('app'); if(a && previewBannerHTML() && a.innerHTML.indexOf('Staff preview.') < 0) a.insertAdjacentHTML('afterbegin', previewBannerHTML()) }, 0)
@@ -480,7 +491,8 @@ function renderPerformancePicker(prod, perfs){
         var full = p.status === 'sold_out'
         return '<div class="perf-option" style="'+(full?'opacity:0.6':'')+'">'
           + '<div><div style="font-weight:800;font-size:16px">'+escH(fmtPerfDate(p.performance_date, p.performance_time))+'</div>'
-          + '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(p.venue_name||'')+'</div></div>'
+          + '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(p.venue_name||'')+'</div>'
+          + (full ? '' : availabilityBadge(p.availability)) + '</div>'
           + (full?'<span style="font-size:12px;font-weight:700;color:var(--red)">SOLD OUT</span>':'<button class="btn btn-primary" onclick="loadPerformance(\''+p.id+'\')">Select</button>')
           + '</div>'
       }).join('')

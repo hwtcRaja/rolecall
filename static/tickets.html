@@ -365,8 +365,20 @@ async function init(){
     return
   }
   if(!perfs.length){
-    document.getElementById('app').innerHTML = renderAboutSection(prod.description)
-      + '<div class="card">Tickets aren\'t on sale for this production yet — check back soon.</div>'
+    var msg
+    if(sale.completed){
+      // every performance has happened
+      msg = '<div class="card" style="text-align:center;padding:28px 22px">'
+        + '<div style="font-size:22px;font-weight:800;margin-bottom:6px">This production has closed</div>'
+        + '<div style="font-size:15px;color:var(--text-muted);line-height:1.6;margin-bottom:16px">Thank you to everyone who came out to see '+escH(prod.name)+'!</div>'
+        + '<a class="btn btn-primary" href="https://www.hwtco.org" style="display:inline-block;text-decoration:none">See what\'s coming up at HWTC</a></div>'
+    } else if(sale.online_closed){
+      msg = '<div class="card" style="text-align:center;padding:24px 20px"><div style="font-size:18px;font-weight:800;margin-bottom:6px">Online sales have closed</div>'
+        + '<div style="font-size:15px;color:var(--text-muted);line-height:1.6">Tickets may still be available at the door.</div></div>'
+    } else {
+      msg = '<div class="card">Tickets aren\'t on sale for this production yet. Check back soon.</div>'
+    }
+    document.getElementById('app').innerHTML = renderAboutSection(prod.description) + msg
     return
   }
   if(perfs.length === 1){

@@ -43075,6 +43075,12 @@ def public_production_performances(slug):
             p['ga_remaining'] = left
             if left <= 0 and p.get('status') in ('on_sale', 'presale'):
                 p['status'] = 'sold_out'
+        try:
+            p['availability'] = performance_availability(conn, p)
+            if p['availability'] and p['availability']['level'] == 'sold_out' and p.get('status') in ('on_sale', 'presale'):
+                p['status'] = 'sold_out'
+        except Exception as e:
+            app.logger.warning(f'availability failed: {e}')
     conn.close()
     return jsonify({'production': prod, 'performances': perfs, 'sale': sale})
 
@@ -46603,6 +46609,35 @@ def ga_remaining(conn, perf, exclude_order_ids=None):
             continue
         pend += _order_ticket_count(o)
     return max(0, int(perf['ga_capacity']) - int(sold) - pend)
+
+
+def performance_availability(conn, perf):
+    """How full a performance is, for the "Only 6 left" / "Almost sold out"
+    labels on the ticket page. Works for general and reserved seating."""
+    if perf.get('reserved_seating') and perf.get('seat_map_id'):
+        cap = int((fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_map_seats WHERE seat_map_id=%s AND COALESCE(active,TRUE)=TRUE',
+                            (perf['seat_map_id'],)) or {}).get('c') or 0)
+        sold = int((fetchone(conn, """SELECT COUNT(*) AS c FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+            WHERE t.performance_id=%s AND t.seat_id IS NOT NULL AND o.status NOT IN ('refunded','cancelled')""", (perf['id'],)) or {}).get('c') or 0)
+        held = int((fetchone(conn, 'SELECT COUNT(*) AS c FROM seat_holds WHERE performance_id=%s AND expires_at > NOW()', (perf['id'],)) or {}).get('c') or 0)
+        try:
+            blocked = len(active_seat_blocks(conn, perf['id']) or {})
+        except Exception:
+            blocked = 0
+        left = max(0, cap - sold - held - blocked)
+        sold_out = cap > 0 and sold + blocked >= cap
+    else:
+        cap = int(perf.get('ga_capacity') or 0)
+        if not cap:
+            return None
+        left = ga_remaining(conn, perf) or 0
+        sold_out = left <= 0
+    if not cap:
+        return None
+    pct = left * 100.0 / cap
+    level = ('sold_out' if sold_out else 'none_now' if left <= 0 else 'last' if left <= 10 else
+             'almost' if pct <= 20 else 'limited' if pct <= 40 else 'plenty')
+    return {'left': left, 'capacity': cap, 'level': level}
 
 
 def update_ga_sold_out(conn, performance_id):

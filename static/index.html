@@ -37310,6 +37310,7 @@ async function loadTicketsTab(pid){
     + (ticketUrl
         ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 14px;background:var(--teal-light,#e0f2fe);border-radius:var(--radius);font-size:13px">'
           + '<button class="btn btn-secondary btn-sm" onclick="openEmailTicketsModal(\''+pid+'\')" title="Send the tickets email to people who already bought">Email Tickets</button>'
+          + '<button class="btn btn-secondary btn-sm" onclick="openAudienceEmailModal(\''+pid+'\')" title="Thank-you, survey or news email to everyone who bought tickets">Email Audience</button>'
           + '<a class="btn btn-secondary btn-sm" href="/tickets/scan" target="_blank" title="Scan ticket QR codes at the door">Door Scanner</a>'
           + '<a class="btn btn-secondary btn-sm" href="/house" target="_blank" title="Live check-in dashboard for show night">House Manager</a>'
           + '<a class="btn btn-secondary btn-sm" href="'+ticketUrl+'?preview=1" target="_blank" title="Try the whole flow before sales open, including Draft and Pre-Sale performances. Only works while you\'re logged in.">Preview as a buyer</a>'
@@ -37867,6 +37868,70 @@ async function clearSlackTicketWebhook(){
 }
 
 // ── Email tickets to people who already bought ──
+// ── Email the audience (thank-yous, surveys, anything) ──
+async function openAudienceEmailModal(pid){
+  var perfs = await api('/api/productions/'+pid+'/performances')
+  perfs = Array.isArray(perfs) ? perfs.filter(function(p){ return p.status !== 'cancelled' }) : []
+  var surveys = await api('/api/surveys'); surveys = Array.isArray(surveys) ? surveys : []
+  var hist = await api('/api/productions/'+pid+'/audience-emails'); hist = Array.isArray(hist) ? hist : []
+  var prod = (allProductions||[]).find(function(p){ return p.id===pid }) || {}
+  window._aePid = pid
+  var today = new Date().toISOString().slice(0,10)
+  showAdHocModal('audience-email-modal', 'Email the audience',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6">Thank them for coming, ask for feedback with one of your surveys, or share news. Each buyer gets <strong>one</strong> email, however many tickets or dates they bought. Test orders, refunds and anyone marked "don\'t email" in Patrons are left out.</div>'
+    + '<div class="form-group"><label>Which performances</label>'
+    + '<div style="display:flex;gap:8px;margin-bottom:6px"><a href="#" onclick="aeSelect(true);return false">All</a><a href="#" onclick="aeSelect(\'past\');return false">Already happened</a><a href="#" onclick="aeSelect(false);return false">None</a></div>'
+    + '<div style="max-height:150px;overflow:auto;border:1.5px solid var(--border-md);border-radius:var(--radius);padding:6px 10px">'
+    + perfs.map(function(p){ return '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:4px 0;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500"><input type="checkbox" class="ae-perf" data-date="'+p.performance_date+'" value="'+p.id+'" '+(p.performance_date<=today?'checked':'')+' onchange="previewAudienceEmail()" style="width:auto"/>'
+        + escHtml(tkFmtDate(p.performance_date))+(p.performance_time?' · '+escHtml(tkFmtTime(p.performance_time)):'')+(p.performance_date>today?' <span style="color:var(--text-hint)">(upcoming)</span>':'')+'</label>' }).join('')
+    + '</div></div>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin:-4px 0 12px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500"><input type="checkbox" id="ae-attended" onchange="previewAudienceEmail()" style="width:auto"/> Only people whose tickets were scanned in at the door</label>'
+    + '<div id="ae-count" style="font-size:14px;font-weight:700;margin-bottom:14px">Counting…</div>'
+    + '<div class="form-group"><label>Subject</label><input id="ae-subject" value="Thank you for coming to {show}!"/></div>'
+    + '<div class="form-group"><label>Message</label><textarea id="ae-message" rows="7">Hi {first_name},\n\nThank you so much for coming to {show}. Supporting local theater means the world to our cast, crew and volunteers.\n\nWe\'d love to hear what you thought.\n\nSee you at the next show!\nHorizon West Theater Company</textarea>'
+    + '<div style="font-size:11.5px;color:var(--text-hint);margin-top:4px">Fill-ins: <code>{first_name}</code> <code>{show}</code> <code>{date}</code> (the date they came). Blank lines become new paragraphs; links are clickable.</div></div>'
+    + '<div class="form-group"><label>Add a survey button (optional)</label><select id="ae-survey" onchange="previewAudienceEmail()"><option value="">No survey</option>'
+    + surveys.map(function(sv){ return '<option value="'+sv.id+'">'+escHtml(sv.title)+(sv.status!=='open'?' ('+escHtml(sv.status)+')':'')+'</option>' }).join('') + '</select>'
+    + '<input id="ae-survey-btn" placeholder="Button text, e.g. Tell us about your visit" style="margin-top:6px"/></div>'
+    + '<div id="ae-survey-warn" style="font-size:12px;color:#b45309;margin:-6px 0 10px"></div>'
+    + '<div style="background:var(--bg);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:6px">Send a test first</div>'
+    + '<div style="display:flex;gap:8px"><input id="ae-test-to" type="email" value="'+escHtml((currentUser&&currentUser.email)||'')+'" style="flex:1"/>'
+    + '<button class="btn btn-secondary btn-sm" onclick="sendAudienceEmail(\'test\')">Send test</button></div></div>'
+    + '<button class="btn btn-primary" style="width:100%" id="ae-send" onclick="sendAudienceEmail(\'send\')" disabled>Send</button>'
+    + (hist.length ? '<div style="margin-top:18px;font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Sent before</div>'
+        + hist.map(function(h){ return '<div style="font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--border)"><strong>'+escHtml(h.subject)+'</strong><div style="color:var(--text-muted)">'
+          + escHtml(h.created_at)+' · '+(h.sent==null?'sending to '+h.recipients:h.sent+' of '+h.recipients+' sent')+(h.survey_title?' · survey: '+escHtml(h.survey_title):'')+(h.attended_only?' · attended only':'')+' · by '+escHtml(h.sent_by||'')+'</div></div>' }).join('') : ''), 560)
+  previewAudienceEmail()
+}
+function aeSelect(v){
+  var today = new Date().toISOString().slice(0,10)
+  document.querySelectorAll('.ae-perf').forEach(function(c){ c.checked = v === 'past' ? c.dataset.date <= today : !!v })
+  previewAudienceEmail()
+}
+function _aeBody(extra){
+  return Object.assign({performance_ids: Array.from(document.querySelectorAll('.ae-perf:checked')).map(function(c){ return c.value }),
+    attended_only: document.getElementById('ae-attended').checked, subject: document.getElementById('ae-subject').value,
+    message: document.getElementById('ae-message').value, survey_id: document.getElementById('ae-survey').value || null,
+    survey_button: document.getElementById('ae-survey-btn').value}, extra||{})
+}
+async function previewAudienceEmail(){
+  var el = document.getElementById('ae-count'), btn = document.getElementById('ae-send')
+  if(!document.querySelectorAll('.ae-perf:checked').length){ el.textContent = 'Pick at least one performance.'; btn.disabled = true; return }
+  var r = await api('/api/productions/'+_aePid+'/audience-email','POST', _aeBody({mode:'preview'}))
+  if(r.error){ el.textContent = r.error; btn.disabled = true; return }
+  el.textContent = r.count + ' '+(r.count===1?'person':'people')+' will get this email' + (r.skipped_no_email ? ' ('+r.skipped_no_email+' left out: asked not to be emailed)' : '')
+  btn.disabled = !r.count; btn.textContent = r.count ? 'Send to '+r.count+' '+(r.count===1?'person':'people') : 'Send'
+  document.getElementById('ae-survey-warn').textContent = r.survey_closed ? 'That survey isn\'t Open, so people can\'t answer it yet. Set it to Open in Surveys first.' : ''
+}
+async function sendAudienceEmail(mode){
+  if(mode === 'send' && !confirm(document.getElementById('ae-send').textContent+'?')) return
+  var r = await api('/api/productions/'+_aePid+'/audience-email','POST', _aeBody({mode: mode, test_email: document.getElementById('ae-test-to').value}))
+  if(r.error){ toast(r.error,'error'); return }
+  if(mode === 'test'){ toast('Test sent to '+r.to,'success'); return }
+  toast('Sending to '+r.sending+' people','success'); closeAdHocModal('audience-email-modal')
+}
+
 async function openEmailTicketsModal(pid){
   var perfs = await api('/api/productions/'+pid+'/performances')
   perfs = Array.isArray(perfs) ? perfs.filter(function(p){ return p.status !== 'cancelled' && p.performance_date >= new Date().toISOString().slice(0,10) }) : []

@@ -3171,6 +3171,12 @@ def init_db():
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS auto_sold_out BOOLEAN DEFAULT FALSE",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS payment_method TEXT",
+        """CREATE TABLE IF NOT EXISTS audience_emails (
+            id TEXT PRIMARY KEY,
+            production_id TEXT REFERENCES productions(id) ON DELETE CASCADE,
+            subject TEXT, message TEXT, survey_id TEXT, performance_ids TEXT DEFAULT '[]',
+            attended_only BOOLEAN DEFAULT FALSE, recipients INTEGER DEFAULT 0, sent INTEGER,
+            sent_by TEXT, created_at TIMESTAMP DEFAULT NOW(), finished_at TIMESTAMP)""",
         # where each hours entry came from (kiosk timer, self-submitted, staff, auto...)
         "ALTER TABLE hours ADD COLUMN IF NOT EXISTS source TEXT",
         "ALTER TABLE hours ADD COLUMN IF NOT EXISTS logged_by TEXT",
@@ -45667,6 +45673,131 @@ def _bulk_ticket_email_targets(conn, pid, performance_id=None, only_unsent=True)
     if only_unsent:
         q += ' AND o.tickets_email_sent_at IS NULL'
     return [r['id'] for r in fetchall(conn, q + ' ORDER BY o.created_at', tuple(params)) or []]
+
+
+# ── Email the audience ────────────────────────────────────────────────────
+# Thank-you notes, a survey about their experience, or anything else, to
+# everyone who bought tickets for one or more performances of a show.
+# One email per buyer (no matter how many tickets/dates), skipping test
+# orders, refunds, and anyone marked "don't email" in Patrons.
+def _audience_recipients(conn, pid, perf_ids, attended_only):
+    q = '''SELECT o.id, o.guardian_name, o.guardian_email, COALESCE(o.buyer_email_key, LOWER(TRIM(o.guardian_email))) AS ek,
+               pf.id AS performance_id, pf.performance_date, pf.performance_time,
+               (SELECT COUNT(*) FROM tickets t WHERE t.ticket_order_id=o.id AND t.checked_in_at IS NOT NULL) AS checked_in
+           FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+           WHERE pf.production_id=%s AND o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test'
+             AND COALESCE(o.guardian_email,'') <> \'\''''
+    params = [pid]
+    if perf_ids:
+        q += ' AND pf.id = ANY(%s)'; params.append(perf_ids)
+    rows = fetchall(conn, q + ' ORDER BY pf.performance_date, o.created_at', tuple(params)) or []
+    blocked = {r['email_key'] for r in (fetchall(conn, 'SELECT email_key FROM patron_profiles WHERE do_not_email=TRUE') or [])}
+    out = {}
+    for r in rows:
+        if attended_only and not int(r['checked_in'] or 0):
+            continue
+        k = r['ek'] or (r['guardian_email'] or '').lower()
+        if k in blocked or k in out:
+            continue
+        out[k] = {'name': r['guardian_name'] or '', 'email': r['guardian_email'].strip(), 'performance_date': r['performance_date'],
+                  'performance_time': r['performance_time']}
+    return list(out.values()), len(blocked & {(r['ek'] or '') for r in rows})
+
+
+def _audience_email_html(prod, rcpt, subject, message, survey):
+    import datetime as _dta
+    first = (rcpt.get('name') or '').strip().split(' ')[0] or 'there'
+    try:
+        dt = _dta.date.fromisoformat(str(rcpt.get('performance_date'))[:10]).strftime('%A, %B %-d')
+    except Exception:
+        dt = ''
+    fill = lambda t: (t or '').replace('{first_name}', first).replace('{show}', prod['name']).replace('{date}', dt)
+    body = message_text_html(fill(message))
+    if survey:
+        url = APP_BASE_URL.rstrip('/') + '/survey/' + survey['slug']
+        body += ('<div style="text-align:center;margin:22px 0 8px"><a href="' + url + '" style="display:inline-block;background:#16728b;color:#fff;'
+                 'text-decoration:none;font-weight:800;padding:14px 30px;border-radius:10px;font-size:16px">' + _h(survey.get('button') or 'Take the short survey') + '</a></div>')
+    return build_hwtc_email_html(_h(fill(subject)), body)
+
+
+@app.route('/api/productions/<pid>/audience-email', methods=['POST'])
+def production_audience_email(pid):
+    """mode: preview (count + sample) | test (to you) | send (everyone, in the background)."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    mode = d.get('mode') or 'preview'
+    perf_ids = [x for x in (d.get('performance_ids') or []) if x]
+    subject = (d.get('subject') or '').strip()[:200]
+    message = (d.get('message') or '').strip()[:8000]
+    conn = get_db()
+    try:
+        prod = fetchone(conn, 'SELECT id, name FROM productions WHERE id=%s', (pid,))
+        if not prod:
+            return jsonify({'error': 'Production not found'}), 404
+        rcpts, skipped = _audience_recipients(conn, pid, perf_ids, bool(d.get('attended_only')))
+        survey = None
+        if d.get('survey_id'):
+            survey = fetchone(conn, 'SELECT id, slug, title, status FROM surveys WHERE id=%s', (d['survey_id'],))
+            if survey:
+                survey['button'] = (d.get('survey_button') or '').strip()[:60] or 'Take the short survey'
+        if mode == 'preview':
+            return jsonify({'count': len(rcpts), 'skipped_no_email': skipped,
+                            'survey_closed': bool(survey and survey.get('status') not in ('active', 'open', 'published')),
+                            'sample': [r['name'] or r['email'] for r in rcpts[:8]]})
+        if not subject or not (message or survey):
+            return jsonify({'error': 'Add a subject and a message (or a survey).'}), 400
+        if mode == 'test':
+            me = (fetchone(conn, 'SELECT email, name FROM users WHERE id=%s', (session.get('user_id'),)) or {})
+            to = (d.get('test_email') or me.get('email') or '').strip()
+            if not to:
+                return jsonify({'error': 'No email address to send the test to.'}), 400
+            sample = rcpts[0] if rcpts else {'name': me.get('name') or 'Friend', 'performance_date': ''}
+            res = send_email([to], '[Test] ' + subject.replace('{show}', prod['name']), _audience_email_html(prod, sample, subject, message, survey),
+                             source='audience_email_test')
+            return jsonify({'ok': bool(res[0] if isinstance(res, tuple) else res), 'to': to})
+        if not rcpts:
+            return jsonify({'error': 'Nobody to email for that selection.'}), 400
+        sender = session.get('name') or 'Staff'
+        cid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO audience_emails (id, production_id, subject, message, survey_id, performance_ids, attended_only, recipients, sent_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''', (cid, pid, subject.replace('{show}', prod['name']), message, (survey or {}).get('id'), json.dumps(perf_ids),
+            bool(d.get('attended_only')), len(rcpts), sender))
+        conn.commit()
+        import threading
+        def run(rcpts=rcpts, prod=prod, survey=survey):
+            sent = 0
+            for r in rcpts:
+                try:
+                    subj = subject.replace('{show}', prod['name']).replace('{first_name}', (r.get('name') or '').split(' ')[0] or '')
+                    res = send_email([r['email']], subj, _audience_email_html(prod, r, subject, message, survey), source='audience_email')
+                    if (res[0] if isinstance(res, tuple) else res): sent += 1
+                except Exception as e:
+                    app.logger.warning(f'Audience email to {r["email"]} failed: {e}')
+            c2 = get_db()
+            try:
+                execute(c2, 'UPDATE audience_emails SET sent=%s, finished_at=NOW() WHERE id=%s', (sent, cid)); c2.commit()
+            finally:
+                c2.close()
+        threading.Thread(target=run, daemon=True).start()
+        return jsonify({'ok': True, 'sending': len(rcpts)})
+    finally:
+        conn.close()
+
+
+@app.route('/api/productions/<pid>/audience-emails', methods=['GET'])
+def production_audience_email_history(pid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT a.id, a.subject, a.recipients, a.sent, a.sent_by, a.created_at, a.attended_only, s.title AS survey_title
+            FROM audience_emails a LEFT JOIN surveys s ON s.id=a.survey_id WHERE a.production_id=%s ORDER BY a.created_at DESC LIMIT 20''', (pid,)) or []
+        for r in rows:
+            r['created_at'] = str(r['created_at'])[:16]
+        return jsonify(rows)
+    finally:
+        conn.close()
 
 
 @app.route('/api/productions/<pid>/send-ticket-emails', methods=['POST'])

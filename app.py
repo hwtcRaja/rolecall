@@ -42995,6 +42995,27 @@ def sale_channel_for(conn, performance_id, keys, preview=False):
     return 'presale' if (ok and info.get('presale')) else 'public'
 
 
+def perf_online_sales_closed(p):
+    """Online sales for a performance close at its 'Sales close' time if one
+    is set, otherwise at show time (end of that day if there's no time).
+    Door sales in House Manager aren't affected."""
+    import datetime as _dtc
+    now = now_eastern().replace(tzinfo=None)
+    close = None
+    sc = str(p.get('sales_close_at') or '').strip()
+    if sc:
+        try: close = _dtc.datetime.fromisoformat(sc.replace('Z', '')[:16])
+        except Exception: close = None
+    if close is None:
+        try:
+            d = _dtc.date.fromisoformat(str(p.get('performance_date'))[:10])
+            t = str(p.get('performance_time') or '')[:5]
+            close = _dtc.datetime.combine(d, _dtc.time.fromisoformat(t)) if len(t) == 5 else _dtc.datetime.combine(d, _dtc.time(23, 59))
+        except Exception:
+            return False
+    return now >= close
+
+
 def staff_ticket_preview(flag):
     """True when a logged-in staff member with ticketing access asked for
     preview mode (?preview=1): countdowns and pre-sale timing are skipped
@@ -43069,6 +43090,17 @@ def public_production_performances(slug):
                      else ('presale', 'on_sale', 'sold_out') if (has_key and not sale.get('seconds_until_presale')) else ('on_sale', 'sold_out')))
     if has_key and any(p.get('status') == 'presale' for p in perfs):
         sale['presale'] = True
+    # dates whose online sales have closed (show time passed) drop off the list
+    if not preview:
+        before = len(perfs)
+        perfs = [p for p in perfs if not perf_online_sales_closed(p)]
+        if not perfs:
+            all_perfs = fetchall(conn, "SELECT * FROM performances WHERE production_id=%s AND status <> 'cancelled'", (prod['id'],)) or []
+            today_s = today_eastern().isoformat()
+            if all_perfs and all(perf_online_sales_closed(p) for p in all_perfs) and all(str(p['performance_date'])[:10] < today_s for p in all_perfs):
+                sale['completed'] = True              # the whole run is over (last show was before today)
+            elif before:
+                sale['online_closed'] = True          # today's show: online sales closed, door may still sell
     for p in perfs:
         left = ga_remaining(conn, p)
         if left is not None:
@@ -43761,6 +43793,14 @@ def public_ticket_checkout():
             msg = f"{grp['prod_name']} limits {limit} ticket{'s' if limit != 1 else ''} per performance per person"
             msg += f" — you can get {remaining} more for this date." if remaining else " — you've already reached that limit for this date."
             return jsonify({'error': msg}), 400
+
+    # Online sales close at show time (or the performance's Sales close time)
+    if not staff_ticket_preview(d.get('preview')):
+        for fid in requested_by_perf.keys():
+            prow = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+            if prow and perf_online_sales_closed(prow):
+                conn.close()
+                return jsonify({'error': 'Online sales for this date have closed. Tickets may still be available at the door.'}), 409
 
     # General seating: never sell past capacity. Lock each performance row
     # so two buyers checking out at the same moment are counted one after

@@ -3171,6 +3171,30 @@ def init_db():
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS auto_sold_out BOOLEAN DEFAULT FALSE",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS payment_method TEXT",
+        # where each hours entry came from (kiosk timer, self-submitted, staff, auto...)
+        "ALTER TABLE hours ADD COLUMN IF NOT EXISTS source TEXT",
+        "ALTER TABLE hours ADD COLUMN IF NOT EXISTS logged_by TEXT",
+        "ALTER TABLE hours ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()",
+        "ALTER TABLE hours ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMP",
+        "ALTER TABLE hours ADD COLUMN IF NOT EXISTS approved_by TEXT",
+        "ALTER TABLE hours ADD COLUMN IF NOT EXISTS approved_at TIMESTAMP",
+        "ALTER TABLE pending_hours ADD COLUMN IF NOT EXISTS source TEXT",
+        "ALTER TABLE pending_hours ADD COLUMN IF NOT EXISTS logged_by TEXT",
+        # best-guess source for entries from before tracking, from their notes
+        "UPDATE hours SET source='kiosk_timer' WHERE source IS NULL AND notes LIKE 'Recorded via kiosk timer%'",
+        "UPDATE hours SET source='elic_stopped' WHERE source IS NULL AND notes LIKE 'Stopped by ELIC%'",
+        "UPDATE hours SET source='kiosk_full_event' WHERE source IS NULL AND notes LIKE 'Full event%'",
+        "UPDATE hours SET source='production_signin' WHERE source IS NULL AND notes LIKE 'Production member%'",
+        "UPDATE hours SET source='elic_auto' WHERE source IS NULL AND notes LIKE 'Auto-logged: ELIC%'",
+        "UPDATE hours SET source='house_manager' WHERE source IS NULL AND notes LIKE 'Signed in/out by%'",
+        "UPDATE hours SET source='kiosk_independent' WHERE source IS NULL AND role='Independent / Off-site'",
+        "UPDATE pending_hours SET source='kiosk_timer' WHERE source IS NULL AND notes LIKE 'Recorded via kiosk timer%'",
+        "UPDATE pending_hours SET source='elic_stopped' WHERE source IS NULL AND notes LIKE 'Stopped by ELIC%'",
+        "UPDATE pending_hours SET source='kiosk_full_event' WHERE source IS NULL AND notes LIKE 'Full event%'",
+        "UPDATE pending_hours SET source='production_signin' WHERE source IS NULL AND notes LIKE 'Production member%'",
+        "UPDATE pending_hours SET source='elic_auto' WHERE source IS NULL AND notes LIKE 'Auto-logged: ELIC%'",
+        "UPDATE pending_hours SET source='house_manager' WHERE source IS NULL AND notes LIKE 'Signed in/out by%'",
+        "UPDATE pending_hours SET source='kiosk_independent' WHERE source IS NULL AND role='Independent / Off-site'",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS notes TEXT DEFAULT ''",
         # "Event" programs: a paid one-off (or few-date) event people sign up for
         "ALTER TABLE youth_programs ADD COLUMN IF NOT EXISTS event_arrival_time TEXT DEFAULT ''",
@@ -6512,6 +6536,29 @@ def existing_event_credit(conn, volunteer_id, event_id, ignore_attendance_id=Non
         return 'You opened this event as the ELIC, so your time is logged automatically when you close it. No need to log hours too.'
     return None
 
+
+# ── Where hours came from ─────────────────────────────────────────────────
+HOURS_SOURCES = {
+    'kiosk_timer': 'Kiosk check-in (timer)',
+    'kiosk_manual': 'Logged at the kiosk',
+    'kiosk_full_event': 'Kiosk: full event',
+    'kiosk_independent': 'Kiosk: independent / off-site',
+    'elic_stopped': 'Kiosk timer stopped by ELIC',
+    'production_signin': 'Production sign-in',
+    'house_manager': 'Signed in by house manager',
+    'self_submitted': 'Self-submitted online',
+    'elic_auto': 'Automatic (ELIC opened & closed event)',
+    'staff': 'Added by staff',
+}
+
+
+def _tag_hours(conn, table, hid, source, by=None):
+    """Record how an hours entry was created (and by whom, when a person did it)."""
+    try:
+        execute(conn, f'UPDATE {table} SET source=%s, logged_by=COALESCE(%s, logged_by) WHERE id=%s', (source, by, hid))
+    except Exception as e:
+        app.logger.warning(f'Could not tag hours source: {e}')
+
 @app.route('/api/hours', methods=['POST'])
 def create_hours():
     err = require_permission('hours')
@@ -6529,6 +6576,7 @@ def create_hours():
                             'duplicate': True}), 409
     execute(conn, 'INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)',
             (hid, d.get('volunteer_id'), d.get('event',''), d.get('event_id'), d.get('date',''), d.get('hours',0), d.get('role',''), d.get('notes',''), pay_type))
+    _tag_hours(conn, 'hours', hid, 'staff', session.get('name') or session.get('email') or 'Staff')
     conn.commit()
     row = fetchone(conn, 'SELECT h.*, v.name as volunteer_name FROM hours h JOIN volunteers v ON h.volunteer_id=v.id WHERE h.id=%s', (hid,))
     conn.close()
@@ -14622,10 +14670,11 @@ def approve_pending_hours(hid):
                             'duplicate': True}), 409
     pid = str(uuid.uuid4())
     try:
-        execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type)
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+        execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type,source,logged_by,submitted_at,approved_by,approved_at)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())''',
             (pid, ph['volunteer_id'], ph['event'], ph.get('event_id'),
-             ph['date'], ph['hours'], ph.get('role',''), ph.get('notes',''), ph.get('pay_type') or 'volunteer'))
+             ph['date'], ph['hours'], ph.get('role',''), ph.get('notes',''), ph.get('pay_type') or 'volunteer',
+             ph.get('source'), ph.get('logged_by'), ph.get('submitted_at'), session.get('name') or session.get('email') or 'Staff'))
     except Exception:
         # May already exist  -  just mark as approved
         pass
@@ -16765,6 +16814,7 @@ def kiosk_submit():
     today = today_row['today'] if today_row else __import__('datetime').date.today().isoformat()
     execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)",
         (pid, d.get('volunteer_id'), d.get('event',''), d.get('event_id'), today, hours, d.get('role',''), d.get('notes',''), pay_type))
+    _tag_hours(conn, 'pending_hours', pid, 'kiosk_manual')
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -16933,6 +16983,7 @@ def kiosk_stop_session():
             (pid, vol_id, sess['event_name'] or 'Volunteer Session', sess['event_id'],
              today, elapsed_hours, role or sess['role'],
              'Recorded via kiosk timer' + override_note, hours_status, sess.get('pay_type') or 'volunteer'))
+        _tag_hours(conn, 'pending_hours', pid, 'kiosk_timer')
         conn.commit()
         try:
             s = get_email_settings()
@@ -16973,6 +17024,7 @@ def kiosk_stop_session_by_id():
     execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)",
         (pid, sess['volunteer_id'], sess['event_name'] or 'Volunteer Session',
          sess['event_id'], today, elapsed_hours, sess['role'], 'Stopped by ELIC', sess.get('pay_type') or 'volunteer'))
+    _tag_hours(conn, 'pending_hours', pid, 'elic_stopped')
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': elapsed_hours})
 
@@ -17025,6 +17077,7 @@ def kiosk_log_full_event():
     pid = str(uuid.uuid4())
     execute(conn, "INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status,pay_type) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending',%s)",
         (pid, vol_id, evt['name'], event_id, today, hours, role, 'Full event  -  logged via kiosk', pay_type))
+    _tag_hours(conn, 'pending_hours', pid, 'kiosk_full_event')
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': hours, 'event': evt['name']})
 
@@ -17049,6 +17102,7 @@ def kiosk_submit_independent():
         VALUES (%s,%s,%s,NULL,%s,%s,%s,%s,'pending',%s)""",
         (pid, vol_id, activity, today, hours,
          'Independent / Off-site', d.get('description','').strip(), pay_type))
+    _tag_hours(conn, 'pending_hours', pid, 'kiosk_independent')
     conn.commit()
     # Notify admins
     try:
@@ -18691,6 +18745,7 @@ def kiosk_production_signout():
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending')''',
         (pid, vol_id, evt_name, event_id, today, event_hours, role or '',
          f'Production member  -  {hours_source}'))
+    _tag_hours(conn, 'pending_hours', pid, 'production_signin')
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'hours': event_hours, 'hours_source': hours_source})
 
@@ -18929,10 +18984,11 @@ def kiosk_close_event():
             if fetchone(conn, 'SELECT 1 AS x FROM hours WHERE volunteer_id=%s AND event_id=%s', (ph['volunteer_id'], ph['event_id'])):
                 continue   # already has approved time for this event
             try:
-                execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type)
-                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                execute(conn, '''INSERT INTO hours (id,volunteer_id,event,event_id,date,hours,role,notes,pay_type,source,logged_by,submitted_at,approved_by,approved_at)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,NOW())''',
                     (hid, ph['volunteer_id'], ph['event'], ph['event_id'],
-                     ph['date'], ph['hours'], ph.get('role',''), ph.get('notes',''), ph.get('pay_type') or 'volunteer'))
+                     ph['date'], ph['hours'], ph.get('role',''), ph.get('notes',''), ph.get('pay_type') or 'volunteer',
+                     ph.get('source'), ph.get('logged_by'), ph.get('submitted_at'), 'Automatic: approved when the event closed'))
             except Exception:
                 pass
         execute(conn, "UPDATE pending_hours SET status='approved' WHERE event_id=%s AND status='pending'", (event_id,))
@@ -18968,6 +19024,7 @@ def kiosk_close_event():
                     VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
                     (hid, elic_vol['id'], elic_vol['event_name'] or 'Event', event_id,
                      today, duration_hrs, 'ELIC', 'Auto-logged: ELIC opened and closed event'))
+                _tag_hours(conn, 'hours', hid, 'elic_auto')
                 app.logger.info(f'Auto-logged {duration_hrs}h for ELIC {elic_vol["name"]}')
                 elic_auto_hours = {'name': elic_vol['name'], 'hours': duration_hrs}
             execute(conn, 'RELEASE SAVEPOINT elic_hours_sp')
@@ -19721,7 +19778,7 @@ def get_notifications():
     try:
         pending = fetchall(conn, '''
             SELECT ph.id, ph.volunteer_id, ph.event, ph.event_id, ph.date,
-                   ph.hours, ph.role, ph.notes, ph.status, ph.submitted_at,
+                   ph.hours, ph.role, ph.notes, ph.status, ph.submitted_at, ph.source, ph.logged_by,
                    v.name as volunteer_name
             FROM pending_hours ph
             LEFT JOIN volunteers v ON ph.volunteer_id=v.id
@@ -19737,7 +19794,10 @@ def get_notifications():
                 'color': 'amber',
                 'title': f'{ph["volunteer_name"] or "A volunteer"}  -  {ph["hours"]}h',
                 'sub':   f'{ph["event"] or "General"} · {ph["date"] or ""}' +
-                         (' · Needs review (no event)' if is_override else ''),
+                         (' · Needs review (no event)' if is_override else '') +
+                         (f' · {HOURS_SOURCES.get(ph.get("source"), "")}' if ph.get('source') else '') +
+                         (f' by {ph["logged_by"]}' if ph.get('logged_by') and ph.get('source') in ('house_manager', 'staff') else '') +
+                         (f' · submitted {ph["submitted_at"].strftime("%b %-d, %-I:%M %p")}' if hasattr(ph.get('submitted_at'), 'strftime') else ''),
                 'data':  ph,
             })
     except Exception as e:
@@ -30119,6 +30179,7 @@ def my_submit_hours():
          (d.get('role') or '').strip() or None,
          (d.get('notes') or '').strip() or None,
          pay_type))
+    _tag_hours(conn, 'pending_hours', hid, 'self_submitted', vol.get('name'))
     conn.commit(); conn.close()
     return jsonify({'ok': True, 'id': hid})
 
@@ -45982,10 +46043,12 @@ def house_volunteer_action(fid, rid, action):
         secs = (fetchone(conn, 'SELECT EXTRACT(EPOCH FROM (NOW() - started_at)) AS s FROM kiosk_sessions WHERE id=%s', (sess['id'],)) or {}).get('s') or 0
         hrs = round(max(0.25, float(secs) / 3600), 2)
         execute(conn, "UPDATE kiosk_sessions SET ended_at=NOW(), hours=%s, status='completed' WHERE id=%s", (hrs, sess['id']))
+        _phid = str(uuid.uuid4())
         execute(conn, '''INSERT INTO pending_hours (id,volunteer_id,event,event_id,date,hours,role,notes,status,pay_type)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'pending','volunteer')''',
-            (str(uuid.uuid4()), r['volunteer_id'], r['event_name'], r['event_id'], today_eastern().isoformat(), hrs,
+            (_phid, r['volunteer_id'], r['event_name'], r['event_id'], today_eastern().isoformat(), hrs,
              r.get('role_name') or '', f'Signed in/out by {who} (House Manager)'))
+        _tag_hours(conn, 'pending_hours', _phid, 'house_manager', who)
         conn.commit()
         return jsonify({'ok': True, 'hours': hrs})
     finally:

@@ -3171,6 +3171,8 @@ def init_db():
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS auto_sold_out BOOLEAN DEFAULT FALSE",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS payment_method TEXT",
+        """CREATE TABLE IF NOT EXISTS email_suppressions (
+            email_key TEXT PRIMARY KEY, email TEXT, reason TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS audience_emails (
             id TEXT PRIMARY KEY,
             production_id TEXT REFERENCES productions(id) ON DELETE CASCADE,
@@ -5676,6 +5678,13 @@ def get_volunteer(vol_id):
         (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id AND attendance_type IN ('in_person','virtual')) as meetings_attended,
         (SELECT COUNT(*) FROM board_meeting_attendance WHERE member_id=bm.id) as meetings_total
         FROM board_members bm WHERE bm.volunteer_id=%s''', (vol_id,))
+    try:
+        sup = fetchone(conn, 'SELECT reason, created_by, created_at FROM email_suppressions WHERE email_key=%s', (ticket_email_key(vol.get('email') or ''),)) if vol.get('email') else None
+        vol['email_opt_out'] = bool(sup)
+        if sup:
+            vol['email_opt_out_info'] = {'by': sup.get('created_by') or '', 'reason': sup.get('reason') or '', 'at': str(sup.get('created_at'))[:10]}
+    except Exception:
+        pass
     conn.close()
     return jsonify(vol)
 
@@ -9124,7 +9133,8 @@ def send_sad_announcement():
     err = require_permission('studio_after_dark', 'edit')
     if err: return err
     conn = get_db()
-    volunteers = fetchall(conn, "SELECT name, email FROM volunteers WHERE status='active' AND email IS NOT NULL AND email != ''") or []
+    _blk = suppressed_email_keys(conn)
+    volunteers = [v for v in (fetchall(conn, "SELECT name, email FROM volunteers WHERE status='active' AND email IS NOT NULL AND email != ''") or []) if ticket_email_key(v['email']) not in _blk]
     conn.close()
     sent = 0
     facts = _sad_next_event_facts()
@@ -9251,7 +9261,7 @@ def _send_sad_announcement_email(volunteer, facts=None):
         + (f'<p style="text-align:center;font-size:13px;color:rgba(255,255,255,0.6);margin:0">Sign-ups open {escape(f["opens"])}. The button takes you to the page either way.</p>'
            if f.get('opens') and not f.get('is_open') else '')
     )
-    send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
+    send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body + unsubscribe_footer(volunteer['email'])))
 
 
 def _notify_sad_lottery_opened(conn, event_id):
@@ -9262,7 +9272,8 @@ def _notify_sad_lottery_opened(conn, event_id):
     ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (event_id,))
     if not ev:
         return
-    volunteers = fetchall(conn, "SELECT name, email FROM volunteers WHERE status='active' AND email IS NOT NULL AND email != ''") or []
+    _blk = suppressed_email_keys(conn)
+    volunteers = [v for v in (fetchall(conn, "SELECT name, email FROM volunteers WHERE status='active' AND email IS NOT NULL AND email != ''") or []) if ticket_email_key(v['email']) not in _blk]
     for v in volunteers:
         try:
             _send_sad_lottery_open_email(v, ev)
@@ -9289,7 +9300,7 @@ def _send_sad_lottery_open_email(volunteer, ev):
         + f'<p style="text-align:center;margin:0 0 8px">'
           f'<a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;color:#fff;padding:14px 30px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Sign up to perform or watch</a></p>'
     )
-    send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body))
+    send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body + unsubscribe_footer(volunteer['email'])))
 
 
 @app.route('/api/public/sad/enter', methods=['POST'])
@@ -11755,6 +11766,116 @@ def get_program_guardian_recipients():
     return jsonify(rows)
 
 
+# ── Unsubscribe / email opt-out ───────────────────────────────────────────
+# Someone can stop getting HWTC's group emails (the email composer, event
+# sign-up invites, Studio After Dark announcements, audience emails) without
+# their volunteer profile being made inactive. Stored by email address so
+# it covers volunteers, parents and patrons alike. Personal/transactional
+# emails still go out: tickets, receipts, password resets, hours, things
+# they signed up for.
+import hmac as _hmac_u, hashlib as _hashlib_u
+
+
+def _unsub_token(email):
+    k = ticket_email_key(email or '')
+    return _hmac_u.new((app.secret_key or 'x').encode() if isinstance(app.secret_key, str) else (app.secret_key or b'x'),
+                       ('unsub:' + k).encode(), _hashlib_u.sha256).hexdigest()[:24]
+
+
+def unsubscribe_url(email):
+    from urllib.parse import quote
+    return APP_BASE_URL.rstrip('/') + '/unsubscribe?e=' + quote(email or '') + '&t=' + _unsub_token(email)
+
+
+def unsubscribe_footer(email):
+    return ('<p style="font-size:12px;color:#8a969c;text-align:center;margin:22px 0 0">Don\'t want these emails? '
+            '<a href="' + unsubscribe_url(email) + '" style="color:#8a969c">Unsubscribe</a></p>')
+
+
+def suppressed_email_keys(conn):
+    return {r['email_key'] for r in (fetchall(conn, 'SELECT email_key FROM email_suppressions') or [])}
+
+
+def is_email_suppressed(conn, email):
+    return bool(email) and bool(fetchone(conn, 'SELECT 1 AS x FROM email_suppressions WHERE email_key=%s', (ticket_email_key(email),)))
+
+
+def set_email_suppressed(conn, email, on, by='', reason=''):
+    k = ticket_email_key(email or '')
+    if not k:
+        return
+    if on:
+        execute(conn, '''INSERT INTO email_suppressions (email_key, email, reason, created_by) VALUES (%s,%s,%s,%s)
+            ON CONFLICT (email_key) DO UPDATE SET reason=EXCLUDED.reason, created_by=EXCLUDED.created_by, created_at=NOW()''',
+            (k, email.strip(), reason[:300], by[:120]))
+    else:
+        execute(conn, 'DELETE FROM email_suppressions WHERE email_key=%s', (k,))
+
+
+@app.route('/unsubscribe', methods=['GET', 'POST'])
+def unsubscribe_page():
+    from html import escape
+    email = (request.values.get('e') or '').strip()
+    tok = request.values.get('t') or ''
+    if not email or not _hmac_u.compare_digest(tok, _unsub_token(email)):
+        return 'This unsubscribe link isn\'t valid. Reply to any HWTC email and we\'ll take you off the list.', 400
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            on = request.form.get('action') != 'resubscribe'
+            set_email_suppressed(conn, email, on, 'self (unsubscribe link)', 'Unsubscribed from an email link' if on else '')
+            conn.commit()
+        off = is_email_suppressed(conn, email)
+    finally:
+        conn.close()
+    if off:
+        title, body, btn = ('You\'re unsubscribed', f'<strong>{escape(email)}</strong> won\'t get Horizon West Theater Company\'s group emails anymore. '
+                            'You\'ll still get emails about things you\'ve signed up or paid for, like tickets and receipts.',
+                            '<button name="action" value="resubscribe" class="b2">Changed your mind? Resubscribe</button>')
+    else:
+        title, body, btn = ('Unsubscribe from HWTC emails?', f'Stop sending group emails (announcements, invitations, news) to <strong>{escape(email)}</strong>.',
+                            '<button name="action" value="unsubscribe" class="b1">Unsubscribe</button>')
+    return ('<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>'
+            '<title>Email preferences · HWTC</title><style>body{margin:0;font-family:-apple-system,Segoe UI,sans-serif;background:#f4f7f8;color:#1f2a30}'
+            '.c{max-width:460px;margin:60px auto;background:#fff;border-radius:16px;padding:28px 26px;box-shadow:0 10px 30px rgba(0,0,0,.08);text-align:center}'
+            'h1{font-size:22px;margin:0 0 10px;color:#0f5566}p{line-height:1.6;color:#4b5a61}button{border:none;border-radius:10px;padding:13px 22px;font-size:15px;font-weight:700;cursor:pointer;margin-top:12px}'
+            '.b1{background:#16728b;color:#fff}.b2{background:#eef3f5;color:#16728b}</style></head><body><div class="c">'
+            f'<h1>{title}</h1><p>{body}</p><form method="post"><input type="hidden" name="e" value="{escape(email)}"/>'
+            f'<input type="hidden" name="t" value="{escape(tok)}"/>{btn}</form>'
+            '<p style="font-size:12px;margin-top:20px">Horizon West Theater Company · <a href="mailto:info@hwtco.org">info@hwtco.org</a></p></div></body></html>')
+
+
+@app.route('/api/volunteers/<vid>/email-opt-out', methods=['PUT'])
+def staff_set_volunteer_opt_out(vid):
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        v = fetchone(conn, 'SELECT email FROM volunteers WHERE id=%s', (vid,))
+        if not v or not (v.get('email') or '').strip():
+            return jsonify({'error': 'This volunteer has no email address.'}), 400
+        set_email_suppressed(conn, v['email'], bool(d.get('opt_out')), session.get('name') or 'Staff', (d.get('reason') or 'Set by staff').strip())
+        conn.commit()
+        return jsonify({'ok': True, 'opt_out': bool(d.get('opt_out'))})
+    finally:
+        conn.close()
+
+
+@app.route('/api/email-suppressions', methods=['GET'])
+def list_email_suppressions():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, 'SELECT email, reason, created_by, created_at FROM email_suppressions ORDER BY created_at DESC') or []
+        for r in rows:
+            r['created_at'] = str(r['created_at'])[:16]
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
 @app.route('/api/email/bulk', methods=['POST'])
 def send_bulk_email():
 
@@ -11770,7 +11891,12 @@ def send_bulk_email():
     if not recipients: return jsonify({'error': 'No recipients'}), 400
     if not subject: return jsonify({'error': 'No subject'}), 400
     if not body_text: return jsonify({'error': 'No message body'}), 400
-    sent = 0; failed = 0; failed_list = []
+    sent = 0; failed = 0; failed_list = []; skipped_unsub = 0
+    _cs = get_db()
+    try:
+        _blocked = suppressed_email_keys(_cs)
+    finally:
+        _cs.close()
     vol_ids = {}
     if '{profile_link}' in body_text:
         _c = get_db()
@@ -11783,6 +11909,9 @@ def send_bulk_email():
         name = (rec.get('name') or '').strip()
         email_addr = (rec.get('email') or '').strip()
         if not email_addr: continue
+        if ticket_email_key(email_addr) in _blocked:
+            skipped_unsub += 1
+            continue
         personalized_body = body_text.replace('{name}', name.split()[0] if name else 'there')
         if '{profile_link}' in personalized_body:
             # each volunteer gets their own private link to update their profile
@@ -11791,7 +11920,7 @@ def send_bulk_email():
         html_content = '<p>' + personalized_body.replace('\n\n','</p><p>').replace('\n','<br>') + '</p>'
         # bare web addresses become clickable (ones already inside a link are left alone)
         html_content = re.sub(r'(?<![="\'>])(https?://[^\s<"\']+)', r'<a href="\1" style="color:#145466;font-weight:600">\1</a>', html_content)
-        html_body = build_hwtc_email_html(subject, html_content)
+        html_body = build_hwtc_email_html(subject, html_content + unsubscribe_footer(email_addr))
         ok, err_msg = send_email([email_addr], subject, html_body, from_email=from_email, from_name=from_name, source='Email Composer')
         if ok:
             sent += 1
@@ -11799,7 +11928,7 @@ def send_bulk_email():
             failed += 1
             failed_list.append({'email': email_addr, 'name': name, 'error': err_msg or 'Unknown error'})
             app.logger.warning(f'Bulk email to {email_addr} failed: {err_msg}')
-    return jsonify({'ok': True, 'sent': sent, 'failed': failed, 'failed_list': failed_list})
+    return jsonify({'ok': True, 'sent': sent, 'failed': failed, 'failed_list': failed_list, 'skipped_unsubscribed': skipped_unsub})
 
 
 @app.route('/api/email/log', methods=['GET'])
@@ -17257,6 +17386,8 @@ def volunteer_profile_api():
                 execute(conn, '''UPDATE volunteers SET interests=%s, sub_selections=%s, phone=%s, pronouns=%s WHERE id=%s''',
                         (json.dumps(interests), json.dumps(subs), (d.get('phone') or '').strip()[:40] or v.get('phone'),
                          (d.get('pronouns') or '').strip()[:40], vid))
+            if 'group_emails' in d and v.get('email'):
+                set_email_suppressed(conn, v['email'], not bool(d.get('group_emails')), 'self (volunteer profile)', 'Turned off on their profile')
             conn.commit()
             v = fetchone(conn, 'SELECT id, name, email, phone, pronouns, interests, sub_selections FROM volunteers WHERE id=%s', (vid,))
         def _j(x, default):
@@ -17264,6 +17395,7 @@ def volunteer_profile_api():
             except Exception: return default
         return jsonify({'name': v['name'], 'email': v['email'], 'phone': v.get('phone') or '', 'pronouns': v.get('pronouns') or '',
                         'interests': _j(v.get('interests'), []), 'sub_selections': _j(v.get('sub_selections'), {}),
+                        'group_emails': not is_email_suppressed(conn, v.get('email') or ''),
                         'interest_types': types, 'saved': request.method == 'PUT'})
     finally:
         conn.close()
@@ -22073,7 +22205,9 @@ def send_rsvp_invite(eid):
     elif d.get('adhoc_only'):
         vols = []
     else:
-        vols = fetchall(conn, "SELECT id,name,email FROM volunteers WHERE status='active' AND email!='' AND email IS NOT NULL")
+        _blk = suppressed_email_keys(conn)
+        vols = [v for v in (fetchall(conn, "SELECT id,name,email FROM volunteers WHERE status='active' AND email!='' AND email IS NOT NULL") or [])
+                if ticket_email_key(v['email']) not in _blk]
 
     # Ad hoc contacts: people not in the Volunteers list at all (e.g. community members
     # for an open house). Pasted as free text, one per line: "Name, email" or just "email".
@@ -22296,7 +22430,7 @@ def send_rsvp_invite(eid):
                 email_subject = render_template_vars(tmpl_subject, tmpl_vars)
 
             fi = d.get('from_identity') or {}
-            send_email([v['email']], email_subject, build_hwtc_email_html(email_subject, body), fi.get('email') or None, fi.get('name') or None)
+            send_email([v['email']], email_subject, build_hwtc_email_html(email_subject, body + unsubscribe_footer(v['email'])), fi.get('email') or None, fi.get('name') or None)
             sent += 1
             log_volunteer_comm(conn, v['id'], f'Volunteer Opportunity: {evt["name"]}', 'volunteer_opportunity', session.get('user_name','admin'), v['email'])
             conn.commit()
@@ -45737,7 +45871,7 @@ def _audience_recipients(conn, pid, perf_ids, attended_only):
     if perf_ids:
         q += ' AND pf.id = ANY(%s)'; params.append(perf_ids)
     rows = fetchall(conn, q + ' ORDER BY pf.performance_date, o.created_at', tuple(params)) or []
-    blocked = {r['email_key'] for r in (fetchall(conn, 'SELECT email_key FROM patron_profiles WHERE do_not_email=TRUE') or [])}
+    blocked = {r['email_key'] for r in (fetchall(conn, 'SELECT email_key FROM patron_profiles WHERE do_not_email=TRUE') or [])} | suppressed_email_keys(conn)
     out = {}
     for r in rows:
         if attended_only and not int(r['checked_in'] or 0):
@@ -45763,7 +45897,7 @@ def _audience_email_html(prod, rcpt, subject, message, survey):
         url = APP_BASE_URL.rstrip('/') + '/survey/' + survey['slug']
         body += ('<div style="text-align:center;margin:22px 0 8px"><a href="' + url + '" style="display:inline-block;background:#16728b;color:#fff;'
                  'text-decoration:none;font-weight:800;padding:14px 30px;border-radius:10px;font-size:16px">' + _h(survey.get('button') or 'Take the short survey') + '</a></div>')
-    return build_hwtc_email_html(_h(fill(subject)), body)
+    return build_hwtc_email_html(_h(fill(subject)), body + (unsubscribe_footer(rcpt['email']) if rcpt.get('email') else ''))
 
 
 @app.route('/api/productions/<pid>/audience-email', methods=['POST'])

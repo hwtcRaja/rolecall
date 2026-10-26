@@ -5633,6 +5633,19 @@ function printVolIdCard(volId, volName){
  win.document.close()
 }
 
+// Stop / resume group emails for one volunteer (their profile stays active)
+async function toggleVolEmailOptOut(v){
+ var stop = !v.email_opt_out
+ var info = v.email_opt_out_info || {}
+ var msg = stop
+   ? 'Stop sending group emails to '+(v.name||v.email)+'?\n\nThey won\'t get the email composer, event sign-up invites, Studio After Dark or audience emails. They\'ll still get personal emails (hours, tickets, receipts). Their profile stays active.'
+   : 'Start sending group emails to '+(v.name||v.email)+' again?'+(info.by?'\n\nThey were unsubscribed '+(info.at?'on '+info.at+' ':'')+'by '+info.by+'.':'')
+ if(!confirm(msg)) return
+ var r = await api('/api/volunteers/'+v.id+'/email-opt-out','PUT',{opt_out: stop, reason: stop ? 'Set by staff' : ''})
+ if(r.error){ toast(r.error,'error'); return }
+ toast(stop ? 'Group emails stopped' : 'Group emails resumed','success')
+ openProfile(v.id)
+}
 async function openProfile(volId){
  try {
  currentVolId=volId
@@ -5657,6 +5670,7 @@ async function openProfile(volId){
  (v.employer_program||'').toLowerCase().indexOf('disney')>-1?{label:' Disney Cast Member',bg:'rgba(30,64,175,0.4)'}:null,
  (v.employer_program||'').toLowerCase().indexOf('universal')>-1?{label:' Universal Team Member',bg:'rgba(124,45,18,0.4)'}:null,
  v.verified_at?{label:' HWTC Verified',bg:'rgba(24,95,165,0.4)'}:null,
+ v.email_opt_out?{label:' No group emails',bg:'rgba(127,29,29,0.45)'}:null,
  v.wall_added_at?{label:' On the Wall',bg:'rgba(154,52,18,0.4)'}:null,
  {label:(v.total_hours||0)+'h total',bg:'rgba(255,255,255,0.15)'}
  ].filter(Boolean),
@@ -5690,6 +5704,9 @@ async function openProfile(volId){
  mkBtn(' Send Giving Reminder', function(){ sendSingleGivingReminder(v.id, v.name, v.employer_program) })
  }
  mkBtn(' ID Card', function(){ printVolIdCard(v.id, safeName) })
+ if(v.email){
+   mkBtn(v.email_opt_out ? ' Resume group emails' : ' Stop group emails', function(){ toggleVolEmailOptOut(v) })
+ }
  mkBtn(' Link Participant', function(){ openLinkModal('volunteer', v.id, '') })
  if(v.verified_at){
  mkBtn(' Unverify', function(){ unverifyVolunteer(v.id, safeName) })
@@ -7401,7 +7418,7 @@ async function sendEmailDirect(){
   const sent = res.sent || 0
   const failed = res.failed || 0
   if(status) status.textContent = sent+' sent'+(failed?' · '+failed+' failed':'')+'!'
-  toast('Email sent to '+sent+' recipient'+(sent!==1?'s':'')+(failed?' ('+failed+' failed)':''),'success')
+  toast('Email sent to '+sent+' recipient'+(sent!==1?'s':'')+(failed?' ('+failed+' failed)':'')+(res.skipped_unsubscribed?' · '+res.skipped_unsubscribed+' skipped (unsubscribed)':''),'success')
   if(failed && res.failed_list && res.failed_list.length){
    showEmailFailedModal(res.failed_list, subject, body)
   }
@@ -14163,7 +14180,7 @@ async function openPatron(key){
  var stat = function(v,l){ return '<div style="background:var(--bg);border-radius:8px;padding:8px 10px"><div style="font-size:16px;font-weight:800">'+v+'</div><div style="font-size:11px;color:var(--text-muted)">'+l+'</div></div>' }
  var html = '<div style="font-size:13px;margin-bottom:10px">'+(p.email?'<a href="mailto:'+escHtml(p.email)+'">'+escHtml(p.email)+'</a>':'')+(p.phone?' · <a href="tel:'+escHtml(p.phone)+'">'+escHtml(p.phone)+'</a>':'')
    + (p.is_donor?' · <a href="#" onclick="closeAdHocModal(\'patron-modal\');navTo(\'donors\');return false">Donor record</a>':'')
-   + (p.is_volunteer?' · <a href="#" onclick="closeAdHocModal(\'patron-modal\');openVolunteerProfile&&openVolunteerProfile(\''+p.volunteer_id+'\');return false">Volunteer profile</a>':'')+'</div>'
+   + (p.is_volunteer?' · <a href="#" onclick="closeAdHocModal(\'patron-modal\');openProfile(\''+p.volunteer_id+'\');return false">Volunteer profile</a>':'')+'</div>'
    + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">'
    + stat(p.shows_count,'shows') + stat(p.tickets,'tickets') + stat(_patMoney(p.spent_cents),'spent') + stat(p.attended_rate!=null?p.attended_rate+'%':'—','tickets scanned in')
    + '</div><div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">First bought '+escHtml(tkFmtDate(p.first_purchase))+' · usually '+(p.favorite_day?escHtml(p.favorite_day)+'s, ':'')+p.avg_party+' tickets'
@@ -15394,12 +15411,7 @@ function openDirectorResponse(id){
 }
 
 function openVolunteerById(vid){
-  const vol = volunteers?.find(v=>v.id===vid)
-  if(vol){ openVolunteerProfile(vol) }
-  else {
-    // Volunteers may not be loaded yet — fetch directly
-    api('/api/volunteers/'+vid).then(v=>{ if(v&&!v.error) openVolunteerProfile(v); else toast('Volunteer profile not found','error') })
-  }
+  openProfile(vid)
 }
 
 function openDirectorEdit(id){

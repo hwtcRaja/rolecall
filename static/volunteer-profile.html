@@ -81,6 +81,9 @@ function render(saved){
   h += '</div><div class="card"><h2>Your contact info</h2><p class="muted" style="margin:0 0 12px">'+esc(P.email)+' <span style="font-size:13px">(to change your email, reply to any HWTC email)</span></p>'
     + '<div class="field"><label for="ph">Phone</label><input id="ph" type="tel" autocomplete="tel" value="'+esc(P.phone)+'"/></div>'
     + '<div class="field"><label for="pr">Pronouns (optional)</label><input id="pr" value="'+esc(P.pronouns)+'" placeholder="e.g. she/her"/></div></div>'
+    + '<div class="card"><h2>Emails from HWTC</h2>'
+    + '<label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;font-size:15px"><input type="checkbox" id="ge" '+(P.group_emails!==false?'checked':'')+' style="width:20px;height:20px;margin-top:2px"/>'
+    + '<span>Send me HWTC\'s volunteer emails: news, opportunities, event sign-ups and announcements.<br><span class="muted" style="font-size:13px">Turn this off to stop them. You\'ll still get emails about things you\'ve signed up for, like your hours and tickets.</span></span></label></div>'
     + '<div class="sticky"><button class="btn" id="save" onclick="save()">Save my profile</button><div id="msg">'+(saved?'<div class="ok" role="status">Saved. Thank you!</div>':'')+'</div></div>'
   document.getElementById('app').innerHTML = h
 }
@@ -94,7 +97,8 @@ async function save(){
   var subs = {}
   document.querySelectorAll('.scb:checked').forEach(function(c){ if(interests.indexOf(c.dataset.i) >= 0) (subs[c.dataset.i] = subs[c.dataset.i] || []).push(c.value) })
   var r = await api('/api/public/volunteer-profile','PUT',{t: TOKEN, interests: interests, sub_selections: subs,
-    phone: document.getElementById('ph').value, pronouns: document.getElementById('pr').value})
+    phone: document.getElementById('ph').value, pronouns: document.getElementById('pr').value,
+    group_emails: document.getElementById('ge').checked})
   if(r.error){ btn.disabled = false; btn.textContent = 'Save my profile'; document.getElementById('msg').innerHTML = '<div class="err">'+esc(r.error)+'</div>'; return }
   P = r; render(true)
 }

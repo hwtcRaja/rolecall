@@ -116,7 +116,7 @@ async function requestLink(){
 
 function tabsHTML(){
   var waiting = (D.invoices||[]).filter(function(i){ return i.state==='due'||i.state==='overdue' }).length
-  var tabs = [['overview','Overview'],['calendar','Calendar'],['invoices','Invoices'+(waiting?' ('+waiting+')':'')],['requests','Requests']]
+  var tabs = [['overview','Overview'],['calendar','Calendar'],['rent','Rent items'],['invoices','Invoices'+(waiting?' ('+waiting+')':'')],['requests','Requests']]
   return tabs.map(function(t){ return '<button role="tab" aria-selected="'+(TAB===t[0])+'" onclick="TAB=\''+t[0]+'\';render()">'+t[1]+'</button>' }).join('')
 }
 function render(){
@@ -126,8 +126,64 @@ function render(){
   if(TAB==='calendar') h = calendarHTML()
   if(TAB==='invoices') h = invoicesHTML()
   if(TAB==='requests') h = requestsHTML()
+  if(TAB==='rent') h = rentHTML()
   document.getElementById('app').innerHTML = h
 }
+// ── Rent costumes, props & equipment ──
+var RENT = {pickup:'', ret:'', cat:'', q:'', items:null, cart:{}}
+var RCAT = {costume:'Costume', prop:'Prop', equipment:'Equipment'}
+var RUNIT = {day:'/ day', week:'/ week', run:'/ rental'}
+function rentMoney(c){ return '$'+((c||0)/100).toFixed(2).replace(/\.00$/,'') }
+async function rentLoad(){
+  var q = RENT.pickup ? '?start='+RENT.pickup+'&end='+(RENT.ret||RENT.pickup) : ''
+  var r = await api('/api/public/partner/'+encodeURIComponent(TOKEN)+'/catalog'+q)
+  RENT.items = Array.isArray(r) ? r : []
+  if(TAB==='rent') render()
+}
+function rentHTML(){
+  if(RENT.items === null){ rentLoad(); return '<div class="card">Loading the catalog…</div>' }
+  var q = RENT.q.toLowerCase()
+  var list = RENT.items.filter(function(i){ return (!RENT.cat || i.category===RENT.cat) && (!q || [i.name,i.description,i.sizes,i.tags,i.set_contents].join(' ').toLowerCase().indexOf(q) >= 0) })
+  var picked = Object.keys(RENT.cart).filter(function(k){ return RENT.cart[k] > 0 })
+  var h = '<div class="card"><h2>Rent costumes, props &amp; equipment</h2>'
+    + '<p class="muted" style="margin:0 0 12px">Pick your dates to see what\'s free, add items, and send the request. Don\'t see what you need? Describe it below and we\'ll look.</p>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">'
+    + '<div><label style="font-size:13px;font-weight:700">Pickup</label><br><input type="date" value="'+RENT.pickup+'" onchange="RENT.pickup=this.value;rentLoad()"/></div>'
+    + '<div><label style="font-size:13px;font-weight:700">Return</label><br><input type="date" value="'+RENT.ret+'" onchange="RENT.ret=this.value;rentLoad()"/></div>'
+    + '<div style="flex:1;min-width:180px"><label style="font-size:13px;font-weight:700">Search</label><br><input style="width:100%" value="'+esc(RENT.q)+'" placeholder="e.g. 1920s, cape, mic" oninput="RENT.q=this.value;clearTimeout(window._rq);window._rq=setTimeout(render,250)"/></div></div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">' + [['','All'],['costume','Costumes'],['prop','Props'],['equipment','Equipment']].map(function(c){
+        return '<button class="btn" style="padding:6px 12px;font-size:13px;'+(RENT.cat===c[0]?'background:var(--brand);color:#fff':'background:var(--soft);color:var(--brand-dark)')+'" onclick="RENT.cat=\''+c[0]+'\';render()">'+c[1]+'</button>' }).join('') + '</div></div>'
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:14px">' + list.map(function(i){
+      var have = RENT.cart[i.id] || 0, free = i.available
+      return '<div class="card" style="padding:0;overflow:hidden;margin:0">'
+        + '<div style="height:120px;background:#eef3f5 '+(i.photo_url?'url(\''+i.photo_url+'\') center/cover':'')+'"></div>'
+        + '<div style="padding:10px 12px"><strong>'+esc(i.name)+'</strong><div class="muted" style="font-size:12.5px">'+RCAT[i.category]+(i.kind==='set'?' set':'')+(i.sizes?' · '+esc(i.sizes):'')+'</div>'
+        + (i.set_contents?'<div class="muted" style="font-size:12px">'+esc(i.set_contents)+'</div>':'')
+        + '<div style="font-size:13px;margin-top:4px">'+(i.rate_cents?rentMoney(i.rate_cents)+' '+RUNIT[i.rate_unit]:'Price on request')+'</div>'
+        + (free!=null ? '<div style="font-size:12px;color:'+(free?'var(--ok)':'var(--bad)')+'">'+(free?free+' free for your dates':'Not free for your dates')+'</div>' : '<div class="muted" style="font-size:12px">'+i.quantity+' available · pick dates to check</div>')
+        + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><button class="btn" style="padding:4px 12px;background:var(--soft)" onclick="rentQty(\''+i.id+'\',-1)">−</button><strong>'+have+'</strong>'
+        + '<button class="btn" style="padding:4px 12px;background:var(--soft)" onclick="rentQty(\''+i.id+'\',1)"'+(free!=null&&have>=free?' disabled':'')+'>+</button></div></div></div>'
+    }).join('') + (list.length ? '' : '<div class="muted">No items match.</div>') + '</div>'
+  var total = picked.reduce(function(t,k){ var it = RENT.items.find(function(x){ return x.id===k }) || {}; return t + (it.rate_cents||0)*RENT.cart[k] }, 0)
+  h += '<div class="card"><h2>Your request</h2>'
+    + (picked.length ? picked.map(function(k){ var it = RENT.items.find(function(x){ return x.id===k }) || {}; return '<div class="row" style="padding:6px 0"><div class="grow">'+esc(it.name)+'</div><strong>× '+RENT.cart[k]+'</strong></div>' }).join('')
+        + '<div class="muted" style="font-size:13px;margin-top:6px">About '+rentMoney(total)+' before any per-day or per-week rates; we\'ll confirm the total.</div>' : '<p class="muted">No items picked yet.</p>')
+    + '<label style="font-size:13px;font-weight:700;display:block;margin-top:10px">Anything else you\'re looking for?</label><textarea id="rent-wish" rows="2" style="width:100%" placeholder="e.g. 8 pirate costumes, kids sizes"></textarea>'
+    + '<label style="font-size:13px;font-weight:700;display:block;margin-top:8px">What it\'s for</label><input id="rent-purpose" style="width:100%" placeholder="e.g. Our spring production of Peter Pan"/>'
+    + '<button class="btn btn-p" style="margin-top:12px" onclick="rentSubmit()">Send request</button><div id="rent-msg"></div></div>'
+  return h
+}
+function rentQty(id, n){ RENT.cart[id] = Math.max(0, (RENT.cart[id]||0) + n); render() }
+async function rentSubmit(){
+  if(!RENT.pickup || !RENT.ret){ alert('Pick your pickup and return dates first.'); return }
+  var items = Object.keys(RENT.cart).filter(function(k){ return RENT.cart[k] > 0 }).map(function(k){ return {item_id:k, quantity: RENT.cart[k]} })
+  var r = await api('/api/public/partner/'+encodeURIComponent(TOKEN)+'/item-request','POST',{pickup_date: RENT.pickup, return_date: RENT.ret, items: items,
+    wish_list: document.getElementById('rent-wish').value, purpose: document.getElementById('rent-purpose').value})
+  if(r.error){ document.getElementById('rent-msg').innerHTML = '<div class="errmsg" style="color:var(--bad);margin-top:8px">'+esc(r.error)+'</div>'; return }
+  RENT.cart = {}; document.getElementById('rent-msg').innerHTML = '<div class="okmsg" style="margin-top:8px">Sent! We\'ll review it and get back to you. It now shows under Your partnerships.</div>'
+  setTimeout(function(){ location.reload() }, 2500)
+}
+
 function statusPill(s){
   var m = {approved:['Approved','p-ok'], signed:['Signed','p-ok'], active:['Active','p-ok'], completed:['Completed','p-mute'], pending:['Pending review','p-warn'], sent_back:['Needs changes','p-warn']}
   var x = m[s] || [s, 'p-mute']; return '<span class="pill '+x[1]+'">'+esc(x[0])+'</span>'

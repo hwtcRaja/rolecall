@@ -32246,6 +32246,12 @@ const RENTAL_CATEGORY_META = {
     badge: '#dbeafe;color:#1e40af',
     desc: 'Free for attendees, but HWTC must be listed publicly as a sponsor, producer, or partner. The partner rents the space and runs the logistics — there is no enrollment revenue to split since nothing is charged.'
   },
+  item_rental: {
+    label: 'Costume, Prop & Equipment Rental',
+    shortLabel: ' Item Rental',
+    badge: '#fef3c7;color:#92400e',
+    desc: 'Lending costumes, props or equipment from our inventory: pickup and return dates, a list of items, check-out and check-in. No studio time involved.'
+  },
   closed_rental: {
     label: 'Closed, Free-to-Attend — Rental / Acknowledgment',
     shortLabel: ' Closed Rental',
@@ -32254,6 +32260,256 @@ const RENTAL_CATEGORY_META = {
   }
 }
 function rentalCategoryMeta(cat){ return RENTAL_CATEGORY_META[cat] || RENTAL_CATEGORY_META.open_partnership }
+
+// ══ Inventory: costumes, props & equipment (Artistic Partnership → Inventory) ══
+var _inv = {items: [], cat: '', q: '', status: '', loaded: false}
+var INV_CAT = {costume:'Costume', prop:'Prop', equipment:'Equipment'}
+var INV_UNIT = {day:'per day', week:'per week', run:'per rental'}
+function _money(c){ return '$'+((c||0)/100).toFixed(2).replace(/\.00$/,'') }
+async function loadInventoryTab(){
+  var el = document.getElementById('rtab-panel-4'); if(!el) return
+  if(!_inv.loaded) el.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted)">Loading inventory…</div>'
+  var [items, out] = await Promise.all([api('/api/inventory'), api('/api/inventory/out')])
+  _inv.items = Array.isArray(items) ? items : []; _inv.out = Array.isArray(out) ? out : []; _inv.loaded = true
+  renderInventoryTab()
+}
+function renderInventoryTab(){
+  var el = document.getElementById('rtab-panel-4'); if(!el) return
+  var canEditIt = canEdit('rentals')
+  var q = _inv.q.toLowerCase()
+  var list = _inv.items.filter(function(i){
+    if(_inv.cat && i.category !== _inv.cat) return false
+    if(_inv.status && i.status !== _inv.status) return false
+    return !q || [i.name, i.description, i.sizes, i.tags, i.location, i.set_contents].join(' ').toLowerCase().indexOf(q) >= 0
+  })
+  var pill = function(v, l){ var on = _inv.cat === v; return '<button class="btn btn-sm '+(on?'btn-primary':'btn-secondary')+'" onclick="_inv.cat=\''+v+'\';renderInventoryTab()">'+l+'</button>' }
+  var outNow = _inv.out.filter(function(x){ return x.status === 'out' }), late = outNow.filter(function(x){ return x.late })
+  var upcoming = _inv.out.filter(function(x){ return x.status === 'reserved' })
+  var h = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+    + pill('', 'All ('+_inv.items.length+')') + pill('costume','Costumes') + pill('prop','Props') + pill('equipment','Equipment')
+    + '<input placeholder="Search name, size, tag, location…" value="'+escHtml(_inv.q)+'" oninput="_inv.q=this.value;clearTimeout(window._invT);window._invT=setTimeout(renderInventoryTab,200)" style="width:220px;padding:7px 10px;font-size:13px"/>'
+    + '<select onchange="_inv.status=this.value;renderInventoryTab()" style="width:auto;padding:6px 8px;font-size:13px"><option value="">Any status</option>'
+    + [['available','Available'],['repair','Needs repair / cleaning'],['retired','Retired']].map(function(o){ return '<option value="'+o[0]+'"'+(_inv.status===o[0]?' selected':'')+'>'+o[1]+'</option>' }).join('') + '</select>'
+    + '<span style="flex:1"></span>'
+    + (canEditIt ? '<button class="btn btn-secondary btn-sm" onclick="openInventoryImport()">Import CSV</button><button class="btn btn-primary btn-sm" onclick="openInventoryItem()">+ Add item</button>' : '')
+    + '</div>'
+  // what's out and coming up
+  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">'
+    + '<div class="card" style="padding:12px 14px"><div style="font-weight:700;font-size:13px;margin-bottom:6px">Out now ('+outNow.length+')'+(late.length?' <span style="color:#b91c1c">· '+late.length+' late</span>':'')+'</div>'
+    + (outNow.length ? outNow.slice(0,8).map(function(x){ return '<div style="font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--border)'+(x.late?';color:#b91c1c':'')+'"><strong>'+escHtml(x.name)+'</strong> ×'+x.quantity+' · '+escHtml(x.partner_name||x.production_name||'HWTC')+' · due back '+escHtml(x.end_date)+(x.late?' (late)':'')+'</div>' }).join('') : '<div style="font-size:12.5px;color:var(--text-muted)">Nothing is out.</div>')
+    + '</div><div class="card" style="padding:12px 14px"><div style="font-weight:700;font-size:13px;margin-bottom:6px">Reserved / coming up ('+upcoming.length+')</div>'
+    + (upcoming.length ? upcoming.slice(0,8).map(function(x){ return '<div style="font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--border)"><strong>'+escHtml(x.name)+'</strong> ×'+x.quantity+' · '+escHtml(x.kind==='hwtc'?'HWTC: '+(x.production_name||x.note||'hold'):(x.partner_name||''))+' · '+escHtml(x.start_date)+' → '+escHtml(x.end_date)+'</div>' }).join('') : '<div style="font-size:12.5px;color:var(--text-muted)">Nothing reserved.</div>')
+    + '</div></div>'
+  if(!_inv.items.length){
+    h += '<div class="card" style="padding:28px;text-align:center"><div style="font-size:16px;font-weight:700;margin-bottom:6px">Start your inventory</div>'
+      + '<div style="font-size:13px;color:var(--text-muted);max-width:520px;margin:0 auto 14px;line-height:1.6">Add costumes, props and equipment one at a time (with a photo), or import a spreadsheet. A <strong>set</strong> can stand for a group (e.g. "1920s men\'s suits, 6 sizes"); a <strong>piece</strong> is one item.</div>'
+      + (canEditIt ? '<button class="btn btn-primary" onclick="openInventoryItem()">+ Add your first item</button>' : '') + '</div>'
+  } else {
+    h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px">' + list.map(function(i){
+      var badge = i.status==='repair' ? '<span style="font-size:10px;font-weight:800;background:#ffedd5;color:#9a3412;border-radius:8px;padding:1px 7px">REPAIR</span>'
+        : i.status==='retired' ? '<span style="font-size:10px;font-weight:800;background:#f1f5f9;color:#64748b;border-radius:8px;padding:1px 7px">RETIRED</span>' : ''
+      return '<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="openInventoryItem(\''+i.id+'\')">'
+        + '<div style="height:130px;background:var(--bg) '+(i.photo_url?'url(\''+i.photo_url+'\') center/cover':'')+';display:flex;align-items:center;justify-content:center;color:var(--text-hint);font-size:12px">'+(i.photo_url?'':'No photo')+'</div>'
+        + '<div style="padding:10px 12px"><div style="font-weight:700;font-size:13.5px">'+escHtml(i.name)+' '+badge+'</div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">'+INV_CAT[i.category]+(i.kind==='set'?' set':'')+(i.sizes?' · '+escHtml(i.sizes):'')+'</div>'
+        + '<div style="font-size:12px;margin-top:4px">'+i.quantity+' owned'+(i.out_now?' · <span style="color:#b45309">'+i.out_now+' out</span>':'')+(i.rate_cents?' · '+_money(i.rate_cents)+' '+INV_UNIT[i.rate_unit]:'')+'</div></div></div>'
+    }).join('') + '</div>'
+    if(!list.length) h += '<div style="color:var(--text-muted);font-size:13px;padding:14px">No items match.</div>'
+  }
+  el.innerHTML = h
+}
+async function openInventoryItem(id){
+  var i = id ? await api('/api/inventory/'+id) : {category:'costume', kind:'piece', quantity:1, rate_unit:'run', status:'available', partner_visible:true}
+  if(i.error){ toast(i.error,'error'); return }
+  window._invOpen = i
+  var canEditIt = canEdit('rentals'), dis = canEditIt ? '' : ' disabled'
+  var sel = function(id_, opts, cur){ return '<select id="'+id_+'"'+dis+'>'+opts.map(function(o){ return '<option value="'+o[0]+'"'+(o[0]===cur?' selected':'')+'>'+o[1]+'</option>' }).join('')+'</select>' }
+  var res = (i.reservations||[])
+  var html = '<div style="display:grid;grid-template-columns:150px 1fr;gap:14px;margin-bottom:10px">'
+    + '<div><div style="height:150px;border-radius:10px;background:var(--bg) '+(i.photo_url?'url(\''+i.photo_url+'\') center/cover':'')+';display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--text-hint)">'+(i.photo_url?'':'No photo')+'</div>'
+    + (id && canEditIt ? '<label class="btn btn-secondary btn-sm" style="margin-top:6px;width:100%;text-align:center;cursor:pointer">'+(i.photo_url?'Change photo':'Add photo')+'<input type="file" accept="image/*" style="display:none" onchange="uploadInventoryPhoto(\''+id+'\',this)"/></label>' : (id?'':'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">Save first, then add a photo.</div>')) + '</div>'
+    + '<div><div class="form-group"><label>Name</label><input id="inv-name" value="'+escHtml(i.name||'')+'"'+dis+' placeholder="e.g. Red velvet cape, Newsies caps, 8ft table"/></div>'
+    + '<div class="form-row"><div class="form-group"><label>Category</label>'+sel('inv-cat',[['costume','Costume'],['prop','Prop'],['equipment','Equipment']],i.category)+'</div>'
+    + '<div class="form-group"><label>Tracked as</label>'+sel('inv-kind',[['piece','Individual piece(s)'],['set','A set / bin']],i.kind)+'</div></div></div></div>'
+    + '<div class="form-row"><div class="form-group"><label>How many</label><input id="inv-qty" type="number" min="0" value="'+(i.quantity==null?1:i.quantity)+'"'+dis+'/></div>'
+    + '<div class="form-group"><label>Sizes</label><input id="inv-sizes" value="'+escHtml(i.sizes||'')+'"'+dis+' placeholder="e.g. Adult M, or S/M/L"/></div>'
+    + '<div class="form-group"><label>Status</label>'+sel('inv-status',[['available','Available'],['repair','Needs repair / cleaning'],['retired','Retired']],i.status)+'</div></div>'
+    + '<div class="form-row"><div class="form-group"><label>Rental rate ($)</label><input id="inv-rate" type="number" min="0" step="0.01" value="'+(i.rate_cents?(i.rate_cents/100):'')+'"'+dis+'/></div>'
+    + '<div class="form-group"><label>Rate is</label>'+sel('inv-unit',[['run','per rental'],['week','per week'],['day','per day']],i.rate_unit)+'</div>'
+    + '<div class="form-group"><label>Replacement value ($)</label><input id="inv-repl" type="number" min="0" step="0.01" value="'+(i.replacement_value_cents?(i.replacement_value_cents/100):'')+'"'+dis+'/></div></div>'
+    + '<div class="form-group"><label>Description</label><textarea id="inv-desc" rows="2"'+dis+'>'+escHtml(i.description||'')+'</textarea></div>'
+    + '<div class="form-group"><label>What\'s in the set (for sets)</label><textarea id="inv-set" rows="2"'+dis+' placeholder="e.g. 6 suits (38–46), 6 vests, 4 hats">'+escHtml(i.set_contents||'')+'</textarea></div>'
+    + '<div class="form-row"><div class="form-group"><label>Where it\'s stored</label><input id="inv-loc" value="'+escHtml(i.location||'')+'"'+dis+' placeholder="e.g. Costume room, rack B"/></div>'
+    + '<div class="form-group"><label>Tags</label><input id="inv-tags" value="'+escHtml(i.tags||'')+'"'+dis+' placeholder="e.g. 1920s, Annie, pirate"/></div></div>'
+    + '<div class="form-group"><label>Staff notes</label><textarea id="inv-notes" rows="2"'+dis+'>'+escHtml(i.notes||'')+'</textarea></div>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;margin-bottom:12px"><input type="checkbox" id="inv-vis" '+(i.partner_visible!==false?'checked':'')+dis+' style="width:auto"/> Show in the partner portal catalog</label>'
+    + (canEditIt ? '<div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="saveInventoryItem()">Save</button>'
+        + (id ? '<button class="btn btn-secondary" onclick="openInventoryHold(\''+id+'\')">Hold for an HWTC show</button><button class="btn btn-danger" onclick="deleteInventoryItem(\''+id+'\')">Delete</button>' : '') + '</div>' : '')
+    + (id ? '<div style="margin-top:16px;font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Bookings</div>'
+        + (res.length ? res.map(function(r){ return '<div style="font-size:12.5px;padding:6px 0;border-bottom:1px solid var(--border)"><strong>'+escHtml(r.start_date)+' → '+escHtml(r.end_date)+'</strong> ×'+r.quantity+' · '
+            + escHtml(r.kind==='hwtc'?'HWTC hold'+(r.production_name?': '+r.production_name:''):(r.partner_name||'')+(r.request_title?' ('+r.request_title+')':'')) + ' · <span style="color:var(--text-muted)">'+escHtml(r.status)+'</span>'
+            + (r.kind==='hwtc'&&r.status==='reserved'&&canEditIt?' <a href="#" onclick="releaseInvRes(\''+r.id+'\',\''+id+'\');return false">release</a>':'')
+            + (r.damage_note?'<div style="color:#b45309">'+escHtml(r.damage_note)+'</div>':'')+'</div>' }).join('') : '<div style="font-size:12.5px;color:var(--text-muted)">Never booked.</div>') : '')
+  showAdHocModal('inv-item', id ? escHtml(i.name) : 'Add inventory item', html, 640)
+}
+function _invForm(){
+  var v = function(id){ return (document.getElementById(id)||{}).value }
+  return {name: v('inv-name'), category: v('inv-cat'), kind: v('inv-kind'), quantity: v('inv-qty'), sizes: v('inv-sizes'), status: v('inv-status'),
+    rate: v('inv-rate'), rate_unit: v('inv-unit'), replacement_value: v('inv-repl'), description: v('inv-desc'), set_contents: v('inv-set'),
+    location: v('inv-loc'), tags: v('inv-tags'), notes: v('inv-notes'), partner_visible: document.getElementById('inv-vis').checked}
+}
+async function saveInventoryItem(){
+  var i = window._invOpen, body = _invForm()
+  if(!String(body.name||'').trim()){ toast('Give the item a name','error'); return }
+  var r = i.id ? await api('/api/inventory/'+i.id,'PUT',body) : await api('/api/inventory','POST',body)
+  if(r.error){ toast(r.error,'error'); return }
+  toast('Saved','success'); closeAdHocModal('inv-item'); await loadInventoryTab()
+  if(!i.id && r.id) openInventoryItem(r.id)
+}
+async function uploadInventoryPhoto(id, input){
+  var f = input.files[0]; if(!f) return
+  var fd = new FormData(); fd.append('file', f)
+  var res = await fetch('/api/inventory/'+id+'/photo', {method:'POST', credentials:'include', body: fd})
+  var d = {}; try{ d = await res.json() }catch(e){}
+  if(!res.ok){ toast(d.error||'Upload failed','error'); return }
+  toast('Photo saved','success'); await loadInventoryTab(); openInventoryItem(id)
+}
+async function deleteInventoryItem(id){
+  if(!confirm('Delete this item for good? (To keep its history, set it to Retired instead.)')) return
+  var r = await api('/api/inventory/'+id,'DELETE'); if(r.error){ toast(r.error,'error'); return }
+  closeAdHocModal('inv-item'); loadInventoryTab()
+}
+function openInventoryHold(id){
+  var prods = (allProductions||[]).slice().sort(function(a,b){ return String(b.start_date||'').localeCompare(String(a.start_date||'')) })
+  showAdHocModal('inv-hold','Hold for an HWTC production',
+    '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">Reserve this item for one of our own shows so it can\'t be rented out on those dates.</div>'
+    + '<div class="form-group"><label>Production</label><select id="ih-prod"><option value="">(none / other)</option>'+prods.map(function(p){ return '<option value="'+p.id+'">'+escHtml(p.name)+'</option>' }).join('')+'</select></div>'
+    + '<div class="form-row"><div class="form-group"><label>From</label><input type="date" id="ih-start"/></div><div class="form-group"><label>To</label><input type="date" id="ih-end"/></div><div class="form-group"><label>How many</label><input type="number" id="ih-qty" value="1" min="1"/></div></div>'
+    + '<div class="form-group"><label>Note</label><input id="ih-note" placeholder="e.g. Act 2 ball scene"/></div>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="saveInventoryHold(\''+id+'\')">Hold</button>', 460)
+}
+async function saveInventoryHold(id, over){
+  var b = {item_id:id, production_id: document.getElementById('ih-prod').value, start_date: document.getElementById('ih-start').value,
+    end_date: document.getElementById('ih-end').value, quantity: document.getElementById('ih-qty').value, note: document.getElementById('ih-note').value, over_ok: !!over}
+  var r = await api('/api/inventory/holds','POST',b)
+  if(r.over){ if(confirm(r.error)) return saveInventoryHold(id, true); return }
+  if(r.error){ toast(r.error,'error'); return }
+  closeAdHocModal('inv-hold'); toast('Held','success'); await loadInventoryTab(); openInventoryItem(id)
+}
+async function releaseInvRes(resId, itemId){
+  if(!confirm('Release this hold?')) return
+  await api('/api/inventory/reservations/'+resId,'DELETE'); await loadInventoryTab(); openInventoryItem(itemId)
+}
+function openInventoryImport(){
+  showAdHocModal('inv-import','Import inventory from a spreadsheet',
+    '<div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:10px">Save your sheet as <strong>CSV</strong> with a header row. Columns (only <code>name</code> is required):<br>'
+    + '<code>name, category, kind, quantity, sizes, rate, rate_unit, replacement_value, location, description, set_contents, tags</code><br>'
+    + 'category: costume / prop / equipment · kind: piece / set · rate_unit: run / week / day</div>'
+    + '<a href="#" onclick="downloadInventoryTemplate();return false" style="font-size:13px">Download a template</a>'
+    + '<input type="file" id="inv-csv" accept=".csv,text/csv" style="display:block;margin:12px 0"/>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="runInventoryImport()">Import</button>', 520)
+}
+function downloadInventoryTemplate(){
+  var csv = 'name,category,kind,quantity,sizes,rate,rate_unit,replacement_value,location,description,set_contents,tags\n'
+    + 'Red velvet cape,costume,piece,2,Adult M/L,25,run,120,Costume room rack B,Floor length,,royal\n'
+    + '1920s men\'s set,costume,set,1,38-46,150,run,600,Bin 14,,"6 suits, 6 vests, 4 hats",1920s\n'
+    + 'Wireless handheld mic,equipment,piece,4,,15,day,250,Sound cabinet,,,sound\n'
+  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download = 'hwtc-inventory-template.csv'; document.body.appendChild(a); a.click(); a.remove()
+}
+async function runInventoryImport(){
+  var f = document.getElementById('inv-csv').files[0]; if(!f){ toast('Choose a CSV file','error'); return }
+  var fd = new FormData(); fd.append('file', f)
+  var res = await fetch('/api/inventory/import', {method:'POST', credentials:'include', body: fd})
+  var d = {}; try{ d = await res.json() }catch(e){}
+  if(!res.ok){ toast(d.error||'Import failed','error'); return }
+  closeAdHocModal('inv-import'); toast('Imported '+d.added+' items','success'); loadInventoryTab()
+}
+
+// ── Items on an item-rental partnership: quote, check-out, check-in ──
+async function openRentalItemsModal(rid){
+  var d = await api('/api/rental/requests/'+rid+'/items')
+  if(d.error){ toast(d.error,'error'); return }
+  window._riRid = rid
+  var canEditIt = canEdit('rentals')
+  var rows = d.items.map(function(x){
+    var st = x.status === 'out' ? '<span style="font-size:10px;font-weight:800;background:#fef3c7;color:#92400e;border-radius:8px;padding:1px 7px">OUT</span>'
+      : x.status === 'returned' ? '<span style="font-size:10px;font-weight:800;background:#dcfce7;color:#166534;border-radius:8px;padding:1px 7px">RETURNED</span>' : ''
+    var act = !canEditIt ? '' : x.status === 'reserved'
+      ? '<button class="btn btn-secondary btn-sm" onclick="riCheckout(\''+x.id+'\')">Check out</button> <button class="btn btn-secondary btn-sm" onclick="riRemove(\''+x.id+'\')">Remove</button>'
+      : x.status === 'out' ? '<button class="btn btn-primary btn-sm" onclick="riCheckin(\''+x.id+'\','+x.quantity+')">Check in</button>' : ''
+    return '<tr style="border-top:1px solid var(--border)"><td style="padding:7px 6px"><div style="display:flex;gap:8px;align-items:center">'
+      + (x.photo_url?'<img src="'+x.photo_url+'" style="width:38px;height:38px;object-fit:cover;border-radius:6px"/>':'')
+      + '<div><strong>'+escHtml(x.name)+'</strong> '+st+'<div style="font-size:11.5px;color:var(--text-muted)">'+INV_CAT[x.category]+(x.sizes?' · '+escHtml(x.sizes):'')
+      + (x.checkout_condition?' · out: '+escHtml(x.checkout_condition):'')+(x.damage_note?' · <span style="color:#b45309">'+escHtml(x.damage_note)+'</span>':'')+'</div></div></div></td>'
+      + '<td style="padding:7px 6px;text-align:center">'+(canEditIt&&x.status==='reserved'?'<input type="number" min="1" value="'+x.quantity+'" style="width:60px;padding:4px" onchange="riQty(\''+x.id+'\',this.value)"/>':x.quantity)+'</td>'
+      + '<td style="padding:7px 6px;text-align:right">'+_money(x.line_cents)+'<div style="font-size:11px;color:var(--text-muted)">'+(x.rate_cents?_money(x.rate_cents)+' '+INV_UNIT[x.rate_unit]+(x.units>1?' × '+x.units:''):'no rate set')+'</div></td>'
+      + '<td style="padding:7px 6px;text-align:right;white-space:nowrap">'+act+'</td></tr>'
+  }).join('')
+  var html = '<div style="font-size:13px;margin-bottom:10px">Pickup <strong>'+escHtml(d.pickup)+'</strong> → return by <strong>'+escHtml(d['return'])+'</strong></div>'
+    + (d.items.length ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase"><th style="padding:4px 6px">Item</th><th style="padding:4px 6px;text-align:center">Qty</th><th style="padding:4px 6px;text-align:right">Fee</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
+      : '<div style="color:var(--text-muted);font-size:13px">No items yet.</div>')
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;padding:10px 12px;background:var(--bg);border-radius:8px">'
+    + '<div><div style="font-weight:800;font-size:16px">Rental total '+_money(d.quote_cents)+'</div><div style="font-size:12px;color:var(--text-muted)">Replacement value of everything: '+_money(d.replacement_total_cents)+' (a guide for the security deposit)</div></div>'
+    + (canEditIt && d.items.length ? '<button class="btn btn-secondary btn-sm" onclick="riApplyQuote()">Use as the fee</button>' : '') + '</div>'
+    + (canEditIt ? '<div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:6px 0">Add items</div>'
+        + '<input id="ri-q" placeholder="Search the inventory…" oninput="riSearch()" style="width:100%;margin-bottom:6px"/><div id="ri-results" style="max-height:240px;overflow:auto"></div>' : '')
+  showAdHocModal('rental-items', 'Rental items', html, 720)
+  if(canEditIt) riSearch()
+}
+async function riSearch(){
+  var el = document.getElementById('ri-results'); if(!el) return
+  if(!window._riCatalog || window._riCatalogFor !== _riRid){
+    var d = await api('/api/rental/requests/'+_riRid+'/items')
+    var all = await api('/api/inventory?start='+encodeURIComponent(d.pickup)+'&end='+encodeURIComponent(d['return']))
+    window._riCatalog = Array.isArray(all) ? all.filter(function(i){ return i.status !== 'retired' }) : []; window._riCatalogFor = _riRid
+  }
+  var q = (document.getElementById('ri-q').value||'').toLowerCase()
+  var list = _riCatalog.filter(function(i){ return !q || [i.name,i.sizes,i.tags,i.description].join(' ').toLowerCase().indexOf(q) >= 0 }).slice(0, 40)
+  el.innerHTML = list.map(function(i){
+    return '<div style="display:flex;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--border)">'
+      + '<div style="flex:1"><strong style="font-size:13px">'+escHtml(i.name)+'</strong><div style="font-size:11.5px;color:'+(i.available?'var(--text-muted)':'#b91c1c')+'">'+INV_CAT[i.category]+(i.sizes?' · '+escHtml(i.sizes):'')+' · '+i.available+' of '+i.quantity+' free those dates'+(i.rate_cents?' · '+_money(i.rate_cents)+' '+INV_UNIT[i.rate_unit]:'')+'</div></div>'
+      + '<input type="number" min="1" value="1" id="riq-'+i.id+'" style="width:56px;padding:4px"/>'
+      + '<button class="btn btn-primary btn-sm" onclick="riAdd(\''+i.id+'\')">Add</button></div>'
+  }).join('') || '<div style="font-size:12.5px;color:var(--text-muted);padding:6px">No matching items. Add them in the Inventory tab first.</div>'
+}
+async function riAdd(itemId, over){
+  var qty = (document.getElementById('riq-'+itemId)||{}).value || 1
+  var r = await api('/api/rental/requests/'+_riRid+'/items','POST',{items:[{item_id:itemId, quantity:qty}], over_ok: !!over})
+  if(r.over){ if(confirm(r.error)) return riAdd(itemId, true); return }
+  if(r.error){ toast(r.error,'error'); return }
+  window._riCatalog = null; openRentalItemsModal(_riRid)
+}
+async function riQty(resId, qty, over){
+  var r = await api('/api/inventory/reservations/'+resId,'PUT',{action:'quantity', quantity: qty, over_ok: !!over})
+  if(r.over){ if(confirm(r.error)) return riQty(resId, qty, true); return openRentalItemsModal(_riRid) }
+  if(r.error){ toast(r.error,'error'); return }
+  openRentalItemsModal(_riRid)
+}
+async function riRemove(resId){ await api('/api/inventory/reservations/'+resId,'DELETE'); window._riCatalog = null; openRentalItemsModal(_riRid) }
+async function riCheckout(resId){
+  var c = prompt('Checking out. Note the condition (optional), e.g. "small tear on hem, already there":', '')
+  if(c === null) return
+  var r = await api('/api/inventory/reservations/'+resId,'PUT',{action:'checkout', condition: c}); if(r.error){ toast(r.error,'error'); return }
+  toast('Checked out','success'); openRentalItemsModal(_riRid)
+}
+function riCheckin(resId, qty){
+  showAdHocModal('ri-checkin','Check in',
+    '<div class="form-group"><label>How many came back</label><input type="number" id="rc-qty" min="0" max="'+qty+'" value="'+qty+'"/></div>'
+    + '<div class="form-group"><label>Condition</label><select id="rc-cond"><option value="good">Good</option><option value="needs_cleaning">Needs cleaning</option><option value="needs_repair">Damaged / needs repair</option></select></div>'
+    + '<div class="form-group"><label>Notes (damage, missing pieces)</label><textarea id="rc-note" rows="2"></textarea></div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Damaged items are marked "needs repair" in the inventory. Anything not returned comes off what we own. To charge for damage or a late return, add an installment from the partnership\'s Invoices.</div>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="riSaveCheckin(\''+resId+'\')">Check in</button>', 440)
+}
+async function riSaveCheckin(resId){
+  var r = await api('/api/inventory/reservations/'+resId,'PUT',{action:'checkin', returned_qty: document.getElementById('rc-qty').value,
+    condition: document.getElementById('rc-cond').value, note: document.getElementById('rc-note').value})
+  if(r.error){ toast(r.error,'error'); return }
+  closeAdHocModal('ri-checkin'); toast('Checked in','success'); openRentalItemsModal(_riRid)
+}
+async function riApplyQuote(){
+  var r = await api('/api/rental/requests/'+_riRid+'/items/apply-quote','POST',{}); if(r.error){ toast(r.error,'error'); return }
+  toast('Fee set to '+_money(r.total_cents),'success'); if(typeof loadRentalsPage==='function') loadRentalsPage()
+}
 
 async function loadRentalsPage(){
   const body = document.getElementById('rentals-body')
@@ -32291,7 +32547,7 @@ function renderRentalsPage(){
   const body = document.getElementById('rentals-body')
   if(!body) return
   const { requests, partners, spaces } = _rentalData
-  const tabs = ['Requests','Partners','Schedule','Partner Requests']
+  const tabs = ['Requests','Partners','Schedule','Partner Requests','Inventory']
   let html = '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
     + tabs.map((t,i)=>`<button onclick="switchRentalTab(${i})" id="rtab-${i}"
       style="padding:8px 16px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:${i===0?'700':'600'};cursor:pointer;border-bottom:2px solid ${i===0?'#145466':'transparent'};margin-bottom:-2px;color:${i===0?'#145466':'var(--text-muted)'}">
@@ -32431,7 +32687,7 @@ function renderRentalsPage(){
           ${r.space_name?` · <span style="color:var(--teal-dark);font-weight:600">${escHtml(r.space_name)}</span>`:''}
          </div>
          <div style="font-size:12px;color:var(--text-muted);display:flex;gap:12px;flex-wrap:wrap">
-          <span>${r.start_date||''}${r.end_date&&r.end_date!==r.start_date?' – '+r.end_date:''}</span>
+          <span>${r.partnership_category==='item_rental'?'Pickup '+(r.start_date||'')+' → return '+(r.end_date||r.start_date||''):(r.start_date||'')+(r.end_date&&r.end_date!==r.start_date?' – '+r.end_date:'')}</span>
           ${r.start_time?`<span>${r.start_time}${r.end_time?' – '+r.end_time:''}</span>`:''}
           <span>${rate}</span>
           ${r.total_amount?`<span style="font-weight:700;color:#145466">Total: ${total}</span>`:''}
@@ -32454,6 +32710,7 @@ function renderRentalsPage(){
          ${r.partner_signed_at?renderRentalPaymentStatus(r):''}
         </div>
         <div style="display:flex;flex-direction:column;gap:6px;align-items:stretch;flex-shrink:0;width:210px">
+         ${r.partnership_category==='item_rental'?`<button class="btn btn-secondary btn-sm" onclick="openRentalItemsModal('${r.id}')">Items · check out / in</button>`:''}
          ${(r.status==='pending'||r.status==='sent_back')?`<button class="btn btn-primary btn-sm" onclick="approveRentalRequest('${r.id}')">
           ${levels.length>1&&currentLevel<levels.length-1?`Approve (L${currentLevel+1}: ${escHtml((levels[currentLevel]||{}).label||'')})` : 'Approve Request'}</button>`:''}
          ${r.status==='approved'||r.agreement_id?`<button class="btn btn-primary btn-sm" onclick="openGenerateContractModal('${r.id}')">
@@ -32566,6 +32823,7 @@ function renderRentalsPage(){
   html += '</div>'
 
   html += '<div id="rtab-panel-3" style="display:none"></div>'
+  html += '<div id="rtab-panel-4" style="display:none"></div>'
   body.innerHTML = html
   loadPartnerRequestsPanel()
 }
@@ -33034,7 +33292,8 @@ async function submitEditRentalInstallment(paymentId, agreementId){
 }
 
 function switchRentalTab(idx){
-  for(var i=0;i<4;i++){
+  if(idx === 4) loadInventoryTab()
+  for(var i=0;i<5;i++){
     const p=document.getElementById('rtab-panel-'+i)
     const t=document.getElementById('rtab-'+i)
     if(p) p.style.display=i===idx?'':'none'

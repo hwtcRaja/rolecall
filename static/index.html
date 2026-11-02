@@ -32827,7 +32827,12 @@ async function openRentalPaymentsListModal(agreementId){
     const scheduled = !paid && !p.sent_at
     const today = todayLocalISO()
     const leadCutoff = new Date(Date.now() + 7*24*60*60*1000).toISOString().slice(0,10)
-    const needsSending = scheduled && p.due_date && p.due_date <= leadCutoff
+    // not sent yet and due within a week: RoleCall sends these by itself;
+    // if that failed, say why
+    const autoWindow = scheduled && p.due_date && p.due_date <= leadCutoff
+    const sendFailed = scheduled && !!p.last_send_error
+    const notSentPastDue = scheduled && p.due_date && p.due_date < today
+    const needsSending = sendFailed || notSentPastDue
     const overdue = !paid && !scheduled && p.due_date && p.due_date < today
     const bg = paid ? '#f0fdf4' : (needsSending || overdue) ? '#fef2f2' : scheduled ? '#f8fafc' : '#fffbeb'
     const border = paid ? '#86efac' : (needsSending || overdue) ? '#fecaca' : scheduled ? '#e5e7eb' : '#fde68a'
@@ -32836,7 +32841,9 @@ async function openRentalPaymentsListModal(agreementId){
     let statusText
     if(paid) statusText = ' Paid'
     else if(overdue) statusText = ' Overdue'
-    else if(needsSending) statusText = ' Needs to be sent'
+    else if(sendFailed) statusText = ' Couldn\'t send'
+    else if(notSentPastDue) statusText = ' Not sent yet (date passed)'
+    else if(autoWindow) statusText = ' Sending automatically'
     else if(scheduled) statusText = ' Scheduled'
     else statusText = ' Awaiting Payment'
     return '<div style="padding:10px 12px;margin-bottom:8px;background:'+bg+';border:1px solid '+border+';border-radius:8px">'
@@ -32846,8 +32853,11 @@ async function openRentalPaymentsListModal(agreementId){
       + '</div>'
       + '<div style="font-size:12px;color:'+color+';margin-top:2px">$'+((p.amount_cents||0)/100).toFixed(2)
       + (p.due_date?' · Due '+p.due_date:'') + (paid && p.paid_at ? ' · Paid '+p.paid_at.slice(0,10) : '')
-      + (scheduled ? ' · Not yet invoiced' : '') + '</div>'
+      + (scheduled ? (autoWindow && !needsSending ? ' · Square invoice goes out automatically within the hour' : ' · Not yet invoiced'
+                      + (p.due_date && !autoWindow ? ' · sends automatically '+_rpMinusDays(p.due_date, 7) : '')) : '') + '</div>'
+      + (sendFailed ? '<div style="font-size:11.5px;color:#991b1b;margin-top:3px">'+escHtml(p.last_send_error)+'</div>' : '')
       + '<div style="margin-top:6px;display:flex;gap:10px;align-items:center">'
+      + (scheduled && p.payment_type==='installment' ? '<input type="checkbox" class="rp-combine" value="'+p.id+'" title="Select to combine into one invoice" onchange="rpCombineBar()" style="width:auto;margin:0"/>' : '')
       + (p.public_url?'<a href="'+p.public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice </a>':'')
       + (!paid && !scheduled?'<span style="font-size:11px;color:#145466;font-weight:600;cursor:pointer" onclick="checkRentalPaymentStatus(\''+p.id+'\').then(()=>openRentalPaymentsListModal(\''+agreementId+'\'))">Check Status</span>':'')
       + (!paid?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="markRentalPaymentPaid(\''+p.id+'\',\''+agreementId+'\')">Mark as Paid</button>':'')
@@ -32857,6 +32867,33 @@ async function openRentalPaymentsListModal(agreementId){
   }).join('')
 }
 
+function _rpMinusDays(iso, n){ var d = new Date(iso+'T12:00:00'); d.setDate(d.getDate()-n); return d.toISOString().slice(0,10) }
+// Combine several not-yet-sent payments into one invoice (one email for the partner)
+function rpCombineBar(){
+  var picked = Array.from(document.querySelectorAll('.rp-combine:checked'))
+  var bar = document.getElementById('rp-combine-bar')
+  if(!bar){
+    var body = document.getElementById('rp-list-body'); if(!body) return
+    bar = document.createElement('div'); bar.id = 'rp-combine-bar'
+    bar.style.cssText = 'position:sticky;top:0;z-index:2;display:none;align-items:center;gap:10px;background:#0f5566;color:#fff;border-radius:8px;padding:9px 12px;margin-bottom:8px;font-size:13px'
+    body.parentNode.insertBefore(bar, body)
+  }
+  if(picked.length < 2){ bar.style.display = 'none'; return }
+  var cents = picked.reduce(function(t,c){ var p = (window._rpListCache||[]).find(function(x){ return x.id===c.value }); return t + ((p&&p.amount_cents)||0) }, 0)
+  bar.style.display = 'flex'
+  bar.innerHTML = '<span style="flex:1">'+picked.length+' selected · $'+(cents/100).toFixed(2)+' total</span>'
+    + '<button class="btn btn-sm" style="background:#fff;color:#0f5566" onclick="combineRentalInstallments()">Combine into one invoice</button>'
+}
+async function combineRentalInstallments(){
+  var ids = Array.from(document.querySelectorAll('.rp-combine:checked')).map(function(c){ return c.value })
+  var first = (window._rpListCache||[]).find(function(x){ return x.id===ids[0] }) || {}
+  if(!confirm('Combine '+ids.length+' payments into one invoice? It\'s due on the earliest date (or today if that has passed). Nothing is emailed until it\'s sent.')) return
+  var r = await api('/api/rental/agreements/'+first.agreement_id+'/combine-installments','POST',{payment_ids: ids})
+  if(r.error){ toast(r.error,'error'); return }
+  toast('Combined into "'+r.label+'" · $'+(r.amount_cents/100).toFixed(2),'success')
+  document.getElementById('rental-payments-list-modal')?.remove()
+  openRentalPaymentsListModal(first.agreement_id)
+}
 async function submitAddRentalInstallment(agreementId){
   const amount = parseFloat((document.getElementById('rp-add-amount')||{}).value||0)
   const due_date = (document.getElementById('rp-add-due-date')||{}).value||''

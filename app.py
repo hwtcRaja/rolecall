@@ -46408,13 +46408,33 @@ def _house_events_for_perf(conn, perf):
         WHERE production_id=%s AND event_date=%s AND COALESCE(status,'') <> 'cancelled'
         ORDER BY start_time''', (perf['production_id'], day)) or []
     if rows:
-        return rows
+        return _closest_events(rows, perf)
     prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) or {}
     if prod.get('name'):
         rows = fetchall(conn, '''SELECT id, name, start_time, end_time FROM events
             WHERE event_date=%s AND COALESCE(status,'') <> 'cancelled' AND rsvp_enabled=TRUE AND LOWER(name) LIKE %s
             ORDER BY start_time''', (day, '%' + prod['name'].lower()[:40] + '%')) or []
-    return rows
+    return _closest_events(rows, perf) if rows else rows
+
+
+def _closest_events(rows, perf):
+    """Two shows the same day (matinee + evening) each have their own
+    sign-up event: keep the one(s) starting closest to this performance's
+    curtain, so the 2 PM show doesn't list the 7 PM volunteers too."""
+    if len(rows) < 2 or not perf.get('performance_time'):
+        return rows
+    def mins(t):
+        try:
+            t = str(t)[:5]; return int(t[:2]) * 60 + int(t[3:5])
+        except Exception:
+            return None
+    curtain = mins(perf['performance_time'])
+    if curtain is None:
+        return rows
+    scored = [(abs((mins(r.get('start_time')) if mins(r.get('start_time')) is not None else curtain) - curtain), r) for r in rows]
+    best = min(sc for sc, _ in scored)
+    # events with no time, or within 30 min of the best match, stay together
+    return [r for sc, r in scored if sc <= best + 30 or not r.get('start_time')]
 
 
 @app.route('/api/house/<fid>/volunteers', methods=['GET'])
@@ -46441,9 +46461,19 @@ def house_volunteers(fid):
                 LEFT JOIN kiosk_sessions ks ON ks.volunteer_id=r.volunteer_id AND ks.event_id=r.event_id AND ks.status='active'
                 WHERE r.event_id = ANY(%s) AND r.status IN ('confirmed','interested')
                 ORDER BY er.sort_order NULLS LAST, r.role_name, name''', (ids,)) or []
+            ev_names = {e['id']: e['name'] for e in evs}
+            seen = {}
             for r in rows:
+                # the same person signed up twice (e.g. on both of the day's events): show them once
+                key = (r.get('volunteer_id') or ('name:' + (r.get('name') or '').lower()), (r.get('role_name') or '').lower())
+                if key in seen:
+                    if r.get('session_id') and not seen[key]:
+                        people[:] = [p for p in people if not (p['_key'] == key)]
+                    else:
+                        continue
+                seen[key] = bool(r.get('session_id'))
                 st = 'in' if r.get('session_id') else ('done' if (r.get('pending_hours') or r.get('approved_hours')) else 'waiting')
-                people.append({'rsvp_id': r['id'], 'event_id': r['event_id'], 'volunteer_id': r.get('volunteer_id'), 'name': r.get('name') or '',
+                people.append({'_key': key, 'event_name': ev_names.get(r['event_id'], ''), 'rsvp_id': r['id'], 'event_id': r['event_id'], 'volunteer_id': r.get('volunteer_id'), 'name': r.get('name') or '',
                                'phone': r.get('phone') or '', 'role': r.get('role_name') or 'Volunteer', 'status': st,
                                'signup_status': r.get('status'),
                                'block': ' – '.join(x for x in [_fmt_time12(r.get('block_time')), _fmt_time12(r.get('block_time_end'))] if x),
@@ -46455,17 +46485,25 @@ def house_volunteers(fid):
             hc = {}
             for e in ids:
                 hc.update(_role_headcounts_for_event(conn, e))
+            by_name = {}
             for ro in fetchall(conn, '''SELECT id, name, slots, block_time, block_time_end FROM event_roles WHERE event_id = ANY(%s)
                     ORDER BY sort_order, name''', (ids,)) or []:
-                roles.append({'name': ro['name'], 'slots': int(ro.get('slots') or 0), 'filled': int(hc.get(ro['id'], 0)),
+                k = (ro['name'] or '').strip().lower()
+                if k in by_name:      # same role on two linked events: one line, combined
+                    by_name[k]['slots'] += int(ro.get('slots') or 0); by_name[k]['filled'] += int(hc.get(ro['id'], 0))
+                    continue
+                by_name[k] = {'name': ro['name'], 'slots': int(ro.get('slots') or 0), 'filled': int(hc.get(ro['id'], 0)),
                               'here': sum(1 for p in people if p['role'] == ro['name'] and p['status'] in ('in', 'done')),
-                              'block': ' – '.join(x for x in [_fmt_time12(ro.get('block_time')), _fmt_time12(ro.get('block_time_end'))] if x)})
+                              'block': ' – '.join(x for x in [_fmt_time12(ro.get('block_time')), _fmt_time12(ro.get('block_time_end'))] if x)}
+                roles.append(by_name[k])
         # if nothing matched, offer that day's sign-up events to link
         choices = []
         if not evs:
             choices = [{'id': c['id'], 'name': c['name'], 'time': _fmt_time12(c.get('start_time'))} for c in (fetchall(conn,
                 '''SELECT id, name, start_time FROM events WHERE event_date=%s AND COALESCE(status,'') <> 'cancelled' AND rsvp_enabled=TRUE
                    ORDER BY start_time''', (str(perf['performance_date'])[:10],)) or [])]
+        for p_ in people:
+            p_.pop('_key', None)
         return jsonify({'events': [{'id': e['id'], 'name': e['name'], 'time': _fmt_time12(e.get('start_time'))} for e in evs],
                         'volunteers': people, 'roles': roles, 'choices': choices})
     finally:

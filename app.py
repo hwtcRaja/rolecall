@@ -46394,9 +46394,27 @@ def house_door_sale(fid):
 # as tapping Start volunteering at the kiosk); signing out stops it and
 # sends the hours for approval.
 def _house_events_for_perf(conn, perf):
-    return fetchall(conn, '''SELECT id, name, start_time, end_time FROM events
+    """The sign-up event(s) for a performance: one picked by hand for it, or
+    the show's events that day, or a sign-up event that day named after the
+    show (events aren't always linked to the production)."""
+    day = str(perf['performance_date'])[:10]
+    picked = _setting(conn, 'house_event_link:' + perf['id'])
+    if picked:
+        ids = [x for x in picked.split(',') if x]
+        rows = fetchall(conn, 'SELECT id, name, start_time, end_time FROM events WHERE id = ANY(%s) ORDER BY start_time', (ids,)) or []
+        if rows:
+            return rows
+    rows = fetchall(conn, '''SELECT id, name, start_time, end_time FROM events
         WHERE production_id=%s AND event_date=%s AND COALESCE(status,'') <> 'cancelled'
-        ORDER BY start_time''', (perf['production_id'], str(perf['performance_date'])[:10])) or []
+        ORDER BY start_time''', (perf['production_id'], day)) or []
+    if rows:
+        return rows
+    prod = fetchone(conn, 'SELECT name FROM productions WHERE id=%s', (perf['production_id'],)) or {}
+    if prod.get('name'):
+        rows = fetchall(conn, '''SELECT id, name, start_time, end_time FROM events
+            WHERE event_date=%s AND COALESCE(status,'') <> 'cancelled' AND rsvp_enabled=TRUE AND LOWER(name) LIKE %s
+            ORDER BY start_time''', (day, '%' + prod['name'].lower()[:40] + '%')) or []
+    return rows
 
 
 @app.route('/api/house/<fid>/volunteers', methods=['GET'])
@@ -46431,8 +46449,40 @@ def house_volunteers(fid):
                                'block': ' – '.join(x for x in [_fmt_time12(r.get('block_time')), _fmt_time12(r.get('block_time_end'))] if x),
                                'since': (lambda m: (f'{m // 60}h {m % 60}m' if m >= 60 else f'{m} min'))(int(float(r['secs_in']) // 60)) if r.get('secs_in') is not None else '',
                                'hours': float(r.get('approved_hours') or r.get('pending_hours') or 0) or None})
+        # every role with its spots, even ones nobody has taken yet
+        roles = []
+        if ids:
+            hc = {}
+            for e in ids:
+                hc.update(_role_headcounts_for_event(conn, e))
+            for ro in fetchall(conn, '''SELECT id, name, slots, block_time, block_time_end FROM event_roles WHERE event_id = ANY(%s)
+                    ORDER BY sort_order, name''', (ids,)) or []:
+                roles.append({'name': ro['name'], 'slots': int(ro.get('slots') or 0), 'filled': int(hc.get(ro['id'], 0)),
+                              'here': sum(1 for p in people if p['role'] == ro['name'] and p['status'] in ('in', 'done')),
+                              'block': ' – '.join(x for x in [_fmt_time12(ro.get('block_time')), _fmt_time12(ro.get('block_time_end'))] if x)})
+        # if nothing matched, offer that day's sign-up events to link
+        choices = []
+        if not evs:
+            choices = [{'id': c['id'], 'name': c['name'], 'time': _fmt_time12(c.get('start_time'))} for c in (fetchall(conn,
+                '''SELECT id, name, start_time FROM events WHERE event_date=%s AND COALESCE(status,'') <> 'cancelled' AND rsvp_enabled=TRUE
+                   ORDER BY start_time''', (str(perf['performance_date'])[:10],)) or [])]
         return jsonify({'events': [{'id': e['id'], 'name': e['name'], 'time': _fmt_time12(e.get('start_time'))} for e in evs],
-                        'volunteers': people})
+                        'volunteers': people, 'roles': roles, 'choices': choices})
+    finally:
+        conn.close()
+
+
+@app.route('/api/house/<fid>/volunteer-event', methods=['PUT'])
+def house_link_volunteer_event(fid):
+    """Pick which sign-up event goes with this performance (when it couldn't be matched)."""
+    err = require_permission('house_manager', 'edit')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        _set_setting(conn, 'house_event_link:' + fid, ','.join(x for x in (d.get('event_ids') or []) if x))
+        conn.commit()
+        return jsonify({'ok': True})
     finally:
         conn.close()
 

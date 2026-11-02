@@ -21623,7 +21623,7 @@ function renderEventDetailPage(eid){
  <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>
 
  <!-- Role Slots Manager -->
- ${isAdmin?`<div style="margin-top:24px">
+ ${isAdmin?`<div id="role-slots-section-${e.id}" style="margin-top:24px">
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
  <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'Blocks / Time Slots':'Role Slots'}</div>
  <div style="display:flex;gap:6px">
@@ -23092,7 +23092,7 @@ function fillManualRoleSelect(eid, roles){
  const sel = document.getElementById(`manual-rsvp-role-${eid}`); if(!sel) return
  const cur = sel.value
  const list = Array.isArray(roles) ? roles : []
- sel.innerHTML = '<option value="">No specific role</option>' + list.map(ro=>`<option value="${ro.id}">${escHtml(ro.name)}${ro.slots?` (${ro.filled||0}/${ro.slots} filled)`:''}</option>`).join('')
+ sel.innerHTML = '<option value="">No specific role</option>' + list.map(ro=>`<option value="${ro.id}">${_roleOptLabel(ro)}</option>`).join('')
  sel.value = cur
  sel.style.display = list.length ? '' : 'none'
 }
@@ -23162,7 +23162,19 @@ async function loadEventRsvps(eid){
  renderEventRsvps(eid, allRsvps, roles)
 }
 
+function _roleOptLabel(ro){
+ const f = parseInt(ro.filled||0), sl = parseInt(ro.slots||0)
+ return escHtml(ro.name) + (sl ? (f > sl ? ` (${f}/${sl}, over by ${f-sl})` : f >= sl ? ` (${f}/${sl}, full)` : ` (${f}/${sl})`) : '')
+}
 function renderEventRsvps(eid, allRsvps, roles){
+ // who's past a role's limit (latest to sign up first go to overflow)
+ const _overflow = {}
+ ;(Array.isArray(roles)?roles:[]).forEach(function(ro){
+   const sl = parseInt(ro.slots||0); if(!sl) return
+   const inRole = (allRsvps||[]).filter(function(x){ return x.role_id===ro.id && (x.status==='confirmed'||x.status==='interested') })
+     .sort(function(a,b){ return String(a.created_at||'').localeCompare(String(b.created_at||'')) })
+   inRole.slice(sl).forEach(function(x){ _overflow[x.id] = true })
+ })
  const el = document.getElementById('event-rsvps-list')
  if(!el) return
  const signedUp = allRsvps.reduce((s,r)=>s+_rsvpConfirmedCountOf(r),0)
@@ -23226,8 +23238,8 @@ function renderEventRsvps(eid, allRsvps, roles){
  ${isAdmin&&Array.isArray(roles)&&roles.length&&r.status!=='declined'
    ? `<select onchange="setRsvpRole('${eid}','${r.id}',this.value)" title="Role / shift" style="margin-top:3px;font-size:11px;font-weight:600;color:var(--teal-600);border:1px solid var(--border);border-radius:6px;padding:1px 4px;background:var(--surface);max-width:220px">
        <option value="">${r.role_name?'No specific role':'+ Assign a role'}</option>
-       ${roles.map(ro=>`<option value="${ro.id}" ${ro.id===r.role_id?'selected':''}>${escHtml(ro.name)}${ro.slots?` (${ro.filled||0}/${ro.slots})`:''}</option>`).join('')}
-     </select>`
+       ${roles.map(ro=>`<option value="${ro.id}" ${ro.id===r.role_id?'selected':''}>${_roleOptLabel(ro)}</option>`).join('')}
+     </select>${_overflow[r.id]?' <span title="This role is past its number of spots" style="font-size:10px;font-weight:800;color:#b91c1c;background:#fee2e2;border-radius:8px;padding:1px 7px;vertical-align:middle">OVERFLOW</span>':''}`
    : ((viewMode!=='block'&&r.role_name)?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:'')}
  ${r.last_invited_at&&r.status==='invited'?`<div style="font-size:11px;color:var(--text-hint)">Sent ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
  ${r.last_invited_at&&r.status!=='invited'?`<div style="font-size:11px;color:var(--text-hint)">Invited ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
@@ -23371,11 +23383,18 @@ function loadEventRoles(eid, roles){
  el.innerHTML=`<div style="font-size:13px;color:var(--text-muted)">No ${isGuest?'blocks':'roles'} defined yet — add ${isGuest?'blocks so people can RSVP to the one you assign them':'roles to let volunteers choose what they\'d like to help with'}.</div>`
  return
  }
+ // limits up top: put the roles section above the sign-up list
+ const sec = document.getElementById('role-slots-section-'+eid), list = document.getElementById('event-rsvps-list')
+ if(sec && list && list.parentNode && !sec.dataset.moved){
+   const header = list.previousElementSibling
+   list.parentNode.insertBefore(sec, header || list); sec.style.marginTop = '0'; sec.style.marginBottom = '22px'; sec.dataset.moved = '1'
+ }
  el.innerHTML = roles.map(r=>{
  const filled = parseInt(r.filled||0)
  const slots = parseInt(r.slots||1)
  const pct = Math.round((filled/slots)*100)
- const color = filled>=slots ? 'var(--red-600)': filled>0 ? 'var(--amber-600)': 'var(--green-600)'
+ const over = Math.max(0, filled - slots)
+ const color = over ? '#b91c1c' : filled>=slots ? 'var(--green-600)': filled>0 ? 'var(--amber-600)': 'var(--text-muted)'
  const directLink = `${window.location.origin}/rsvp-event/${eid}?block=${r.id}`
  const timeStr = r.block_time ? `${fmtBlockTime(r.block_time)}${r.block_time_end?' – '+fmtBlockTime(r.block_time_end):''}` : ''
  return `<div style="padding:10px 0;border-bottom:1px solid var(--border)">
@@ -23387,13 +23406,15 @@ function loadEventRoles(eid, roles){
  </div>
  <div style="text-align:center;min-width:80px">
  <div style="font-size:18px;font-weight:800;color:${color}">${filled}/${slots}</div>
- <div style="font-size:10px;color:var(--text-hint);font-weight:600;text-transform:uppercase">${filled>=slots?'Full':slots-filled+' open'}</div>
+ <div style="font-size:10px;font-weight:700;text-transform:uppercase;color:${over?'#b91c1c':'var(--text-hint)'}">${over?'+'+over+' overflow':filled>=slots?'Full':slots-filled+' open'}</div>
  </div>
  <div style="width:60px;height:6px;background:var(--border);border-radius:3px;overflow:hidden">
  <div style="height:100%;width:${Math.min(100,pct)}%;background:${color};border-radius:3px;transition:width 0.3s"></div>
  </div>
+ <button onclick="editEventRole('${r.id}','${eid}')" style="background:none;border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--text-muted);font-size:11px;font-weight:600;padding:3px 8px" title="Edit name, number of spots, time">Edit</button>
  <button onclick="deleteEventRole('${r.id}','${eid}')" style="background:none;border:none;cursor:pointer;color:var(--text-hint);font-size:16px;padding:0 4px" title="Delete ${isGuest?'block':'role'}">×</button>
  </div>
+ <div id="role-edit-${r.id}" style="display:none"></div>
  ${isGuest?`<div style="display:flex;gap:6px;align-items:center;margin-top:6px">
  <input readonly value="${directLink}" onclick="this.select()" style="flex:1;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-family:inherit;font-size:11px;color:var(--text-muted);background:var(--bg)"/>
  <button class="btn btn-secondary btn-sm" style="padding:4px 10px;font-size:11px" onclick="navigator.clipboard.writeText('${directLink}');toast('Block link copied!','success')">Copy Link</button>
@@ -23402,6 +23423,41 @@ function loadEventRoles(eid, roles){
  }).join('')
 }
 
+function editEventRole(rid, eid){
+ const r = (window._currentEventRoles||[]).find(x=>x.id===rid); if(!r) return
+ const box = document.getElementById('role-edit-'+rid); if(!box) return
+ if(box.style.display !== 'none'){ box.style.display = 'none'; return }
+ const inp = 'padding:7px 9px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;width:100%;box-sizing:border-box'
+ box.innerHTML = `<div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px;margin-top:8px">
+   <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px">
+    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted)">Name</label><input id="re-name-${rid}" value="${escHtml(r.name||'')}" style="${inp}"/></div>
+    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted)">Spots</label><input id="re-slots-${rid}" type="number" min="1" value="${parseInt(r.slots||1)}" style="${inp}"/></div>
+   </div>
+   <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted)">Starts (optional)</label><input id="re-t1-${rid}" type="time" value="${(r.block_time||'').slice(0,5)}" style="${inp}"/></div>
+    <div><label style="font-size:11px;font-weight:700;color:var(--text-muted)">Ends (optional)</label><input id="re-t2-${rid}" type="time" value="${(r.block_time_end||'').slice(0,5)}" style="${inp}"/></div>
+   </div>
+   <div style="margin-top:8px"><label style="font-size:11px;font-weight:700;color:var(--text-muted)">Description (optional)</label><input id="re-desc-${rid}" value="${escHtml(r.description||'')}" style="${inp}"/></div>
+   <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px">
+    <button class="btn btn-secondary btn-sm" onclick="document.getElementById('role-edit-${rid}').style.display='none'">Cancel</button>
+    <button class="btn btn-primary btn-sm" onclick="saveEventRole('${rid}','${eid}')">Save</button></div></div>`
+ box.style.display = ''
+ document.getElementById('re-name-'+rid).focus()
+}
+async function saveEventRole(rid, eid){
+ const r = (window._currentEventRoles||[]).find(x=>x.id===rid) || {}
+ const name = document.getElementById('re-name-'+rid).value.trim()
+ const slots = parseInt(document.getElementById('re-slots-'+rid).value)||1
+ if(!name){ toast('Give the role a name','error'); return }
+ const filled = parseInt(r.filled||0)
+ if(slots < filled && !confirm(filled+' people are already in this role. With '+slots+' spot'+(slots===1?'':'s')+', '+(filled-slots)+' will show as overflow. Save anyway?')) return
+ const res = await api('/api/events/roles/'+rid,'PUT',{name, slots, description: document.getElementById('re-desc-'+rid).value.trim(),
+   block_time: document.getElementById('re-t1-'+rid).value, block_time_end: document.getElementById('re-t2-'+rid).value,
+   requires_foh_training: !!r.requires_foh_training})
+ if(res && res.error){ toast(res.error,'error'); return }
+ toast('Role updated','success')
+ loadEventRsvps(eid)
+}
 function toggleRoleForm(eid){
  const el = document.getElementById('role-add-form-'+eid)
  if(!el) return

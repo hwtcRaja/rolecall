@@ -22050,6 +22050,9 @@ def update_event_role(rid):
          (d.get('description') or '').strip(),
          (d.get('block_time') or '').strip(), (d.get('block_time_end') or '').strip(),
          bool(d.get('requires_foh_training', False)), rid))
+    # people already in this role show the new name too
+    if (d.get('name') or '').strip():
+        execute(conn, 'UPDATE event_rsvps SET role_name=%s WHERE role_id=%s', ((d.get('name') or '').strip(), rid))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 

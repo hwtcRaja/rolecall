@@ -72,6 +72,7 @@ select,.inp{background:var(--panel2);color:#fff;border:1.5px solid var(--line);b
   <select id="perf" onchange="choose(this.value)"></select>
   <button class="btn p" onclick="openScanner()">Scan tickets</button>
   <button class="btn g" onclick="openDoorSale()">Sell tickets</button>
+  <button class="btn" id="vol-top-btn" onclick="openVolunteers()">Volunteers</button>
   <button class="btn" onclick="openUsherLink()">Usher scanner link</button>
   <div class="clock" id="clock"></div>
 </div>
@@ -111,7 +112,7 @@ function choose(id){
 }
 async function tick(){
   // volunteers who signed up for this performance's event(s)
-  api('/api/house/'+PERF+'/volunteers').then(function(v){ if(v && !v.error){ VOLS = v; if(TAB==='vols' && DATA){ var l = document.getElementById('list'); if(l) l.innerHTML = listHTML() } } })
+  api('/api/house/'+PERF+'/volunteers').then(function(v){ if(v && !v.error){ VOLS = v; updateVolTopBtn(); drawVolunteers(); if(TAB==='vols' && DATA){ var l = document.getElementById('list'); if(l) l.innerHTML = listHTML() } } })
   var d = await api('/api/house/'+PERF)
   if(d.error){ if(!DATA) document.getElementById('root').innerHTML = '<div class="empty" style="padding:30px 18px">'+esc(d.error)+'</div>'; return }
   DATA = d; render()
@@ -214,6 +215,7 @@ function listHTML(){
             : v.status==='waiting' ? '<button class="btn g" onclick="volAct(\''+v.rsvp_id+'\',\'signin\')">Sign in</button>' : ''
           return '<div class="item" style="display:flex;align-items:center;gap:10px;cursor:default"><div style="flex:1;min-width:0">'
             + '<div class="n">'+esc(v.name)+' '+lab[v.status]+'</div>'
+            + (VOLS.events.length > 1 && v.event_name ? '<div class="d" style="color:var(--muted)">'+esc(v.event_name)+'</div>' : '')
             + '<div class="d">'+(v.block?esc(v.block)+' · ':'')+(v.status==='in'&&v.since?'here '+esc(v.since)+' · ':'')+(v.hours?v.hours+' h logged · ':'')+(v.phone?'<a href="tel:'+esc(v.phone)+'">'+esc(v.phone)+'</a>':'')+'</div></div>'+btn+'</div>'
         }).join('')
     }).join('') + '<div class="empty" style="padding:10px 4px;text-align:left">Signing in starts their volunteer time for the event; signing out sends the hours for approval.</div>'
@@ -252,7 +254,7 @@ function findRes(){
 // One sale can mix ticket types: pick a type, then tap seats (or use the
 // +/- per type for general seating).
 async function openDoorSale(){
-  OPEN_TICKET = null
+  OPEN_TICKET = null; VOL_DRAWER = false
   var info = await api('/api/house/'+PERF+'/door')
   if(info.error){ alert(info.error); return }
   if(!info.ticket_types.length){ alert('This performance has no ticket types set up. Add them in Ticketing first.'); return }
@@ -379,19 +381,39 @@ async function completeDoorSale(){
   alert('Sold '+r.tickets+' ticket'+(r.tickets===1?'':'s')+' · '+money(r.total_cents)+(r.seats.length?'\nSeats: '+r.seats.join(', '):'')+(r.emailed?'\nTickets emailed.':''))
   SELL = null; closeDrawer(); tick()
 }
+// Volunteers panel from the top bar (same list as the Volunteers tab)
+var VOL_DRAWER = false
+function openVolunteers(){
+  VOL_DRAWER = true; SELL = null; OPEN_TICKET = null
+  drawVolunteers()
+}
+function drawVolunteers(){
+  if(!VOL_DRAWER) return
+  var prev = TAB; TAB = 'vols'; var body = listHTML(); TAB = prev
+  var dr = document.getElementById('drawer'), keep = dr.scrollTop
+  dr.innerHTML = '<div style="display:flex;align-items:center;margin-bottom:10px"><h2 style="flex:1;margin:0">Volunteers</h2>'
+    + '<button class="btn" onclick="VOL_DRAWER=false;closeDrawer()">✕ Close</button></div>' + body
+  dr.style.display = 'block'; dr.scrollTop = keep
+}
+function updateVolTopBtn(){
+  var b = document.getElementById('vol-top-btn'); if(!b || !VOLS || !VOLS.volunteers) return
+  var here = VOLS.volunteers.filter(function(v){ return v.status!=='waiting' }).length
+  b.textContent = VOLS.volunteers.length ? 'Volunteers '+here+'/'+VOLS.volunteers.length : 'Volunteers'
+}
 async function linkVolEvent(eid){
   var r = await api('/api/house/'+PERF+'/volunteer-event', 'PUT', {event_ids: [eid]})
   if(r.error){ alert(r.error); return }
-  var v = await api('/api/house/'+PERF+'/volunteers'); if(v && !v.error) VOLS = v
-  render()
+  var v = await api('/api/house/'+PERF+'/volunteers'); if(v && !v.error){ VOLS = v; updateVolTopBtn() }
+  render(); drawVolunteers()
 }
 async function volAct(rid, action){
   var r = await api('/api/house/'+PERF+'/volunteers/'+rid+'/'+action, 'POST', {})
   if(r.error){ alert(r.error); return }
-  var v = await api('/api/house/'+PERF+'/volunteers'); if(v && !v.error) VOLS = v
-  render()
+  var v = await api('/api/house/'+PERF+'/volunteers'); if(v && !v.error){ VOLS = v; updateVolTopBtn() }
+  render(); drawVolunteers()
 }
 async function openTicket(id, quiet){
+  if(!quiet) VOL_DRAWER = false
   OPEN_TICKET = id
   var t = await api('/api/house/ticket/'+id)
   if(t.error){ if(!quiet) alert(t.error); return }

@@ -3171,6 +3171,9 @@ def init_db():
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS auto_sold_out BOOLEAN DEFAULT FALSE",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS payment_method TEXT",
+        # partner invoices: remember why an automatic send failed, so it shows
+        "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_error TEXT",
+        "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMP",
         """CREATE TABLE IF NOT EXISTS email_suppressions (
             email_key TEXT PRIMARY KEY, email TEXT, reason TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS audience_emails (
@@ -25014,6 +25017,14 @@ def square_create_and_publish_invoice(order_id, customer_id, amount_cents, due_d
     (invoice_id, public_url, status, error) — error is None on success."""
     if not SQUARE_ACCESS_TOKEN:
         return None, None, None, 'Square is not configured'
+    # Square rejects a due date before the day the invoice is sent ("Due on
+    # date must be on or after scheduled date"). An installment whose date
+    # has already passed is simply due today.
+    try:
+        if str(due_date or '')[:10] < today_eastern().isoformat():
+            due_date = today_eastern().isoformat()
+    except Exception:
+        pass
     try:
         import uuid as _uuidi
         create_payload = {
@@ -37551,6 +37562,31 @@ def create_final_invoice(aid):
 RENTAL_INVOICE_LEAD_DAYS = 7  # auto-send each installment's Square invoice this many days before its due date
 
 def _send_scheduled_rental_invoice(conn, payment_id, created_by):
+    ok, msg = _send_scheduled_rental_invoice_inner(conn, payment_id, created_by)
+    try:
+        execute(conn, 'UPDATE rental_payments SET last_send_attempt_at=NOW(), last_send_error=%s WHERE id=%s',
+                (None if ok else _friendly_square_error(msg), payment_id))
+        conn.commit()
+    except Exception:
+        try: conn.rollback()
+        except Exception: pass
+    return ok, (msg if ok else _friendly_square_error(msg))
+
+
+def _friendly_square_error(msg):
+    m = str(msg or '')
+    try:
+        import ast as _ast
+        if "{'errors'" in m:
+            data = _ast.literal_eval(m[m.index('{'):])
+            details = '; '.join(e.get('detail') or e.get('code') or '' for e in data.get('errors') or [])
+            return 'Square: ' + details if details else m
+    except Exception:
+        pass
+    return m
+
+
+def _send_scheduled_rental_invoice_inner(conn, payment_id, created_by):
     """Create the Square order + invoice for an installment that was saved
     as 'scheduled' (no Square objects yet), then mark it sent. Used both
     for a staff-initiated 'Send Now' and for the automatic pre-due-date
@@ -37586,7 +37622,7 @@ def _send_scheduled_rental_invoice(conn, payment_id, created_by):
         return False, 'Could not create the Square order for this invoice'
 
     invoice_id, public_url, status, err = square_create_and_publish_invoice(
-        order_id, customer_id, amount_cents, payment.get('due_date') or date.today().isoformat(), item_name,
+        order_id, customer_id, amount_cents, payment.get('due_date') or today_eastern().isoformat(), item_name,
         f'{label} for the Artistic Partnership and Studio Use Agreement — {req.get("title","")}')
     if err and not invoice_id:
         return False, err
@@ -37611,7 +37647,7 @@ def maybe_send_due_rental_invoices():
     _last_rental_invoice_cron_check[0] = now
     try:
         conn = get_db()
-        cutoff = (_dt.date.today() + _dt.timedelta(days=RENTAL_INVOICE_LEAD_DAYS)).isoformat()
+        cutoff = (today_eastern() + _dt.timedelta(days=RENTAL_INVOICE_LEAD_DAYS)).isoformat()
         due = fetchall(conn, """SELECT id FROM rental_payments
             WHERE payment_type='installment' AND sent_at IS NULL AND due_date<=%s""", (cutoff,)) or []
         for row in due:
@@ -37622,6 +37658,42 @@ def maybe_send_due_rental_invoices():
         conn.close()
     except Exception as e:
         app.logger.error(f'Rental invoice cron check error: {e}')
+
+@app.route('/api/rental/agreements/<aid>/combine-installments', methods=['POST'])
+def combine_rental_installments(aid):
+    """Merge several not-yet-sent installments into one invoice (e.g. seven
+    small per-date payments into one), so the partner gets one email."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    ids = [x for x in (d.get('payment_ids') or []) if x]
+    if len(ids) < 2:
+        return jsonify({'error': 'Pick at least two invoices to combine.'}), 400
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT * FROM rental_payments WHERE agreement_id=%s AND id = ANY(%s) ORDER BY due_date''', (aid, ids)) or []
+        if len(rows) != len(ids):
+            return jsonify({'error': 'Some of those invoices weren\'t found.'}), 404
+        if any(r.get('sent_at') or r.get('square_invoice_id') or r.get('paid_at') for r in rows):
+            return jsonify({'error': 'Only invoices that haven\'t been sent or paid can be combined.'}), 400
+        total = sum(int(r.get('amount_cents') or 0) for r in rows)
+        due = (d.get('due_date') or '').strip()[:10] or str(rows[0].get('due_date') or '')[:10]
+        if due and due < today_eastern().isoformat():
+            due = today_eastern().isoformat()
+        labels = [r.get('installment_label') or '' for r in rows]
+        import re as _re
+        nums = [int(m.group(1)) for m in (_re.match(r'Payment (\d+) of (\d+)', l or '') for l in labels) if m]
+        of = _re.match(r'Payment \d+ of (\d+)', labels[0] or '')
+        label = (d.get('label') or '').strip() or (f'Payments {min(nums)}–{max(nums)} of {of.group(1)}' if nums and of else 'Combined payment')
+        keep = rows[0]['id']
+        execute(conn, 'UPDATE rental_payments SET amount_cents=%s, due_date=%s, installment_label=%s, last_send_error=NULL WHERE id=%s',
+                (total, due, label[:120], keep))
+        execute(conn, 'DELETE FROM rental_payments WHERE id = ANY(%s) AND id <> %s', ([r['id'] for r in rows], keep))
+        conn.commit()
+        return jsonify({'ok': True, 'id': keep, 'amount_cents': total, 'due_date': due, 'label': label})
+    finally:
+        conn.close()
+
 
 @app.route('/api/rental/agreements/<aid>/payment-plan', methods=['POST'])
 def create_rental_payment_plan(aid):
@@ -37909,7 +37981,7 @@ def get_rental_payments(aid):
     err = require_permission('rentals', 'view')
     if err: return err
     conn = get_db()
-    payments = fetchall(conn, 'SELECT * FROM rental_payments WHERE agreement_id=%s ORDER BY created_at', (aid,)) or []
+    payments = fetchall(conn, 'SELECT * FROM rental_payments WHERE agreement_id=%s ORDER BY due_date, created_at', (aid,)) or []
     conn.close()
     return jsonify(payments)
 

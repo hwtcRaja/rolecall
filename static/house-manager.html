@@ -142,6 +142,11 @@ function render(){
     + '<div class="m"><div class="k">Not here yet</div><div class="v">'+m.not_arrived+'</div><div class="s">'+m.parties_waiting+' of '+m.parties+' parties</div></div>'
     + (p.reserved ? '<div class="m"><div class="k">Open seats</div><div class="v">'+m.open_seats+'</div><div class="s">of '+m.capacity+'</div></div>' : '<div class="m"><div class="k">Capacity</div><div class="v">'+(m.capacity||'—')+'</div><div class="s">general admission</div></div>')
     + '<div class="m"><div class="k">Comps</div><div class="v">'+m.comps+'</div><div class="s">'+m.box_office+' box office</div></div>'
+    // volunteers who signed up for roles tonight: tap to see and check them in
+    + (VOLS && VOLS.volunteers && VOLS.volunteers.length
+        ? '<div class="m" style="cursor:pointer" onclick="TAB=\'vols\';render();var l=document.getElementById(\'list\');if(l)l.scrollIntoView({behavior:\'smooth\'})"><div class="k">Volunteers here</div><div class="v">'
+          + VOLS.volunteers.filter(function(v){ return v.status!=='waiting' }).length+' <span style="font-size:16px;color:var(--muted)">of '+VOLS.volunteers.length+'</span></div><div class="s">Tap to check them in</div></div>'
+        : '')
     + (m.wheelchair_total ? '<div class="m"><div class="k">Wheelchair spaces</div><div class="v">'+m.wheelchair_sold+'<span style="font-size:16px;color:var(--muted)"> / '+m.wheelchair_total+'</span></div><div class="s">booked</div></div>' : '')
     + '</div><div class="main">'
   // map
@@ -184,12 +189,24 @@ function listHTML(){
   var d = DATA
   if(TAB==='vols'){
     if(!VOLS) return '<div class="empty">Loading volunteers…</div>'
-    if(!VOLS.events.length) return '<div class="empty">No calendar event for this show on this date, so there\'s no volunteer sign-up to show. Volunteers sign up through an event\'s sign-up roles.</div>'
-    if(!VOLS.volunteers.length) return '<div class="empty">Nobody has signed up to volunteer for '+esc(VOLS.events.map(function(e){ return e.name }).join(', '))+' yet.</div>'
+    if(!VOLS.events.length){
+      // couldn't match an event: let them pick that day's sign-up event
+      if(VOLS.choices && VOLS.choices.length) return '<div class="empty" style="text-align:left">Which sign-up event goes with this performance?</div>'
+        + VOLS.choices.map(function(c){ return '<div class="item" onclick="linkVolEvent(\''+c.id+'\')"><div class="n">'+esc(c.name)+'</div><div class="d">'+esc(c.time||'')+' · tap to use this one</div></div>' }).join('')
+      return '<div class="empty">No volunteer sign-up event found for this date. Volunteers sign up through an event\'s roles (Events → the event → Sign-ups). Create one on this date for the show, or link it to the production.</div>'
+    }
     var lab = {in:'<span class="chip c-in">Signed in'+'</span>', done:'<span class="chip c-in">✓ Done</span>', waiting:'<span class="chip c-out">Not here</span>'}
     var groups = {}
     VOLS.volunteers.forEach(function(v){ (groups[v.role] = groups[v.role] || []).push(v) })
-    return Object.keys(groups).map(function(role){
+    // roles summary first: spots, signed up, here
+    var rolesHTML = (VOLS.roles||[]).length ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 10px">' + VOLS.roles.map(function(ro){
+        var over = ro.slots && ro.filled > ro.slots, short = ro.slots && ro.filled < ro.slots
+        var col = over ? 'var(--bad)' : short ? 'var(--cart)' : 'var(--in)'
+        return '<span title="'+esc(ro.block||'')+'" style="font-size:12px;border:1px solid var(--line);border-left:4px solid '+col+';border-radius:8px;padding:5px 9px;background:var(--panel2)">'
+          + '<strong>'+esc(ro.name)+'</strong> · '+ro.filled+(ro.slots?'/'+ro.slots:'')+' signed up'+(over?' (over)':short?' ('+(ro.slots-ro.filled)+' open)':'')+' · '+ro.here+' here</span>'
+      }).join('') + '</div>' : ''
+    if(!VOLS.volunteers.length) return rolesHTML + '<div class="empty">Nobody has signed up to volunteer for '+esc(VOLS.events.map(function(e){ return e.name }).join(', '))+' yet.</div>'
+    return rolesHTML + Object.keys(groups).map(function(role){
       return '<div style="font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:10px 0 4px">'+esc(role)+'</div>'
         + groups[role].map(function(v){
           var btn = v.status==='in'
@@ -361,6 +378,12 @@ async function completeDoorSale(){
   if(r.error){ alert(r.error); return }
   alert('Sold '+r.tickets+' ticket'+(r.tickets===1?'':'s')+' · '+money(r.total_cents)+(r.seats.length?'\nSeats: '+r.seats.join(', '):'')+(r.emailed?'\nTickets emailed.':''))
   SELL = null; closeDrawer(); tick()
+}
+async function linkVolEvent(eid){
+  var r = await api('/api/house/'+PERF+'/volunteer-event', 'PUT', {event_ids: [eid]})
+  if(r.error){ alert(r.error); return }
+  var v = await api('/api/house/'+PERF+'/volunteers'); if(v && !v.error) VOLS = v
+  render()
 }
 async function volAct(rid, action){
   var r = await api('/api/house/'+PERF+'/volunteers/'+rid+'/'+action, 'POST', {})

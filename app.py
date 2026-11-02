@@ -22073,11 +22073,24 @@ def add_manual_rsvp(eid):
     if not vol_id:
         return jsonify({'error': 'volunteer_id required'}), 400
     conn = get_db()
+    # optional role / shift for them
+    role = None
+    if d.get('role_id'):
+        role = fetchone(conn, 'SELECT id, name, slots FROM event_roles WHERE id=%s AND event_id=%s', (d['role_id'], eid))
+        if not role:
+            conn.close(); return jsonify({'error': 'That role isn\'t on this event.'}), 400
+        filled = (fetchone(conn, """SELECT COUNT(*) AS c FROM event_rsvps WHERE event_id=%s AND role_id=%s
+            AND status IN ('confirmed','interested') AND COALESCE(volunteer_id,'') <> %s""", (eid, role['id'], vol_id)) or {}).get('c') or 0
+        if role.get('slots') and int(filled) >= int(role['slots']) and not d.get('over_ok'):
+            conn.close()
+            return jsonify({'error': f'{role["name"]} is full ({filled} of {role["slots"]}). Add them anyway?', 'role_full': True}), 409
     # Check not already in the list
     existing = fetchone(conn, 'SELECT id FROM event_rsvps WHERE event_id=%s AND volunteer_id=%s', (eid, vol_id))
     if existing:
-        # Already exists  -  just mark them as confirmed
+        # Already exists  -  just mark them as confirmed (and set the role if one was picked)
         execute(conn, "UPDATE event_rsvps SET status='confirmed' WHERE id=%s", (existing['id'],))
+        if role:
+            execute(conn, 'UPDATE event_rsvps SET role_id=%s, role_name=%s WHERE id=%s', (role['id'], role['name'], existing['id']))
         conn.commit()
         row = fetchone(conn, '''SELECT er.*, v.name as vol_name, v.email as volunteer_email
             FROM event_rsvps er LEFT JOIN volunteers v ON er.volunteer_id=v.id
@@ -22088,14 +22101,43 @@ def add_manual_rsvp(eid):
     if not vol:
         conn.close(); return jsonify({'error': 'Volunteer not found'}), 404
     rid = str(uuid.uuid4())
-    execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,status)
-        VALUES (%s,%s,%s,%s,%s,'confirmed')''',
-        (rid, eid, vol_id, vol['name'], vol.get('email','')))
+    execute(conn, '''INSERT INTO event_rsvps (id,event_id,volunteer_id,volunteer_name,volunteer_email,status,role_id,role_name)
+        VALUES (%s,%s,%s,%s,%s,'confirmed',%s,%s)''',
+        (rid, eid, vol_id, vol['name'], vol.get('email',''), (role or {}).get('id'), (role or {}).get('name')))
     conn.commit()
     row = fetchone(conn, '''SELECT er.*, v.name as vol_name FROM event_rsvps er
         LEFT JOIN volunteers v ON er.volunteer_id=v.id WHERE er.id=%s''', (rid,))
     conn.close()
     return jsonify(row)
+
+@app.route('/api/events/<eid>/rsvps/<rid>/role', methods=['PUT'])
+def set_rsvp_role(eid, rid):
+    """Give someone already on the list a role / shift (or clear it)."""
+    err = require_permission('events')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        r = fetchone(conn, 'SELECT id, volunteer_id FROM event_rsvps WHERE id=%s AND event_id=%s', (rid, eid))
+        if not r:
+            return jsonify({'error': 'Sign-up not found'}), 404
+        if not d.get('role_id'):
+            execute(conn, 'UPDATE event_rsvps SET role_id=NULL, role_name=NULL WHERE id=%s', (rid,))
+            conn.commit()
+            return jsonify({'ok': True, 'role_name': None})
+        role = fetchone(conn, 'SELECT id, name, slots FROM event_roles WHERE id=%s AND event_id=%s', (d['role_id'], eid))
+        if not role:
+            return jsonify({'error': 'That role isn\'t on this event.'}), 400
+        filled = (fetchone(conn, """SELECT COUNT(*) AS c FROM event_rsvps WHERE event_id=%s AND role_id=%s
+            AND status IN ('confirmed','interested') AND id <> %s""", (eid, role['id'], rid)) or {}).get('c') or 0
+        if role.get('slots') and int(filled) >= int(role['slots']) and not d.get('over_ok'):
+            return jsonify({'error': f'{role["name"]} is full ({filled} of {role["slots"]}). Assign anyway?', 'role_full': True}), 409
+        execute(conn, 'UPDATE event_rsvps SET role_id=%s, role_name=%s WHERE id=%s', (role['id'], role['name'], rid))
+        conn.commit()
+        return jsonify({'ok': True, 'role_name': role['name']})
+    finally:
+        conn.close()
+
 
 @app.route('/api/events/<eid>/rsvps/<rid>/status', methods=['POST'])
 def set_rsvp_status(eid, rid):
@@ -22453,7 +22495,7 @@ def send_rsvp_invite(eid):
 def _role_headcount(conn, role_id):
     """Real attendee headcount for a block/role — counts each individual attending
     guest in a household RSVP, not just one per invite."""
-    rows = fetchall(conn, "SELECT party_members FROM event_rsvps WHERE role_id=%s AND status='interested'", (role_id,)) or []
+    rows = fetchall(conn, "SELECT party_members FROM event_rsvps WHERE role_id=%s AND status IN ('interested','confirmed')", (role_id,)) or []
     total = 0
     for r in rows:
         pm = r.get('party_members')
@@ -22470,7 +22512,7 @@ def _role_headcount(conn, role_id):
 def _role_headcounts_for_event(conn, event_id):
     """Headcounts for every role/block on an event, keyed by role_id — one query pass
     instead of N (used when rendering a role list)."""
-    rsvps = fetchall(conn, "SELECT role_id, party_members FROM event_rsvps WHERE event_id=%s AND status='interested' AND role_id IS NOT NULL", (event_id,)) or []
+    rsvps = fetchall(conn, "SELECT role_id, party_members FROM event_rsvps WHERE event_id=%s AND status IN ('interested','confirmed') AND role_id IS NOT NULL", (event_id,)) or []
     counts = {}
     for r in rsvps:
         rid = r['role_id']
@@ -23309,7 +23351,7 @@ def rsvp_submit(token):
         if assigned_role_id and new_attending_ct > 0:
             role = fetchone(conn, 'SELECT * FROM event_roles WHERE id=%s', (assigned_role_id,))
             if role:
-                other_rows = fetchall(conn, "SELECT party_members FROM event_rsvps WHERE role_id=%s AND status='interested' AND id!=%s",
+                other_rows = fetchall(conn, "SELECT party_members FROM event_rsvps WHERE role_id=%s AND status IN ('interested','confirmed') AND id!=%s",
                     (assigned_role_id, rsvp['id'])) or []
                 existing_ct = 0
                 for r in other_rows:

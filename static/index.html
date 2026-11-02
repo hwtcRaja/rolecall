@@ -21702,6 +21702,9 @@ function renderEventDetailPage(eid){
  <option value="">— Select volunteer —</option>
  ${(volunteers||[]).filter(v=>v.status==='active').sort((a,b)=>a.name.localeCompare(b.name)).map(v=>`<option value="${v.id}">${escHtml(v.name)}</option>`).join('')}
  </select>
+ <select id="manual-rsvp-role-${e.id}" title="Role / shift" style="flex:1;max-width:200px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;outline:none">
+ <option value="">No specific role</option>
+ </select>
  <button class="btn btn-primary btn-sm" style="white-space:nowrap" onclick="addManualRsvp('${e.id}')">Add</button>
  </div>
  </div>
@@ -23074,13 +23077,33 @@ async function addManualRsvp(eid){
  const sel = document.getElementById(`manual-rsvp-vol-${eid}`)
  const volId = sel?.value
  if(!volId){toast('Please select a volunteer','error');return}
- const res = await api(`/api/events/${eid}/rsvps/manual`,'POST',{volunteer_id:volId})
+ const roleSel = document.getElementById(`manual-rsvp-role-${eid}`)
+ const body = {volunteer_id:volId, role_id:(roleSel&&roleSel.value)||null}
+ let res = await api(`/api/events/${eid}/rsvps/manual`,'POST',body)
+ if(res?.role_full){ if(!confirm(res.error)) return; body.over_ok = true; res = await api(`/api/events/${eid}/rsvps/manual`,'POST',body) }
  if(res?.error){toast(res.error,'error');return}
+ if(roleSel) roleSel.value = ''
  if(sel) sel.value = ''
  toast('Marked as coming!')
  loadEventRsvps(eid)
 }
 
+function fillManualRoleSelect(eid, roles){
+ const sel = document.getElementById(`manual-rsvp-role-${eid}`); if(!sel) return
+ const cur = sel.value
+ const list = Array.isArray(roles) ? roles : []
+ sel.innerHTML = '<option value="">No specific role</option>' + list.map(ro=>`<option value="${ro.id}">${escHtml(ro.name)}${ro.slots?` (${ro.filled||0}/${ro.slots} filled)`:''}</option>`).join('')
+ sel.value = cur
+ sel.style.display = list.length ? '' : 'none'
+}
+async function setRsvpRole(eid, rid, roleId){
+ let body = {role_id: roleId || null}
+ let res = await api(`/api/events/${eid}/rsvps/${rid}/role`,'PUT',body)
+ if(res?.role_full){ if(!confirm(res.error)){ loadEventRsvps(eid); return } body.over_ok = true; res = await api(`/api/events/${eid}/rsvps/${rid}/role`,'PUT',body) }
+ if(res?.error){ toast(res.error,'error'); loadEventRsvps(eid); return }
+ toast(res.role_name ? 'Role set: '+res.role_name : 'Role cleared','success')
+ loadEventRsvps(eid)
+}
 async function removeRsvp(eid, rid){
  if(!confirm('Remove this RSVP?')) return
  const res = await api(`/api/events/${eid}/rsvps/${rid}`, 'DELETE')
@@ -23135,6 +23158,7 @@ async function loadEventRsvps(eid){
  const allRsvps = Array.isArray(rsvps) ? rsvps: []
  window._currentEventRsvps = allRsvps // cache for preview duplicate detection
  window._rsvpPanelCache[eid] = {allRsvps, roles}
+ fillManualRoleSelect(eid, roles)
  renderEventRsvps(eid, allRsvps, roles)
 }
 
@@ -23199,7 +23223,12 @@ function renderEventRsvps(eid, allRsvps, roles){
  ${avatarHTML(r.vol_name||r.volunteer_name||'?', 28)}
  <div style="flex:1">
  <div style="font-weight:500">${escHtml(r.vol_name||r.volunteer_name||'Unknown')}${party.length?` <span style="font-weight:400;color:var(--text-muted);font-size:11px">(party of ${party.length})</span>`:''}</div>
- ${(viewMode!=='block'&&r.role_name)?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:''}
+ ${isAdmin&&Array.isArray(roles)&&roles.length&&r.status!=='declined'
+   ? `<select onchange="setRsvpRole('${eid}','${r.id}',this.value)" title="Role / shift" style="margin-top:3px;font-size:11px;font-weight:600;color:var(--teal-600);border:1px solid var(--border);border-radius:6px;padding:1px 4px;background:var(--surface);max-width:220px">
+       <option value="">${r.role_name?'No specific role':'+ Assign a role'}</option>
+       ${roles.map(ro=>`<option value="${ro.id}" ${ro.id===r.role_id?'selected':''}>${escHtml(ro.name)}${ro.slots?` (${ro.filled||0}/${ro.slots})`:''}</option>`).join('')}
+     </select>`
+   : ((viewMode!=='block'&&r.role_name)?`<div style="font-size:11px;color:var(--teal-600);font-weight:600">↳ ${escHtml(r.role_name)}</div>`:'')}
  ${r.last_invited_at&&r.status==='invited'?`<div style="font-size:11px;color:var(--text-hint)">Sent ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
  ${r.last_invited_at&&r.status!=='invited'?`<div style="font-size:11px;color:var(--text-hint)">Invited ${formatDateTimeShort(r.last_invited_at)}</div>`:''}
  ${r.status==='confirmed'&&r.created_at?`<div style="font-size:11px;color:var(--text-hint)">Confirmed ${formatDateTimeShort(r.created_at)}</div>`:''}

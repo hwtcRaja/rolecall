@@ -3171,6 +3171,23 @@ def init_db():
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS auto_sold_out BOOLEAN DEFAULT FALSE",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS payment_method TEXT",
+        """CREATE TABLE IF NOT EXISTS inventory_items (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT DEFAULT 'prop', kind TEXT DEFAULT 'piece',
+            description TEXT DEFAULT '', sizes TEXT DEFAULT '', quantity INTEGER DEFAULT 1,
+            replacement_value_cents INTEGER DEFAULT 0, rate_cents INTEGER DEFAULT 0, rate_unit TEXT DEFAULT 'run',
+            location TEXT DEFAULT '', status TEXT DEFAULT 'available', set_contents TEXT DEFAULT '',
+            partner_visible BOOLEAN DEFAULT TRUE, notes TEXT DEFAULT '', tags TEXT DEFAULT '', photo_filename TEXT,
+            created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS inventory_reservations (
+            id TEXT PRIMARY KEY, item_id TEXT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+            quantity INTEGER DEFAULT 1, start_date TEXT NOT NULL, end_date TEXT NOT NULL,
+            kind TEXT DEFAULT 'partner', request_id TEXT REFERENCES rental_requests(id) ON DELETE CASCADE,
+            production_id TEXT REFERENCES productions(id) ON DELETE SET NULL, note TEXT DEFAULT '',
+            status TEXT DEFAULT 'reserved', created_by TEXT, created_at TIMESTAMP DEFAULT NOW(),
+            checked_out_at TIMESTAMP, checked_out_by TEXT, checkout_condition TEXT DEFAULT '',
+            returned_at TIMESTAMP, returned_by TEXT, returned_qty INTEGER, return_condition TEXT DEFAULT '', damage_note TEXT DEFAULT '')""",
+        "CREATE INDEX IF NOT EXISTS ix_inv_res_item ON inventory_reservations(item_id, status)",
+        "CREATE INDEX IF NOT EXISTS ix_inv_res_request ON inventory_reservations(request_id)",
         # partner invoices: remember why an automatic send failed, so it shows
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_error TEXT",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMP",
@@ -35783,6 +35800,9 @@ def _generate_rental_occurrences(conn, request_id, d):
     """Schedule dates from the partnership's pattern, plus any extra dates
     added on top (rental_requests.extra_dates), so approved add-on dates
     survive later edits to the pattern."""
+    cat = (fetchone(conn, 'SELECT partnership_category FROM rental_requests WHERE id=%s', (request_id,)) or {}).get('partnership_category')
+    if cat == 'item_rental':
+        return   # lending items: pickup/return live on the reservations, not studio dates
     _generate_rental_occurrences_base(conn, request_id, d)
     try:
         row = fetchone(conn, 'SELECT extra_dates, start_time, end_time FROM rental_requests WHERE id=%s', (request_id,)) or {}
@@ -36248,6 +36268,7 @@ def deny_rental_request(rid):
         approval_history=%s, updated_at=NOW() WHERE id=%s''',
         (reason, _jrd.dumps(history), rid))
     # If this had already been approved (and put on the calendar), take it back off.
+    execute(conn, "UPDATE inventory_reservations SET status='cancelled' WHERE request_id=%s AND status='reserved'", (rid,))
     execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
     _sync_rental_events_for_request(conn, rid)
     # Notify partner if we have their email
@@ -36263,6 +36284,438 @@ def deny_rental_request(rid):
         except Exception: pass
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+
+# ══ Inventory & item rentals (costumes, props, equipment) ═════════════════
+# A catalog of what HWTC owns, and a fourth Artistic Partnership category,
+# "item_rental", for lending it out: pickup and return dates instead of
+# studio dates, a list of items instead of rooms, check-out and check-in
+# instead of opening and closing an event. Reservations keep the same item
+# from being promised twice, including holds for HWTC's own productions.
+INVENTORY_CATEGORIES = ('costume', 'prop', 'equipment')
+INVENTORY_RATE_UNITS = ('day', 'week', 'run')
+
+
+def _inv_item_out(r, avail=None):
+    r = dict(r)
+    for k in ('created_at', 'updated_at'):
+        if r.get(k) is not None:
+            r[k] = str(r[k])[:19]
+    r['photo_url'] = ('/api/inventory/' + r['id'] + '/photo?v=' + str(r.get('updated_at') or '')[:19].replace(' ', '')) if r.get('photo_filename') else ''
+    r.pop('photo_filename', None)
+    if avail is not None:
+        r['available'] = avail
+    return r
+
+
+def inventory_available(conn, item_id, start, end, exclude_request_id=None, exclude_res_id=None):
+    """How many of an item are free for every day from start to end
+    (inclusive). Counts reservations that overlap and aren't cancelled or
+    already returned."""
+    item = fetchone(conn, 'SELECT quantity, status FROM inventory_items WHERE id=%s', (item_id,))
+    if not item or item.get('status') in ('retired',):
+        return 0
+    q = '''SELECT COALESCE(SUM(quantity - COALESCE(returned_qty,0)),0) AS n FROM inventory_reservations
+        WHERE item_id=%s AND status IN ('reserved','out') AND start_date <= %s AND end_date >= %s'''
+    params = [item_id, end or start, start]
+    if exclude_request_id:
+        q += ' AND COALESCE(request_id,\'\') <> %s'; params.append(exclude_request_id)
+    if exclude_res_id:
+        q += ' AND id <> %s'; params.append(exclude_res_id)
+    used = int((fetchone(conn, q, tuple(params)) or {}).get('n') or 0)
+    owned = int(item.get('quantity') or 0)
+    if item.get('status') == 'repair':
+        return 0
+    return max(0, owned - used)
+
+
+def _rate_units(rate_unit, start, end):
+    import datetime as _dti
+    try:
+        days = (_dti.date.fromisoformat(str(end)[:10]) - _dti.date.fromisoformat(str(start)[:10])).days + 1
+    except Exception:
+        days = 1
+    days = max(1, days)
+    if rate_unit == 'week':
+        return -(-days // 7)
+    if rate_unit == 'run':
+        return 1
+    return days
+
+
+@app.route('/api/inventory', methods=['GET', 'POST'])
+def inventory_list():
+    err = require_permission('rentals', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            d = request.json or {}
+            iid = str(uuid.uuid4())
+            _inv_save(conn, iid, d, new=True)
+            conn.commit()
+            return jsonify(_inv_item_out(fetchone(conn, 'SELECT * FROM inventory_items WHERE id=%s', (iid,))))
+        start, end = request.args.get('start') or '', request.args.get('end') or ''
+        rows = fetchall(conn, '''SELECT i.*,
+                (SELECT COALESCE(SUM(r.quantity - COALESCE(r.returned_qty,0)),0) FROM inventory_reservations r
+                  WHERE r.item_id=i.id AND r.status='out') AS out_now
+            FROM inventory_items i ORDER BY i.category, i.name''') or []
+        out = []
+        for r in rows:
+            a = inventory_available(conn, r['id'], start, end or start) if start else None
+            out.append(_inv_item_out(r, a))
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+def _inv_save(conn, iid, d, new=False):
+    cat = d.get('category') if d.get('category') in INVENTORY_CATEGORIES else 'prop'
+    unit = d.get('rate_unit') if d.get('rate_unit') in INVENTORY_RATE_UNITS else 'run'
+    def cents(v):
+        try: return int(round(float(v) * 100)) if str(v).strip() != '' else 0
+        except Exception: return 0
+    vals = ((d.get('name') or '').strip()[:160] or 'Untitled item', cat, 'set' if d.get('kind') == 'set' else 'piece',
+            (d.get('description') or '').strip()[:2000], (d.get('sizes') or '').strip()[:200], max(0, int(d.get('quantity') or 1)),
+            cents(d.get('replacement_value')), cents(d.get('rate')), unit, (d.get('location') or '').strip()[:160],
+            d.get('status') if d.get('status') in ('available', 'repair', 'retired') else 'available',
+            (d.get('set_contents') or '').strip()[:2000], bool(d.get('partner_visible', True)), (d.get('notes') or '').strip()[:2000],
+            (d.get('tags') or '').strip()[:300])
+    if new:
+        execute(conn, '''INSERT INTO inventory_items (id, name, category, kind, description, sizes, quantity, replacement_value_cents,
+            rate_cents, rate_unit, location, status, set_contents, partner_visible, notes, tags)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''', (iid,) + vals)
+    else:
+        execute(conn, '''UPDATE inventory_items SET name=%s, category=%s, kind=%s, description=%s, sizes=%s, quantity=%s,
+            replacement_value_cents=%s, rate_cents=%s, rate_unit=%s, location=%s, status=%s, set_contents=%s, partner_visible=%s,
+            notes=%s, tags=%s, updated_at=NOW() WHERE id=%s''', vals + (iid,))
+
+
+@app.route('/api/inventory/<iid>', methods=['GET', 'PUT', 'DELETE'])
+def inventory_item(iid):
+    err = require_permission('rentals', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        row = fetchone(conn, 'SELECT * FROM inventory_items WHERE id=%s', (iid,))
+        if not row:
+            return jsonify({'error': 'Item not found'}), 404
+        if request.method == 'DELETE':
+            if fetchone(conn, "SELECT 1 AS x FROM inventory_reservations WHERE item_id=%s AND status IN ('reserved','out')", (iid,)):
+                return jsonify({'error': 'This item is reserved or out right now. Mark it Retired instead, or finish those first.'}), 400
+            execute(conn, 'DELETE FROM inventory_items WHERE id=%s', (iid,))
+            conn.commit()
+            return jsonify({'ok': True})
+        if request.method == 'PUT':
+            _inv_save(conn, iid, request.json or {})
+            conn.commit()
+            row = fetchone(conn, 'SELECT * FROM inventory_items WHERE id=%s', (iid,))
+        res = fetchall(conn, '''SELECT r.*, rr.title AS request_title, rp.name AS partner_name, p.name AS production_name
+            FROM inventory_reservations r LEFT JOIN rental_requests rr ON rr.id=r.request_id
+            LEFT JOIN rental_partners rp ON rp.id=rr.partner_id LEFT JOIN productions p ON p.id=r.production_id
+            WHERE r.item_id=%s ORDER BY r.start_date DESC LIMIT 60''', (iid,)) or []
+        for x in res:
+            for k in ('checked_out_at', 'returned_at', 'created_at'):
+                if x.get(k) is not None: x[k] = str(x[k])[:16]
+        out = _inv_item_out(row)
+        out['reservations'] = res
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+@app.route('/api/inventory/<iid>/photo', methods=['GET', 'POST'])
+def inventory_photo(iid):
+    if request.method == 'GET':
+        conn = get_db()
+        try:
+            r = fetchone(conn, 'SELECT photo_filename FROM inventory_items WHERE id=%s', (iid,))
+        finally:
+            conn.close()
+        if not r or not r.get('photo_filename') or not os.path.exists(os.path.join(UPLOAD_FOLDER, r['photo_filename'])):
+            return 'Not found', 404
+        resp = send_from_directory(UPLOAD_FOLDER, r['photo_filename'], conditional=True)
+        resp.headers['Cache-Control'] = 'public, max-age=86400'
+        return resp
+    err = require_permission('rentals', 'edit')
+    if err: return err
+    f = request.files.get('file')
+    ext = os.path.splitext(secure_filename(f.filename if f else ''))[1].lower()
+    if not f or ext not in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+        return jsonify({'error': 'Choose a JPG, PNG, WebP or GIF photo'}), 400
+    name = 'inv-' + uuid.uuid4().hex + ext
+    f.save(os.path.join(UPLOAD_FOLDER, name))
+    conn = get_db()
+    try:
+        old = fetchone(conn, 'SELECT photo_filename FROM inventory_items WHERE id=%s', (iid,)) or {}
+        execute(conn, 'UPDATE inventory_items SET photo_filename=%s, updated_at=NOW() WHERE id=%s', (name, iid))
+        conn.commit()
+        if old.get('photo_filename'):
+            try: os.remove(os.path.join(UPLOAD_FOLDER, old['photo_filename']))
+            except Exception: pass
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/inventory/import', methods=['POST'])
+def inventory_import():
+    """CSV with a header row: name, category, kind, quantity, sizes, rate,
+    rate_unit, replacement_value, location, description, set_contents, tags."""
+    err = require_permission('rentals', 'edit')
+    if err: return err
+    import csv, io
+    f = request.files.get('file')
+    if not f:
+        return jsonify({'error': 'Choose a CSV file'}), 400
+    text = f.read().decode('utf-8-sig', errors='replace')
+    rows = list(csv.DictReader(io.StringIO(text)))
+    conn = get_db()
+    added = 0
+    try:
+        for r in rows:
+            r = {(k or '').strip().lower().replace(' ', '_'): (v or '').strip() for k, v in r.items()}
+            if not r.get('name'):
+                continue
+            r['category'] = (r.get('category') or 'prop').lower().rstrip('s')
+            r['rate'] = (r.get('rate') or '').replace('$', '')
+            r['replacement_value'] = (r.get('replacement_value') or '').replace('$', '')
+            try: r['quantity'] = int(float(r.get('quantity') or 1))
+            except Exception: r['quantity'] = 1
+            _inv_save(conn, str(uuid.uuid4()), r, new=True)
+            added += 1
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'added': added})
+
+
+@app.route('/api/inventory/holds', methods=['POST'])
+def inventory_hwtc_hold():
+    """Hold items for one of HWTC's own productions so they can't be rented out."""
+    err = require_permission('rentals', 'edit')
+    if err: return err
+    d = request.json or {}
+    start, end = (d.get('start_date') or '')[:10], (d.get('end_date') or '')[:10] or (d.get('start_date') or '')[:10]
+    if not start:
+        return jsonify({'error': 'Pick the dates'}), 400
+    conn = get_db()
+    try:
+        qty = max(1, int(d.get('quantity') or 1))
+        left = inventory_available(conn, d.get('item_id'), start, end)
+        if qty > left and not d.get('over_ok'):
+            return jsonify({'error': f'Only {left} free for those dates. Hold anyway?', 'over': True}), 409
+        execute(conn, '''INSERT INTO inventory_reservations (id, item_id, quantity, start_date, end_date, kind, production_id, note, status, created_by)
+            VALUES (%s,%s,%s,%s,%s,'hwtc',%s,%s,'reserved',%s)''', (str(uuid.uuid4()), d.get('item_id'), qty, start, end,
+            d.get('production_id') or None, (d.get('note') or '').strip()[:300], session.get('name') or ''))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/inventory/reservations/<res_id>', methods=['PUT', 'DELETE'])
+def inventory_reservation(res_id):
+    """Check out, check in, change quantity, or release a reservation."""
+    err = require_permission('rentals', 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        r = fetchone(conn, 'SELECT * FROM inventory_reservations WHERE id=%s', (res_id,))
+        if not r:
+            return jsonify({'error': 'Not found'}), 404
+        if request.method == 'DELETE':
+            execute(conn, "UPDATE inventory_reservations SET status='cancelled' WHERE id=%s", (res_id,))
+            conn.commit()
+            return jsonify({'ok': True})
+        d = request.json or {}
+        who = session.get('name') or 'Staff'
+        act = d.get('action')
+        if act == 'checkout':
+            execute(conn, '''UPDATE inventory_reservations SET status='out', checked_out_at=NOW(), checked_out_by=%s,
+                checkout_condition=%s WHERE id=%s''', (who, (d.get('condition') or '').strip()[:500], res_id))
+        elif act == 'checkin':
+            qty = int(r.get('quantity') or 1)
+            back = max(0, min(qty, int(d.get('returned_qty') if d.get('returned_qty') is not None else qty)))
+            execute(conn, '''UPDATE inventory_reservations SET status='returned', returned_at=NOW(), returned_by=%s, returned_qty=%s,
+                return_condition=%s, damage_note=%s WHERE id=%s''', (who, back, (d.get('condition') or 'good')[:40],
+                (d.get('note') or '').strip()[:1000], res_id))
+            if d.get('condition') == 'needs_repair':
+                execute(conn, "UPDATE inventory_items SET status='repair', updated_at=NOW() WHERE id=%s", (r['item_id'],))
+            if back < qty:
+                # what didn't come back is no longer owned
+                execute(conn, 'UPDATE inventory_items SET quantity=GREATEST(0, quantity-%s), updated_at=NOW() WHERE id=%s', (qty - back, r['item_id']))
+        elif act == 'quantity':
+            qty = max(1, int(d.get('quantity') or 1))
+            left = inventory_available(conn, r['item_id'], r['start_date'], r['end_date'], exclude_res_id=res_id)
+            if qty > left and not d.get('over_ok'):
+                return jsonify({'error': f'Only {left} free for those dates. Use {qty} anyway?', 'over': True}), 409
+            execute(conn, 'UPDATE inventory_reservations SET quantity=%s WHERE id=%s', (qty, res_id))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+def _request_items(conn, rid):
+    rows = fetchall(conn, '''SELECT r.*, i.name, i.category, i.kind, i.sizes, i.rate_cents, i.rate_unit, i.replacement_value_cents,
+            i.photo_filename IS NOT NULL AND i.photo_filename <> '' AS has_photo, i.updated_at AS item_updated
+        FROM inventory_reservations r JOIN inventory_items i ON i.id=r.item_id
+        WHERE r.request_id=%s AND r.status <> 'cancelled' ORDER BY i.category, i.name''', (rid,)) or []
+    for x in rows:
+        units = _rate_units(x.get('rate_unit'), x['start_date'], x['end_date'])
+        x['line_cents'] = int(x.get('rate_cents') or 0) * units * int(x.get('quantity') or 1)
+        x['units'] = units
+        x['photo_url'] = ('/api/inventory/' + x['item_id'] + '/photo') if x.get('has_photo') else ''
+        for k in ('checked_out_at', 'returned_at', 'created_at', 'item_updated'):
+            if x.get(k) is not None: x[k] = str(x[k])[:16]
+    return rows
+
+
+def _add_items_to_request(conn, rid, items, start, end, who, allow_over=False):
+    """items: [{item_id, quantity, note}]. Returns (added, problems)."""
+    added, problems = 0, []
+    for it in items:
+        try: qty = max(1, int(it.get('quantity') or 1))
+        except Exception: qty = 1
+        item = fetchone(conn, 'SELECT id, name FROM inventory_items WHERE id=%s', (it.get('item_id'),))
+        if not item:
+            continue
+        left = inventory_available(conn, item['id'], start, end, exclude_request_id=rid)
+        if qty > left and not allow_over:
+            problems.append(f'{item["name"]}: only {left} free for those dates')
+            continue
+        ex = fetchone(conn, "SELECT id, quantity FROM inventory_reservations WHERE request_id=%s AND item_id=%s AND status <> 'cancelled'", (rid, item['id']))
+        if ex:
+            execute(conn, 'UPDATE inventory_reservations SET quantity=%s, start_date=%s, end_date=%s WHERE id=%s', (qty, start, end, ex['id']))
+        else:
+            execute(conn, '''INSERT INTO inventory_reservations (id, item_id, quantity, start_date, end_date, kind, request_id, note, status, created_by)
+                VALUES (%s,%s,%s,%s,%s,'partner',%s,%s,'reserved',%s)''', (str(uuid.uuid4()), item['id'], qty, start, end, rid,
+                (it.get('note') or '').strip()[:300], who))
+        added += 1
+    return added, problems
+
+
+@app.route('/api/rental/requests/<rid>/items', methods=['GET', 'POST'])
+def rental_request_items(rid):
+    err = require_permission('rentals', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
+        if not req:
+            return jsonify({'error': 'Request not found'}), 404
+        if request.method == 'POST':
+            d = request.json or {}
+            added, problems = _add_items_to_request(conn, rid, d.get('items') or [], req['start_date'], req.get('end_date') or req['start_date'],
+                                                    session.get('name') or 'Staff', bool(d.get('over_ok')))
+            if problems and not d.get('over_ok') and not added:
+                conn.rollback()
+                return jsonify({'error': '; '.join(problems) + '. Add anyway?', 'over': True}), 409
+            conn.commit()
+        items = _request_items(conn, rid)
+        total = sum(x['line_cents'] for x in items)
+        repl = sum(int(x.get('replacement_value_cents') or 0) * int(x.get('quantity') or 1) for x in items)
+        return jsonify({'items': items, 'quote_cents': total, 'replacement_total_cents': repl,
+                        'pickup': req['start_date'], 'return': req.get('end_date') or req['start_date']})
+    finally:
+        conn.close()
+
+
+@app.route('/api/rental/requests/<rid>/items/apply-quote', methods=['POST'])
+def rental_request_apply_quote(rid):
+    """Use the items' total as the partnership fee."""
+    err = require_permission('rentals', 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        total = sum(x['line_cents'] for x in _request_items(conn, rid))
+        execute(conn, "UPDATE rental_requests SET total_amount=%s, rate_amount=%s, rate_type='Rental', updated_at=NOW() WHERE id=%s", (total, total, rid))
+        conn.commit()
+        return jsonify({'ok': True, 'total_cents': total})
+    finally:
+        conn.close()
+
+
+@app.route('/api/inventory/out', methods=['GET'])
+def inventory_out_now():
+    """Everything out or due back, for the Inventory tab's "Out now" list."""
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT r.*, i.name, i.category, rr.title AS request_title, rp.name AS partner_name, p.name AS production_name
+            FROM inventory_reservations r JOIN inventory_items i ON i.id=r.item_id
+            LEFT JOIN rental_requests rr ON rr.id=r.request_id LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+            LEFT JOIN productions p ON p.id=r.production_id
+            WHERE r.status IN ('reserved','out') AND r.end_date >= %s
+               OR (r.status='out')
+            ORDER BY r.end_date''', ((today_eastern() - __import__('datetime').timedelta(days=60)).isoformat(),)) or []
+        today = today_eastern().isoformat()
+        for x in rows:
+            x['late'] = x['status'] == 'out' and str(x['end_date'])[:10] < today
+            for k in ('checked_out_at', 'returned_at', 'created_at'):
+                if x.get(k) is not None: x[k] = str(x[k])[:16]
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+# ── Partner portal: browse and request items ──
+@app.route('/api/public/partner/<token>/catalog', methods=['GET'])
+def partner_catalog(token):
+    conn = get_db()
+    try:
+        partner = fetchone(conn, 'SELECT id FROM rental_partners WHERE portal_token=%s', (token,))
+        if not partner:
+            return jsonify({'error': 'Link not valid'}), 404
+        start, end = (request.args.get('start') or '')[:10], (request.args.get('end') or '')[:10]
+        rows = fetchall(conn, '''SELECT * FROM inventory_items WHERE partner_visible=TRUE AND status <> 'retired' ORDER BY category, name''') or []
+        out = []
+        for r in rows:
+            x = _inv_item_out(r, inventory_available(conn, r['id'], start, end or start) if start else None)
+            for k in ('notes', 'location', 'replacement_value_cents', 'created_at', 'updated_at'):
+                x.pop(k, None)
+            out.append(x)
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+@app.route('/api/public/partner/<token>/item-request', methods=['POST'])
+def partner_item_request(token):
+    d = request.json or {}
+    conn = get_db()
+    try:
+        partner = fetchone(conn, 'SELECT * FROM rental_partners WHERE portal_token=%s', (token,))
+        if not partner:
+            return jsonify({'error': 'Link not valid'}), 404
+        start, end = (d.get('pickup_date') or '')[:10], (d.get('return_date') or '')[:10]
+        if not start or not end or end < start:
+            return jsonify({'error': 'Pick a pickup date and a return date after it.'}), 400
+        items = [i for i in (d.get('items') or []) if i.get('item_id')]
+        if not items and not (d.get('wish_list') or '').strip():
+            return jsonify({'error': 'Pick some items, or describe what you need.'}), 400
+        rid = str(uuid.uuid4())
+        notes = (d.get('notes') or '').strip()
+        if (d.get('wish_list') or '').strip():
+            notes = ('Also looking for: ' + d['wish_list'].strip() + ('\n\n' + notes if notes else ''))[:4000]
+        execute(conn, '''INSERT INTO rental_requests (id, partner_id, title, purpose, start_date, end_date, status, notes,
+                partnership_category, source, rate_type)
+            VALUES (%s,%s,%s,%s,%s,%s,'pending',%s,'item_rental','partner','Rental')''',
+            (rid, partner['id'], (d.get('title') or 'Costume / prop / equipment rental').strip()[:200],
+             (d.get('purpose') or '').strip()[:1000], start, end, notes))
+        added, problems = _add_items_to_request(conn, rid, items, start, end, 'Partner (portal)', allow_over=True)
+        conn.commit()
+        try:
+            send_email([_setting(conn, 'rental_notify_email') or 'info@hwtco.org'], f'Item rental request: {partner["name"]}',
+                       build_hwtc_email_html('New item rental request', f'<p><strong>{_h(partner["name"])}</strong> asked to rent {added} item'
+                                             f'{"s" if added != 1 else ""} from {start} to {end}.</p><p>Review it in RoleCall → Artistic Partnership.</p>'))
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'request_id': rid, 'items': added})
+    finally:
+        conn.close()
 
 
 @app.route('/api/rental/requests/<rid>/archive', methods=['POST'])
@@ -36291,6 +36744,8 @@ def archive_rental_request(rid):
             approval_history=%s, updated_at=NOW() WHERE id=%s''', (note, json.dumps(history), rid))
         # if it had been put on the calendar, free those dates
         execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
+        # items it had reserved are released while it's set aside
+        execute(conn, "UPDATE inventory_reservations SET status='archived_hold' WHERE request_id=%s AND status='reserved'", (rid,))
         _sync_rental_events_for_request(conn, rid)
         conn.commit()
         return jsonify({'ok': True})
@@ -36317,6 +36772,7 @@ def unarchive_rental_request(rid):
         history.append({'action': 'restored', 'by': user.get('name', 'Admin'), 'at': _dta.datetime.now().isoformat(), 'reason': ''})
         execute(conn, '''UPDATE rental_requests SET status=%s, archived_from_status=NULL, approval_history=%s, updated_at=NOW() WHERE id=%s''',
                 (back, json.dumps(history), rid))
+        execute(conn, "UPDATE inventory_reservations SET status='reserved' WHERE request_id=%s AND status='archived_hold'", (rid,))
         conn.commit()
         return jsonify({'ok': True, 'status': back})
     finally:
@@ -36602,6 +37058,28 @@ _RENTAL_CLAUSE_SEED = [
      'Partner Organization is welcome to record, photograph, and share content captured within the HWTC space in connection with this collaboration. However, if any images or video contain proprietary HWTC materials, costumes, set pieces, unreleased production elements, or any other content that HWTC has not approved for public distribution, Partner Organization must obtain written approval from HWTC prior to publishing, sharing, or distributing such content.', 110),
 ]
 
+_RENTAL_CLAUSE_SEED_ITEM = [
+    ('item_rental', '', '2.1', 'Rental Items',
+     'Horizon West Theater Company (&ldquo;HWTC&rdquo;) agrees to lend {partner_name} (&ldquo;Partner Organization&rdquo;) the costumes, props and/or equipment listed in <strong>Exhibit B</strong> for the rental period shown there, for the fee of {total_str}.', 10),
+    ('item_rental', '', '2.2', 'Pickup &amp; Return',
+     'Partner Organization will pick up the items on the pickup date and return them, complete and in the same condition, to the HWTC Studio by the return date. Items are inspected together at pickup and at return, and any existing wear or damage is noted at pickup.', 20),
+    ('item_rental', '', '2.3', 'Care of Items',
+     'Partner Organization will use the items only for the purpose described and keep them clean, dry and secure. Costumes may not be cut, dyed, permanently altered or washed unless HWTC agrees in writing; temporary alterations (e.g. basting) must be removed before return. Equipment must be used as intended and not modified.', 30),
+    ('item_rental', '', '2.4', 'Loss or Damage',
+     'Partner Organization is responsible for items from pickup until they are returned and checked in. Items that are lost, stolen or damaged beyond normal wear will be charged at the replacement value shown in Exhibit B, or the reasonable cost of repair or cleaning if less.', 40),
+    ('item_rental', '', '2.5', 'Late Return',
+     'Items returned after the return date without HWTC&rsquo;s written agreement may be charged an additional rental period for each period (or part of one) they are late, as HWTC may need them for its own productions.', 50),
+    ('item_rental', '', '2.6', 'Security Deposit',
+     'A security deposit of {deposit} is due before pickup. It is refunded after the items are returned complete and in good condition, less any charges under sections 2.4 and 2.5.', 60),
+    ('item_rental', '', '2.7', 'Credit',
+     'Where the items are used in a public performance, Partner Organization agrees to include &ldquo;Costumes/props courtesy of Horizon West Theater Company&rdquo; (or similar) in its program or credits where practical.', 70),
+    ('item_rental', '', '2.8', 'Cancellation',
+     'Partner Organization may cancel without charge up to seven (7) days before pickup. HWTC may cancel if the items are needed for its own production, in which case any payment for the cancelled rental will be refunded in full.', 80),
+    ('item_rental', '', '2.9', 'Liability',
+     'HWTC provides the items as-is and is not responsible for injury or loss arising from their use. Partner Organization agrees to hold HWTC harmless from claims arising from its use of the items.', 90),
+]
+
+
 def _seed_rental_contract_clauses(conn):
     """Populate rental_contract_clauses from the built-in defaults — but only
     clauses that don't already exist (matched by category+billing_frequency+
@@ -36609,7 +37087,7 @@ def _seed_rental_contract_clauses(conn):
     later will still get inserted into an already-seeded database on the
     next restart, while anything staff has since edited via Settings >
     Contract Clauses is left untouched."""
-    for category, billing_frequency, clause_number, title, body_template, sort_order in _RENTAL_CLAUSE_SEED:
+    for category, billing_frequency, clause_number, title, body_template, sort_order in list(_RENTAL_CLAUSE_SEED) + _RENTAL_CLAUSE_SEED_ITEM:
         existing = fetchone(conn, '''SELECT id FROM rental_contract_clauses
             WHERE category=%s AND billing_frequency=%s AND clause_number=%s''',
             (category, billing_frequency, clause_number))
@@ -36808,7 +37286,12 @@ def _render_rental_contract_terms(conn, category, billing_frequency, context):
     shared '2.2' heading. This is the single source of truth for contract
     legal text, used both by contract generation and the live UI preview."""
     billing_frequency = billing_frequency or 'deposit_final'
-    rows = fetchall(conn, '''SELECT * FROM rental_contract_clauses
+    if category == 'item_rental':
+        # lending items has its own complete set of terms (the general ones are about using the studio)
+        rows = fetchall(conn, '''SELECT * FROM rental_contract_clauses WHERE active = TRUE AND category = 'item_rental'
+            ORDER BY sort_order, clause_number''') or []
+    else:
+        rows = fetchall(conn, '''SELECT * FROM rental_contract_clauses
         WHERE active = TRUE
           AND (category = '' OR category = %s OR (category = 'fee_based' AND %s != 'ticketed_enrollment'))
           AND (billing_frequency = '' OR billing_frequency = %s)
@@ -37003,11 +37486,13 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
         'ticketed_enrollment': 'Ticketed / Enrollment-Based Event \u2014 HWTC Owns It',
         'open_partnership': 'Open, Free-to-Attend Event \u2014 Partnership Model',
         'closed_rental': 'Closed, Free-to-Attend Use \u2014 Partnership / Acknowledgment',
+        'item_rental': 'Costume, Prop &amp; Equipment Rental',
     }
     doc_titles = {
         'ticketed_enrollment': 'HOSTED PROGRAM AGREEMENT',
         'open_partnership': 'ARTISTIC PARTNERSHIP AGREEMENT',
         'closed_rental': 'STUDIO USE AGREEMENT',
+        'item_rental': 'COSTUME, PROP &amp; EQUIPMENT RENTAL AGREEMENT',
     }
     category_label = category_labels.get(category, category_labels['open_partnership'])
     doc_title = doc_titles.get(category, doc_titles['open_partnership'])
@@ -37063,7 +37548,29 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
 <p><strong>Total: ${plan_total_cents/100:.2f}</strong></p>'''
 
     exhibit_b_html = ''
-    if equipment_selections:
+    if category == 'item_rental':
+        try:
+            _its = _request_items(conn, req['id'])
+        except Exception:
+            _its = []
+        if _its:
+            _rows = ''.join(
+                f'<tr><td style="padding:6px 10px;border:1px solid #e5e7eb">{_h(x["name"])}' + (f' <span style="color:#6b7280">({_h(x["sizes"])})</span>' if x.get('sizes') else '') + '</td>'
+                f'<td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:center">{int(x.get("quantity") or 1)}</td>'
+                f'<td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right">${x["line_cents"]/100:,.2f}</td>'
+                f'<td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right">${int(x.get("replacement_value_cents") or 0)*int(x.get("quantity") or 1)/100:,.2f}</td></tr>'
+                for x in _its)
+            _tot = sum(x['line_cents'] for x in _its)
+            _rep = sum(int(x.get('replacement_value_cents') or 0) * int(x.get('quantity') or 1) for x in _its)
+            exhibit_b_html = f'''<div style="page-break-before:always"></div>
+<h2 style="color:#0d3d4d;margin-top:24px;text-align:center">EXHIBIT B: RENTAL ITEMS</h2>
+<p>Pickup: <strong>{_format_date_human(req.get('start_date') or '')}</strong> &middot; Return by: <strong>{_format_date_human(req.get('end_date') or req.get('start_date') or '')}</strong></p>
+<table style="width:100%;border-collapse:collapse;font-size:14px;margin-bottom:12px">
+<thead><tr><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:left">Item</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc">Qty</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:right">Rental fee</th><th style="padding:6px 10px;border:1px solid #e5e7eb;background:#f8fafc;text-align:right">Replacement value</th></tr></thead>
+<tbody>{_rows}</tbody>
+<tfoot><tr><td colspan="2" style="padding:6px 10px;border:1px solid #e5e7eb;font-weight:700">Total</td><td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right;font-weight:700">${_tot/100:,.2f}</td><td style="padding:6px 10px;border:1px solid #e5e7eb;text-align:right;font-weight:700">${_rep/100:,.2f}</td></tr></tfoot>
+</table>'''
+    if equipment_selections and category != 'item_rental':
         allowed_items = [e for e in equipment_selections if e.get('allowed')]
         if allowed_items:
             eq_row_parts = []

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Rent costumes, props &amp; equipment · Horizon West Theater Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
+<style>
+:root{--ink:#1f2a30;--muted:#5f6b72;--line:#dfe5e8;--bg:#f4f7f8;--brand:#16728b;--brand-dark:#0f5566;--soft:#e3f1f5;--ok:#166534;--bad:#991b1b}
+*{box-sizing:border-box}
+body{margin:0;font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font-family:inherit;font-size:15px}
+.hero{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;padding:34px 20px 30px;text-align:center}
+.hero h1{font-family:'Playfair Display',Georgia,serif;font-size:clamp(26px,4vw,36px);margin:0 0 6px}
+.hero p{margin:0 auto;max-width:640px;opacity:.9;line-height:1.55}
+.wrap{max-width:1000px;margin:-18px auto 40px;padding:0 16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:14px}
+h2{font-size:18px;margin:0 0 10px;color:var(--brand-dark)}
+label{font-size:13px;font-weight:700;display:block;margin-bottom:4px}
+input,textarea,select{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media(max-width:640px){.grid2{grid-template-columns:1fr}}
+.muted{color:var(--muted)}
+.btn{border:none;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
+.btn-p{background:var(--brand);color:#fff;padding:14px 22px;font-size:16px}
+.pill{background:var(--soft);color:var(--brand-dark)}
+.pill.on{background:var(--brand);color:#fff}
+.items{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.item{background:#fff;border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.item .ph{height:130px;background:#eef3f5 center/cover}
+.item .bd{padding:10px 12px;display:flex;flex-direction:column;gap:3px;flex:1}
+.tag{font-size:10px;font-weight:800;border-radius:8px;padding:1px 7px;display:inline-block}
+.qty{display:flex;align-items:center;gap:10px;margin-top:auto;padding-top:8px}
+.qty button{background:var(--soft);color:var(--brand-dark);padding:4px 13px;font-size:18px}
+.msg{margin-top:10px;font-weight:700}
+</style>
+</head>
+<body>
+<div class="hero">
+  <h1>Rent costumes, props &amp; equipment</h1>
+  <p>Browse what Horizon West Theater Company can lend out: full show packages, individual pieces, and equipment kits. Don't see what you need? Tell us below; we're still building our inventory.</p>
+</div>
+<div class="wrap" id="app"></div>
+<script>
+var S = {pickup:'', ret:'', cat:'', q:'', items:null, cart:{}}
+var CAT = {costume:'Costume', prop:'Prop', equipment:'Equipment'}
+var UNIT = {day:'per day', week:'per week', run:'per rental'}
+function esc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+function money(c){ return '$'+((c||0)/100).toFixed(2).replace(/\.00$/,'') }
+async function load(){
+  var q = S.pickup ? '?start='+S.pickup+'&end='+(S.ret||S.pickup) : ''
+  try{ S.items = await (await fetch('/api/public/rent-items/catalog'+q)).json() }catch(e){ S.items = [] }
+  if(!Array.isArray(S.items)) S.items = []
+  render()
+}
+function val(id){ var e = document.getElementById(id); return e ? e.value : '' }
+var KEEP = {}
+function keepFields(){ ['org','nm','em','ph','purpose','wish'].forEach(function(k){ var e = document.getElementById(k); if(e) KEEP[k] = e.value }) }
+function render(){
+  keepFields()
+  var q = S.q.toLowerCase()
+  var list = (S.items||[]).filter(function(i){ return (!S.cat || i.category===S.cat) && (!q || [i.name,i.description,i.sizes,i.tags,i.set_contents,i.show_name].join(' ').toLowerCase().indexOf(q) >= 0) })
+  var packages = list.filter(function(i){ return i.kind==='package' }), singles = list.filter(function(i){ return i.kind!=='package' })
+  var card = function(i){
+    var have = S.cart[i.id]||0, free = i.available
+    return '<div class="item"><div class="ph" style="'+(i.photo_url?'background-image:url(\''+i.photo_url+'\')':'')+'"></div><div class="bd">'
+      + '<strong>'+esc(i.name)+'</strong>'
+      + '<div class="muted" style="font-size:12.5px">'+(i.show_name?esc(i.show_name)+' · ':'')+CAT[i.category]+(i.kind==='set'?' set':'')+(i.sizes?' · '+esc(i.sizes):'')+'</div>'
+      + (i.components&&i.components.length?'<div class="muted" style="font-size:12px">Includes: '+i.components.map(function(c){ return esc(c.name)+(c.quantity>1?' ×'+c.quantity:'') }).join(', ')+'</div>':'')
+      + (i.set_contents?'<div class="muted" style="font-size:12px">'+esc(i.set_contents)+'</div>':'')
+      + (i.description?'<div class="muted" style="font-size:12px">'+esc(i.description)+'</div>':'')
+      + '<div style="font-size:13.5px;font-weight:700">'+(i.pricing!=='quote'&&i.rate_cents?money(i.rate_cents)+' '+UNIT[i.rate_unit]:'Price on request')+'</div>'
+      + (free!=null ? '<div style="font-size:12px;font-weight:700;color:'+(free?'var(--ok)':'var(--bad)')+'">'+(free?free+' free for your dates':'Not free for your dates')+'</div>' : '')
+      + '<div class="qty"><button class="btn" onclick="qty(\''+i.id+'\',-1)">−</button><strong>'+have+'</strong><button class="btn" onclick="qty(\''+i.id+'\',1)"'+(free!=null&&have>=free?' disabled':'')+'>+</button></div>'
+      + '</div></div>'
+  }
+  var picked = Object.keys(S.cart).filter(function(k){ return S.cart[k] > 0 })
+  var h = '<div class="card"><h2>1. When do you need them?</h2><div class="grid2">'
+    + '<div><label>Pickup date</label><input type="date" value="'+S.pickup+'" onchange="S.pickup=this.value;load()"/></div>'
+    + '<div><label>Return date</label><input type="date" value="'+S.ret+'" onchange="S.ret=this.value;load()"/></div></div>'
+    + '<div class="muted" style="font-size:13px;margin-top:6px">Pick dates to see what\'s free.</div></div>'
+  h += '<div class="card"><h2>2. Pick what you\'d like</h2>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+    + [['','All'],['costume','Costumes'],['prop','Props'],['equipment','Equipment']].map(function(c){ return '<button class="btn pill'+(S.cat===c[0]?' on':'')+'" onclick="S.cat=\''+c[0]+'\';render()">'+c[1]+'</button>' }).join('')
+    + '<input style="flex:1;min-width:180px" placeholder="Search, e.g. Cinderella, 1920s, microphone" value="'+esc(S.q)+'" oninput="S.q=this.value;clearTimeout(window._t);window._t=setTimeout(render,250)"/></div>'
+    + (S.items===null ? '<div class="muted">Loading…</div>'
+      : (packages.length ? '<div style="font-weight:800;margin:4px 0 8px">Packages <span class="muted" style="font-weight:500;font-size:13px">· everything that goes together</span></div><div class="items" style="margin-bottom:16px">'+packages.map(card).join('')+'</div>' : '')
+      + (singles.length ? '<div style="font-weight:800;margin:4px 0 8px">Individual items</div><div class="items">'+singles.map(card).join('')+'</div>' : '')
+      + (!list.length ? '<div class="muted">Nothing listed here yet. Tell us what you need below.</div>' : ''))
+    + '</div>'
+  h += '<div class="card"><h2>3. Anything else you\'re looking for?</h2>'
+    + '<textarea id="wish" rows="3" placeholder="e.g. 8 pirate costumes in kids sizes, a fog machine, a full Little Mermaid package">'+esc(KEEP.wish||'')+'</textarea></div>'
+  h += '<div class="card"><h2>4. About you</h2><div class="grid2">'
+    + '<div><label>Organization</label><input id="org" value="'+esc(KEEP.org||'')+'" placeholder="e.g. West Orange High Drama"/></div>'
+    + '<div><label>Your name</label><input id="nm" value="'+esc(KEEP.nm||'')+'"/></div>'
+    + '<div><label>Email</label><input id="em" type="email" value="'+esc(KEEP.em||'')+'"/></div>'
+    + '<div><label>Phone</label><input id="ph" value="'+esc(KEEP.ph||'')+'"/></div></div>'
+    + '<div style="margin-top:12px"><label>What it\'s for</label><input id="purpose" value="'+esc(KEEP.purpose||'')+'" placeholder="e.g. Our spring production of Cinderella"/></div></div>'
+  h += '<div class="card"><h2>Your request</h2>'
+    + (picked.length ? picked.map(function(k){ var it = (S.items||[]).find(function(x){ return x.id===k }) || {}; return '<div style="display:flex;justify-content:space-between;padding:4px 0"><span>'+esc(it.name)+'</span><strong>× '+S.cart[k]+'</strong></div>' }).join('')
+      : '<div class="muted">No items picked (that\'s fine if you described what you need above).</div>')
+    + '<div class="muted" style="font-size:13px;margin:8px 0">We\'ll confirm availability and pricing with you; some prices depend on the agreement.</div>'
+    + '<button class="btn btn-p" onclick="send()">Send request</button><div id="msg" class="msg"></div></div>'
+  document.getElementById('app').innerHTML = h
+}
+function qty(id, n){ S.cart[id] = Math.max(0, (S.cart[id]||0)+n); render() }
+async function send(){
+  keepFields()
+  var m = document.getElementById('msg')
+  var items = Object.keys(S.cart).filter(function(k){ return S.cart[k] > 0 }).map(function(k){ return {item_id:k, quantity:S.cart[k]} })
+  var body = {organization_name: KEEP.org, contact_name: KEEP.nm, contact_email: KEEP.em, contact_phone: KEEP.ph, purpose: KEEP.purpose,
+              wish_list: KEEP.wish, pickup_date: S.pickup, return_date: S.ret, items: items}
+  try{
+    var r = await (await fetch('/api/public/rent-items', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})).json()
+    if(r.error){ m.style.color = 'var(--bad)'; m.textContent = r.error; return }
+    document.getElementById('app').innerHTML = '<div class="card" style="text-align:center;padding:34px"><h2>Thanks, we got your request!</h2>'
+      + '<p class="muted">We\'ve emailed you a confirmation. We\'ll check availability and pricing and be in touch, usually within a few days.</p></div>'
+  }catch(e){ m.style.color = 'var(--bad)'; m.textContent = 'Something went wrong. Please try again.' }
+}
+load()
+</script>
+</body>
+</html>

@@ -143,7 +143,7 @@ async function rentLoad(){
 function rentHTML(){
   if(RENT.items === null){ rentLoad(); return '<div class="card">Loading the catalog…</div>' }
   var q = RENT.q.toLowerCase()
-  var list = RENT.items.filter(function(i){ return (!RENT.cat || i.category===RENT.cat) && (!q || [i.name,i.description,i.sizes,i.tags,i.set_contents].join(' ').toLowerCase().indexOf(q) >= 0) })
+  var list = RENT.items.filter(function(i){ return (!RENT.cat || i.category===RENT.cat) && (!q || [i.name,i.description,i.sizes,i.tags,i.set_contents,i.show_name].join(' ').toLowerCase().indexOf(q) >= 0) })
   var picked = Object.keys(RENT.cart).filter(function(k){ return RENT.cart[k] > 0 })
   var h = '<div class="card"><h2>Rent costumes, props &amp; equipment</h2>'
     + '<p class="muted" style="margin:0 0 12px">Pick your dates to see what\'s free, add items, and send the request. Don\'t see what you need? Describe it below and we\'ll look.</p>'
@@ -157,9 +157,11 @@ function rentHTML(){
       var have = RENT.cart[i.id] || 0, free = i.available
       return '<div class="card" style="padding:0;overflow:hidden;margin:0">'
         + '<div style="height:120px;background:#eef3f5 '+(i.photo_url?'url(\''+i.photo_url+'\') center/cover':'')+'"></div>'
-        + '<div style="padding:10px 12px"><strong>'+esc(i.name)+'</strong><div class="muted" style="font-size:12.5px">'+RCAT[i.category]+(i.kind==='set'?' set':'')+(i.sizes?' · '+esc(i.sizes):'')+'</div>'
+        + '<div style="padding:10px 12px"><strong>'+esc(i.name)+'</strong>'+(i.kind==='package'?' <span style="font-size:10px;font-weight:800;background:#e0e7ff;color:#3730a3;border-radius:8px;padding:1px 6px">PACKAGE</span>':'')
+        + '<div class="muted" style="font-size:12.5px">'+(i.show_name?esc(i.show_name)+' · ':'')+RCAT[i.category]+(i.kind==='set'?' set':'')+(i.sizes?' · '+esc(i.sizes):'')+'</div>'
+        + (i.components&&i.components.length?'<div class="muted" style="font-size:12px">Includes: '+i.components.map(function(c){ return esc(c.name)+(c.quantity>1?' ×'+c.quantity:'') }).join(', ')+'</div>':'')
         + (i.set_contents?'<div class="muted" style="font-size:12px">'+esc(i.set_contents)+'</div>':'')
-        + '<div style="font-size:13px;margin-top:4px">'+(i.rate_cents?rentMoney(i.rate_cents)+' '+RUNIT[i.rate_unit]:'Price on request')+'</div>'
+        + '<div style="font-size:13px;margin-top:4px">'+(i.pricing!=='quote'&&i.rate_cents?rentMoney(i.rate_cents)+' '+RUNIT[i.rate_unit]:'Price on request')+'</div>'
         + (free!=null ? '<div style="font-size:12px;color:'+(free?'var(--ok)':'var(--bad)')+'">'+(free?free+' free for your dates':'Not free for your dates')+'</div>' : '<div class="muted" style="font-size:12px">'+i.quantity+' available · pick dates to check</div>')
         + '<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><button class="btn" style="padding:4px 12px;background:var(--soft)" onclick="rentQty(\''+i.id+'\',-1)">−</button><strong>'+have+'</strong>'
         + '<button class="btn" style="padding:4px 12px;background:var(--soft)" onclick="rentQty(\''+i.id+'\',1)"'+(free!=null&&have>=free?' disabled':'')+'>+</button></div></div></div>'

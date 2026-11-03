@@ -32352,8 +32352,8 @@ function _money(c){ return '$'+((c||0)/100).toFixed(2).replace(/\.00$/,'') }
 async function loadInventoryTab(){
   var el = document.getElementById('rtab-panel-4'); if(!el) return
   if(!_inv.loaded) el.innerHTML = '<div style="padding:30px;text-align:center;color:var(--text-muted)">Loading inventory…</div>'
-  var [items, out] = await Promise.all([api('/api/inventory'), api('/api/inventory/out')])
-  _inv.items = Array.isArray(items) ? items : []; _inv.out = Array.isArray(out) ? out : []; _inv.loaded = true
+  var [items, out, wishes] = await Promise.all([api('/api/inventory'), api('/api/inventory/out'), api('/api/inventory/wishes')])
+  _inv.items = Array.isArray(items) ? items : []; _inv.out = Array.isArray(out) ? out : []; _inv.wishes = Array.isArray(wishes) ? wishes : []; _inv.loaded = true
   renderInventoryTab()
 }
 function renderInventoryTab(){
@@ -32363,7 +32363,7 @@ function renderInventoryTab(){
   var list = _inv.items.filter(function(i){
     if(_inv.cat && i.category !== _inv.cat) return false
     if(_inv.status && i.status !== _inv.status) return false
-    return !q || [i.name, i.description, i.sizes, i.tags, i.location, i.set_contents].join(' ').toLowerCase().indexOf(q) >= 0
+    return !q || [i.name, i.description, i.sizes, i.tags, i.location, i.set_contents, i.show_name].join(' ').toLowerCase().indexOf(q) >= 0
   })
   var pill = function(v, l){ var on = _inv.cat === v; return '<button class="btn btn-sm '+(on?'btn-primary':'btn-secondary')+'" onclick="_inv.cat=\''+v+'\';renderInventoryTab()">'+l+'</button>' }
   var outNow = _inv.out.filter(function(x){ return x.status === 'out' }), late = outNow.filter(function(x){ return x.late })
@@ -32383,19 +32383,29 @@ function renderInventoryTab(){
     + '</div><div class="card" style="padding:12px 14px"><div style="font-weight:700;font-size:13px;margin-bottom:6px">Reserved / coming up ('+upcoming.length+')</div>'
     + (upcoming.length ? upcoming.slice(0,8).map(function(x){ return '<div style="font-size:12.5px;padding:4px 0;border-bottom:1px solid var(--border)"><strong>'+escHtml(x.name)+'</strong> ×'+x.quantity+' · '+escHtml(x.kind==='hwtc'?'HWTC: '+(x.production_name||x.note||'hold'):(x.partner_name||''))+' · '+escHtml(x.start_date)+' → '+escHtml(x.end_date)+'</div>' }).join('') : '<div style="font-size:12.5px;color:var(--text-muted)">Nothing reserved.</div>')
     + '</div></div>'
+  var newWishes = (_inv.wishes||[]).filter(function(w){ return w.status==='new' })
+  if((_inv.wishes||[]).length) h += '<div class="card" style="padding:12px 14px;margin-bottom:14px"><div style="font-weight:700;font-size:13px;margin-bottom:6px">What people are asking for ('+newWishes.length+' new)</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">From rental requests: things we don\'t have listed yet. Use it to decide what to add.</div>'
+    + (_inv.wishes||[]).slice(0, 12).map(function(w){ return '<div style="display:flex;gap:8px;align-items:flex-start;font-size:12.5px;padding:5px 0;border-bottom:1px solid var(--border);'+(w.status!=='new'?'opacity:.55':'')+'">'
+        + '<div style="flex:1"><strong>'+escHtml(w.partner_name||'')+'</strong> · '+escHtml(w.created_at)+'<div>'+escHtml(w.text)+'</div></div>'
+        + (canEditIt && w.status==='new' ? '<a href="#" onclick="setWish(\''+w.id+'\',\'added\');return false">added it</a> <a href="#" onclick="setWish(\''+w.id+'\',\'dismissed\');return false" style="color:var(--text-muted)">dismiss</a>' : '<span style="color:var(--text-muted)">'+escHtml(w.status)+'</span>')
+        + '</div>' }).join('') + '</div>'
   if(!_inv.items.length){
     h += '<div class="card" style="padding:28px;text-align:center"><div style="font-size:16px;font-weight:700;margin-bottom:6px">Start your inventory</div>'
       + '<div style="font-size:13px;color:var(--text-muted);max-width:520px;margin:0 auto 14px;line-height:1.6">Add costumes, props and equipment one at a time (with a photo), or import a spreadsheet. A <strong>set</strong> can stand for a group (e.g. "1920s men\'s suits, 6 sizes"); a <strong>piece</strong> is one item.</div>'
       + (canEditIt ? '<button class="btn btn-primary" onclick="openInventoryItem()">+ Add your first item</button>' : '') + '</div>'
   } else {
     h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px">' + list.map(function(i){
-      var badge = i.status==='repair' ? '<span style="font-size:10px;font-weight:800;background:#ffedd5;color:#9a3412;border-radius:8px;padding:1px 7px">REPAIR</span>'
-        : i.status==='retired' ? '<span style="font-size:10px;font-weight:800;background:#f1f5f9;color:#64748b;border-radius:8px;padding:1px 7px">RETIRED</span>' : ''
+      var badge = (i.status==='repair' ? '<span style="font-size:10px;font-weight:800;background:#ffedd5;color:#9a3412;border-radius:8px;padding:1px 7px">REPAIR</span>'
+        : i.status==='retired' ? '<span style="font-size:10px;font-weight:800;background:#f1f5f9;color:#64748b;border-radius:8px;padding:1px 7px">RETIRED</span>' : '')
+        + (i.kind==='package' ? ' <span style="font-size:10px;font-weight:800;background:#e0e7ff;color:#3730a3;border-radius:8px;padding:1px 7px">PACKAGE</span>' : '')
+        + (i.rentable_alone===false ? ' <span style="font-size:10px;font-weight:800;background:#f1f5f9;color:#475569;border-radius:8px;padding:1px 7px">PART ONLY</span>' : '')
       return '<div class="card" style="padding:0;overflow:hidden;cursor:pointer" onclick="openInventoryItem(\''+i.id+'\')">'
         + '<div style="height:130px;background:var(--bg) '+(i.photo_url?'url(\''+i.photo_url+'\') center/cover':'')+';display:flex;align-items:center;justify-content:center;color:var(--text-hint);font-size:12px">'+(i.photo_url?'':'No photo')+'</div>'
         + '<div style="padding:10px 12px"><div style="font-weight:700;font-size:13.5px">'+escHtml(i.name)+' '+badge+'</div>'
-        + '<div style="font-size:12px;color:var(--text-muted)">'+INV_CAT[i.category]+(i.kind==='set'?' set':'')+(i.sizes?' · '+escHtml(i.sizes):'')+'</div>'
-        + '<div style="font-size:12px;margin-top:4px">'+i.quantity+' owned'+(i.out_now?' · <span style="color:#b45309">'+i.out_now+' out</span>':'')+(i.rate_cents?' · '+_money(i.rate_cents)+' '+INV_UNIT[i.rate_unit]:'')+'</div></div></div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">'+(i.show_name?escHtml(i.show_name)+' · ':'')+INV_CAT[i.category]+(i.kind==='set'?' set':'')+(i.sizes?' · '+escHtml(i.sizes):'')+'</div>'
+        + '<div style="font-size:12px;margin-top:4px">'+(i.kind==='package'?'Package':i.quantity+' owned')+(i.out_now?' · <span style="color:#b45309">'+i.out_now+' out</span>':'')
+        + (i.pricing==='quote' ? ' · price varies' : i.rate_cents?' · '+_money(i.rate_cents)+' '+INV_UNIT[i.rate_unit]:'')+'</div></div></div>'
     }).join('') + '</div>'
     if(!list.length) h += '<div style="color:var(--text-muted);font-size:13px;padding:14px">No items match.</div>'
   }
@@ -32413,11 +32423,18 @@ async function openInventoryItem(id){
     + (id && canEditIt ? '<label class="btn btn-secondary btn-sm" style="margin-top:6px;width:100%;text-align:center;cursor:pointer">'+(i.photo_url?'Change photo':'Add photo')+'<input type="file" accept="image/*" style="display:none" onchange="uploadInventoryPhoto(\''+id+'\',this)"/></label>' : (id?'':'<div style="font-size:11px;color:var(--text-hint);margin-top:6px">Save first, then add a photo.</div>')) + '</div>'
     + '<div><div class="form-group"><label>Name</label><input id="inv-name" value="'+escHtml(i.name||'')+'"'+dis+' placeholder="e.g. Red velvet cape, Newsies caps, 8ft table"/></div>'
     + '<div class="form-row"><div class="form-group"><label>Category</label>'+sel('inv-cat',[['costume','Costume'],['prop','Prop'],['equipment','Equipment']],i.category)+'</div>'
-    + '<div class="form-group"><label>Tracked as</label>'+sel('inv-kind',[['piece','Individual piece(s)'],['set','A set / bin']],i.kind)+'</div></div></div></div>'
+    + '<div class="form-group"><label>Tracked as</label>'+sel('inv-kind',[['piece','Individual piece(s)'],['set','A set / bin (one unit)'],['package','A package of other items']],i.kind).replace('<select','<select onchange="invKindChanged()"')+'</div></div>'
+    + '<div class="form-group"><label>Show / collection (optional)</label><input id="inv-show" value="'+escHtml(i.show_name||'')+'"'+dis+' placeholder="e.g. Cinderella, Sound kit"/></div></div></div>'
+    + '<div id="inv-pkg-box" style="'+(i.kind==='package'?'':'display:none;')+'background:var(--bg);border-radius:10px;padding:10px 12px;margin-bottom:12px">'
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">What\'s in this package</div>'
+    + '<div id="inv-pkg-list"></div>'
+    + (canEditIt ? '<input id="inv-pkg-q" placeholder="Add an item to the package…" oninput="invPkgSearch()" style="width:100%;margin-top:6px"/><div id="inv-pkg-results"></div>' : '')
+    + '<div style="font-size:11.5px;color:var(--text-hint);margin-top:6px">Renting the package reserves all of these together. Untick "can be rented on its own" on parts that should only go out with the package (e.g. mic receivers).</div></div>'
     + '<div class="form-row"><div class="form-group"><label>How many</label><input id="inv-qty" type="number" min="0" value="'+(i.quantity==null?1:i.quantity)+'"'+dis+'/></div>'
     + '<div class="form-group"><label>Sizes</label><input id="inv-sizes" value="'+escHtml(i.sizes||'')+'"'+dis+' placeholder="e.g. Adult M, or S/M/L"/></div>'
     + '<div class="form-group"><label>Status</label>'+sel('inv-status',[['available','Available'],['repair','Needs repair / cleaning'],['retired','Retired']],i.status)+'</div></div>'
-    + '<div class="form-row"><div class="form-group"><label>Rental rate ($)</label><input id="inv-rate" type="number" min="0" step="0.01" value="'+(i.rate_cents?(i.rate_cents/100):'')+'"'+dis+'/></div>'
+    + '<div class="form-group"><label>Pricing</label>'+sel('inv-pricing',[['flat','Standard rate'],['quote','Price varies: set it per agreement']],i.pricing||'flat')+'</div>'
+    + '<div class="form-row"><div class="form-group"><label>Rental rate ($)</label><input id="inv-rate" type="number" min="0" step="0.01" value="'+(i.rate_cents?(i.rate_cents/100):'')+'"'+dis+' placeholder="optional if price varies"/></div>'
     + '<div class="form-group"><label>Rate is</label>'+sel('inv-unit',[['run','per rental'],['week','per week'],['day','per day']],i.rate_unit)+'</div>'
     + '<div class="form-group"><label>Replacement value ($)</label><input id="inv-repl" type="number" min="0" step="0.01" value="'+(i.replacement_value_cents?(i.replacement_value_cents/100):'')+'"'+dis+'/></div></div>'
     + '<div class="form-group"><label>Description</label><textarea id="inv-desc" rows="2"'+dis+'>'+escHtml(i.description||'')+'</textarea></div>'
@@ -32425,7 +32442,9 @@ async function openInventoryItem(id){
     + '<div class="form-row"><div class="form-group"><label>Where it\'s stored</label><input id="inv-loc" value="'+escHtml(i.location||'')+'"'+dis+' placeholder="e.g. Costume room, rack B"/></div>'
     + '<div class="form-group"><label>Tags</label><input id="inv-tags" value="'+escHtml(i.tags||'')+'"'+dis+' placeholder="e.g. 1920s, Annie, pirate"/></div></div>'
     + '<div class="form-group"><label>Staff notes</label><textarea id="inv-notes" rows="2"'+dis+'>'+escHtml(i.notes||'')+'</textarea></div>'
-    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;margin-bottom:12px"><input type="checkbox" id="inv-vis" '+(i.partner_visible!==false?'checked':'')+dis+' style="width:auto"/> Show in the partner portal catalog</label>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;margin-bottom:6px"><input type="checkbox" id="inv-vis" '+(i.partner_visible!==false?'checked':'')+dis+' style="width:auto"/> Show in the catalog partners and the public see</label>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500;margin-bottom:12px"><input type="checkbox" id="inv-alone" '+(i.rentable_alone!==false?'checked':'')+dis+' style="width:auto"/> Can be rented on its own (untick for parts that only go out with their package)</label>'
+    + ((i.in_packages||[]).length ? '<div style="font-size:12px;color:var(--text-muted);margin:-6px 0 12px">Part of: '+i.in_packages.map(function(p){ return '<a href="#" onclick="openInventoryItem(\''+p.id+'\');return false">'+escHtml(p.name)+'</a>'+(p.quantity>1?' (×'+p.quantity+')':'') }).join(', ')+'</div>' : '')
     + (canEditIt ? '<div style="display:flex;gap:8px"><button class="btn btn-primary" style="flex:1" onclick="saveInventoryItem()">Save</button>'
         + (id ? '<button class="btn btn-secondary" onclick="openInventoryHold(\''+id+'\')">Hold for an HWTC show</button><button class="btn btn-danger" onclick="deleteInventoryItem(\''+id+'\')">Delete</button>' : '') + '</div>' : '')
     + (id ? '<div style="margin-top:16px;font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Bookings</div>'
@@ -32434,13 +32453,40 @@ async function openInventoryItem(id){
             + (r.kind==='hwtc'&&r.status==='reserved'&&canEditIt?' <a href="#" onclick="releaseInvRes(\''+r.id+'\',\''+id+'\');return false">release</a>':'')
             + (r.damage_note?'<div style="color:#b45309">'+escHtml(r.damage_note)+'</div>':'')+'</div>' }).join('') : '<div style="font-size:12.5px;color:var(--text-muted)">Never booked.</div>') : '')
   showAdHocModal('inv-item', id ? escHtml(i.name) : 'Add inventory item', html, 640)
+  window._invPkg = (i.components||[]).map(function(c){ return {item_id:c.item_id, name:c.name, quantity:c.quantity} })
+  invPkgDraw()
+}
+function invKindChanged(){ var b = document.getElementById('inv-pkg-box'); if(b) b.style.display = document.getElementById('inv-kind').value==='package' ? '' : 'none' }
+function invPkgDraw(){
+  var el = document.getElementById('inv-pkg-list'); if(!el) return
+  el.innerHTML = (window._invPkg||[]).length ? _invPkg.map(function(c,ix){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px"><span style="flex:1">'+escHtml(c.name)+'</span>'
+      + '<input type="number" min="1" value="'+c.quantity+'" style="width:56px;padding:3px" onchange="_invPkg['+ix+'].quantity=parseInt(this.value)||1"/>'
+      + '<a href="#" onclick="_invPkg.splice('+ix+',1);invPkgDraw();return false" style="color:#991b1b;font-size:12px">remove</a></div>' }).join('')
+    : '<div style="font-size:12.5px;color:var(--text-muted)">Nothing in it yet.</div>'
+}
+function invPkgSearch(){
+  var q = (document.getElementById('inv-pkg-q').value||'').toLowerCase(), el = document.getElementById('inv-pkg-results')
+  if(!q){ el.innerHTML = ''; return }
+  var me = (window._invOpen||{}).id
+  var list = (_inv.items||[]).filter(function(i){ return i.id !== me && i.kind !== 'package' && i.name.toLowerCase().indexOf(q) >= 0 }).slice(0, 8)
+  el.innerHTML = list.map(function(i){ return '<div onclick="invPkgAdd(\''+i.id+'\')" style="padding:5px 6px;font-size:12.5px;cursor:pointer;border-bottom:1px solid var(--border)">+ '+escHtml(i.name)+' <span style="color:var(--text-muted)">('+INV_CAT[i.category]+', '+i.quantity+' owned)</span></div>' }).join('')
+    || '<div style="font-size:12px;color:var(--text-muted);padding:5px">No match. Add the part as its own item first.</div>'
+}
+function invPkgAdd(id){
+  var it = (_inv.items||[]).find(function(x){ return x.id===id }); if(!it) return
+  if(!(_invPkg||[]).some(function(c){ return c.item_id===id })) _invPkg.push({item_id:id, name:it.name, quantity:1})
+  document.getElementById('inv-pkg-q').value = ''; document.getElementById('inv-pkg-results').innerHTML = ''; invPkgDraw()
 }
 function _invForm(){
   var v = function(id){ return (document.getElementById(id)||{}).value }
   return {name: v('inv-name'), category: v('inv-cat'), kind: v('inv-kind'), quantity: v('inv-qty'), sizes: v('inv-sizes'), status: v('inv-status'),
     rate: v('inv-rate'), rate_unit: v('inv-unit'), replacement_value: v('inv-repl'), description: v('inv-desc'), set_contents: v('inv-set'),
-    location: v('inv-loc'), tags: v('inv-tags'), notes: v('inv-notes'), partner_visible: document.getElementById('inv-vis').checked}
+    location: v('inv-loc'), tags: v('inv-tags'), notes: v('inv-notes'), partner_visible: document.getElementById('inv-vis').checked,
+    show_name: v('inv-show'), pricing: v('inv-pricing'), rentable_alone: document.getElementById('inv-alone').checked,
+    components: v('inv-kind')==='package' ? (window._invPkg||[]) : undefined}
 }
+async function setWish(id, st){ await api('/api/inventory/wishes/'+id,'PUT',{status:st}); loadInventoryTab() }
 async function saveInventoryItem(){
   var i = window._invOpen, body = _invForm()
   if(!String(body.name||'').trim()){ toast('Give the item a name','error'); return }
@@ -32522,17 +32568,23 @@ async function openRentalItemsModal(rid){
       : x.status === 'out' ? '<button class="btn btn-primary btn-sm" onclick="riCheckin(\''+x.id+'\','+x.quantity+')">Check in</button>' : ''
     return '<tr style="border-top:1px solid var(--border)"><td style="padding:7px 6px"><div style="display:flex;gap:8px;align-items:center">'
       + (x.photo_url?'<img src="'+x.photo_url+'" style="width:38px;height:38px;object-fit:cover;border-radius:6px"/>':'')
-      + '<div><strong>'+escHtml(x.name)+'</strong> '+st+'<div style="font-size:11.5px;color:var(--text-muted)">'+INV_CAT[x.category]+(x.sizes?' · '+escHtml(x.sizes):'')
+      + '<div><strong>'+escHtml(x.name)+'</strong> '+st+(x.kind==='package'?' <span style="font-size:10px;font-weight:800;background:#e0e7ff;color:#3730a3;border-radius:8px;padding:1px 6px">PACKAGE</span>':'')
+      + (x.parts&&x.parts.length?'<div style="font-size:11.5px;color:var(--text-muted)">Includes: '+x.parts.map(function(pp){ return escHtml(pp.name)+(pp.quantity>1?' ×'+pp.quantity:'') }).join(', ')+'</div>':'')
+      + '<div style="font-size:11.5px;color:var(--text-muted)">'+INV_CAT[x.category]+(x.sizes?' · '+escHtml(x.sizes):'')
       + (x.checkout_condition?' · out: '+escHtml(x.checkout_condition):'')+(x.damage_note?' · <span style="color:#b45309">'+escHtml(x.damage_note)+'</span>':'')+'</div></div></div></td>'
       + '<td style="padding:7px 6px;text-align:center">'+(canEditIt&&x.status==='reserved'?'<input type="number" min="1" value="'+x.quantity+'" style="width:60px;padding:4px" onchange="riQty(\''+x.id+'\',this.value)"/>':x.quantity)+'</td>'
-      + '<td style="padding:7px 6px;text-align:right">'+_money(x.line_cents)+'<div style="font-size:11px;color:var(--text-muted)">'+(x.rate_cents?_money(x.rate_cents)+' '+INV_UNIT[x.rate_unit]+(x.units>1?' × '+x.units:''):'no rate set')+'</div></td>'
+      + '<td style="padding:7px 6px;text-align:right">'
+      + (x.needs_price ? '<span style="color:#b45309;font-weight:700">Set price</span>' : _money(x.line_cents))
+      + '<div style="font-size:11px;color:var(--text-muted)">'+(x.negotiated ? 'agreed price'+(x.standard_cents?' (standard '+_money(x.standard_cents)+')':'') : x.rate_cents?_money(x.rate_cents)+' '+INV_UNIT[x.rate_unit]+(x.units>1?' × '+x.units:''):'price varies')+'</div>'
+      + (canEditIt ? '<a href="#" onclick="riSetPrice(\''+x.id+'\','+(x.negotiated?(x.line_cents/100):'\'\'')+');return false" style="font-size:11px">'+(x.negotiated?'change':'set price')+'</a>' : '') + '</td>'
       + '<td style="padding:7px 6px;text-align:right;white-space:nowrap">'+act+'</td></tr>'
   }).join('')
   var html = '<div style="font-size:13px;margin-bottom:10px">Pickup <strong>'+escHtml(d.pickup)+'</strong> → return by <strong>'+escHtml(d['return'])+'</strong></div>'
+    + ((d.wishes||[]).length ? '<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12.5px"><strong>They\'re also looking for:</strong> '+d.wishes.map(function(w){ return escHtml(w.text) }).join(' · ')+'</div>' : '')
     + (d.items.length ? '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase"><th style="padding:4px 6px">Item</th><th style="padding:4px 6px;text-align:center">Qty</th><th style="padding:4px 6px;text-align:right">Fee</th><th></th></tr></thead><tbody>'+rows+'</tbody></table>'
       : '<div style="color:var(--text-muted);font-size:13px">No items yet.</div>')
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin:12px 0;padding:10px 12px;background:var(--bg);border-radius:8px">'
-    + '<div><div style="font-weight:800;font-size:16px">Rental total '+_money(d.quote_cents)+'</div><div style="font-size:12px;color:var(--text-muted)">Replacement value of everything: '+_money(d.replacement_total_cents)+' (a guide for the security deposit)</div></div>'
+    + '<div><div style="font-weight:800;font-size:16px">Rental total '+_money(d.quote_cents)+(d.needs_price?' <span style="font-size:12px;color:#b45309">+ '+d.needs_price+' item'+(d.needs_price===1?'':'s')+' still need a price</span>':'')+'</div><div style="font-size:12px;color:var(--text-muted)">Replacement value of everything: '+_money(d.replacement_total_cents)+' (a guide for the security deposit)</div></div>'
     + (canEditIt && d.items.length ? '<button class="btn btn-secondary btn-sm" onclick="riApplyQuote()">Use as the fee</button>' : '') + '</div>'
     + (canEditIt ? '<div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:6px 0">Add items</div>'
         + '<input id="ri-q" placeholder="Search the inventory…" oninput="riSearch()" style="width:100%;margin-bottom:6px"/><div id="ri-results" style="max-height:240px;overflow:auto"></div>' : '')
@@ -32547,10 +32599,11 @@ async function riSearch(){
     window._riCatalog = Array.isArray(all) ? all.filter(function(i){ return i.status !== 'retired' }) : []; window._riCatalogFor = _riRid
   }
   var q = (document.getElementById('ri-q').value||'').toLowerCase()
-  var list = _riCatalog.filter(function(i){ return !q || [i.name,i.sizes,i.tags,i.description].join(' ').toLowerCase().indexOf(q) >= 0 }).slice(0, 40)
+  var list = _riCatalog.filter(function(i){ return !q || [i.name,i.sizes,i.tags,i.description,i.show_name].join(' ').toLowerCase().indexOf(q) >= 0 }).slice(0, 40)
   el.innerHTML = list.map(function(i){
     return '<div style="display:flex;gap:8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--border)">'
-      + '<div style="flex:1"><strong style="font-size:13px">'+escHtml(i.name)+'</strong><div style="font-size:11.5px;color:'+(i.available?'var(--text-muted)':'#b91c1c')+'">'+INV_CAT[i.category]+(i.sizes?' · '+escHtml(i.sizes):'')+' · '+i.available+' of '+i.quantity+' free those dates'+(i.rate_cents?' · '+_money(i.rate_cents)+' '+INV_UNIT[i.rate_unit]:'')+'</div></div>'
+      + '<div style="flex:1"><strong style="font-size:13px">'+escHtml(i.name)+'</strong>'+(i.kind==='package'?' <span style="font-size:10px;font-weight:800;color:#3730a3">PACKAGE</span>':'')+(i.rentable_alone===false?' <span style="font-size:10px;font-weight:800;color:#475569">PART</span>':'')
+      + '<div style="font-size:11.5px;color:'+(i.available?'var(--text-muted)':'#b91c1c')+'">'+(i.show_name?escHtml(i.show_name)+' · ':'')+INV_CAT[i.category]+(i.sizes?' · '+escHtml(i.sizes):'')+' · '+i.available+(i.kind==='package'?'':' of '+i.quantity)+' free those dates'+(i.pricing==='quote'?' · price varies':i.rate_cents?' · '+_money(i.rate_cents)+' '+INV_UNIT[i.rate_unit]:'')+'</div></div>'
       + '<input type="number" min="1" value="1" id="riq-'+i.id+'" style="width:56px;padding:4px"/>'
       + '<button class="btn btn-primary btn-sm" onclick="riAdd(\''+i.id+'\')">Add</button></div>'
   }).join('') || '<div style="font-size:12.5px;color:var(--text-muted);padding:6px">No matching items. Add them in the Inventory tab first.</div>'
@@ -32565,6 +32618,13 @@ async function riAdd(itemId, over){
 async function riQty(resId, qty, over){
   var r = await api('/api/inventory/reservations/'+resId,'PUT',{action:'quantity', quantity: qty, over_ok: !!over})
   if(r.over){ if(confirm(r.error)) return riQty(resId, qty, true); return openRentalItemsModal(_riRid) }
+  if(r.error){ toast(r.error,'error'); return }
+  openRentalItemsModal(_riRid)
+}
+async function riSetPrice(resId, cur){
+  var v = prompt('Agreed price for this line, in dollars (leave blank to use the standard rate):', cur === '' ? '' : cur)
+  if(v === null) return
+  var r = await api('/api/inventory/reservations/'+resId,'PUT',{price: v.replace(/[$,]/g,'').trim()})
   if(r.error){ toast(r.error,'error'); return }
   openRentalItemsModal(_riRid)
 }

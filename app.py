@@ -3188,6 +3188,19 @@ def init_db():
             returned_at TIMESTAMP, returned_by TEXT, returned_qty INTEGER, return_condition TEXT DEFAULT '', damage_note TEXT DEFAULT '')""",
         "CREATE INDEX IF NOT EXISTS ix_inv_res_item ON inventory_reservations(item_id, status)",
         "CREATE INDEX IF NOT EXISTS ix_inv_res_request ON inventory_reservations(request_id)",
+        # packages (bundles of other items), quote-only pricing, parts that only go out with their package
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS pricing TEXT DEFAULT 'flat'",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS rentable_alone BOOLEAN DEFAULT TRUE",
+        "ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS show_name TEXT DEFAULT ''",
+        """CREATE TABLE IF NOT EXISTS inventory_package_items (
+            package_id TEXT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+            item_id TEXT NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+            quantity INTEGER DEFAULT 1, PRIMARY KEY (package_id, item_id))""",
+        "ALTER TABLE inventory_reservations ADD COLUMN IF NOT EXISTS parent_id TEXT",
+        "ALTER TABLE inventory_reservations ADD COLUMN IF NOT EXISTS price_cents INTEGER",
+        """CREATE TABLE IF NOT EXISTS inventory_wishes (
+            id TEXT PRIMARY KEY, request_id TEXT, partner_name TEXT, text TEXT NOT NULL, status TEXT DEFAULT 'new',
+            created_at TIMESTAMP DEFAULT NOW())""",
         # partner invoices: remember why an automatic send failed, so it shows
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_error TEXT",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMP",
@@ -35444,6 +35457,16 @@ def public_partnership_interest_submit():
          (d.get('desired_frequency') or '').strip(),
          (d.get('additional_notes') or '').strip(), portal_token, date_mode,
          _jpi2.dumps(specific_dates)))
+    # optional "Costumes, props & equipment" section of the interest form
+    if (d.get('asset_items') or (d.get('asset_wish_list') or '').strip()) and d.get('asset_pickup_date'):
+        try:
+            create_item_rental_request(conn, partner_id, org_name, {
+                'pickup_date': d.get('asset_pickup_date'), 'return_date': d.get('asset_return_date') or d.get('asset_pickup_date'),
+                'items': d.get('asset_items') or [], 'wish_list': d.get('asset_wish_list') or '', 'purpose': purpose}, 'interest_form')
+        except Exception as e:
+            app.logger.warning(f'Asset part of interest form failed: {e}')
+    elif (d.get('asset_wish_list') or '').strip():
+        _save_wish(conn, rid, org_name, d['asset_wish_list'])
     conn.commit()
     try:
         es = fetchone(conn, 'SELECT rental_approver_emails, rental_approval_levels FROM email_settings WHERE id=1') or {}
@@ -36328,10 +36351,18 @@ def _inv_item_out(r, avail=None):
 def inventory_available(conn, item_id, start, end, exclude_request_id=None, exclude_res_id=None):
     """How many of an item are free for every day from start to end
     (inclusive). Counts reservations that overlap and aren't cancelled or
-    already returned."""
-    item = fetchone(conn, 'SELECT quantity, status FROM inventory_items WHERE id=%s', (item_id,))
+    already returned. A package is as available as its scarcest part."""
+    item = fetchone(conn, 'SELECT quantity, status, kind FROM inventory_items WHERE id=%s', (item_id,))
     if not item or item.get('status') in ('retired',):
         return 0
+    if item.get('kind') == 'package':
+        if item.get('status') == 'repair':
+            return 0
+        parts = fetchall(conn, 'SELECT item_id, quantity FROM inventory_package_items WHERE package_id=%s', (item_id,)) or []
+        if not parts:
+            return 0
+        return min(inventory_available(conn, p['item_id'], start, end, exclude_request_id, exclude_res_id) // max(1, int(p['quantity'] or 1))
+                   for p in parts)
     q = '''SELECT COALESCE(SUM(quantity - COALESCE(returned_qty,0)),0) AS n FROM inventory_reservations
         WHERE item_id=%s AND status IN ('reserved','out') AND start_date <= %s AND end_date >= %s'''
     params = [item_id, end or start, start]
@@ -36398,6 +36429,9 @@ def _inv_save(conn, iid, d, new=False):
             d.get('status') if d.get('status') in ('available', 'repair', 'retired') else 'available',
             (d.get('set_contents') or '').strip()[:2000], bool(d.get('partner_visible', True)), (d.get('notes') or '').strip()[:2000],
             (d.get('tags') or '').strip()[:300])
+    kind = d.get('kind') if d.get('kind') in ('piece', 'set', 'package') else 'piece'
+    vals = vals[:2] + (kind,) + vals[3:]
+    extra = ('quote' if d.get('pricing') == 'quote' else 'flat', bool(d.get('rentable_alone', True)), (d.get('show_name') or '').strip()[:120])
     if new:
         execute(conn, '''INSERT INTO inventory_items (id, name, category, kind, description, sizes, quantity, replacement_value_cents,
             rate_cents, rate_unit, location, status, set_contents, partner_visible, notes, tags)
@@ -36406,6 +36440,13 @@ def _inv_save(conn, iid, d, new=False):
         execute(conn, '''UPDATE inventory_items SET name=%s, category=%s, kind=%s, description=%s, sizes=%s, quantity=%s,
             replacement_value_cents=%s, rate_cents=%s, rate_unit=%s, location=%s, status=%s, set_contents=%s, partner_visible=%s,
             notes=%s, tags=%s, updated_at=NOW() WHERE id=%s''', vals + (iid,))
+    execute(conn, 'UPDATE inventory_items SET pricing=%s, rentable_alone=%s, show_name=%s WHERE id=%s', extra + (iid,))
+    if kind == 'package' and 'components' in d:
+        execute(conn, 'DELETE FROM inventory_package_items WHERE package_id=%s', (iid,))
+        for c in d.get('components') or []:
+            if c.get('item_id') and c['item_id'] != iid:
+                execute(conn, '''INSERT INTO inventory_package_items (package_id, item_id, quantity) VALUES (%s,%s,%s)
+                    ON CONFLICT (package_id, item_id) DO UPDATE SET quantity=EXCLUDED.quantity''', (iid, c['item_id'], max(1, int(c.get('quantity') or 1))))
 
 
 @app.route('/api/inventory/<iid>', methods=['GET', 'PUT', 'DELETE'])
@@ -36436,6 +36477,10 @@ def inventory_item(iid):
                 if x.get(k) is not None: x[k] = str(x[k])[:16]
         out = _inv_item_out(row)
         out['reservations'] = res
+        out['components'] = fetchall(conn, '''SELECT pi.item_id, pi.quantity, i.name, i.category, i.rentable_alone FROM inventory_package_items pi
+            JOIN inventory_items i ON i.id=pi.item_id WHERE pi.package_id=%s ORDER BY i.name''', (iid,)) or []
+        out['in_packages'] = fetchall(conn, '''SELECT p.id, p.name, pi.quantity FROM inventory_package_items pi JOIN inventory_items p ON p.id=pi.package_id
+            WHERE pi.item_id=%s ORDER BY p.name''', (iid,)) or []
         return jsonify(out)
     finally:
         conn.close()
@@ -36522,9 +36567,11 @@ def inventory_hwtc_hold():
         left = inventory_available(conn, d.get('item_id'), start, end)
         if qty > left and not d.get('over_ok'):
             return jsonify({'error': f'Only {left} free for those dates. Hold anyway?', 'over': True}), 409
+        hid = str(uuid.uuid4())
         execute(conn, '''INSERT INTO inventory_reservations (id, item_id, quantity, start_date, end_date, kind, production_id, note, status, created_by)
-            VALUES (%s,%s,%s,%s,%s,'hwtc',%s,%s,'reserved',%s)''', (str(uuid.uuid4()), d.get('item_id'), qty, start, end,
+            VALUES (%s,%s,%s,%s,%s,'hwtc',%s,%s,'reserved',%s)''', (hid, d.get('item_id'), qty, start, end,
             d.get('production_id') or None, (d.get('note') or '').strip()[:300], session.get('name') or ''))
+        _sync_package_parts(conn, hid)
         conn.commit()
         return jsonify({'ok': True})
     finally:
@@ -36542,15 +36589,24 @@ def inventory_reservation(res_id):
         if not r:
             return jsonify({'error': 'Not found'}), 404
         if request.method == 'DELETE':
-            execute(conn, "UPDATE inventory_reservations SET status='cancelled' WHERE id=%s", (res_id,))
+            execute(conn, "UPDATE inventory_reservations SET status='cancelled' WHERE id=%s OR parent_id=%s", (res_id, res_id))
             conn.commit()
             return jsonify({'ok': True})
         d = request.json or {}
         who = session.get('name') or 'Staff'
         act = d.get('action')
+        if 'price' in d:
+            # a negotiated price for this line (blank = back to the standard rate)
+            try:
+                pc = int(round(float(d['price']) * 100)) if str(d['price']).strip() != '' else None
+            except Exception:
+                return jsonify({'error': 'Enter a price like 75 or 75.50'}), 400
+            execute(conn, 'UPDATE inventory_reservations SET price_cents=%s WHERE id=%s', (pc, res_id))
+            conn.commit()
+            return jsonify({'ok': True})
         if act == 'checkout':
             execute(conn, '''UPDATE inventory_reservations SET status='out', checked_out_at=NOW(), checked_out_by=%s,
-                checkout_condition=%s WHERE id=%s''', (who, (d.get('condition') or '').strip()[:500], res_id))
+                checkout_condition=%s WHERE id=%s OR parent_id=%s''', (who, (d.get('condition') or '').strip()[:500], res_id, res_id))
         elif act == 'checkin':
             qty = int(r.get('quantity') or 1)
             back = max(0, min(qty, int(d.get('returned_qty') if d.get('returned_qty') is not None else qty)))
@@ -36562,12 +36618,16 @@ def inventory_reservation(res_id):
             if back < qty:
                 # what didn't come back is no longer owned
                 execute(conn, 'UPDATE inventory_items SET quantity=GREATEST(0, quantity-%s), updated_at=NOW() WHERE id=%s', (qty - back, r['item_id']))
+            # a package's parts come back with it (record individual missing parts on the part itself)
+            execute(conn, '''UPDATE inventory_reservations SET status='returned', returned_at=NOW(), returned_by=%s,
+                returned_qty=COALESCE(returned_qty, quantity) WHERE parent_id=%s AND status <> 'returned' ''', (who, res_id))
         elif act == 'quantity':
             qty = max(1, int(d.get('quantity') or 1))
             left = inventory_available(conn, r['item_id'], r['start_date'], r['end_date'], exclude_res_id=res_id)
             if qty > left and not d.get('over_ok'):
                 return jsonify({'error': f'Only {left} free for those dates. Use {qty} anyway?', 'over': True}), 409
             execute(conn, 'UPDATE inventory_reservations SET quantity=%s WHERE id=%s', (qty, res_id))
+            _sync_package_parts(conn, res_id)
         conn.commit()
         return jsonify({'ok': True})
     finally:
@@ -36575,18 +36635,45 @@ def inventory_reservation(res_id):
 
 
 def _request_items(conn, rid):
-    rows = fetchall(conn, '''SELECT r.*, i.name, i.category, i.kind, i.sizes, i.rate_cents, i.rate_unit, i.replacement_value_cents,
+    rows = fetchall(conn, '''SELECT r.*, i.name, i.category, i.kind, i.sizes, i.rate_cents, i.rate_unit, i.replacement_value_cents, i.pricing,
             i.photo_filename IS NOT NULL AND i.photo_filename <> '' AS has_photo, i.updated_at AS item_updated
         FROM inventory_reservations r JOIN inventory_items i ON i.id=r.item_id
-        WHERE r.request_id=%s AND r.status <> 'cancelled' ORDER BY i.category, i.name''', (rid,)) or []
+        WHERE r.request_id=%s AND r.status NOT IN ('cancelled','archived_hold') AND r.parent_id IS NULL ORDER BY i.category, i.name''', (rid,)) or []
     for x in rows:
         units = _rate_units(x.get('rate_unit'), x['start_date'], x['end_date'])
-        x['line_cents'] = int(x.get('rate_cents') or 0) * units * int(x.get('quantity') or 1)
         x['units'] = units
+        x['standard_cents'] = int(x.get('rate_cents') or 0) * units * int(x.get('quantity') or 1)
+        x['needs_price'] = x.get('price_cents') is None and (x.get('pricing') == 'quote' or not x.get('rate_cents'))
+        x['line_cents'] = int(x['price_cents']) if x.get('price_cents') is not None else (0 if x['needs_price'] else x['standard_cents'])
+        x['negotiated'] = x.get('price_cents') is not None
+        if x.get('kind') == 'package':
+            x['parts'] = fetchall(conn, '''SELECT i.name, r.quantity FROM inventory_reservations r JOIN inventory_items i ON i.id=r.item_id
+                WHERE r.parent_id=%s ORDER BY i.name''', (x['id'],)) or []
+            # replacement value of a package = its parts
+            pv = (fetchone(conn, '''SELECT COALESCE(SUM(i.replacement_value_cents * pi.quantity),0) AS v FROM inventory_package_items pi
+                JOIN inventory_items i ON i.id=pi.item_id WHERE pi.package_id=%s''', (x['item_id'],)) or {}).get('v') or 0
+            x['replacement_value_cents'] = int(pv) or int(x.get('replacement_value_cents') or 0)
         x['photo_url'] = ('/api/inventory/' + x['item_id'] + '/photo') if x.get('has_photo') else ''
         for k in ('checked_out_at', 'returned_at', 'created_at', 'item_updated'):
             if x.get(k) is not None: x[k] = str(x[k])[:16]
     return rows
+
+
+def _sync_package_parts(conn, res_id):
+    """A reservation on a package also holds each of its parts (so they
+    can't be rented separately at the same time). Parts follow the
+    package's quantity, dates and status."""
+    r = fetchone(conn, '''SELECT r.*, i.kind AS item_kind FROM inventory_reservations r JOIN inventory_items i ON i.id=r.item_id WHERE r.id=%s''', (res_id,))
+    if not r or r.get('item_kind') != 'package':
+        return
+    execute(conn, 'DELETE FROM inventory_reservations WHERE parent_id=%s', (res_id,))
+    if r['status'] == 'cancelled':
+        return
+    for p in fetchall(conn, 'SELECT item_id, quantity FROM inventory_package_items WHERE package_id=%s', (r['item_id'],)) or []:
+        execute(conn, '''INSERT INTO inventory_reservations (id, item_id, quantity, start_date, end_date, kind, request_id, production_id,
+                note, status, created_by, parent_id) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), p['item_id'], int(p['quantity'] or 1) * int(r['quantity'] or 1), r['start_date'], r['end_date'], r.get('kind') or 'partner',
+             r.get('request_id'), r.get('production_id'), 'Part of a package', r['status'], r.get('created_by'), res_id))
 
 
 def _add_items_to_request(conn, rid, items, start, end, who, allow_over=False):
@@ -36602,13 +36689,16 @@ def _add_items_to_request(conn, rid, items, start, end, who, allow_over=False):
         if qty > left and not allow_over:
             problems.append(f'{item["name"]}: only {left} free for those dates')
             continue
-        ex = fetchone(conn, "SELECT id, quantity FROM inventory_reservations WHERE request_id=%s AND item_id=%s AND status <> 'cancelled'", (rid, item['id']))
+        ex = fetchone(conn, "SELECT id, quantity FROM inventory_reservations WHERE request_id=%s AND item_id=%s AND status <> 'cancelled' AND parent_id IS NULL", (rid, item['id']))
         if ex:
-            execute(conn, 'UPDATE inventory_reservations SET quantity=%s, start_date=%s, end_date=%s WHERE id=%s', (qty, start, end, ex['id']))
+            res_id = ex['id']
+            execute(conn, 'UPDATE inventory_reservations SET quantity=%s, start_date=%s, end_date=%s WHERE id=%s', (qty, start, end, res_id))
         else:
+            res_id = str(uuid.uuid4())
             execute(conn, '''INSERT INTO inventory_reservations (id, item_id, quantity, start_date, end_date, kind, request_id, note, status, created_by)
-                VALUES (%s,%s,%s,%s,%s,'partner',%s,%s,'reserved',%s)''', (str(uuid.uuid4()), item['id'], qty, start, end, rid,
+                VALUES (%s,%s,%s,%s,%s,'partner',%s,%s,'reserved',%s)''', (res_id, item['id'], qty, start, end, rid,
                 (it.get('note') or '').strip()[:300], who))
+        _sync_package_parts(conn, res_id)
         added += 1
     return added, problems
 
@@ -36633,7 +36723,9 @@ def rental_request_items(rid):
         items = _request_items(conn, rid)
         total = sum(x['line_cents'] for x in items)
         repl = sum(int(x.get('replacement_value_cents') or 0) * int(x.get('quantity') or 1) for x in items)
-        return jsonify({'items': items, 'quote_cents': total, 'replacement_total_cents': repl,
+        wishes = fetchall(conn, 'SELECT id, text, status FROM inventory_wishes WHERE request_id=%s ORDER BY created_at', (rid,)) or []
+        return jsonify({'items': items, 'quote_cents': total, 'replacement_total_cents': repl, 'needs_price': sum(1 for x in items if x['needs_price']),
+                        'wishes': wishes,
                         'pickup': req['start_date'], 'return': req.get('end_date') or req['start_date']})
     finally:
         conn.close()
@@ -36679,6 +36771,127 @@ def inventory_out_now():
 
 
 # ── Partner portal: browse and request items ──
+def public_inventory_catalog(conn, start, end):
+    """What outside groups can see: packages, and items that can be rented
+    on their own (parts that only go out with their package are hidden)."""
+    rows = fetchall(conn, '''SELECT * FROM inventory_items WHERE partner_visible=TRUE AND status <> 'retired'
+        AND (rentable_alone=TRUE OR kind='package') ORDER BY (kind='package') DESC, show_name, category, name''') or []
+    out = []
+    for r in rows:
+        x = _inv_item_out(r, inventory_available(conn, r['id'], start, end or start) if start else None)
+        for k in ('notes', 'location', 'replacement_value_cents', 'created_at', 'updated_at'):
+            x.pop(k, None)
+        if r.get('kind') == 'package':
+            x['components'] = [{'name': c['name'], 'quantity': c['quantity']} for c in (fetchall(conn, '''SELECT i.name, pi.quantity
+                FROM inventory_package_items pi JOIN inventory_items i ON i.id=pi.item_id WHERE pi.package_id=%s ORDER BY i.name''', (r['id'],)) or [])]
+        out.append(x)
+    return out
+
+
+def _save_wish(conn, rid, partner_name, text):
+    if (text or '').strip():
+        execute(conn, 'INSERT INTO inventory_wishes (id, request_id, partner_name, text) VALUES (%s,%s,%s,%s)',
+                (str(uuid.uuid4()), rid, (partner_name or '')[:200], text.strip()[:2000]))
+
+
+@app.route('/rent-items')
+def public_rent_items_page():
+    return send_from_directory('static', 'rent-items.html')
+
+
+@app.route('/api/public/rent-items/catalog', methods=['GET'])
+def public_rent_items_catalog():
+    conn = get_db()
+    try:
+        return jsonify(public_inventory_catalog(conn, (request.args.get('start') or '')[:10], (request.args.get('end') or '')[:10]))
+    finally:
+        conn.close()
+
+
+def create_item_rental_request(conn, partner_id, partner_name, d, source):
+    start, end = (d.get('pickup_date') or '')[:10], (d.get('return_date') or '')[:10]
+    rid = str(uuid.uuid4())
+    execute(conn, '''INSERT INTO rental_requests (id, partner_id, title, purpose, start_date, end_date, status, notes,
+            partnership_category, source, rate_type, portal_token)
+        VALUES (%s,%s,%s,%s,%s,%s,'pending',%s,'item_rental',%s,'Rental',%s)''',
+        (rid, partner_id, (d.get('title') or f'{partner_name} \u2014 Costume / prop / equipment rental').strip()[:200],
+         (d.get('purpose') or '').strip()[:1000], start, end or start, (d.get('notes') or '').strip()[:4000], source, str(uuid.uuid4())))
+    items = [i for i in (d.get('items') or []) if i.get('item_id')]
+    added, _ = _add_items_to_request(conn, rid, items, start, end or start, partner_name or 'Public form', allow_over=True)
+    _save_wish(conn, rid, partner_name, d.get('wish_list'))
+    return rid, added
+
+
+@app.route('/api/public/rent-items', methods=['POST'])
+def public_rent_items_submit():
+    d = request.json or {}
+    org = (d.get('organization_name') or '').strip()
+    name, email = (d.get('contact_name') or '').strip(), (d.get('contact_email') or '').strip()
+    if not org or not name or not email or '@' not in email:
+        return jsonify({'error': 'Please fill in your organization, name and email.'}), 400
+    start, end = (d.get('pickup_date') or '')[:10], (d.get('return_date') or '')[:10]
+    if not start or not end or end < start:
+        return jsonify({'error': 'Pick a pickup date and a return date after it.'}), 400
+    if not [i for i in (d.get('items') or []) if i.get('item_id')] and not (d.get('wish_list') or '').strip():
+        return jsonify({'error': 'Pick some items or packages, or tell us what you\'re looking for.'}), 400
+    conn = get_db()
+    try:
+        partner = fetchone(conn, 'SELECT * FROM rental_partners WHERE LOWER(contact_email)=LOWER(%s)', (email,))
+        if partner:
+            pid, pname = partner['id'], partner['name']
+        else:
+            pid, pname = str(uuid.uuid4()), org
+            execute(conn, '''INSERT INTO rental_partners (id, name, contact_name, contact_email, contact_phone, notes, status)
+                VALUES (%s,%s,%s,%s,%s,'Submitted via the costume / prop / equipment rental form','active')''',
+                (pid, org[:200], name[:200], email[:200], (d.get('contact_phone') or '').strip()[:40]))
+        rid, added = create_item_rental_request(conn, pid, pname, d, 'rent_items_form')
+        conn.commit()
+        try:
+            send_email([_setting(conn, 'rental_notify_email') or 'info@hwtco.org'], f'Rental request: {pname}',
+                       build_hwtc_email_html('New costume / prop / equipment request',
+                           f'<p><strong>{_h(pname)}</strong> ({_h(name)}, {_h(email)}) asked to rent {added} item{"s" if added != 1 else ""}'
+                           f' from {start} to {end}.</p>' + (f'<p>Also looking for: {_h(d.get("wish_list"))}</p>' if d.get('wish_list') else '')
+                           + '<p>Review it in RoleCall → Artistic Partnership.</p>'))
+            send_email([email], 'We got your rental request', build_hwtc_email_html('Thanks, we got your request',
+                f'<p>Hi {_h(name.split(" ")[0])},</p><p>Thanks for your request to rent from Horizon West Theater Company for {_h(start)} to {_h(end)}. '
+                'We\'ll check availability and pricing and get back to you, usually within a few days.</p>'))
+        except Exception:
+            pass
+        return jsonify({'ok': True, 'request_id': rid, 'items': added})
+    finally:
+        conn.close()
+
+
+@app.route('/api/inventory/wishes', methods=['GET'])
+def inventory_wishes():
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT w.*, rr.start_date FROM inventory_wishes w LEFT JOIN rental_requests rr ON rr.id=w.request_id
+            ORDER BY (w.status='new') DESC, w.created_at DESC LIMIT 100''') or []
+        for r in rows:
+            r['created_at'] = str(r['created_at'])[:10]
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+@app.route('/api/inventory/wishes/<wid>', methods=['PUT'])
+def inventory_wish_update(wid):
+    err = require_permission('rentals', 'edit')
+    if err: return err
+    st = (request.json or {}).get('status')
+    if st not in ('new', 'added', 'dismissed'):
+        return jsonify({'error': 'Bad status'}), 400
+    conn = get_db()
+    try:
+        execute(conn, 'UPDATE inventory_wishes SET status=%s WHERE id=%s', (st, wid)); conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
 @app.route('/api/public/partner/<token>/catalog', methods=['GET'])
 def partner_catalog(token):
     conn = get_db()
@@ -36686,15 +36899,7 @@ def partner_catalog(token):
         partner = fetchone(conn, 'SELECT id FROM rental_partners WHERE portal_token=%s', (token,))
         if not partner:
             return jsonify({'error': 'Link not valid'}), 404
-        start, end = (request.args.get('start') or '')[:10], (request.args.get('end') or '')[:10]
-        rows = fetchall(conn, '''SELECT * FROM inventory_items WHERE partner_visible=TRUE AND status <> 'retired' ORDER BY category, name''') or []
-        out = []
-        for r in rows:
-            x = _inv_item_out(r, inventory_available(conn, r['id'], start, end or start) if start else None)
-            for k in ('notes', 'location', 'replacement_value_cents', 'created_at', 'updated_at'):
-                x.pop(k, None)
-            out.append(x)
-        return jsonify(out)
+        return jsonify(public_inventory_catalog(conn, (request.args.get('start') or '')[:10], (request.args.get('end') or '')[:10]))
     finally:
         conn.close()
 
@@ -36723,6 +36928,7 @@ def partner_item_request(token):
             (rid, partner['id'], (d.get('title') or 'Costume / prop / equipment rental').strip()[:200],
              (d.get('purpose') or '').strip()[:1000], start, end, notes))
         added, problems = _add_items_to_request(conn, rid, items, start, end, 'Partner (portal)', allow_over=True)
+        _save_wish(conn, rid, partner['name'], d.get('wish_list'))
         conn.commit()
         try:
             send_email([_setting(conn, 'rental_notify_email') or 'info@hwtco.org'], f'Item rental request: {partner["name"]}',

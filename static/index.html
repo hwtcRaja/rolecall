@@ -412,6 +412,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .modal-header{padding:14px 16px}
 .modal-footer{padding:12px 16px}
 }
+.rp-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.14);padding:6px;min-width:280px}
+.rp-menu button{display:block;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:9px 12px;cursor:pointer;font-family:inherit}
+.rp-menu button:hover{background:var(--bg)}
+.rp-menu button strong{display:block;font-size:13.5px;color:var(--text)}
+.rp-menu button span{display:block;font-size:12px;color:var(--text-muted);margin-top:1px}
 </style>
  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
 </head>
@@ -538,14 +543,24 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-rentals">
   <div class="page-header">
     <div><div class="page-title">Artistic Partnership</div><div class="page-subtitle" id="rentals-subtitle">Partners, spaces &amp; agreements</div></div>
-    <div class="page-actions">
-      <button class="btn btn-secondary" onclick="openPartnershipInterestLinkModal()"> Interest Form Link</button>
-      <button class="btn btn-secondary" onclick="openPartnershipPolicyModal()">Edit Partnership Policy</button>
-      <button class="btn btn-secondary" onclick="openContractClauseLibraryModal()"> Manage Contract Clauses</button>
-      <button class="btn btn-secondary" onclick="openEquipmentLibraryModal()"> Manage Equipment List</button>
-      <button class="btn btn-secondary" onclick="openRentalSpacesModal()">Manage Spaces</button>
-      <button class="btn btn-secondary" onclick="openComplianceCheckModal()">Compliance Check</button>
-      <button class="btn btn-primary" onclick="openNewRentalModal()">+ New Rental Request</button>
+    <div class="page-actions" style="flex-wrap:nowrap">
+      <div style="position:relative">
+        <button class="btn btn-secondary" onclick="toggleRentalsMenu(event,'rp-share-menu')">Share forms ▾</button>
+        <div id="rp-share-menu" class="rp-menu" style="display:none">
+          <button onclick="closeRentalsMenus();openPartnershipInterestLinkModal()"><strong>Partnership interest form</strong><span>For groups who want studio time or to partner</span></button>
+          <button onclick="closeRentalsMenus();copyRentItemsLink()"><strong>Costume, prop &amp; equipment form</strong><span>Copy the /rent-items link</span></button>
+        </div>
+      </div>
+      <div style="position:relative">
+        <button class="btn btn-secondary" onclick="toggleRentalsMenu(event,'rp-settings-menu')">Settings ▾</button>
+        <div id="rp-settings-menu" class="rp-menu" style="display:none">
+          <button onclick="closeRentalsMenus();openRentalSpacesModal()"><strong>Spaces</strong><span>Rooms partners can book</span></button>
+          <button onclick="closeRentalsMenus();openContractClauseLibraryModal()"><strong>Contract clauses</strong><span>The terms in every agreement</span></button>
+          <button onclick="closeRentalsMenus();openPartnershipPolicyModal()"><strong>Partnership policy</strong><span>Shown on the interest form</span></button>
+          <button onclick="closeRentalsMenus();openComplianceCheckModal()"><strong>Compliance check</strong><span>Insurance, waivers and paperwork</span></button>
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="openNewRentalModal()">+ New Request</button>
     </div>
   </div>
   <div class="page-body" id="rentals-body"><div style="text-align:center;padding:40px;color:var(--text-muted)">Loading...</div></div>
@@ -32691,7 +32706,7 @@ function renderRentalsPage(){
   if(!body) return
   const { requests, partners, spaces } = _rentalData
   const tabs = ['Requests','Partners','Schedule','Partner Requests','Inventory']
-  let html = '<div style="display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px">'
+  let html = '<div style="display:flex;flex-wrap:wrap;gap:0;border-bottom:2px solid var(--border);margin-bottom:16px;position:sticky;top:0;z-index:5;background:var(--bg)">'
     + tabs.map((t,i)=>`<button onclick="switchRentalTab(${i})" id="rtab-${i}"
       style="padding:8px 16px;border:none;background:none;font-family:inherit;font-size:13px;font-weight:${i===0?'700':'600'};cursor:pointer;border-bottom:2px solid ${i===0?'#145466':'transparent'};margin-bottom:-2px;color:${i===0?'#145466':'var(--text-muted)'}">
       ${t}</button>`).join('')
@@ -33778,7 +33793,7 @@ async function initContractEquipmentChecklist(rid){
   const list = Array.isArray(items) ? items.filter(i=>i.active!==false) : []
   const wrap = document.getElementById('gen-equipment-list')
   if(!wrap) return
-  if(!list.length){ wrap.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No equipment items set up yet — use "Manage Equipment List" on the Artistic Partnership page.</div>'; return }
+  if(!list.length){ wrap.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">No equipment yet. Add it in Artistic Partnership → Inventory (category Equipment).</div>'; return }
   let stored = []
   try { stored = req.equipment_selections ? JSON.parse(req.equipment_selections) : [] } catch(e){ stored = [] }
   const storedMap = {}
@@ -34610,6 +34625,17 @@ async function clearTourSchedule(rid){
   } else toast((res&&res.error)||'Could not clear tour','error')
 }
 
+function toggleRentalsMenu(ev, id){
+  ev.stopPropagation()
+  var m = document.getElementById(id), open = m.style.display !== 'none'
+  closeRentalsMenus(); if(!open) m.style.display = 'block'
+}
+function closeRentalsMenus(){ document.querySelectorAll('.rp-menu').forEach(function(m){ m.style.display = 'none' }) }
+document.addEventListener('click', function(e){ if(!e.target.closest || !e.target.closest('.rp-menu')) closeRentalsMenus() })
+function copyRentItemsLink(){
+  var url = location.origin + '/rent-items'
+  navigator.clipboard.writeText(url).then(function(){ toast('Copied: '+url,'success') }, function(){ prompt('Copy this link:', url) })
+}
 function openPartnershipInterestLinkModal(){
   const overlay = document.createElement('div')
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
@@ -37157,6 +37183,50 @@ async function renderMarqueeBoxOffice(el){
   renderShowSalesCard()
 }
 
+// A date with no time (like a performance date) shown as that calendar day.
+// new Date('2026-11-07') is midnight UTC, which in Florida is the evening of
+// the 6th, so dates were showing a day early.
+function fmtDateOnly(d){
+  if(!d) return ''
+  var m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/)
+  var dt = m ? new Date(+m[1], +m[2]-1, +m[3]) : new Date(d)
+  if(!m && /GMT|Z$/.test(String(d))) return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})
+  return dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+}
+// Seat map for one order: their seats highlighted
+async function openOrderSeatMap(orderId){
+  var o = (window._mqOrders||{})[orderId]; if(!o) return
+  var d = await api('/api/performances/'+o.performance_id+'/staff-seats')
+  if(!d || d.error){ toast((d&&d.error)||'Could not load the seat map','error'); return }
+  var seats = d.seats||[]; if(!seats.length){ toast('No seat map for this performance','error'); return }
+  var mine = {}; seats.forEach(function(s){ if(s.order_id===orderId) mine[s.id] = true })
+  var xs = seats.map(function(s){ return +s.x }), ys = seats.map(function(s){ return +s.y })
+  var minX = Math.min.apply(null,xs)-1.2, maxX = Math.max.apply(null,xs)+1.2, minY = Math.min.apply(null,ys)-1.2, maxY = Math.max.apply(null,ys)+1.2
+  var pf = d.performance||{}, stage = ''
+  if(pf.stage_width){
+    var sx = +pf.stage_x||0, sy = +pf.stage_y||0, sw = +pf.stage_width, sd = +pf.stage_depth||1.5
+    minX = Math.min(minX, sx-0.5); maxX = Math.max(maxX, sx+sw+0.5); minY = Math.min(minY, sy-0.5); maxY = Math.max(maxY, sy+sd+0.5)
+    stage = '<rect x="'+sx+'" y="'+sy+'" width="'+sw+'" height="'+sd+'" rx="0.3" fill="#1f2937"/><text x="'+(sx+sw/2)+'" y="'+(sy+sd/2+0.2)+'" font-size="0.6" fill="#fff" text-anchor="middle">STAGE</text>'
+  }
+  var svg = '<svg viewBox="'+minX+' '+minY+' '+(maxX-minX)+' '+(maxY-minY)+'" style="width:100%;max-height:62vh;display:block;background:#f8fafc;border-radius:10px">' + stage
+    + seats.map(function(s){
+        var me = mine[s.id], taken = s.status==='sold'
+        return '<g><circle cx="'+s.x+'" cy="'+s.y+'" r="'+(me?0.5:0.42)+'" fill="'+(me?'#f4b740':taken?'#cbd5e1':'#e2e8f0')+'" stroke="'+(me?'#92400e':'none')+'" stroke-width="0.08"/>'
+          + (me?'<text x="'+s.x+'" y="'+(+s.y+0.14)+'" font-size="0.36" font-weight="700" text-anchor="middle" fill="#3b2a05">'+escHtml(s.seat_label||'')+'</text>':'')
+          + '<title>'+escHtml(s.seat_label||'')+(taken&&!me&&s.who?' · '+escHtml(s.who):'')+'</title></g>'
+      }).join('') + '</svg>'
+  var labels = (o.seat_labels||[]).join(', ')
+  showAdHocModal('order-seat-map', escHtml(o.guardian_name||'Order')+' · '+escHtml(fmtDateOnly(o.performance_date))+(o.performance_time?' '+escHtml(tkFmtTime(o.performance_time)):''),
+    '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12.5px;margin-bottom:10px">'
+    + '<span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#f4b740;border:1.5px solid #92400e;vertical-align:-1px"></span> Their seats: <strong>'+escHtml(labels)+'</strong></span>'
+    + '<span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#cbd5e1;vertical-align:-1px"></span> Sold</span>'
+    + '<span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#e2e8f0;border:1px solid #cbd5e1;vertical-align:-1px"></span> Open</span></div>'
+    + svg
+    + '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
+    + (o.view_token ? '<a class="btn btn-secondary btn-sm" href="/t/'+encodeURIComponent(o.view_token)+'" target="_blank">Open their ticket page</a>' : '')
+    + '<button class="btn btn-secondary btn-sm" onclick="closeAdHocModal(\'order-seat-map\');openTicketOrderDetail(\''+orderId+'\')">Order details</button></div>', 860)
+}
+
 async function renderMarqueeBoxOfficeOrders(){
   var holder = document.getElementById('mq-boxoffice-orders-holder')
   if(!holder) return
@@ -37176,6 +37246,7 @@ async function renderMarqueeBoxOfficeOrders(){
   function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '—' }
   function fmtDate(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return String(d).slice(0,10) } }
   var statusMap = {completed:'background:#dcfce7;color:#166534', pending:'background:#fef3c7;color:#92400e', cancelled:'background:#f1f5f9;color:#475569'}
+  window._mqOrders = {}; orders.forEach(function(o){ window._mqOrders[o.id] = o })
   holder.innerHTML = '<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
     + '<thead><tr style="border-bottom:2px solid var(--border)">'
     + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Contact</th>'
@@ -37185,9 +37256,10 @@ async function renderMarqueeBoxOfficeOrders(){
     + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Total</th>'
     + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Status</th>'
     + '<th style="text-align:left;padding:10px 8px;color:var(--text-muted)">Date</th>'
+    + '<th></th>'
     + '</tr></thead><tbody>'
     + orders.map(function(o){
-        var when = fmtDate(o.performance_date)+(o.performance_time?' · '+tkFmtTime(o.performance_time):'')
+        var when = fmtDateOnly(o.performance_date)+(o.performance_time?' · '+tkFmtTime(o.performance_time):'')
         return '<tr style="border-bottom:1px solid var(--border);cursor:pointer" onclick="openTicketOrderDetail(\''+o.id+'\')">'
           + '<td style="padding:8px">'+escHtml(o.guardian_name||'')+'<div style="color:var(--text-muted);font-size:11px">'+escHtml(o.guardian_email||'')+'</div>'
           + (o.sale_channel==='presale'?' <span style="display:inline-block;margin-top:3px;padding:2px 8px;border-radius:10px;font-size:10.5px;font-weight:700;background:#ede9fe;color:#6d28d9">Pre-sale</span>':'')
@@ -37199,6 +37271,7 @@ async function renderMarqueeBoxOfficeOrders(){
           + '<td style="padding:8px;font-weight:700">'+fmtMoney(o.total_cents)+(o.donation_cents?'<div style="font-size:10.5px;font-weight:700;color:#9d174d">+ '+fmtMoney(o.donation_cents)+' donation</div>':'')+'</td>'
           + '<td style="padding:8px"><span style="padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;'+(statusMap[o.status]||'')+'">'+escHtml(o.status||'')+'</span></td>'
           + '<td style="padding:8px;color:var(--text-muted)">'+fmtDate(o.created_at)+'</td>'
+          + '<td style="padding:8px;white-space:nowrap">'+((o.seat_labels||[]).length?'<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();openOrderSeatMap(\''+o.id+'\')" title="See where these seats are">Where are they?</button>':'')+'</td>'
           + '</tr>'
       }).join('')
     + '</tbody></table></div>'
@@ -37808,7 +37881,13 @@ function tkStatusBadge(s){
 
 function tkFmtDate(d){
   if(!d) return '';
-  try { var dt=new Date(d+'T00:00:00'); return dt.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'}); }
+  try {
+    // works for '2026-11-07' and for 'Sat, 07 Nov 2026 00:00:00 GMT' without slipping a day
+    var m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/)
+    if(m) return new Date(+m[1], +m[2]-1, +m[3]).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric'})
+    var dt = new Date(d); if(isNaN(dt)) return String(d)
+    return dt.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric',year:'numeric',timeZone:'UTC'})
+  }
   catch(e){ return d; }
 }
 function tkFmtTime(t){

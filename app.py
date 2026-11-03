@@ -32445,6 +32445,23 @@ def inbox_badge_counts():
     return jsonify({'open': int(r.get('open') or 0), 'unread': int(r.get('unread') or 0)})
 
 
+@app.route('/api/inbox/assignee-counts', methods=['GET'])
+def inbox_assignee_counts():
+    """Open + pending conversations per person (and unassigned), for the
+    Team list beside the inbox."""
+    err = require_permission('inbox', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, """SELECT COALESCE(NULLIF(assigned_to,''),'') AS who, COUNT(*) AS n,
+                COUNT(*) FILTER (WHERE unread) AS unread, COUNT(*) FILTER (WHERE status='open') AS open_n
+            FROM inbox_threads WHERE status IN ('open','pending') GROUP BY 1 ORDER BY 2 DESC""") or []
+        me = (fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),)) or {}).get('name') or ''
+        return jsonify({'people': [{'name': r['who'], 'count': int(r['n']), 'unread': int(r['unread']), 'open': int(r['open_n'])} for r in rows], 'me': me})
+    finally:
+        conn.close()
+
+
 @app.route('/api/inbox/threads', methods=['GET'])
 def list_inbox_threads():
     err = require_permission('inbox', 'view')

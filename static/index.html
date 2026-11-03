@@ -9010,6 +9010,7 @@ async function deleteBoardApplication(aid){
 // ── Shared Inbox (info@) ───────────────────────────────────────────
 var _inboxThreads = []
 var _inboxFilter = {status:'active', assigned:'mine', sort:'newest', q:'', tag:''}
+var _inboxGroupByPerson = (function(){ try{ return localStorage.getItem('inbox_group_person')==='1' }catch(e){ return false } })()
 var _inboxOpenThreadId = null
 var _inboxSearchDebounce = null
 var _inboxTeamNamesCache = null
@@ -9214,6 +9215,67 @@ async function refreshInboxNavBadge(){
  badge.style.display = r.open ? '' : 'none'
  badge.style.background = r.unread ? '' : 'var(--text-muted)'
 }
+// ── Who's working on what ──
+// Each person gets a steady color and initials, shown on every conversation;
+// the Team list beside the inbox shows each person's open + pending count.
+function inboxInitials(n){ var p = String(n||'').trim().split(/\s+/); return ((p[0]||'')[0]||'').toUpperCase() + ((p.length>1?p[p.length-1][0]:'')||'').toUpperCase() }
+function inboxPersonColor(n){
+  var pal = ['#0f766e','#7c3aed','#c2410c','#1d4ed8','#be185d','#15803d','#a16207','#0e7490','#9333ea','#b91c1c']
+  var h = 0; String(n||'').split('').forEach(function(c){ h = (h*31 + c.charCodeAt(0)) >>> 0 }); return pal[h % pal.length]
+}
+function inboxPersonBadge(t){
+  var n = t.assigned_to || ''
+  return n
+    ? '<span title="Assigned to '+escHtml(n)+'" style="width:30px;height:30px;border-radius:50%;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;font-size:11.5px;font-weight:800;color:#fff;background:'+inboxPersonColor(n)+'">'+escHtml(inboxInitials(n))+'</span>'
+    : '<span title="Unassigned" style="width:30px;height:30px;border-radius:50%;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#94a3b8;border:1.5px dashed #94a3b8">?</span>'
+}
+function inboxAssignSelect(t){
+  var n = t.assigned_to || ''
+  var names = (_inboxTeamNamesCache||[]).slice()
+  if(n && names.indexOf(n) < 0) names.unshift(n)
+  return '<select onclick="event.stopPropagation()" onchange="event.stopPropagation();quickAssignInboxThread(\''+t.id+'\',this.value)" title="Assign"'
+    + ' style="margin-top:6px;max-width:150px;font-size:11.5px;font-weight:700;padding:3px 6px;border-radius:999px;cursor:pointer;'
+    + (n ? 'border:1.5px solid '+inboxPersonColor(n)+';color:'+inboxPersonColor(n)+';background:#fff' : 'border:1.5px dashed #94a3b8;color:#64748b;background:#fff')+'">'
+    + '<option value="">'+(n?'Unassign':'Unassigned')+'</option>'
+    + names.map(function(x){ return '<option value="'+escHtml(x)+'"'+(x===n?' selected':'')+'>'+escHtml(x)+'</option>' }).join('')
+    + '</select>'
+}
+async function quickAssignInboxThread(tid, who){
+  var r = await api('/api/inbox/threads/'+tid,'PUT',{assigned_to: who})
+  if(r && r.error){ toast(r.error,'error'); return }
+  toast(who ? 'Assigned to '+who : 'Unassigned','success')
+  renderInboxThreadList()
+}
+function toggleInboxGroupByPerson(){
+  _inboxGroupByPerson = !_inboxGroupByPerson
+  try{ localStorage.setItem('inbox_group_person', _inboxGroupByPerson?'1':'0') }catch(e){}
+  renderInboxThreadList()
+}
+async function loadInboxTeamList(){
+  var d = await api('/api/inbox/assignee-counts')
+  var el = document.getElementById('inbox-team-list'); if(!el || !d || d.error) return
+  var people = d.people || []
+  var total = people.reduce(function(t,p){ return t+p.count }, 0)
+  var row = function(key, label, count, unread, badge){
+    var active = _inboxFilter.assigned === key && _inboxFilter.status === 'active'
+    return '<div onclick="setInboxComboView(\'active\',\''+String(key).replace(/'/g,"\\'")+'\')" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:12.5px;background:'+(active?'#e6f4f7':'transparent')+';font-weight:'+(active?'700':'500')+'">'
+      + badge + '<span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(label)+'</span>'
+      + (unread?'<span title="unread" style="width:7px;height:7px;border-radius:50%;background:#145466"></span>':'')
+      + '<span style="font-size:11.5px;font-weight:700;color:var(--text-muted)">'+count+'</span></div>'
+  }
+  var dot = function(n){ return n
+    ? '<span style="width:20px;height:20px;border-radius:50%;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;color:#fff;background:'+inboxPersonColor(n)+'">'+escHtml(inboxInitials(n))+'</span>'
+    : '<span style="width:20px;height:20px;border-radius:50%;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#94a3b8;border:1.5px dashed #94a3b8">?</span>' }
+  var un = people.find(function(p){ return !p.name }) || {count:0, unread:0}
+  var html = row('all', 'Everyone', total, false, '<span style="width:20px;display:inline-block"></span>')
+    + row('unassigned', 'Unassigned', un.count, un.unread, dot(''))
+  // the team members with nothing open still show, at the bottom
+  var seen = {}
+  people.filter(function(p){ return p.name }).forEach(function(p){ seen[p.name] = 1; html += row(p.name, p.name + (p.name===d.me?' (you)':''), p.count, p.unread, dot(p.name)) })
+  ;(_inboxTeamNamesCache||[]).forEach(function(n){ if(!seen[n]) html += row(n, n + (n===d.me?' (you)':''), 0, false, dot(n)) })
+  el.innerHTML = html
+}
+
 async function renderInboxThreadList(){
  var qs = []
  if(_inboxFilter.status!=='all') qs.push('status='+_inboxFilter.status)
@@ -9248,7 +9310,9 @@ async function renderInboxThreadList(){
 
  // Left rail — mirrors Gmail's own Labels list, so filtering by a label
  // works the same way it does there: click it, see just that label.
- var labelsSidebar = '<div style="width:190px;flex-shrink:0;padding-right:16px;border-right:1px solid var(--border)">'
+ var labelsSidebar = '<div style="width:200px;flex-shrink:0;padding-right:16px;border-right:1px solid var(--border)">'
+   + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Team · open &amp; pending</div>'
+   + '<div id="inbox-team-list" style="display:flex;flex-direction:column;gap:2px;margin-bottom:18px"><div style="font-size:12px;color:var(--text-muted);padding:6px 0">Loading…</div></div>'
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Labels</div>'
    + '<div id="inbox-labels-list" style="display:flex;flex-direction:column;gap:2px">'
    + '<div style="font-size:12px;color:var(--text-muted);padding:6px 0">Loading…</div>'
@@ -9265,6 +9329,7 @@ async function renderInboxThreadList(){
    + '<option value="newest"'+(_inboxFilter.sort==='newest'?' selected':'')+'>Newest first</option>'
    + '<option value="oldest"'+(_inboxFilter.sort==='oldest'?' selected':'')+'>Oldest first</option>'
    + '</select>'
+   + '<button class="btn btn-sm '+(_inboxGroupByPerson?'btn-primary':'btn-secondary')+'" onclick="toggleInboxGroupByPerson()" title="Show conversations in sections by who they\'re assigned to">'+(_inboxGroupByPerson?'✓ ':'')+'Group by person</button>'
    + '<button class="btn btn-primary btn-sm" onclick="openInboxComposeModal()">✎ New Message</button>'
    + '</div>'
    + '<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">'
@@ -9309,7 +9374,7 @@ async function renderInboxThreadList(){
  if(!_inboxThreads.length){
    html += '<div class="card" style="padding:40px;text-align:center;color:var(--text-muted)">Nothing here right now.</div>'
  } else {
-   html += _inboxThreads.map(function(t){
+   var _rowHTML = function(t){
      var statusMeta = {open:{c:'#166534',bg:'#dcfce7'}, pending:{c:'#92400e',bg:'#fef3c7'}, closed:{c:'#6b7280',bg:'#f3f4f6'}, spam:{c:'#991b1b',bg:'#fee2e2'}}[t.status] || {c:'#6b7280',bg:'#f3f4f6'}
      var preview = (t.last_body_text||'').replace(/\s+/g,' ').trim().slice(0,110)
      var quickActions = '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">'
@@ -9322,6 +9387,7 @@ async function renderInboxThreadList(){
      var selected = _inboxSelectedIds.has(t.id)
      return '<div class="card" style="padding:14px 16px;margin-bottom:8px;cursor:pointer;display:flex;gap:10px;align-items:flex-start;'+(selected?'background:#f0fdfa;border-color:#5eead4;':'')+(t.unread?'border-left:3px solid #145466':'')+'" onclick="openInboxThread(\''+t.id+'\')">'
        + '<input type="checkbox" '+(selected?'checked':'')+' onclick="event.stopPropagation();toggleInboxSelect(\''+t.id+'\',this.checked)" style="width:15px;height:15px;margin-top:3px;flex-shrink:0;cursor:pointer"/>'
+       + inboxPersonBadge(t)
        + '<div style="flex:1;min-width:0">'
        + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
        + '<div style="min-width:0;flex:1">'
@@ -9332,14 +9398,31 @@ async function renderInboxThreadList(){
        + '</div>'
        + '<div style="text-align:right;flex-shrink:0">'
        + '<span style="font-size:10px;font-weight:700;padding:3px 9px;border-radius:10px;background:'+statusMeta.bg+';color:'+statusMeta.c+'">'+t.status.toUpperCase()+'</span>'
-       + (t.assigned_to?'<div style="font-size:11px;color:var(--text-muted);margin-top:5px"> '+escHtml(t.assigned_to)+'</div>':'')
+       + inboxAssignSelect(t)
        + '<div style="font-size:10.5px;color:#9ca3af;margin-top:4px">'+(t.last_message_at?t.last_message_at.slice(0,10):'')+'</div>'
        + '</div></div>'
        + quickActions + '</div></div>'
-   }).join('')
+   }
+   if(_inboxGroupByPerson){
+     // sections: unassigned first, then each person (busiest first)
+     var groups = {}
+     _inboxThreads.forEach(function(t){ var k = t.assigned_to || ''; (groups[k] = groups[k] || []).push(t) })
+     var keys = Object.keys(groups).sort(function(a,b){ if(!a) return -1; if(!b) return 1; return groups[b].length - groups[a].length })
+     html += keys.map(function(k){
+       var col = inboxPersonColor(k)
+       return '<div style="display:flex;align-items:center;gap:8px;margin:14px 0 8px">'
+         + '<span style="width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:800;'+(k?'background:'+col+';color:#fff':'border:1.5px dashed #94a3b8;color:#64748b')+'">'+(k?escHtml(inboxInitials(k)):'?')+'</span>'
+         + '<span style="font-weight:800;font-size:13.5px">'+escHtml(k||'Unassigned')+'</span><span style="font-size:12px;color:var(--text-muted)">'+groups[k].length+'</span>'
+         + '<span style="flex:1;height:1px;background:var(--border)"></span></div>'
+         + groups[k].map(_rowHTML).join('')
+     }).join('')
+   } else {
+     html += _inboxThreads.map(_rowHTML).join('')
+   }
  }
  document.getElementById('inbox-content').innerHTML = '<div style="display:flex;gap:20px;align-items:flex-start">'
    + labelsSidebar + '<div style="flex:1;min-width:0">' + html + '</div></div>'
+ loadInboxTeamList()
  api('/api/inbox/tags').then(function(tags){
    var list = document.getElementById('inbox-labels-list')
    if(!list) return
@@ -9358,7 +9441,7 @@ async function renderInboxThreadList(){
  // require that first).
  if(!_inboxTeamNamesCache){
    api('/api/inbox/team').then(function(names){
-     if(Array.isArray(names)){ _inboxTeamNamesCache = names; if(_inboxSelectedIds.size) renderInboxThreadList() }
+     if(Array.isArray(names)){ _inboxTeamNamesCache = names; renderInboxThreadList() }   // so every row's assign menu has the team
    })
  }
  api('/api/inbox/team').then(function(names){

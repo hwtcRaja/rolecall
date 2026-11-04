@@ -229,6 +229,7 @@ function showResult(r){
     + (r.name ? '<div class="who">'+esc(r.name)+'</div>' : '')
     + (r.seat_label ? '<div class="sub" style="font-size:22px;font-weight:800">'+esc(r.seat_label)+(r.section?' · '+esc(r.section):'')+'</div>' : '')
     + '<div class="sub">'+esc(r.message || r.error || '')+'</div>'
+    + (r.rush_note ? '<div style="margin-top:10px;display:inline-block;background:#fff7ed;color:#9a3412;font-weight:800;font-size:18px;border-radius:10px;padding:6px 14px">⚡ '+esc(r.rush_note)+'</div>' : '')
     + partyHTML(r)
     + '<div class="tap">Tap anywhere to scan the next ticket</div>'
   el.style.display = 'flex'

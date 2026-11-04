@@ -38265,6 +38265,7 @@ async function loadTicketsTab(pid){
         ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 14px;background:var(--teal-light,#e0f2fe);border-radius:var(--radius);font-size:13px">'
           + '<button class="btn btn-secondary btn-sm" onclick="openEmailTicketsModal(\''+pid+'\')" title="Send the tickets email to people who already bought">Email Tickets</button>'
           + '<button class="btn btn-secondary btn-sm" onclick="openAudienceEmailModal(\''+pid+'\')" title="Thank-you, survey or news email to everyone who bought tickets">Email Audience</button>'
+          + '<button class="btn btn-secondary btn-sm" onclick="openRushSettings(\''+pid+'\')" title="Discounted tickets that go on sale shortly before curtain">⚡ Rush Tickets</button>'
           + '<a class="btn btn-secondary btn-sm" href="/tickets/scan" target="_blank" title="Scan ticket QR codes at the door">Door Scanner</a>'
           + '<a class="btn btn-secondary btn-sm" href="/house" target="_blank" title="Live check-in dashboard for show night">House Manager</a>'
           + '<a class="btn btn-secondary btn-sm" href="'+ticketUrl+'?preview=1" target="_blank" title="Try the whole flow before sales open, including Draft and Pre-Sale performances. Only works while you\'re logged in.">Preview as a buyer</a>'
@@ -38823,6 +38824,61 @@ async function clearSlackTicketWebhook(){
 
 // ── Email tickets to people who already bought ──
 // ── Email the audience (thank-yous, surveys, anything) ──
+// ── Rush tickets (per production) ──
+async function openRushSettings(pid){
+  var r = await api('/api/productions/'+pid+'/rush')
+  if(r.error){ toast(r.error,'error'); return }
+  var el = r.eligibility_options || {}
+  var v = function(x, d){ return x == null ? d : x }
+  var perfRows = (r.performances||[]).map(function(p){
+    return '<tr><td style="padding:5px 6px">'+escHtml(tkFmtDate(p.date))+(p.time?' · '+escHtml(tkFmtTime(p.time)):'')+'</td>'
+      + '<td style="padding:5px 6px;color:var(--text-muted)">'+(p.open?'<strong style="color:#c2410c">On sale now</strong>':'opens '+escHtml(p.opens))+'</td>'
+      + '<td style="padding:5px 6px;text-align:right">'+p.sold+' sold'+(p.left!=null?' · '+p.left+' left':'')+(p.block_found!=null?' · '+p.block_found+' block seats found':'')+'</td></tr>' }).join('')
+  showAdHocModal('rush-modal','Rush tickets',
+    '<label style="display:flex;gap:8px;align-items:center;font-size:14px;font-weight:700;margin-bottom:12px;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" id="rush-on" '+(r.enabled?'checked':'')+' style="width:auto"/> Offer rush tickets for this production</label>'
+    + '<div class="form-row"><div class="form-group"><label>Rush price ($)</label><input type="number" id="rush-price" min="0" step="0.01" value="'+(r.price_cents?(r.price_cents/100):'')+'" placeholder="e.g. 10"/></div>'
+    + '<div class="form-group"><label>Rush tickets per performance</label><input type="number" id="rush-cap" min="0" value="'+v(r.cap_per_performance,'')+'" placeholder="blank = no cap"/></div>'
+    + '<div class="form-group"><label>Max per order</label><input type="number" id="rush-per" min="0" value="'+v(r.per_order_limit,2)+'" placeholder="e.g. 2"/></div></div>'
+    + '<div class="form-group"><label>When they go on sale</label><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<select id="rush-mode" onchange="rushModeUI()" style="width:auto"><option value="hours_before"'+(r.opens_mode!=='day_of'?' selected':'')+'>Hours before curtain</option><option value="day_of"'+(r.opens_mode==='day_of'?' selected':'')+'>The day of the show, at a time</option></select>'
+    + '<span id="rush-hours-w"><input type="number" id="rush-hours" min="0.5" step="0.5" value="'+v(r.opens_hours,2)+'" style="width:80px"/> hours before</span>'
+    + '<span id="rush-time-w"><input type="time" id="rush-time" value="'+escHtml(r.opens_time||'09:00')+'" style="width:auto"/></span></div>'
+    + '<div style="font-size:11.5px;color:var(--text-hint);margin-top:3px">They stop selling online at curtain.</div></div>'
+    + '<div class="form-group"><label>Where</label><div style="display:flex;gap:16px">'
+    + '<label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" id="rush-online" '+(r.online!==false?'checked':'')+' style="width:auto"/> Online (ticket page)</label>'
+    + '<label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" id="rush-door" '+(r.door!==false?'checked':'')+' style="width:auto"/> At the door (House Manager → Sell tickets)</label></div></div>'
+    + '<div class="form-row"><div class="form-group"><label>Who can buy them</label><select id="rush-elig" onchange="rushModeUI()">'+Object.keys(el).map(function(k){ return '<option value="'+k+'"'+(r.eligibility===k?' selected':'')+'>'+escHtml(el[k])+'</option>' }).join('')+'</select></div>'
+    + '<div class="form-group" id="rush-note-w"><label>Who (shown to buyers and at the door)</label><input id="rush-note" value="'+escHtml(r.eligibility_note||'')+'" placeholder="e.g. Teachers with a school ID"/></div></div>'
+    + '<div class="form-group"><label>Seats (reserved-seating shows)</label><select id="rush-seat" onchange="rushModeUI()">'
+    + '<option value="pick"'+(r.seat_mode==='pick'||!r.seat_mode?' selected':'')+'>Whatever\'s left: they pick, then choose "Rush"</option>'
+    + '<option value="best"'+(r.seat_mode==='best'?' selected':'')+'>Best available: we assign seats automatically</option>'
+    + '<option value="block"'+(r.seat_mode==='block'?' selected':'')+'>A set-aside block: only these seats, held until rush opens</option></select></div>'
+    + '<div class="form-group" id="rush-block-w"><label>Rush seat block</label><input id="rush-block" value="'+escHtml(r.block_labels||'')+'" placeholder="e.g. R1-R12, Q1-Q4"/>'
+    + '<div style="font-size:11.5px;color:var(--text-hint);margin-top:3px">Seat labels, with ranges. These can\'t be bought as regular tickets, and show as taken until rush opens. Unsold rush seats stay rush-only.</div></div>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="saveRushSettings(\''+pid+'\')">Save</button>'
+    + (perfRows ? '<div style="margin-top:16px;font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">By performance</div><table style="width:100%;font-size:12.5px;border-collapse:collapse">'+perfRows+'</table>' : ''), 620)
+  rushModeUI()
+}
+function rushModeUI(){
+  var m = document.getElementById('rush-mode').value
+  document.getElementById('rush-hours-w').style.display = m==='hours_before' ? '' : 'none'
+  document.getElementById('rush-time-w').style.display = m==='day_of' ? '' : 'none'
+  document.getElementById('rush-note-w').style.display = document.getElementById('rush-elig').value==='custom' ? '' : 'none'
+  document.getElementById('rush-block-w').style.display = document.getElementById('rush-seat').value==='block' ? '' : 'none'
+}
+async function saveRushSettings(pid){
+  var g = function(id){ return document.getElementById(id) }
+  var body = {enabled: g('rush-on').checked, price: g('rush-price').value, cap_per_performance: g('rush-cap').value, per_order_limit: g('rush-per').value,
+    opens_mode: g('rush-mode').value, opens_hours: g('rush-hours').value, opens_time: g('rush-time').value, online: g('rush-online').checked, door: g('rush-door').checked,
+    eligibility: g('rush-elig').value, eligibility_note: g('rush-note').value, seat_mode: g('rush-seat').value, block_labels: g('rush-block').value}
+  if(body.enabled && !(parseFloat(body.price) >= 0 && body.price !== '')){ toast('Set a rush price','error'); return }
+  if(body.enabled && body.seat_mode==='block' && !body.block_labels.trim()){ toast('List the seats in the rush block','error'); return }
+  var r = await api('/api/productions/'+pid+'/rush','PUT',body)
+  if(r.error){ toast(r.error,'error'); return }
+  toast(body.enabled ? 'Rush tickets saved' : 'Rush tickets turned off','success')
+  closeAdHocModal('rush-modal'); openRushSettings(pid)
+}
+
 async function openAudienceEmailModal(pid){
   var perfs = await api('/api/productions/'+pid+'/performances')
   perfs = Array.isArray(perfs) ? perfs.filter(function(p){ return p.status !== 'cancelled' }) : []

@@ -484,6 +484,7 @@ async function scScan(code){
     + '<div style="font-size:20px;font-weight:800">'+head+'</div>'
     + '<div style="font-weight:700">'+esc(r.name||'')+(r.seat_label?' · '+esc(r.seat_label):'')+'</div>'
     + '<div style="font-size:13px">'+esc(r.message||r.error||'')+'</div>'
+    + (r.rush_note ? '<div style="font-size:13px;font-weight:800;margin-top:4px">⚡ '+esc(r.rush_note)+'</div>' : '')
     + (r.ticket_id ? '<button class="btn" style="margin-top:8px;background:rgba(0,0,0,.2);color:#fff" onclick="closeScanner();openTicket(\''+r.ticket_id+'\')">Open their details</button>' : '')
     + '</div>'
   setTimeout(function(){ SC.busy = false }, 1200)

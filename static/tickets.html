@@ -504,7 +504,10 @@ function renderPerformancePicker(prod, perfs){
         return '<div class="perf-option" style="'+(full?'opacity:0.6':'')+'">'
           + '<div><div style="font-weight:800;font-size:16px">'+escH(fmtPerfDate(p.performance_date, p.performance_time))+'</div>'
           + '<div style="font-size:13px;color:var(--text-muted);margin-top:2px">'+escH(p.venue_name||'')+'</div>'
-          + (full ? '' : availabilityBadge(p.availability)) + '</div>'
+          + (full ? '' : availabilityBadge(p.availability))
+          + (p.rush && p.rush.open && !p.rush.sold_out ? ' <div style="display:inline-block;margin-top:6px;font-size:12px;font-weight:800;background:#ffedd5;color:#9a3412;border-radius:999px;padding:3px 10px">⚡ Rush tickets on sale now: '+fmtMoney(p.rush.price_cents)+'</div>'
+             : p.rush && p.rush.upcoming ? ' <div style="display:inline-block;margin-top:6px;font-size:12px;color:#9a3412">⚡ Rush '+fmtMoney(p.rush.price_cents)+' opens '+escH(p.rush.opens_label)+'</div>' : '')
+          + '</div>'
           + (full?'<span style="font-size:12px;font-weight:700;color:var(--red)">SOLD OUT</span>':'<button class="btn btn-primary" onclick="loadPerformance(\''+p.id+'\')">Select</button>')
           + '</div>'
       }).join('')
@@ -560,6 +563,7 @@ function renderPurchaseScreen(){
     // not missing entirely.
     html += renderAboutSection(lastProd.description)
   }
+  html += rushBannerHTML()
   html += '<div class="card">'
   if(reserved && !ticketTypes.length){
     // No point letting anyone pick a seat that has nothing valid to charge
@@ -897,6 +901,7 @@ function renderPickerSVG(){
     // can coexist if someone deliberately picks an obstructed seat) and
     // the wheelchair icon (which stays centered in the dot as always).
     var obstructedStroke = s.obstructed_view ? ' stroke="#f59e0b" stroke-width="0.09" stroke-dasharray="0.09,0.07"' : ' stroke="#fff" stroke-width="0.05"'
+    if(s.rush_only && !picking) svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="'+(r+0.1)+'" fill="none" stroke="#f97316" stroke-width="0.1"/>'
     var seatTitle = escH(s.seat_label)+(s.section?' · '+escH(s.section):'')+(s.accessible?' — Wheelchair space':'')
       +(s.companion_state==='locked'?' — Companion seat, booked with the wheelchair space next to it':'')
       +(s.obstructed_view?' — Limited view'+(s.view_note?': '+escH(s.view_note):''):'')
@@ -995,12 +1000,53 @@ function openCompanionInfo(seat){
     + (spaceFree ? '<button class="btn btn-primary" style="width:auto" onclick="closeAccessModal();toggleSeat(\''+space.id+'\')">Book the wheelchair space</button>' : '')
     + '</div>')
 }
+// ── Rush tickets ──
+var rushAssigned = {}   // seat_id -> true for seats given out as rush (best/block)
+function rushInfo(){ return currentPerformance && currentPerformance.rush }
+function rushTypeId(){ var r = rushInfo(); return r && r.type_id }
+function isRushType(id){ return !!id && id === rushTypeId() }
+function normalTypes(){ return ticketTypes.filter(function(t){ return !t.is_rush }) }
+function rushLiveType(){ return ticketTypes.find(function(t){ return t.is_rush }) }
+function rushBannerHTML(){
+  var r = rushInfo(); if(!r) return ''
+  var note = r.eligibility_note ? ' <strong>'+escH(r.eligibility_note)+'</strong>.' : ''
+  if(r.open && !r.sold_out){
+    var pick = (currentPerformance.reserved_seating && r.seat_mode !== 'pick')
+      ? '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><select id="rush-qty" style="width:auto;padding:6px 10px">'
+        + Array.from({length: Math.min(r.per_order||6, r.left==null?6:r.left, 10)}, function(_, i){ return '<option>'+(i+1)+'</option>' }).join('')
+        + '</select><button class="btn btn-primary" style="width:auto;padding:9px 16px" onclick="getRushSeats()">'+(r.seat_mode==='block'?'Get rush seats':'Get the best available rush seats')+'</button></div>'
+        + (r.seat_mode==='block' ? '<div style="font-size:12px;color:#7c2d12;margin-top:6px">Or tap a gold-ringed rush seat on the map.</div>' : '')
+      : (currentPerformance.reserved_seating ? '<div style="font-size:12.5px;margin-top:6px">Pick your seats below, then choose <strong>Rush</strong> as the ticket type.</div>' : '')
+    return '<div style="background:#fff7ed;border:1.5px solid #fdba74;border-radius:12px;padding:14px 16px;margin-bottom:12px">'
+      + '<div style="font-weight:800;color:#9a3412;font-size:15px">⚡ Rush tickets on sale now: '+fmtMoney(r.price_cents)+' each</div>'
+      + '<div style="font-size:13px;color:#7c2d12;margin-top:2px">'+(r.per_order?'Up to '+r.per_order+' per order. ':'')+(r.left!=null?r.left+' left. ':'')+note+'</div>' + pick + '</div>'
+  }
+  if(r.open && r.sold_out) return '<div style="background:#f1f5f9;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px">Rush tickets for this performance are sold out.</div>'
+  if(r.upcoming) return '<div style="background:#fff7ed;border:1px dashed #fdba74;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#7c2d12">⚡ Rush tickets ('+fmtMoney(r.price_cents)+') go on sale '+escH(r.opens_label)+'.'+note+'</div>'
+  return ''
+}
+async function getRushSeats(){
+  var qty = parseInt((document.getElementById('rush-qty')||{}).value)||1
+  var res = await api('/api/public/performances/'+currentPerformance.id+'/rush-assign','POST',{quantity: qty, session_token: getSessionToken()})
+  if(res.error){ alert(res.error); return }
+  res.seats.forEach(function(x){
+    selectedSeats[x.id] = res.type_id; rushAssigned[x.id] = true
+    var st = seats.find(function(z){ return z.id===x.id }); if(st) st.status = 'mine'
+  })
+  armHoldExpiry(); refreshPickerAndCart(); renderPurchaseScreen()
+}
+function defaultTypeFor(seat){
+  var rt = rushLiveType()
+  if(seat && seat.rush_only && rt) return rt
+  return normalTypes()[0] || ticketTypes[0]
+}
+
 async function holdSeatGroup(ids, accessibleConfirmed){
   if(ticketsRemainingForCurrentPerformance() < ids.length){
     alert('This show limits '+lastProd.max_tickets_per_performance+' ticket(s) per performance per person.')
     return
   }
-  var defaultType = ticketTypes[0]
+  var defaultType = defaultTypeFor(null)
   ids.forEach(function(id){ selectedSeats[id] = defaultType ? defaultType.id : null })
   refreshPickerAndCart()
   var res = await api('/api/public/performances/'+currentPerformance.id+'/hold-seats','POST',
@@ -1018,7 +1064,7 @@ async function toggleSeat(seatId){
   var seat = seats.find(function(s){ return s.id===seatId })
   if(!seat) return
   if(Object.prototype.hasOwnProperty.call(selectedSeats, seatId)){
-    delete selectedSeats[seatId]
+    delete selectedSeats[seatId]; delete rushAssigned[seatId]
     var rel = await api('/api/public/performances/'+currentPerformance.id+'/release-hold','POST',
       {seat_ids:[seatId], session_token:getSessionToken()})
     seat.status = 'available'
@@ -1045,8 +1091,9 @@ async function toggleSeat(seatId){
   if(seat.accessible){ openAccessibleSpace(seat); return }
   if(seat.companion_state === 'locked'){ openCompanionInfo(seat); return }
   // Optimistically select, then confirm the hold with the server
-  var defaultType = ticketTypes[0]
+  var defaultType = defaultTypeFor(seat)
   selectedSeats[seatId] = defaultType ? defaultType.id : null
+  if(seat.rush_only) rushAssigned[seatId] = true
   refreshPickerAndCart()
   var res = await api('/api/public/performances/'+currentPerformance.id+'/hold-seats','POST',
     {seat_ids:[seatId], session_token:getSessionToken(), presale_keys: presaleKeysForServer(), preview: TICKET_PREVIEW})
@@ -1133,6 +1180,11 @@ function changeGaQty(ticketTypeId, delta){
   }
   var next = Math.max(0, cur+delta)
   if(tt && tt.quantity_limit) next = Math.min(next, tt.quantity_limit)
+  if(tt && tt.is_rush && delta > 0){
+    var ri = rushInfo() || {}
+    var cap = Math.min(ri.per_order || 99, ri.left == null ? 99 : ri.left)
+    if(next > cap){ alert(ri.left === 0 ? 'Rush tickets are sold out.' : 'Rush tickets are limited to '+cap+' for this order.'); next = cap }
+  }
   // never more than what's left for a general-seating performance
   var gaLeft = currentPerformance && currentPerformance.ga_remaining
   if(delta > 0 && gaLeft != null){
@@ -1148,8 +1200,14 @@ function changeGaQty(ticketTypeId, delta){
 
 function seatTicketTypeSelect(seatId){
   var current = selectedSeats[seatId]
+  // rush seats (block / best available) are rush-only; other seats can be rush only in "pick" mode
+  if(rushAssigned[seatId]){
+    var rt = rushLiveType()
+    return '<span style="font-size:12px;font-weight:700;color:#9a3412">⚡ Rush'+(rt?' — '+fmtMoney(rt.price_cents):'')+'</span>'
+  }
+  var r = rushInfo(), opts = ticketTypes.filter(function(tt){ return !tt.is_rush || (r && r.seat_mode === 'pick') })
   return '<select onchange="selectedSeats[\''+seatId+'\']=this.value;refreshCartOnly()" style="width:auto;padding:4px 8px;font-size:12px">'
-    + ticketTypes.map(function(tt){ return '<option value="'+tt.id+'"'+(tt.id===current?' selected':'')+'>'+escH(tt.name)+' — '+fmtMoney(tt.price_cents)+'</option>' }).join('')
+    + opts.map(function(tt){ return '<option value="'+tt.id+'"'+(tt.id===current?' selected':'')+'>'+escH(tt.name)+' — '+fmtMoney(tt.price_cents)+'</option>' }).join('')
     + '</select>'
 }
 

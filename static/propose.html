@@ -11,6 +11,7 @@
 body{margin:0;font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
 button,input,select,textarea{font-family:inherit;font-size:15px}
 .hero{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;padding:34px 20px 30px;text-align:center}
+.hero .logo{height:64px;display:block;margin:0 auto 12px;mix-blend-mode:screen}
 .hero h1{font-family:'Playfair Display',Georgia,serif;font-size:clamp(26px,4vw,36px);margin:0 0 6px}
 .hero p{margin:0 auto;max-width:620px;opacity:.9;line-height:1.55}
 .wrap{max-width:760px;margin:-18px auto 40px;padding:0 16px}
@@ -43,7 +44,7 @@ textarea{resize:vertical}
 </style>
 </head>
 <body>
-<div class="hero"><h1 id="hero-title">Propose a workshop or class</h1><p id="hero-sub">Have a workshop or class you'd love to teach at the HWTC Studio? Tell us about it. We review every proposal and will get back to you.</p></div>
+<div class="hero"><img class="logo" src="/static/images/hwtc_logo_white.png" alt="Horizon West Theater Company" onerror="this.style.display='none'"/><h1 id="hero-title">Propose a workshop or class</h1><p id="hero-sub">Have a workshop or class you'd love to teach at the HWTC Studio? Tell us about it. We review every proposal and will get back to you.</p></div>
 <div class="wrap" id="app"></div>
 <script>
 var TOKEN = (location.pathname.match(/^\/proposal\/([a-f0-9]+)/)||[])[1] || ''

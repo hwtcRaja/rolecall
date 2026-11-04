@@ -47,7 +47,11 @@ body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);fon
 .sidebar-logo-text{color:#fff;font-size:20px;font-weight:600;letter-spacing:-0.3px}
 .sidebar-logo-sub{color:rgba(255,255,255,0.5);font-size:11px}
 .sidebar-nav{padding:16px 12px;flex:1}
-.nav-section{font-size:10px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:rgba(255,255,255,0.35);padding:12px 8px 4px}
+.nav-section{font-size:10px;font-weight:600;letter-spacing:0.8px;text-transform:uppercase;color:rgba(255,255,255,0.35);padding:12px 8px 4px;cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between}
+.nav-section:hover{color:rgba(255,255,255,0.6)}
+.nav-section::after{content:'\25BE';font-size:10px;opacity:.6;transition:transform .15s}
+.nav-section.collapsed::after{transform:rotate(-90deg)}
+.nav-item.nav-folded{display:none!important}
 .nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;color:rgba(255,255,255,0.75);cursor:pointer;font-size:14px;font-weight:400;transition:all 0.15s;margin-bottom:2px;user-select:none;text-decoration:none}
 .nav-item:hover{background:rgba(255,255,255,0.1);color:#fff}
 .nav-item.active{background:rgba(255,255,255,0.18);color:#fff;font-weight:500}
@@ -452,76 +456,64 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  <nav class="sidebar-nav">
-        <!-- MAIN THEATER -->
+        <!-- Grouped by area; click a heading to fold it away (remembered per browser). -->
         <div class="nav-section">RoleCall</div>
         <div class="nav-item active" onclick="navTo('dashboard',this)"><span class="nav-icon" id="ni-dashboard"></span>Dashboard</div>
         <div class="nav-item" onclick="navTo('my-time',this)"><span class="nav-icon" id="ni-my-time"></span>My Time &amp; Attendance</div>
         <div class="nav-item" onclick="navTo('space-requests',this)"><span class="nav-icon" id="ni-space-requests"></span>Request a Space</div>
-        <div class="nav-item" onclick="navTo('surveys',this)"><span class="nav-icon" id="ni-surveys"></span>Surveys</div>
-        <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers"></span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors"></span>Directors</div>
-        <div class="nav-item" onclick="navTo('proposals',this)"><span class="nav-icon" id="ni-proposals"></span>Workshop &amp; Class Proposals<span id="proposals-nav-badge" style="display:none;margin-left:auto;font-size:10px;font-weight:800;background:#145466;color:#fff;border-radius:9px;padding:1px 7px"></span></div>
-        <div class="nav-item" onclick="navTo('patrons',this)"><span class="nav-icon" id="ni-patrons"></span>Patrons</div>
-        <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
-        <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
-        <div class="nav-item" onclick="navTo('email-log',this)"><span class="nav-icon" id="ni-email-log"></span>Email Log</div>
-        <div class="nav-item" onclick="navTo('inbox',this)"><span class="nav-icon" id="ni-inbox"></span>Inbox<span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
-        <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee"></span>Marquee</div>
-        <div class="nav-item" onclick="navTo('refund-requests',this)" style="padding-left:28px"><span class="nav-icon" id="ni-refund-requests"></span>Refund Requests</div>
-
-        <!-- MAINSTAGE -->
-        <div class="nav-section">Mainstage</div>
-        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions<span class="nav-badge" id="prod-msg-unread-badge" style="display:none">0</span></div>
-
-        <!-- Cross-cutting tools — these work across every production type (Mainstage,
-        Rising Stars, Teen Show), not just Mainstage, so they get their own section
-        instead of implying they're Mainstage-only. -->
-        <div class="nav-section">Production Tools</div>
-        <div class="nav-item" onclick="navTo('show-contracts',this)"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
-        <div class="nav-item" onclick="navTo('licensing',this)"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
-        <div class="nav-item" onclick="navTo('talent',this)"><span class="nav-icon" id="ni-talent"></span>Talent Database</div>
-
-        <!-- INSTRUCTOR (restricted role) -->
+        <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications"></span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-section" id="nav-section-instructor" style="display:none">My Teaching</div>
         <div class="nav-item" id="nav-instructor-dashboard" onclick="navTo('instructor-dashboard',this)" style="display:none"><span class="nav-icon" id="ni-instructor-dashboard"></span>My Programs</div>
         <div class="nav-item" id="nav-director-dashboard" onclick="navTo('director-dashboard',this)" style="display:none"><span class="nav-icon" id="ni-director-dashboard"></span>My Productions</div>
-
-        <!-- YOUTH EDUCATION -->
+        <div class="nav-section">Volunteers</div>
+        <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers"></span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
+        <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('oncall',this)"><span class="nav-icon" id="ni-oncall"></span>On-Call Schedule</div>
+        <div class="nav-item" onclick="navTo('hours-store',this)"><span class="nav-icon" id="ni-hours-store"></span>Hours Store</div>
+        <div class="nav-item" onclick="navTo('foh-training',this)"><span class="nav-icon" id="ni-foh-training"></span>FOH Training</div>
+        <div class="nav-section">Communications</div>
+        <div class="nav-item" onclick="navTo('inbox',this)"><span class="nav-icon" id="ni-inbox"></span>Inbox<span class="nav-badge" id="inbox-nav-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('email',this)"><span class="nav-icon" id="ni-email"></span>Email</div>
+        <div class="nav-item" onclick="navTo('email-log',this)"><span class="nav-icon" id="ni-email-log"></span>Email Log</div>
+        <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page"></span>Email Templates</div>
+        <div class="nav-item" onclick="navTo('surveys',this)"><span class="nav-icon" id="ni-surveys"></span>Surveys</div>
+        <div class="nav-section">Calendar &amp; Events</div>
+        <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
+        <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
+        <div class="nav-item" onclick="navTo('studio-after-dark',this)"><span class="nav-icon" id="ni-studio-after-dark"></span>Studio After Dark</div>
+        <div class="nav-section">Productions</div>
+        <div class="nav-item" onclick="navTo('productions',this)"><span class="nav-icon" id="ni-productions"></span>Productions<span class="nav-badge" id="prod-msg-unread-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors"></span>Directors</div>
+        <div class="nav-item" onclick="navTo('show-contracts',this)"><span class="nav-icon" id="ni-show-contracts"></span>Show Contracts</div>
+        <div class="nav-item" onclick="navTo('licensing',this)"><span class="nav-icon" id="ni-licensing"></span>Licensing Requests</div>
+        <div class="nav-item" onclick="navTo('talent',this)"><span class="nav-icon" id="ni-talent"></span>Talent Database</div>
+        <div class="nav-section">Box Office &amp; Patrons</div>
+        <div class="nav-item" onclick="navTo('marquee',this)"><span class="nav-icon" id="ni-marquee"></span>Marquee</div>
+        <div class="nav-item" onclick="navTo('refund-requests',this)" style="padding-left:28px"><span class="nav-icon" id="ni-refund-requests"></span>Refund Requests</div>
+        <div class="nav-item" onclick="navTo('patrons',this)"><span class="nav-icon" id="ni-patrons"></span>Patrons</div>
         <div class="nav-section">Education &amp; Programming</div>
         <div class="nav-item" onclick="navTo('youth',this)"><span class="nav-icon" id="ni-youth"></span>Participants</div>
         <div class="nav-item" onclick="navTo('youth-programs-page',this)"><span class="nav-icon" id="ni-youth-programs-page"></span>Programs &amp; Classes<span class="nav-badge" id="msg-unread-badge" style="display:none">0</span></div>
+        <div class="nav-item" onclick="navTo('proposals',this)"><span class="nav-icon" id="ni-proposals"></span>Workshop &amp; Class Proposals<span id="proposals-nav-badge" style="display:none;margin-left:auto;font-size:10px;font-weight:800;background:#145466;color:#fff;border-radius:9px;padding:1px 7px"></span></div>
         <div class="nav-item" onclick="navTo('rising-stars-page',this)"><span class="nav-icon" id="ni-rising-stars-page"></span>Youth Productions<span class="nav-badge" id="rs-msg-unread-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('step-up-holds',this)"><span class="nav-icon" id="ni-step-up-holds"></span>Step Up Holds<span class="nav-badge" id="step-up-pending-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('portal-admin',this)"><span class="nav-icon" id="ni-portal-admin"></span>Participant Portal</div>
         <div class="nav-item" onclick="navTo('youth-signin',this)"><span class="nav-icon" id="ni-youth-signin"></span>Participant Sign-In</div>
         <div class="nav-item" onclick="navTo('carpools',this)"><span class="nav-icon" id="ni-carpools"></span>Carpools</div>
-
-        <!-- ARTISTIC PARTNERSHIP -->
         <div class="nav-section">Venue &amp; Partnerships</div>
         <div class="nav-item" onclick="navTo('rentals',this)"><span class="nav-icon" id="ni-rentals"></span>Artistic Partnership<span class="nav-badge" id="rental-pending-badge" style="display:none">0</span></div>
-
-        <!-- DONORS -->
         <div class="nav-section">Donors &amp; Sponsors</div>
         <div class="nav-item" onclick="navTo('donors',this)"><span class="nav-icon" id="ni-donors"></span>All Donors</div>
         <div class="nav-item" onclick="navTo('donor-campaigns',this)"><span class="nav-icon" id="ni-donor-campaigns"></span>Campaigns</div>
         <div class="nav-item" onclick="navTo('donor-tiers',this)"><span class="nav-icon" id="ni-donor-tiers"></span>Tiers &amp; Benefits</div>
         <div class="nav-item" onclick="navTo('donor-benefits',this)"><span class="nav-icon" id="ni-donor-benefits"></span>Donor Benefits</div>
-        <div class="nav-item" onclick="navTo('donor-templates',this)"><span class="nav-icon" id="ni-donor-templates"></span>Email Templates</div>
-        <!-- ADMIN -->
+        <div class="nav-item" onclick="navTo('donor-templates',this)"><span class="nav-icon" id="ni-donor-templates"></span>Donor Email Templates</div>
         <div class="nav-section">Admin</div>
-        <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page"></span>Email Templates</div>
-        <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
-        <div class="nav-item" onclick="navTo('foh-training',this)"><span class="nav-icon" id="ni-foh-training"></span>FOH Training</div>
-        <div class="nav-item" onclick="navTo('studio-after-dark',this)"><span class="nav-icon" id="ni-studio-after-dark"></span>Studio After Dark</div>
         <div class="nav-item" onclick="navTo('reports',this)"><span class="nav-icon" id="ni-reports"></span>Reports</div>
         <div class="nav-item" onclick="navTo('board',this)"><span class="nav-icon" id="ni-board"></span>Board</div>
         <div class="nav-item" onclick="navTo('responsibility',this)"><span class="nav-icon" id="ni-responsibility"></span>Responsibility Grid</div>
-        <div class="nav-item" onclick="navTo('notifications',this)"><span class="nav-icon" id="ni-notifications"></span>Notifications<span class="nav-badge" id="notif-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('settings',this)"><span class="nav-icon" id="ni-settings"></span>Settings</div>
-        <div class="nav-item" onclick="navTo('oncall',this)"><span class="nav-icon" id="ni-oncall"></span>On-Call Schedule</div>
-        <div class="nav-item" onclick="navTo('hours-store',this)"><span class="nav-icon" id="ni-hours-store"></span>Hours Store</div>
       </nav>
  <div class="sidebar-user">
  <div class="user-avatar" id="sidebar-avatar">?</div>
@@ -4906,6 +4898,7 @@ function applyPermissionUI(){
  }
  sec.style.display = anyVisible ? '': 'none'
  })
+ applyNavFolds()
 }
 window.addEventListener('DOMContentLoaded',async()=>{
  const data=await api('/api/auth/me')
@@ -4917,6 +4910,50 @@ window.addEventListener('DOMContentLoaded',async()=>{
 // ═══════════════════════════════════════════════════════════════
 // NAV
 // ═══════════════════════════════════════════════════════════════
+// ── Sidebar sections fold open/closed ──
+// Click a section heading to fold it away. Remembered per browser; first
+// time, everything but "RoleCall" starts folded. The section of the page
+// you're on always opens.
+function _navSections(){
+  return Array.from(document.querySelectorAll('.sidebar-nav .nav-section')).map(function(sec){
+    var items = [], n = sec.nextElementSibling
+    while(n && !n.classList.contains('nav-section')){ if(n.classList.contains('nav-item')) items.push(n); n = n.nextElementSibling }
+    return {sec: sec, key: sec.textContent.trim(), items: items}
+  })
+}
+function _navFoldState(){
+  try{ var v = localStorage.getItem('nav_folded'); if(v) return JSON.parse(v) }catch(e){}
+  var st = {}; _navSections().forEach(function(g){ st[g.key] = g.key !== 'RoleCall' && g.key !== 'My Teaching' }); return st
+}
+function applyNavFolds(){
+  var st = _navFoldState()
+  _navSections().forEach(function(g){
+    var folded = !!st[g.key] && !g.items.some(function(i){ return i.classList.contains('active') })
+    g.sec.classList.toggle('collapsed', folded)
+    g.items.forEach(function(i){ i.classList.toggle('nav-folded', folded) })
+  })
+}
+function toggleNavSection(sec){
+  var st = _navFoldState(), key = sec.textContent.trim()
+  st[key] = !sec.classList.contains('collapsed')
+  try{ localStorage.setItem('nav_folded', JSON.stringify(st)) }catch(e){}
+  applyNavFolds()
+}
+function openNavSectionFor(el){
+  if(!el) return
+  var n = el.previousElementSibling
+  while(n && !n.classList.contains('nav-section')) n = n.previousElementSibling
+  if(n && n.classList.contains('collapsed')){
+    var st = _navFoldState(); st[n.textContent.trim()] = false
+    try{ localStorage.setItem('nav_folded', JSON.stringify(st)) }catch(e){}
+  }
+  applyNavFolds()
+}
+document.addEventListener('click', function(e){
+  var sec = e.target.closest && e.target.closest('.sidebar-nav .nav-section')
+  if(sec) toggleNavSection(sec)
+})
+
 function navTo(page,el){
  closeMobileNav();
  if(page !== 'production-detail') window._openProductionAccess = null
@@ -4924,10 +4961,12 @@ function navTo(page,el){
  document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'))
  const pg=document.getElementById('page-'+page)
  if(pg) pg.classList.add('active')
+ if(!el) el = document.querySelector(".nav-item[onclick*=\"navTo('"+page+"'\"]")
  if(el) el.classList.add('active')
  else document.querySelectorAll('.nav-item').forEach(n=>{
  if(n.textContent.trim().toLowerCase().replace(/\s+/g,'-').startsWith(page.replace('_','-'))) n.classList.add('active')
  })
+ openNavSectionFor(el || document.querySelector('.nav-item.active'))
  if(page==='dashboard') renderDashboard()
  if(page==='volunteers'){ renderVolunteers(); loadApplicationsBadge() }
  if(page==='hours') switchHoursTab(_hoursTab)

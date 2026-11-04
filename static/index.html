@@ -23673,6 +23673,33 @@ async function submitSadTestEmail(){
  document.getElementById('sad-test-email-modal')?.remove()
 }
 
+// "Still time to sign up": only goes to people who haven't signed up yet
+async function openSadReminderModal(){
+ var r = await api('/api/sad/remind','POST',{mode:'preview'})
+ if(r.error){ toast(r.error,'error'); return }
+ var c = r.counts || {}
+ var perfLeft = Math.max(0, (c.performer_slots||0) - (c.performers||0))
+ showAdHocModal('sad-remind', 'Sign-up reminder · '+escHtml(r.event_date||''),
+   '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px">'
+   + '<div class="card" style="padding:10px;text-align:center"><div style="font-size:22px;font-weight:800">'+(c.performers||0)+'<span style="font-size:13px;color:var(--text-muted)"> / '+(c.performer_slots||0)+'</span></div><div style="font-size:11.5px;color:var(--text-muted)">performers signed up</div></div>'
+   + '<div class="card" style="padding:10px;text-align:center"><div style="font-size:22px;font-weight:800">'+(c.audience||0)+'<span style="font-size:13px;color:var(--text-muted)"> / '+(c.audience_slots||0)+'</span></div><div style="font-size:11.5px;color:var(--text-muted)">audience only</div></div>'
+   + '<div class="card" style="padding:10px;text-align:center"><div style="font-size:22px;font-weight:800">'+r.recipients+'</div><div style="font-size:11.5px;color:var(--text-muted)">haven\'t signed up yet</div></div></div>'
+   + '<div style="font-size:13px;line-height:1.6;color:var(--text-muted);margin-bottom:10px">The reminder goes only to the <strong>'+r.recipients+'</strong> active volunteers who <strong>haven\'t signed up</strong> for this one (and haven\'t unsubscribed). '
+   + 'It says spots are still open (no numbers)'+(r.closes?' and that sign-ups close '+escHtml(r.closes)+' ET':'')+', with a Sign me up button.</div>'
+   + (r.last_sent ? '<div style="font-size:12.5px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;margin-bottom:10px">Last reminder for this date: '+escHtml(r.last_sent)+'</div>' : '')
+   + '<div class="form-group"><label>Add a personal note (optional)</label><textarea id="sad-rem-note" rows="3" placeholder="e.g. We\'re trying a karaoke corner this month!"></textarea></div>'
+   + '<div style="display:flex;gap:8px;margin-bottom:12px"><input id="sad-rem-test" type="email" value="'+escHtml((currentUser&&currentUser.email)||'')+'" style="flex:1"/><button class="btn btn-secondary btn-sm" onclick="sendSadReminder(\'test\')">Send me a test</button></div>'
+   + '<button class="btn btn-primary" style="width:100%" onclick="sendSadReminder(\'send\','+r.recipients+')"'+(r.recipients?'':' disabled')+'>Send to '+r.recipients+' people</button>', 520)
+}
+async function sendSadReminder(mode, n){
+ var note = document.getElementById('sad-rem-note').value
+ if(mode === 'send' && !confirm('Send the sign-up reminder to '+n+' people now?')) return
+ var r = await api('/api/sad/remind','POST',{mode: mode, note: note, email: document.getElementById('sad-rem-test').value})
+ if(r.error){ toast(r.error,'error'); return }
+ if(mode === 'test'){ toast('Test sent','success'); return }
+ closeAdHocModal('sad-remind'); toast('Sending the reminder to '+r.sending+' people','success')
+}
+
 async function sendSadAnnouncement(){
  // what the email will say, so the confirm matches it
  var next = (_sadEvents||[]).filter(function(e){ return e.lottery_status !== 'completed' }).sort(function(a,b){ return String(a.event_date).localeCompare(String(b.event_date)) })[0]
@@ -23704,6 +23731,7 @@ async function loadSadListPage(){
  document.getElementById('sad-page-actions').innerHTML = `
  <button class="btn btn-secondary" onclick="openSadTestEmailModal()">Send Test Email</button>
  <button class="btn btn-secondary" onclick="sendSadAnnouncement()"> Send Announcement Email</button>
+ <button class="btn btn-secondary" onclick="openSadReminderModal()">Send Sign-up Reminder</button>
  <button class="btn btn-primary" onclick="openSadCreateModal()">+ New Occurrence</button>`
  const events = await api('/api/sad/events')
  if(!Array.isArray(events)){
@@ -37200,27 +37228,50 @@ async function openOrderSeatMap(orderId){
   if(!d || d.error){ toast((d&&d.error)||'Could not load the seat map','error'); return }
   var seats = d.seats||[]; if(!seats.length){ toast('No seat map for this performance','error'); return }
   var mine = {}; seats.forEach(function(s){ if(s.order_id===orderId) mine[s.id] = true })
+  // Drawn the same way as the seat map buyers see: the stage is placed by its
+  // center and can be rotated, plus any labeled areas and row letters.
+  var st = d.stage, shapes = d.shapes || []
   var xs = seats.map(function(s){ return +s.x }), ys = seats.map(function(s){ return +s.y })
-  var minX = Math.min.apply(null,xs)-1.2, maxX = Math.max.apply(null,xs)+1.2, minY = Math.min.apply(null,ys)-1.2, maxY = Math.max.apply(null,ys)+1.2
-  var pf = d.performance||{}, stage = ''
-  if(pf.stage_width){
-    var sx = +pf.stage_x||0, sy = +pf.stage_y||0, sw = +pf.stage_width, sd = +pf.stage_depth||1.5
-    minX = Math.min(minX, sx-0.5); maxX = Math.max(maxX, sx+sw+0.5); minY = Math.min(minY, sy-0.5); maxY = Math.max(maxY, sy+sd+0.5)
-    stage = '<rect x="'+sx+'" y="'+sy+'" width="'+sw+'" height="'+sd+'" rx="0.3" fill="#1f2937"/><text x="'+(sx+sw/2)+'" y="'+(sy+sd/2+0.2)+'" font-size="0.6" fill="#fff" text-anchor="middle">STAGE</text>'
+  if(st){ xs.push(st.x - st.width/2, st.x + st.width/2); ys.push(st.y - st.depth/2, st.y + st.depth/2) }
+  shapes.forEach(function(sh){ xs.push(+sh.x - sh.width/2, +sh.x + +sh.width/2); ys.push(+sh.y - sh.height/2, +sh.y + +sh.height/2) })
+  var pad = 1.2, minX = Math.min.apply(null,xs)-pad, maxX = Math.max.apply(null,xs)+pad, minY = Math.min.apply(null,ys)-pad, maxY = Math.max.apply(null,ys)+pad
+  var svg = '<svg viewBox="'+minX+' '+minY+' '+(maxX-minX)+' '+(maxY-minY)+'" style="width:100%;max-height:62vh;display:block;background:#f8fafc;border-radius:10px">'
+  if(st){
+    svg += '<g transform="translate('+st.x+','+st.y+') rotate('+(st.rotation||0)+')"><rect x="'+(-st.width/2)+'" y="'+(-st.depth/2)+'" width="'+st.width+'" height="'+st.depth+'" rx="0.15" fill="#334155"/>'
+      + '<text x="0" y="0.15" font-size="0.6" text-anchor="middle" fill="#fff" font-weight="700">STAGE</text></g>'
+  } else {
+    svg += '<text x="'+((minX+maxX)/2)+'" y="'+(maxY-0.2)+'" font-size="0.9" text-anchor="middle" fill="#94a3b8" font-weight="700">STAGE</text>'
   }
-  var svg = '<svg viewBox="'+minX+' '+minY+' '+(maxX-minX)+' '+(maxY-minY)+'" style="width:100%;max-height:62vh;display:block;background:#f8fafc;border-radius:10px">' + stage
-    + seats.map(function(s){
-        var me = mine[s.id], taken = s.status==='sold'
-        return '<g><circle cx="'+s.x+'" cy="'+s.y+'" r="'+(me?0.5:0.42)+'" fill="'+(me?'#f4b740':taken?'#cbd5e1':'#e2e8f0')+'" stroke="'+(me?'#92400e':'none')+'" stroke-width="0.08"/>'
-          + (me?'<text x="'+s.x+'" y="'+(+s.y+0.14)+'" font-size="0.36" font-weight="700" text-anchor="middle" fill="#3b2a05">'+escHtml(s.seat_label||'')+'</text>':'')
-          + '<title>'+escHtml(s.seat_label||'')+(taken&&!me&&s.who?' · '+escHtml(s.who):'')+'</title></g>'
-      }).join('') + '</svg>'
+  shapes.forEach(function(sh){
+    svg += '<g transform="translate('+sh.x+','+sh.y+') rotate('+(sh.rotation||0)+')"><rect x="'+(-sh.width/2)+'" y="'+(-sh.height/2)+'" width="'+sh.width+'" height="'+sh.height+'" rx="0.1" fill="'+escHtml(sh.fill_color||'#64748b')+'" opacity="0.85"/>'
+      + (sh.label ? '<text x="0" y="0.13" font-size="0.32" text-anchor="middle" fill="#fff" font-weight="700">'+escHtml(sh.label)+'</text>' : '') + '</g>'
+  })
+  // row letters just past each end of every row
+  var rows = {}
+  seats.forEach(function(s){ if(s.row_name){ var k = (s.section||'')+'|'+s.row_name; (rows[k] = rows[k] || []).push(s) } })
+  Object.keys(rows).forEach(function(k){
+    var rs = rows[k]; if(rs.length < 1) return
+    var a = rs[0], b = rs[0], far = -1
+    rs.forEach(function(p){ rs.forEach(function(q){ var dd = (p.x-q.x)*(p.x-q.x)+(p.y-q.y)*(p.y-q.y); if(dd > far){ far = dd; a = p; b = q } }) })
+    var dx = b.x - a.x, dy = b.y - a.y, len = Math.sqrt(dx*dx+dy*dy) || 1, ux = dx/len, uy = dy/len
+    ;[[a, -1], [b, 1]].forEach(function(e){
+      var px = +e[0].x + ux*0.85*e[1], py = +e[0].y + uy*0.85*e[1]
+      if(len < 0.01){ px = +e[0].x + 0.85*e[1]; py = +e[0].y }
+      svg += '<text x="'+px+'" y="'+(py+0.13)+'" font-size="0.36" font-weight="700" text-anchor="middle" fill="#64748b">'+escHtml(a.row_name)+'</text>'
+    })
+  })
+  svg += seats.map(function(s){
+      var me = mine[s.id], taken = s.status==='sold'
+      return '<g><circle cx="'+s.x+'" cy="'+s.y+'" r="'+(me?0.48:0.4)+'" fill="'+(me?'#f4b740':taken?'#cbd5e1':'#16728b')+'" opacity="'+(me||taken?1:0.35)+'" stroke="'+(me?'#92400e':'none')+'" stroke-width="0.08"/>'
+        + (me?'<text x="'+s.x+'" y="'+(+s.y+0.13)+'" font-size="0.32" font-weight="700" text-anchor="middle" fill="#3b2a05">'+escHtml(s.seat_label||'')+'</text>':'')
+        + '<title>'+escHtml(s.seat_label||'')+(taken&&!me&&s.who?' · '+escHtml(s.who):'')+'</title></g>'
+    }).join('') + '</svg>'
   var labels = (o.seat_labels||[]).join(', ')
   showAdHocModal('order-seat-map', escHtml(o.guardian_name||'Order')+' · '+escHtml(fmtDateOnly(o.performance_date))+(o.performance_time?' '+escHtml(tkFmtTime(o.performance_time)):''),
     '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;font-size:12.5px;margin-bottom:10px">'
     + '<span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#f4b740;border:1.5px solid #92400e;vertical-align:-1px"></span> Their seats: <strong>'+escHtml(labels)+'</strong></span>'
     + '<span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#cbd5e1;vertical-align:-1px"></span> Sold</span>'
-    + '<span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#e2e8f0;border:1px solid #cbd5e1;vertical-align:-1px"></span> Open</span></div>'
+    + '<span><span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#16728b;opacity:.35;vertical-align:-1px"></span> Open</span></div>'
     + svg
     + '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">'
     + (o.view_token ? '<a class="btn btn-secondary btn-sm" href="/t/'+encodeURIComponent(o.view_token)+'" target="_blank">Open their ticket page</a>' : '')

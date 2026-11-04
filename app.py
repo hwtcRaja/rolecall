@@ -3224,6 +3224,15 @@ def init_db():
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_error TEXT",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMP",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS send_claim_at TIMESTAMP",
+        "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS is_rush BOOLEAN DEFAULT FALSE",
+        """CREATE TABLE IF NOT EXISTS production_rush (
+            production_id TEXT PRIMARY KEY REFERENCES productions(id) ON DELETE CASCADE,
+            enabled BOOLEAN DEFAULT FALSE, ticket_type_id TEXT, price_cents INTEGER DEFAULT 0,
+            online BOOLEAN DEFAULT TRUE, door BOOLEAN DEFAULT TRUE,
+            opens_mode TEXT DEFAULT 'hours_before', opens_hours NUMERIC DEFAULT 2, opens_time TEXT DEFAULT '09:00',
+            cap_per_performance INTEGER, per_order_limit INTEGER,
+            eligibility TEXT DEFAULT 'anyone', eligibility_note TEXT DEFAULT '',
+            seat_mode TEXT DEFAULT 'pick', block_labels TEXT DEFAULT '', updated_at TIMESTAMP DEFAULT NOW())""",
         # installment plans aren't always monthly: update the saved contract clause wording
         "UPDATE rental_contract_clauses SET body_template=REPLACE(body_template,'in monthly installments','in installments') WHERE body_template LIKE '%in monthly installments%'",
         "UPDATE rental_contract_clauses SET body_template=REPLACE(body_template,'future monthly installment invoices','future installment invoices') WHERE body_template LIKE '%future monthly installment invoices%'",
@@ -44811,6 +44820,10 @@ def public_production_performances(slug):
             if left <= 0 and p.get('status') in ('on_sale', 'presale'):
                 p['status'] = 'sold_out'
         try:
+            p['rush'] = rush_public_info(rush_state(conn, p))
+        except Exception:
+            p['rush'] = None
+        try:
             p['availability'] = performance_availability(conn, p)
             if p['availability'] and p['availability']['level'] == 'sold_out' and p.get('status') in ('on_sale', 'presale'):
                 p['status'] = 'sold_out'
@@ -45070,6 +45083,226 @@ def staff_book_seats(fid):
         conn.close()
 
 
+# ══ Rush tickets ══════════════════════════════════════════════════════════
+# Per production: a discounted "Rush" ticket type that only goes on sale in
+# a window before curtain (day of, or N hours before), with a cap per
+# performance and a per-order limit, optional eligibility ("students with
+# ID"), sold online and/or at the door. For reserved seating, rush buyers
+# either pick from what's left, get a set-aside block, or are given the
+# best available seats automatically.
+RUSH_ELIGIBILITY = {'anyone': 'Anyone', 'students': 'Students (bring a student ID)', 'seniors': 'Seniors (bring ID)',
+                    'students_seniors': 'Students & seniors (bring ID)', 'custom': 'Custom'}
+
+
+def _rush_cfg(conn, production_id):
+    return fetchone(conn, 'SELECT * FROM production_rush WHERE production_id=%s', (production_id,))
+
+
+def _rush_seat_ids(cfg, seat_map_id, conn):
+    """Block seats as ids on this performance's seat map (stored as labels so they work on any map)."""
+    labels = [x.strip() for x in (cfg.get('block_labels') or '').split(',') if x.strip()]
+    if not labels or not seat_map_id:
+        return set()
+    rows = fetchall(conn, 'SELECT id, seat_label FROM seat_map_seats WHERE seat_map_id=%s AND seat_label = ANY(%s)', (seat_map_id, labels)) or []
+    return {r['id'] for r in rows}
+
+
+def _expand_seat_labels(text):
+    """'A1-A4, B7, C10-C12' -> 'A1,A2,A3,A4,B7,C10,C11,C12'"""
+    import re as _rr
+    out = []
+    for part in (text or '').replace(';', ',').split(','):
+        part = part.strip().upper()
+        if not part:
+            continue
+        m = _rr.match(r'^([A-Z]+)(\d+)\s*-\s*(?:([A-Z]+))?(\d+)$', part)
+        if m and (not m.group(3) or m.group(3) == m.group(1)):
+            a, b = int(m.group(2)), int(m.group(4))
+            out += [f'{m.group(1)}{n}' for n in range(min(a, b), max(a, b) + 1)]
+        else:
+            out.append(part)
+    seen, res = set(), []
+    for x in out:
+        if x not in seen:
+            seen.add(x); res.append(x)
+    return ','.join(res)
+
+
+def rush_state(conn, perf):
+    """Everything about rush for one performance right now."""
+    cfg = _rush_cfg(conn, perf['production_id'])
+    if not cfg or not cfg.get('enabled') or not cfg.get('ticket_type_id'):
+        return None
+    import datetime as _dtr
+    now = now_eastern().replace(tzinfo=None)
+    try:
+        day = _dtr.date.fromisoformat(str(perf['performance_date'])[:10])
+        t = str(perf.get('performance_time') or '')[:5]
+        curtain = _dtr.datetime.combine(day, _dtr.time.fromisoformat(t)) if len(t) == 5 else _dtr.datetime.combine(day, _dtr.time(23, 59))
+    except Exception:
+        return None
+    if cfg.get('opens_mode') == 'hours_before':
+        opens = curtain - _dtr.timedelta(hours=float(cfg.get('opens_hours') or 2))
+    else:
+        try: ot = _dtr.time.fromisoformat((cfg.get('opens_time') or '09:00')[:5])
+        except Exception: ot = _dtr.time(9, 0)
+        opens = _dtr.datetime.combine(day, ot)
+    sold = int((fetchone(conn, '''SELECT COUNT(*) AS c FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+        WHERE t.performance_id=%s AND t.ticket_type_id=%s AND o.status NOT IN ('refunded','cancelled')''', (perf['id'], cfg['ticket_type_id'])) or {}).get('c') or 0)
+    cap = int(cfg.get('cap_per_performance') or 0)
+    left = max(0, cap - sold) if cap else None
+    elig = cfg.get('eligibility') or 'anyone'
+    note = (cfg.get('eligibility_note') or '').strip() if elig == 'custom' else ('' if elig == 'anyone' else RUSH_ELIGIBILITY.get(elig, ''))
+    return {'type_id': cfg['ticket_type_id'], 'price_cents': int(cfg.get('price_cents') or 0), 'online': bool(cfg.get('online')), 'door': bool(cfg.get('door')),
+            'opens_at': opens, 'closes_at': curtain, 'open': opens <= now < curtain, 'upcoming': now < opens,
+            'opens_label': opens.strftime('%A %-I:%M %p') if opens.date() != now.date() else 'today at ' + opens.strftime('%-I:%M %p'),
+            'cap': cap, 'sold': sold, 'left': left, 'per_order': int(cfg.get('per_order_limit') or 0),
+            'eligibility': elig, 'eligibility_note': note, 'seat_mode': cfg.get('seat_mode') or 'pick',
+            'block_ids': _rush_seat_ids(cfg, perf.get('seat_map_id'), conn) if (cfg.get('seat_mode') == 'block' and perf.get('reserved_seating')) else set()}
+
+
+def rush_public_info(st):
+    if not st or not st['online']:
+        return None
+    return {'open': st['open'], 'upcoming': st['upcoming'], 'opens_label': st['opens_label'], 'price_cents': st['price_cents'],
+            'left': st['left'], 'per_order': st['per_order'], 'eligibility_note': st['eligibility_note'], 'seat_mode': st['seat_mode'],
+            'type_id': st['type_id'], 'sold_out': st['left'] is not None and st['left'] <= 0}
+
+
+def ensure_rush_ticket_type(conn, production_id, cfg):
+    """The Rush ticket type for a production, linked to all its performances."""
+    tid = cfg.get('ticket_type_id')
+    if not tid or not fetchone(conn, 'SELECT id FROM ticket_types WHERE id=%s', (tid,)):
+        tid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO ticket_types (id, production_id, name, price_cents, description, sort_order, active, is_rush)
+            VALUES (%s,%s,'Rush',%s,'Rush ticket',999,%s,TRUE)''', (tid, production_id, int(cfg.get('price_cents') or 0), bool(cfg.get('enabled'))))
+        execute(conn, 'UPDATE production_rush SET ticket_type_id=%s WHERE production_id=%s', (tid, production_id))
+    else:
+        execute(conn, 'UPDATE ticket_types SET price_cents=%s, active=%s, is_rush=TRUE WHERE id=%s', (int(cfg.get('price_cents') or 0), bool(cfg.get('enabled')), tid))
+    for pf in fetchall(conn, 'SELECT id FROM performances WHERE production_id=%s', (production_id,)) or []:
+        execute(conn, '''INSERT INTO performance_ticket_types (performance_id, ticket_type_id) VALUES (%s,%s) ON CONFLICT DO NOTHING''', (pf['id'], tid))
+    return tid
+
+
+@app.route('/api/productions/<pid>/rush', methods=['GET', 'PUT'])
+def production_rush_settings(pid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            d = request.json or {}
+            try: price = int(round(float(d.get('price') or 0) * 100))
+            except Exception: price = 0
+            vals = {'enabled': bool(d.get('enabled')), 'price_cents': max(0, price), 'online': bool(d.get('online', True)), 'door': bool(d.get('door', True)),
+                    'opens_mode': 'hours_before' if d.get('opens_mode') == 'hours_before' else 'day_of',
+                    'opens_hours': float(d.get('opens_hours') or 2), 'opens_time': (d.get('opens_time') or '09:00')[:5],
+                    'cap_per_performance': int(d.get('cap_per_performance') or 0) or None, 'per_order_limit': int(d.get('per_order_limit') or 0) or None,
+                    'eligibility': d.get('eligibility') if d.get('eligibility') in RUSH_ELIGIBILITY else 'anyone',
+                    'eligibility_note': (d.get('eligibility_note') or '').strip()[:200],
+                    'seat_mode': d.get('seat_mode') if d.get('seat_mode') in ('pick', 'block', 'best') else 'pick',
+                    'block_labels': _expand_seat_labels(d.get('block_labels') or '')}
+            cols = list(vals.keys())
+            execute(conn, f'''INSERT INTO production_rush (production_id, {", ".join(cols)}, updated_at) VALUES (%s,{",".join(["%s"] * len(cols))}, NOW())
+                ON CONFLICT (production_id) DO UPDATE SET {", ".join(f"{c}=EXCLUDED.{c}" for c in cols)}, updated_at=NOW()''',
+                (pid,) + tuple(vals[c] for c in cols))
+            cfg = _rush_cfg(conn, pid)
+            ensure_rush_ticket_type(conn, pid, cfg)
+            conn.commit()
+        cfg = _rush_cfg(conn, pid) or {}
+        out = {k: cfg.get(k) for k in ('enabled', 'price_cents', 'online', 'door', 'opens_mode', 'opens_hours', 'opens_time', 'cap_per_performance',
+                                       'per_order_limit', 'eligibility', 'eligibility_note', 'seat_mode', 'block_labels')}
+        if out.get('opens_hours') is not None: out['opens_hours'] = float(out['opens_hours'])
+        out['eligibility_options'] = RUSH_ELIGIBILITY
+        # how it's going per upcoming performance
+        perfs = []
+        for pf in fetchall(conn, '''SELECT * FROM performances WHERE production_id=%s AND status <> 'cancelled' ORDER BY performance_date, performance_time''', (pid,)) or []:
+            st = rush_state(conn, pf) if cfg.get('enabled') else None
+            if st:
+                perfs.append({'id': pf['id'], 'date': str(pf['performance_date'])[:10], 'time': pf.get('performance_time') or '', 'sold': st['sold'],
+                              'left': st['left'], 'open': st['open'], 'opens': st['opens_at'].strftime('%a %b %-d, %-I:%M %p'),
+                              'block_found': len(st['block_ids']) if st['seat_mode'] == 'block' else None})
+        out['performances'] = perfs
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+def _seat_score(s, stage):
+    """Lower is better: close to the stage, near the center line."""
+    if stage:
+        return ((float(s['x']) - float(stage['x'])) ** 2 + (float(s['y']) - float(stage['y'])) ** 2) ** 0.5
+    return float(s['y']) * 3 + abs(float(s['x']))
+
+
+@app.route('/api/public/performances/<fid>/rush-assign', methods=['POST'])
+def public_rush_assign(fid):
+    """Best available (or from the rush block): pick N seats together if
+    possible, hold them for this buyer, and return them."""
+    d = request.json or {}
+    token = (d.get('session_token') or '').strip()
+    try: qty = max(1, min(10, int(d.get('quantity') or 1)))
+    except Exception: qty = 1
+    if not token:
+        return jsonify({'error': 'Missing session'}), 400
+    conn = get_db()
+    try:
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+        st = rush_state(conn, perf) if perf else None
+        if not st or not st['online'] or not st['open']:
+            return jsonify({'error': 'Rush tickets aren\'t on sale for this performance right now.'}), 400
+        if st['per_order'] and qty > st['per_order']:
+            return jsonify({'error': f'Rush tickets are limited to {st["per_order"]} per order.'}), 400
+        if st['left'] is not None and qty > st['left']:
+            return jsonify({'error': 'Only ' + str(st['left']) + ' rush ticket' + ('s' if st['left'] != 1 else '') + ' left.' if st['left'] else 'Rush tickets are sold out.'}), 409
+        _clear_expired_holds(conn, fid)
+        seats = fetchall(conn, '''SELECT id, seat_label, row_name, section, x, y, accessible, companion_for FROM seat_map_seats
+            WHERE seat_map_id=%s AND COALESCE(active,TRUE)=TRUE''', (perf['seat_map_id'],)) or []
+        sold = {r['seat_id'] for r in (fetchall(conn, 'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,)) or [])}
+        held = {r['seat_id']: r['session_token'] for r in (fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,)) or [])}
+        blocks = active_seat_blocks(conn, fid)
+        pool = [s for s in seats if s['id'] not in sold and s['id'] not in blocks and (s['id'] not in held or held[s['id']] == token)
+                and not s.get('accessible') and not s.get('companion_for')]
+        if st['seat_mode'] == 'block':
+            pool = [s for s in pool if s['id'] in st['block_ids']]
+        else:
+            pool = [s for s in pool if s['id'] not in st['block_ids']]
+        sm = fetchone(conn, 'SELECT stage_x, stage_y FROM seat_maps WHERE id=%s', (perf['seat_map_id'],)) or {}
+        stage = {'x': sm['stage_x'], 'y': sm['stage_y']} if sm.get('stage_x') is not None else None
+        # best block of qty seats side by side in one row; else the best singles
+        rows = {}
+        for s in pool:
+            rows.setdefault((s.get('section') or '', s.get('row_name') or ''), []).append(s)
+        best, best_score = None, None
+        for _, rs in rows.items():
+            rs.sort(key=lambda s: float(s['x']))
+            for i in range(0, len(rs) - qty + 1):
+                grp = rs[i:i + qty]
+                if qty > 1 and any(abs(float(grp[j + 1]['x']) - float(grp[j]['x'])) > 1.6 for j in range(qty - 1)):
+                    continue
+                sc = sum(_seat_score(s, stage) for s in grp) / qty
+                if best_score is None or sc < best_score:
+                    best, best_score = grp, sc
+        if not best:
+            best = sorted(pool, key=lambda s: _seat_score(s, stage))[:qty]
+        if len(best) < qty:
+            return jsonify({'error': 'Not enough seats left for that many rush tickets.'}), 409
+        ids = [s['id'] for s in best]
+        for sid in ids:
+            row = fetchone(conn, '''INSERT INTO seat_holds (id, performance_id, seat_id, session_token, expires_at)
+                VALUES (%s,%s,%s,%s, NOW() + INTERVAL '15 minutes')
+                ON CONFLICT (performance_id, seat_id) DO UPDATE SET session_token=EXCLUDED.session_token, expires_at=EXCLUDED.expires_at, id=EXCLUDED.id
+                WHERE seat_holds.session_token=EXCLUDED.session_token OR seat_holds.expires_at < NOW() RETURNING session_token''',
+                (str(uuid.uuid4()), fid, sid, token))
+            if not row or row.get('session_token') != token:
+                conn.rollback()
+                return jsonify({'error': 'Those seats were just taken. Try again.'}), 409
+        conn.commit()
+        return jsonify({'ok': True, 'seats': [{'id': s['id'], 'label': s['seat_label']} for s in best], 'type_id': st['type_id']})
+    finally:
+        conn.close()
+
+
 @app.route('/api/public/performances/<fid>/seat-status', methods=['GET'])
 def public_seat_status(fid):
     """Everything the ticket picker needs: the seat map (with x/y so it can
@@ -45126,9 +45359,21 @@ def public_seat_status(fid):
                 if st == 'held_for_access' and s['status'] == 'available':
                     s['status'] = 'held'
         perf['companion_release_days'] = comp_days
+    _rush = rush_state(conn, perf)
+    if _rush and _rush['block_ids']:
+        for s in seats:
+            if s['id'] in _rush['block_ids']:
+                if _rush['open'] and _rush['online'] and s['status'] == 'available':
+                    s['rush_only'] = True
+                elif s['status'] == 'available':
+                    s['status'] = 'held'
     ticket_types = fetchall(conn, '''SELECT tt.* FROM ticket_types tt
         JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
         WHERE ptt.performance_id=%s AND tt.active=TRUE ORDER BY tt.sort_order''', (fid,))
+    # Rush shows up only while it's on sale online and not sold out
+    _ri = rush_public_info(_rush)
+    ticket_types = [t for t in (ticket_types or []) if not t.get('is_rush') or (_ri and _ri['open'] and not _ri['sold_out'])]
+    perf['rush'] = _ri
     ga_sold = 0
     if not perf.get('reserved_seating'):
         ga_sold = (fetchone(conn, "SELECT COUNT(*) AS c FROM tickets WHERE performance_id=%s AND seat_id IS NULL", (fid,)) or {}).get('c', 0)
@@ -45198,6 +45443,9 @@ def public_hold_seats(fid):
     if _cp:
         conn.close(); return _cp
     _blk = active_seat_blocks(conn, fid)
+    _rs = rush_state(conn, fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,)))
+    if _rs and _rs['block_ids'] and not (_rs['open'] and _rs['online']):
+        _blk = dict(_blk); _blk.update({x: True for x in _rs['block_ids']})
     _mine = [x for x in seat_ids if x in _blk]
     if _mine:
         conn.close()
@@ -45422,6 +45670,25 @@ def public_ticket_checkout():
                     line_items.append({'seat_id': None, 'ticket_type_id': tt['id'],
                         'seat_label': tt['name'], 'price_cents': tt['price_cents']})
 
+        # Rush rules: only while on sale, within the per-order limit and the
+        # performance's rush cap; block seats are rush-only and vice versa
+        _rs = rush_state(conn, perf)
+        _rush_lines = [li for li in line_items if _rs and li['ticket_type_id'] == _rs['type_id']]
+        if _rs:
+            if _rush_lines and not staff_ticket_preview(d.get('preview')):
+                if not (_rs['open'] and _rs['online']):
+                    conn.close(); return jsonify({'error': 'Rush tickets aren\'t on sale for this performance right now.'}), 400
+                if _rs['per_order'] and len(_rush_lines) > _rs['per_order']:
+                    conn.close(); return jsonify({'error': f'Rush tickets are limited to {_rs["per_order"]} per order.'}), 400
+                if _rs['left'] is not None and len(_rush_lines) > _rs['left']:
+                    conn.close(); return jsonify({'error': ('Only ' + str(_rs['left']) + ' rush tickets left.') if _rs['left'] else 'Rush tickets are sold out.'}), 409
+            if _rs['block_ids']:
+                for li in line_items:
+                    is_r = li['ticket_type_id'] == _rs['type_id']
+                    if li.get('seat_id') in _rs['block_ids'] and not is_r:
+                        conn.close(); return jsonify({'error': f'Seat {li["seat_label"]} is for rush tickets only.'}), 400
+                    if is_r and li.get('seat_id') and li['seat_id'] not in _rs['block_ids']:
+                        conn.close(); return jsonify({'error': 'Rush tickets are for the rush seats only. Use "Get rush seats".'}), 400
         requested_by_perf[fid] = requested_by_perf.get(fid, 0) + len(line_items)
         subtotal = sum(li['price_cents'] for li in line_items)
         fee_cents = 0
@@ -47929,9 +48196,14 @@ def house_door_info(fid):
         perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
         if not perf:
             return jsonify({'error': 'Performance not found'}), 404
-        types = fetchall(conn, '''SELECT tt.id, tt.name, tt.price_cents FROM ticket_types tt
+        types = fetchall(conn, '''SELECT tt.id, tt.name, tt.price_cents, tt.is_rush FROM ticket_types tt
             JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
             WHERE ptt.performance_id=%s AND tt.active=TRUE ORDER BY tt.sort_order, tt.price_cents DESC''', (fid,)) or []
+        _rs = rush_state(conn, perf)
+        types = [t for t in types if not t.get('is_rush') or (_rs and _rs['door'])]
+        for t in types:
+            if t.get('is_rush') and _rs:
+                t['name'] = 'Rush' + (' · ' + _rs['eligibility_note'] if _rs['eligibility_note'] else '') + ('' if _rs['left'] is None else f' · {_rs["left"]} left')
         totals = fetchall(conn, '''SELECT COALESCE(payment_method,'cash') AS method, COUNT(*) AS orders, SUM(total_cents) AS cents,
                 SUM(jsonb_array_length(COALESCE(NULLIF(seats_json,''),'[]')::jsonb)) AS tickets
             FROM ticket_orders WHERE performance_id=%s AND sale_channel='door' AND status='completed'
@@ -48365,7 +48637,22 @@ def _door_ticket_payload(conn, t, fid):
     return {'ticket_id': t['id'], 'seat_label': t.get('seat_label') or 'General admission', 'section': t.get('section') or '',
             'name': o.get('guardian_name') or '', 'order_id': o.get('id'),
             'party': [{'id': p['id'], 'seat_label': p['seat_label'], 'checked_in': bool(p['checked_in_at'])} for p in party],
-            'counts': _door_counts(conn, fid)}
+            'counts': _door_counts(conn, fid), 'rush_note': _rush_door_note(conn, t)}
+
+
+def _rush_door_note(conn, t):
+    """'RUSH · Students (bring a student ID)' when this is a rush ticket that needs ID."""
+    try:
+        tt = fetchone(conn, 'SELECT is_rush, production_id FROM ticket_types WHERE id=%s', (t.get('ticket_type_id'),)) if t.get('ticket_type_id') else None
+        if not tt or not tt.get('is_rush'):
+            return ''
+        cfg = _rush_cfg(conn, tt['production_id']) or {}
+        el = cfg.get('eligibility') or 'anyone'
+        if el == 'anyone':
+            return 'RUSH'
+        return 'RUSH · check ID: ' + ((cfg.get('eligibility_note') or '') if el == 'custom' else RUSH_ELIGIBILITY.get(el, ''))
+    except Exception:
+        return ''
 
 
 @app.route('/api/door/scan', methods=['POST'])

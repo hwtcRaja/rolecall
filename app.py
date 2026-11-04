@@ -3224,6 +3224,9 @@ def init_db():
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_error TEXT",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMP",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS send_claim_at TIMESTAMP",
+        # installment plans aren't always monthly: update the saved contract clause wording
+        "UPDATE rental_contract_clauses SET body_template=REPLACE(body_template,'in monthly installments','in installments') WHERE body_template LIKE '%in monthly installments%'",
+        "UPDATE rental_contract_clauses SET body_template=REPLACE(body_template,'future monthly installment invoices','future installment invoices') WHERE body_template LIKE '%future monthly installment invoices%'",
         """CREATE TABLE IF NOT EXISTS email_suppressions (
             email_key TEXT PRIMARY KEY, email TEXT, reason TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS audience_emails (
@@ -37764,7 +37767,7 @@ _RENTAL_CLAUSE_SEED = [
     ('ticketed_enrollment', '', '2.1', 'Revenue &amp; Settlement',
      'HWTC is the official producer and host of this program and will handle all public listing, advertising, and enrollment/ticket collection. HWTC will collect all enrollment/ticket revenue directly. HWTC and Partner Organization agree to the following revenue split: <strong>{split_display}</strong>. Settlement of Partner Organization&rsquo;s share will occur within 14 days after the program concludes, less any documented HWTC administrative or promotional costs agreed in advance.', 10),
     ('fee_based', 'monthly', '2.1', 'Partnership Fee &amp; Payment Schedule',
-     'Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in monthly installments, billed separately by HWTC via Square invoice, each due on its stated due date, {schedule_ref}.', 10),
+     'Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in installments, billed separately by HWTC via Square invoice, each due on its stated due date, {schedule_ref}.', 10),
     ('fee_based', 'full', '2.1', 'Partnership Fee',
      'Upon signing this Agreement, Partner Organization agrees to pay the Total Partnership Fee of <strong>{total_str}</strong> in full to confirm {use_label}. This fee is a contribution toward HWTC&rsquo;s administrative overhead and operational costs associated with facilitating {use_label}.', 10),
     ('fee_based', 'deposit_final', '2.1', 'Partnership Fee &amp; Deposit',
@@ -37775,7 +37778,7 @@ _RENTAL_CLAUSE_SEED = [
     ('ticketed_enrollment', '', '2.2.1', 'Cancellation by Partner Organization',
      'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Because HWTC collects enrollment/ticket revenue directly and no deposit is collected from Partner Organization under this model, Partner Organization cancelling within 7 days of the first scheduled session may be responsible for any documented HWTC advertising or administrative costs already incurred, to be deducted from the final settlement.', 21),
     ('fee_based', 'monthly', '2.2.1', 'Cancellation by Partner Organization',
-     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Upon cancellation, HWTC will cease issuing any future monthly installment invoices effective as of the cancellation date. However, any installment that has already been invoiced prior to the cancellation date shall remain due and payable in full, regardless of cancellation. All amounts previously paid are non-refundable except at HWTC&rsquo;s sole discretion.', 21),
+     'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Upon cancellation, HWTC will cease issuing any future installment invoices effective as of the cancellation date. However, any installment that has already been invoiced prior to the cancellation date shall remain due and payable in full, regardless of cancellation. All amounts previously paid are non-refundable except at HWTC&rsquo;s sole discretion.', 21),
     ('fee_based', 'full', '2.2.1', 'Cancellation by Partner Organization',
      'Partner Organization may cancel this Agreement at any time by providing written notice to HWTC. Cancellations made more than 7 days in advance will receive a full refund. Cancellations within 7 days may be subject to additional charges depending on the circumstances and reason for cancellation, as determined by HWTC. Cancellations within 24 hours of {event_label} will forfeit the full fee. HWTC reserves the right to waive this on a case-by-case basis at its sole discretion.', 21),
     ('fee_based', 'deposit_final', '2.2.1', 'Cancellation by Partner Organization',

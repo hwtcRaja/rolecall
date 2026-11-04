@@ -9179,6 +9179,97 @@ def send_sad_announcement():
             app.logger.warning(f'SAD announcement email failed for {v.get("email")}: {e}')
     return jsonify({'ok': True, 'sent': sent})
 
+# ── Studio After Dark: "still time to sign up" reminder ───────────────────
+# For the next occurrence whose sign-ups are open: emails active volunteers
+# who HAVEN'T signed up yet (people already in get nothing), with how many
+# spots are still open and when sign-ups close. Preview first, test send,
+# and it remembers when the last reminder went out.
+def _sad_open_event(conn):
+    return fetchone(conn, """SELECT * FROM studio_after_dark_events WHERE lottery_status='open' ORDER BY event_date ASC LIMIT 1""")
+
+
+def _sad_reminder_audience(conn, ev):
+    blk = suppressed_email_keys(conn)
+    rows = fetchall(conn, """SELECT v.id, v.name, v.email FROM volunteers v
+        WHERE v.status='active' AND COALESCE(v.email,'') <> ''
+          AND NOT EXISTS (SELECT 1 FROM sad_entries e WHERE e.sad_event_id=%s AND e.volunteer_id=v.id)""", (ev['id'],)) or []
+    return [v for v in rows if ticket_email_key(v['email']) not in blk]
+
+
+def _sad_signup_counts(conn, ev):
+    c = fetchone(conn, """SELECT COUNT(*) FILTER (WHERE wants_performer) AS perf, COUNT(*) FILTER (WHERE wants_audience AND NOT wants_performer) AS aud,
+        COUNT(*) AS total FROM sad_entries WHERE sad_event_id=%s""", (ev['id'],)) or {}
+    return {'performers': int(c.get('perf') or 0), 'audience': int(c.get('aud') or 0), 'total': int(c.get('total') or 0),
+            'performer_slots': int(ev.get('performer_slots') or 15), 'audience_slots': int(ev.get('audience_slots') or 40)}
+
+
+def _send_sad_reminder_email(volunteer, ev, f, counts, note=''):
+    from html import escape
+    first = (volunteer.get('name') or '').strip().split(' ')[0]
+    landing_url = 'https://rolecall.hwtco.org/studio-after-dark'
+    ghost_light_url = 'https://rolecall.hwtco.org/static/images/ghost-light.png'
+    closes = f' Sign-ups close <strong>{escape(f["closes"])} ET</strong>.' if f.get('closes') else ''
+    subject = (f'{first}, there\'s still time: Studio After Dark {f.get("date") or ""}' if first
+               else f'There\'s still time: Studio After Dark {f.get("date") or ""}').strip()
+    body = (
+        f'<div style="text-align:center;margin:4px 0 18px"><img src="{ghost_light_url}" alt="A ghost light" width="80" style="width:80px;height:auto;display:inline-block"/></div>'
+        + (f'<p style="margin:0 0 14px">Hi {escape(first)},</p>' if first else '')
+        + f'<p style="margin:0 0 14px">Sign-ups for <strong>Studio After Dark</strong> on <strong>{escape(f.get("date") or "")}</strong> ({escape(f.get("time") or "")}) are open, '
+          f'and we\'d love to see you there.{closes}</p>'
+        + (f'<p style="margin:0 0 14px">{message_text_html(note)}</p>' if (note or '').strip() else '')
+        + '<div style="background:rgba(236,72,153,0.14);border:1px solid rgba(244,114,182,0.45);border-radius:10px;padding:14px 16px;margin:0 0 18px;text-align:center">'
+          '<div style="font-size:18px;font-weight:800;color:#fff">Spots are still open</div>'
+          '<div style="font-size:14px;color:rgba(255,255,255,0.85);margin-top:2px">to perform or to come watch</div></div>'
+        + '<p style="margin:0 0 14px;font-size:14.5px;line-height:1.6;color:rgba(255,255,255,0.88)">Sing a song, read a monologue, try something new, '
+          'or just come cheer everyone on. It\'s free, and <strong>everyone signs up</strong>, performers and audience, so we know you\'re coming.</p>'
+        + f'<p style="text-align:center;margin:0 0 10px"><a href="{landing_url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;'
+          f'color:#fff;padding:14px 30px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px;display:inline-block">Sign me up</a></p>'
+        + '<p style="text-align:center;font-size:12.5px;color:rgba(255,255,255,0.6);margin:0">Takes about a minute: just the email you use with HWTC.</p>'
+    )
+    send_email([volunteer['email']], subject, build_sad_email_html(escape(subject), body + unsubscribe_footer(volunteer['email'])))
+
+
+@app.route('/api/sad/remind', methods=['POST'])
+def send_sad_reminder():
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    mode = d.get('mode') or 'preview'
+    conn = get_db()
+    try:
+        ev = _sad_open_event(conn)
+        if not ev:
+            return jsonify({'error': 'There\'s no Studio After Dark with sign-ups open right now. A reminder only makes sense while sign-ups are open.'}), 400
+        f = _sad_next_event_facts(conn)
+        counts = _sad_signup_counts(conn, ev)
+        people = _sad_reminder_audience(conn, ev)
+        last = _setting(conn, 'sad_reminder_last:' + ev['id']) or ''
+        if mode == 'preview':
+            return jsonify({'event_date': f.get('date'), 'closes': f.get('closes'), 'counts': counts, 'recipients': len(people), 'last_sent': last})
+        note = (d.get('note') or '').strip()[:1500]
+        if mode == 'test':
+            to = (d.get('email') or '').strip()
+            if not to:
+                return jsonify({'error': 'Enter an email for the test'}), 400
+            v = fetchone(conn, 'SELECT name FROM volunteers WHERE LOWER(email)=LOWER(%s) LIMIT 1', (to,)) or {}
+            _send_sad_reminder_email({'name': v.get('name') or '', 'email': to}, ev, f, counts, note)
+            return jsonify({'ok': True})
+        stamp = now_eastern().strftime('%b %-d at %-I:%M %p')
+        _set_setting(conn, 'sad_reminder_last:' + ev['id'], f'{stamp} to {len(people)} people by {session.get("name") or "staff"}')
+        conn.commit()
+    finally:
+        conn.close()
+    import threading
+    def run(people=people, ev=ev, f=f, counts=counts, note=note):
+        for v in people:
+            try:
+                _send_sad_reminder_email(v, ev, f, counts, note)
+            except Exception as e:
+                app.logger.warning(f'SAD reminder failed for {v.get("email")}: {e}')
+    threading.Thread(target=run, daemon=True).start()
+    return jsonify({'ok': True, 'sending': len(people)})
+
+
 @app.route('/api/sad/announce/test', methods=['POST'])
 def send_sad_announcement_test():
     """Sends the exact same announcement email to just one address, so

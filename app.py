@@ -29285,6 +29285,17 @@ def square_webhook():
                                 execute(conn, "UPDATE playbill_orders SET status='paid', paid_at=NOW() WHERE cart_id=%s AND status='pending'", (pb['cart_id'],))
                                 conn.commit()
                                 finalize_playbill_cart(conn, pb['cart_id'])
+                            # Artistic Partnership invoices: paying a Square invoice also
+                            # completes a payment on its order, so this catches it even
+                            # if the separate invoice.payment_made event never arrives.
+                            try:
+                                rpay = fetchone(conn, "SELECT * FROM rental_payments WHERE square_order_id=%s AND COALESCE(square_invoice_status,'') <> 'PAID'", (order_id,))
+                                if rpay:
+                                    inv = square_get_invoice(rpay['square_invoice_id']) if rpay.get('square_invoice_id') else None
+                                    _apply_rental_invoice_update(conn, rpay, inv if (inv and inv.get('status') == 'PAID') else {'status': 'PAID'})
+                                    conn.commit()
+                            except Exception as _re:
+                                app.logger.warning(f'Partnership invoice payment match failed: {_re}')
                 conn.close()
             elif status in ('FAILED', 'CANCELED') and order_id:
                 conn = get_db()
@@ -38960,6 +38971,43 @@ def _send_scheduled_rental_invoice_inner(conn, payment_id, created_by):
     return True, err  # err may be a non-fatal warning even though the invoice was sent
 
 _last_rental_invoice_cron_check = [None]
+def sync_unpaid_rental_invoices(conn, agreement_id=None, limit=60):
+    """Ask Square for the current status of sent, unpaid partnership
+    invoices and record any that were paid (or cancelled). A safety net for
+    missed webhooks. Returns how many changed to paid."""
+    q = '''SELECT * FROM rental_payments WHERE square_invoice_id IS NOT NULL AND square_invoice_id <> ''
+        AND COALESCE(square_invoice_status,'') NOT IN ('PAID','CANCELED','REFUNDED')'''
+    params = []
+    if agreement_id:
+        q += ' AND agreement_id=%s'; params.append(agreement_id)
+    newly_paid = 0
+    for pay in fetchall(conn, q + ' ORDER BY due_date LIMIT %s', tuple(params + [limit])) or []:
+        try:
+            inv = square_get_invoice(pay['square_invoice_id'])
+        except Exception:
+            inv = None
+        if not inv:
+            continue
+        if inv.get('status') != pay.get('square_invoice_status'):
+            if inv.get('status') == 'PAID':
+                newly_paid += 1
+            _apply_rental_invoice_update(conn, pay, inv)
+            conn.commit()
+    return newly_paid
+
+
+@app.route('/api/rental/agreements/<aid>/sync-payments', methods=['POST'])
+def sync_rental_agreement_payments(aid):
+    err = require_permission('rentals', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        n = sync_unpaid_rental_invoices(conn, aid)
+        return jsonify({'ok': True, 'newly_paid': n})
+    finally:
+        conn.close()
+
+
 def maybe_send_due_rental_invoices():
     """Cron-style sweep (same pattern as maybe_run_scheduled_reports —
     checked opportunistically on each request, throttled to once an hour):
@@ -38981,6 +39029,11 @@ def maybe_send_due_rental_invoices():
                 _send_scheduled_rental_invoice(conn, row['id'], 'RoleCall (auto-send)')
             except Exception as e:
                 app.logger.error(f'Auto-send installment invoice error {row["id"]}: {e}')
+        # and pick up any payments Square didn't tell us about
+        try:
+            sync_unpaid_rental_invoices(conn)
+        except Exception as e:
+            app.logger.warning(f'Partnership invoice status sync failed: {e}')
         conn.close()
     except Exception as e:
         app.logger.error(f'Rental invoice cron check error: {e}')

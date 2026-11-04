@@ -3223,6 +3223,7 @@ def init_db():
         # partner invoices: remember why an automatic send failed, so it shows
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_error TEXT",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMP",
+        "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS send_claim_at TIMESTAMP",
         """CREATE TABLE IF NOT EXISTS email_suppressions (
             email_key TEXT PRIMARY KEY, email TEXT, reason TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS audience_emails (
@@ -38933,6 +38934,23 @@ def _send_scheduled_rental_invoice_inner(conn, payment_id, created_by):
         return False, 'Invoice not found'
     if payment.get('sent_at'):
         return False, 'This invoice has already been sent'
+    # Claim it first, atomically: RoleCall runs on more than one worker and
+    # the hourly auto-send can overlap a staff "Send Now", which used to send
+    # the same installment to Square twice.
+    claimed = fetchone(conn, '''UPDATE rental_payments SET send_claim_at=NOW() WHERE id=%s AND sent_at IS NULL
+        AND (send_claim_at IS NULL OR send_claim_at < NOW() - INTERVAL '10 minutes') RETURNING id''', (payment_id,))
+    conn.commit()
+    if not claimed:
+        return False, 'This invoice is already being sent'
+    ok_, msg_ = _send_rental_invoice_claimed(conn, payment, created_by)
+    if not ok_:
+        execute(conn, 'UPDATE rental_payments SET send_claim_at=NULL WHERE id=%s AND sent_at IS NULL', (payment_id,))
+        conn.commit()
+    return ok_, msg_
+
+
+def _send_rental_invoice_claimed(conn, payment, created_by):
+    payment_id = payment['id']
     agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (payment['agreement_id'],))
     if not agr:
         return False, 'Agreement not found'
@@ -38994,6 +39012,103 @@ def sync_unpaid_rental_invoices(conn, agreement_id=None, limit=60):
             _apply_rental_invoice_update(conn, pay, inv)
             conn.commit()
     return newly_paid
+
+
+def square_search_customer_invoices(customer_id):
+    """Every invoice Square has for one customer at our location."""
+    out, cursor = [], None
+    for _ in range(10):
+        body = {'query': {'filter': {'location_ids': [SQUARE_LOCATION_ID], 'customer_ids': [customer_id]},
+                          'sort': {'field': 'INVOICE_SORT_DATE', 'order': 'DESC'}}, 'limit': 200}
+        if cursor: body['cursor'] = cursor
+        r = requests.post(f'{SQUARE_API_BASE}/v2/invoices/search', json=body, headers=square_headers(), timeout=20)
+        data = r.json()
+        if r.status_code != 200:
+            raise RuntimeError(f'Square invoice search failed: {data}')
+        out += data.get('invoices') or []
+        cursor = data.get('cursor')
+        if not cursor:
+            break
+    return out
+
+
+def square_void_invoice(inv):
+    """Cancel a sent, unpaid invoice (or delete a draft) in Square."""
+    import uuid as _uuidv
+    if inv.get('status') == 'DRAFT':
+        r = requests.delete(f'{SQUARE_API_BASE}/v2/invoices/{inv["id"]}?version={inv.get("version", 0)}', headers=square_headers(), timeout=15)
+    else:
+        r = requests.post(f'{SQUARE_API_BASE}/v2/invoices/{inv["id"]}/cancel', json={'version': inv.get('version', 0)}, headers=square_headers(), timeout=15)
+    return r.status_code == 200, (None if r.status_code == 200 else str(r.json()))
+
+
+@app.route('/api/rental/agreements/<aid>/square-duplicates', methods=['POST'])
+def rental_square_duplicates(aid):
+    """Find invoices that were sent to Square twice for the same payment and
+    clean them up: keep the one that was paid (or the one RoleCall has on
+    file), cancel the extra unpaid copies, and point RoleCall at the paid
+    copy if it was holding the other one. Preview first (apply=false)."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE id=%s', (aid,))
+        req = fetchone(conn, '''SELECT rr.title, rp.contact_email, rp.contact_name, rp.name AS partner_name, rp.contact_phone
+            FROM rental_requests rr LEFT JOIN rental_partners rp ON rp.id=rr.partner_id WHERE rr.id=%s''', (agr['request_id'],)) if agr else None
+        if not req or not req.get('contact_email'):
+            return jsonify({'error': 'No partner email on file'}), 400
+        cust = square_find_or_create_customer(req['contact_email'], req.get('contact_name') or req.get('partner_name') or '', req.get('contact_phone') or '')
+        if not cust:
+            return jsonify({'error': 'Could not find this partner in Square'}), 502
+        try:
+            invoices = square_search_customer_invoices(cust)
+        except Exception as e:
+            return jsonify({'error': str(e)}), 502
+        by_title = {}
+        for inv in invoices:
+            by_title.setdefault((inv.get('title') or '').strip(), []).append(inv)
+        plan = []
+        payments = fetchall(conn, 'SELECT * FROM rental_payments WHERE agreement_id=%s ORDER BY due_date, created_at', (aid,)) or []
+        for p in payments:
+            label = p.get('installment_label') or ('Deposit' if p['payment_type'] == 'deposit' else 'Final Payment' if p['payment_type'] == 'final' else 'Payment')
+            title = f'{label} \u2014 {req.get("title", "")}'.strip()
+            cands = [i for i in by_title.get(title, []) if i.get('status') not in ('CANCELED',)]
+            if len(cands) < 2 and not (cands and p.get('square_invoice_id') and cands[0]['id'] != p['square_invoice_id'] and cands[0].get('status') == 'PAID'):
+                continue
+            paid = [i for i in cands if i.get('status') == 'PAID']
+            keep = paid[0] if paid else next((i for i in cands if i['id'] == p.get('square_invoice_id')), cands[0])
+            extras = [i for i in cands if i['id'] != keep['id']]
+            plan.append({'payment_id': p['id'], 'label': label, 'keep': {'id': keep['id'], 'number': keep.get('invoice_number'), 'status': keep.get('status')},
+                         'recorded': p.get('square_invoice_id'), 'relink': keep['id'] != p.get('square_invoice_id'),
+                         'cancel': [{'id': i['id'], 'number': i.get('invoice_number'), 'status': i.get('status'),
+                                     'can_cancel': i.get('status') in ('UNPAID', 'SCHEDULED', 'DRAFT', 'PARTIALLY_PAID')} for i in extras],
+                         '_keep': keep, '_extras': extras})
+        if not d.get('apply'):
+            for x in plan:
+                x.pop('_keep'); x.pop('_extras')
+            return jsonify({'plan': plan})
+        done, problems = 0, []
+        for x in plan:
+            keep = x['_keep']
+            if x['relink']:
+                execute(conn, 'UPDATE rental_payments SET square_invoice_id=%s, square_order_id=%s, public_url=COALESCE(NULLIF(%s,\'\'), public_url) WHERE id=%s',
+                        (keep['id'], keep.get('order_id'), keep.get('public_url') or '', x['payment_id']))
+                conn.commit()
+            pay = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (x['payment_id'],))
+            _apply_rental_invoice_update(conn, pay, keep)
+            conn.commit()
+            for inv in x['_extras']:
+                if inv.get('status') not in ('UNPAID', 'SCHEDULED', 'DRAFT', 'PARTIALLY_PAID'):
+                    if inv.get('status') == 'PAID':
+                        problems.append(f'{x["label"]}: invoice #{inv.get("invoice_number")} was ALSO paid. Refund one of them in Square.')
+                    continue
+                ok, e = square_void_invoice(inv)
+                if ok: done += 1
+                else: problems.append(f'{x["label"]}: could not cancel #{inv.get("invoice_number")}: {e}')
+        return jsonify({'ok': True, 'cancelled': done, 'fixed': len(plan), 'problems': problems})
+    finally:
+        conn.close()
 
 
 @app.route('/api/rental/agreements/<aid>/sync-payments', methods=['POST'])

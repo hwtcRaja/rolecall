@@ -33502,6 +33502,13 @@ async function saveRentalPaymentPlan(agreementId){
 }
 
 // ── Generic all-invoices viewer (works for deposit/final and installment plans alike) ──
+async function recheckRentalPayments(aid){
+  const r = await api('/api/rental/agreements/'+aid+'/sync-payments','POST',{})
+  if(r.error){ toast(r.error,'error'); return }
+  toast(r.newly_paid ? r.newly_paid+' newly paid' : 'Up to date with Square','success')
+  document.getElementById('rental-payments-list-modal')?.remove(); openRentalPaymentsListModal(aid)
+  if(typeof loadRentalsPage==='function') loadRentalsPage()
+}
 async function openRentalPaymentsListModal(agreementId){
   const overlay = document.createElement('div')
   overlay.id = 'rental-payments-list-modal'
@@ -33511,7 +33518,7 @@ async function openRentalPaymentsListModal(agreementId){
     <div style="font-size:16px;font-weight:800;color:var(--teal-dark)">Invoices</div>
     <button onclick="document.getElementById('rental-payments-list-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button>
    </div>
-   <div style="margin-bottom:12px"><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline" onclick="copyRentalPaymentPlanLink('${agreementId}')"> Copy Payment Plan link (for the partner)</span></div>
+   <div style="margin-bottom:12px"><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline;margin-right:14px" onclick="recheckRentalPayments('${agreementId}')">Check Square for payments</span><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline" onclick="copyRentalPaymentPlanLink('${agreementId}')"> Copy Payment Plan link (for the partner)</span></div>
    <div id="rp-list-body" style="font-size:13px;color:var(--text-muted)">Loading…</div>
    <div id="rp-add-installment-wrap" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
     <div id="rp-add-installment-form" style="display:none">
@@ -33533,6 +33540,11 @@ async function openRentalPaymentsListModal(agreementId){
   </div>`
   overlay.addEventListener('click', function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
+  // ask Square about anything sent but not marked paid yet (in case a payment notice was missed)
+  try{
+    const sync = await api('/api/rental/agreements/'+agreementId+'/sync-payments','POST',{})
+    if(sync && sync.newly_paid) toast(sync.newly_paid+' payment'+(sync.newly_paid===1?'':'s')+' found in Square and marked paid','success')
+  }catch(e){}
   const payments = await api('/api/rental/agreements/'+agreementId+'/payments')
   window._rpListCache = Array.isArray(payments) ? payments : []
   const body = document.getElementById('rp-list-body')

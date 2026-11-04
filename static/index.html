@@ -33324,7 +33324,7 @@ function renderRentalPaymentButtons(r){
     }
   } else if(!r.deposit_payment_id){
     html += '<button class="btn btn-primary btn-sm" onclick="openDepositInvoiceModal(\''+r.agreement_id+'\')">Generate Deposit Invoice</button>'
-    html += ' <button class="btn btn-secondary btn-sm" onclick="openPaymentPlanModal(\''+r.agreement_id+'\',\''+(r.total_amount||0)+'\',\''+(r.billing_months||6)+'\')">Set Up Monthly Payment Plan</button>'
+    html += ' <button class="btn btn-secondary btn-sm" onclick="openPaymentPlanModal(\''+r.agreement_id+'\',\''+(r.total_amount||0)+'\',\''+(r.billing_months||6)+'\')">Set Up Installment Plan</button>'
   } else {
     if(r.deposit_invoice_status !== 'PAID'){
       html += '<button class="btn btn-secondary btn-sm" onclick="checkRentalPaymentStatus(\''+r.deposit_payment_id+'\')">Check Deposit Status</button>'
@@ -33450,7 +33450,7 @@ async function sendScheduledRentalInvoice(paymentId, agreementId){
   }
 }
 
-// ── Monthly Payment Plans ──
+// ── Installment Payment Plans (monthly or any other cadence) ──
 function _rpAddMonths(dateStr, n){
   const d = new Date(dateStr+'T00:00:00')
   const day = d.getDate()
@@ -33470,12 +33470,16 @@ function openPaymentPlanModal(agreementId, totalCents, defaultMonths){
   overlay.id = 'payment-plan-modal'
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;display:flex;align-items:center;justify-content:center;padding:20px'
   overlay.innerHTML=`<div style="background:var(--surface);border-radius:14px;width:100%;max-width:560px;padding:24px;max-height:90vh;overflow-y:auto">
-   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Set Up Monthly Payment Plan</div>
+   <div style="font-size:16px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Set Up Installment Plan</div>
    <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">${storedPlan.length ? 'Pre-filled from the schedule embedded in the signed contract (Exhibit A). Each installment is saved here on RoleCall and its Square invoice is automatically emailed to the partner about a week before it\'s due — or you can send any of them early from the Invoices list.' : 'Each installment is saved here on RoleCall — no invoice is sent yet. Square automatically emails each one to the partner about a week before its due date, or you can send any of them early from the Invoices list.'}</div>
-   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:6px">
+   <div style="display:grid;grid-template-columns:1fr 1fr 1.2fr 1fr;gap:10px;margin-bottom:6px">
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Total ($)</label>
     <input type="number" id="pp-total" step="0.01" min="0" value="${(totalCents/100).toFixed(2)}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
-    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px"># of Months</label>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">How often</label>
+    <select id="pp-cadence" onchange="ppCadenceChanged()" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box">
+     <option value="monthly">Monthly</option><option value="biweekly">Every 2 weeks</option><option value="weekly">Weekly</option><option value="days">Every … days</option><option value="custom">Custom dates</option>
+    </select><input type="number" id="pp-cadence-days" min="1" value="10" placeholder="days" onchange="ppCadenceChanged()" style="display:none;margin-top:4px;width:100%;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:13px;box-sizing:border-box"/></div>
+    <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px"># of Payments</label>
     <input type="number" id="pp-months" min="2" max="24" value="${defaultMonths||6}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">First Due Date</label>
     <input type="date" id="pp-start-date" value="${todayLocalISO()}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
@@ -33494,6 +33498,22 @@ function openPaymentPlanModal(agreementId, totalCents, defaultMonths){
   else regeneratePaymentPlanRows()
 }
 
+// Step to the next due date for a cadence (monthly keeps the day of month)
+function _rpStep(startDate, i, cadence, everyDays){
+  if(cadence === 'weekly' || cadence === 'biweekly' || cadence === 'days'){
+    const d = new Date(startDate+'T00:00:00')
+    d.setDate(d.getDate() + i * (cadence==='weekly' ? 7 : cadence==='biweekly' ? 14 : Math.max(1, everyDays||1)))
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')
+  }
+  return _rpAddMonths(startDate, i)
+}
+function _rpCadence(prefix){
+  const c = (document.getElementById(prefix+'-cadence')||{}).value || 'monthly'
+  const dd = document.getElementById(prefix+'-cadence-days'); if(dd) dd.style.display = c==='days' ? '' : 'none'
+  return {cadence: c, days: parseInt((dd||{}).value)||10}
+}
+function ppCadenceChanged(){ const c = _rpCadence('pp'); if(c.cadence !== 'custom') regeneratePaymentPlanRows(); else toast('Custom: set each due date in the rows below','success') }
+function gcppCadenceChanged(rid){ const c = _rpCadence('gcpp'); if(c.cadence !== 'custom') regenerateContractPaymentPlanRows(rid); else toast('Custom: set each due date in the rows below','success') }
 function regeneratePaymentPlanRows(){
   const total = Math.round((parseFloat((document.getElementById('pp-total')||{}).value)||0)*100)
   const months = Math.max(2, parseInt((document.getElementById('pp-months')||{}).value)||6)
@@ -33503,7 +33523,8 @@ function regeneratePaymentPlanRows(){
   const rows = []
   for(let i=0;i<months;i++){
     const amt = base + (i===months-1 ? remainder : 0) // last month absorbs any rounding remainder
-    rows.push({ amount: (amt/100).toFixed(2), due_date: _rpAddMonths(startDate, i), label: 'Payment '+(i+1)+' of '+months })
+    const cad = _rpCadence('pp')
+    rows.push({ amount: (amt/100).toFixed(2), due_date: _rpStep(startDate, i, cad.cadence, cad.days), label: 'Payment '+(i+1)+' of '+months })
   }
   renderPaymentPlanRows(rows)
 }
@@ -34016,11 +34037,15 @@ async function openGenerateContractModal(rid){
     <div style="display:flex;flex-direction:column;gap:6px">
      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="radio" name="gen-billing-freq" value="deposit_final" ${billingFreq==='deposit_final'?'checked':''} onchange="refreshRentalContractTerms('${rid}')"/> Deposit now, remaining balance due within 24 hours of the event</label>
      <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="radio" name="gen-billing-freq" value="full" ${billingFreq==='full'?'checked':''} onchange="refreshRentalContractTerms('${rid}')"/> Full amount collected upon signing</label>
-     <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="radio" name="gen-billing-freq" value="monthly" ${billingFreq==='monthly'?'checked':''} onchange="refreshRentalContractTerms('${rid}')"/> Monthly installments</label>
+     <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer"><input type="radio" name="gen-billing-freq" value="monthly" ${billingFreq==='monthly'?'checked':''} onchange="refreshRentalContractTerms('${rid}')"/> Installment payments</label>
     </div>
     <div id="gen-billing-months-wrap" style="margin-top:12px;display:${billingFreq==='monthly'?'':'none'}">
-     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:8px">
-      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px"># of Months</label>
+     <div style="display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:10px;margin-bottom:8px">
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">How often</label>
+    <select id="gcpp-cadence" onchange="gcppCadenceChanged('${rid}')" style="width:100%;padding:9px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box">
+     <option value="monthly">Monthly</option><option value="biweekly">Every 2 weeks</option><option value="weekly">Weekly</option><option value="days">Every … days</option><option value="custom">Custom dates</option>
+    </select><input type="number" id="gcpp-cadence-days" min="1" value="10" placeholder="days" onchange="gcppCadenceChanged('${rid}')" style="display:none;margin-top:4px;width:100%;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-size:13px;box-sizing:border-box"/></div>
+      <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px"># of Payments</label>
       <input type="number" id="gcpp-months" min="2" max="24" value="${req.billing_months||6}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
       <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">First Due Date</label>
       <input type="date" id="gcpp-start-date" value="${todayLocalISO()}" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
@@ -34147,7 +34172,8 @@ function regenerateContractPaymentPlanRows(rid){
   const rows = []
   for(let i=0;i<months;i++){
     const amt = base + (i===months-1 ? remainder : 0)
-    rows.push({ amount: (amt/100).toFixed(2), due_date: _rpAddMonths(startDate, i), label: 'Payment '+(i+1)+' of '+months })
+    const cad = _rpCadence('gcpp')
+    rows.push({ amount: (amt/100).toFixed(2), due_date: _rpStep(startDate, i, cad.cadence, cad.days), label: 'Payment '+(i+1)+' of '+months })
   }
   renderContractPaymentPlanRows(rows)
 }
@@ -34951,7 +34977,7 @@ const CLAUSE_CATEGORY_LABELS = {
   '': 'All Categories', 'ticketed_enrollment':'Ticketed/Enrollment', 'fee_based':'Fee-Based (Open + Closed)',
   'open_partnership':'Open Partnership', 'closed_rental':'Closed Rental'
 }
-const CLAUSE_BILLING_LABELS = { '': 'Any Billing Plan', 'deposit_final':'Deposit + Final', 'full':'Full Payment', 'monthly':'Monthly Installments' }
+const CLAUSE_BILLING_LABELS = { '': 'Any Billing Plan', 'deposit_final':'Deposit + Final', 'full':'Full Payment', 'monthly':'Installments' }
 
 async function openContractClauseLibraryModal(){
   const rows = await api('/api/rental/contract-clauses')

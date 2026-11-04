@@ -37446,6 +37446,19 @@ def get_rental_equipment_items():
     if err: return err
     conn = get_db()
     rows = fetchall(conn, 'SELECT * FROM rental_equipment_items ORDER BY sort_order, name') or []
+    # The studio-equipment checklist on agreements now comes from Inventory
+    # (category Equipment) too, so there's one list to keep up. Older
+    # entries that aren't in Inventory yet still show.
+    try:
+        have = {(r.get('name') or '').strip().lower() for r in rows}
+        for i in fetchall(conn, """SELECT id, name, quantity, description FROM inventory_items
+                WHERE category='equipment' AND status <> 'retired' AND kind <> 'package' ORDER BY name""") or []:
+            if i['name'].strip().lower() in have:
+                continue
+            rows.append({'id': 'inv:' + i['id'], 'name': i['name'], 'active': True, 'default_allowed': False,
+                         'default_quantity': str(i.get('quantity') or ''), 'default_notes': '', 'from_inventory': True})
+    except Exception as e:
+        app.logger.warning(f'equipment list from inventory failed: {e}')
     conn.close()
     return jsonify(rows)
 
@@ -44249,7 +44262,13 @@ def staff_performance_seats(fid):
         others = fetchall(conn, '''SELECT id, performance_date, performance_time, name, status FROM performances
             WHERE production_id=%s AND reserved_seating=TRUE AND seat_map_id IS NOT NULL
             AND COALESCE(status,'draft') NOT IN ('cancelled') ORDER BY performance_date, performance_time''', (perf['production_id'],)) or []
-        return jsonify({'performance': perf, 'production_name': prod.get('name'), 'seats': seats, 'ticket_types': types,
+        # the stage and labeled areas exactly as the public seat map draws them
+        stage = None
+        if perf.get('stage_x') is not None:
+            stage = {'x': float(perf['stage_x']), 'y': float(perf['stage_y']), 'width': float(perf.get('stage_width') or 8),
+                     'depth': float(perf.get('stage_depth') or 2), 'rotation': float(perf.get('stage_rotation') or 0)}
+        shapes = fetchall(conn, 'SELECT x, y, width, height, rotation, label, fill_color FROM seat_map_shapes WHERE seat_map_id=%s', (perf['seat_map_id'],)) or []
+        return jsonify({'performance': perf, 'production_name': prod.get('name'), 'seats': seats, 'ticket_types': types, 'stage': stage, 'shapes': shapes,
                         'recent': recent, 'counts': counts, 'performances': others})
     finally:
         conn.close()
@@ -46399,7 +46418,7 @@ def ticket_order_context(conn, order_id):
     prod = fetchone(conn, '''SELECT id, name, share_name, slug, image_url, ticket_logo_url, kbyg_enabled, kbyg_hours_before, kbyg_text
         FROM productions WHERE id=%s''', (perf.get('production_id'),)) or {}
     venue = fetchone(conn, 'SELECT name, address, city, notes FROM venues WHERE id=%s', (perf.get('venue_id'),)) if perf.get('venue_id') else None
-    tickets = fetchall(conn, '''SELECT t.id, t.seat_label, t.section, t.confirmation_code, t.checked_in_at, t.view_note, t.obstructed_view,
+    tickets = fetchall(conn, '''SELECT t.id, t.seat_id, t.seat_label, t.section, t.confirmation_code, t.checked_in_at, t.view_note, t.obstructed_view,
             tt.name AS type_name FROM tickets t LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id
         WHERE t.ticket_order_id=%s ORDER BY t.seat_label''', (order_id,)) or []
     import datetime as _dt
@@ -46498,8 +46517,15 @@ def ticket_email_html(ctx, kind='confirmation'):
                 'Have your tickets open on your phone at the door (use the button above).')
              + '</div>')
     cal = '<p style="font-size:13px;margin:16px 0 0"><a href="' + link + '/calendar.ics" style="color:#16728b;font-weight:600">Add to your calendar</a></p>'
+    # map of where they're sitting (an image: email apps don't show SVG)
+    seatmap = ''
+    if ctx['perf'].get('reserved_seating') and ctx['perf'].get('seat_map_id') and any(t.get('seat_id') for t in ctx['tickets']):
+        seatmap = ('<div style="margin:14px 0 6px;font-size:14px;font-weight:800">Where you\'re sitting</div>'
+                   '<a href="' + link + '"><img src="' + base + '/t/' + ctx['token'] + '/seatmap.png" alt="Seat map showing your seats" width="560" '
+                   'style="display:block;width:100%;max-width:560px;height:auto;border:1px solid #e5eaec;border-radius:10px"/></a>'
+                   '<div style="font-size:12px;color:#5f6b72;margin-top:4px">Your seats are in gold.</div>')
     return build_hwtc_email_html(('Your tickets: ' if kind == 'confirmation' else 'Know before you go: ') + show,
-                                 intro + details + btn + cards + extra + cal)
+                                 intro + details + btn + cards + seatmap + extra + cal)
 
 
 def send_ticket_email(conn, order_id, kind='confirmation', to_override=None):
@@ -46544,6 +46570,18 @@ def public_ticket_view(token):
                        + ('<span class="used">Checked in</span>' if t.get('checked_in_at') else '<span style="color:#5f6b72">' + _h(t.get('type_name') or '') + '</span>') + '</div>'
                        for t in ctx['tickets'])
              + '<button class="open-btn" onclick="openTickets(0)">Show my ticket' + ('s' if n_t != 1 else '') + ' at the door</button></div>')
+    try:
+        _cs = get_db()
+        try:
+            _sm = order_seat_map_data(_cs, ctx['order']['id'])
+        finally:
+            _cs.close()
+    except Exception:
+        _sm = None
+    if _sm:
+        cards += ('<div class="card"><div style="font-weight:800;margin-bottom:6px">Where you\'re sitting</div>'
+                  + seat_map_svg(_sm)
+                  + '<div style="font-size:12.5px;color:#5f6b72;margin-top:6px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#f4b740;border:1.5px solid #92400e;vertical-align:-1px"></span> your seats</div></div>')
     slides = ''.join(
         '<section class="sl"><div class="sl-top">Ticket ' + str(i + 1) + ' of ' + str(n_t) + '</div>'
         '<img src="' + base + '/qr/' + t['id'] + '.png" alt="QR code for ' + _h(t['seat_label'] or 'ticket') + '"/>'
@@ -46609,6 +46647,168 @@ def public_ticket_view(token):
             '</script></body></html>')
     resp = app.response_class(html, mimetype='text/html')
     resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+# ── "Where you're sitting" map for a buyer ────────────────────────────────
+# Same layout rules as the public seat picker: stage by its center with
+# rotation, labeled areas, row letters at both ends of each row. Drawn as
+# SVG on the ticket page and as a PNG for emails (email apps don't show SVG).
+def order_seat_map_data(conn, order_id):
+    o = fetchone(conn, 'SELECT performance_id FROM ticket_orders WHERE id=%s', (order_id,))
+    if not o:
+        return None
+    perf = fetchone(conn, '''SELECT pf.reserved_seating, pf.seat_map_id, sm.stage_x, sm.stage_y, sm.stage_width, sm.stage_depth, sm.stage_rotation
+        FROM performances pf LEFT JOIN seat_maps sm ON sm.id=pf.seat_map_id WHERE pf.id=%s''', (o['performance_id'],)) or {}
+    if not perf.get('reserved_seating') or not perf.get('seat_map_id'):
+        return None
+    mine = {r['seat_id'] for r in (fetchall(conn, 'SELECT seat_id FROM tickets WHERE ticket_order_id=%s AND seat_id IS NOT NULL', (order_id,)) or [])}
+    if not mine:
+        return None
+    taken = {r['seat_id'] for r in (fetchall(conn, '''SELECT t.seat_id FROM tickets t JOIN ticket_orders x ON x.id=t.ticket_order_id
+        WHERE t.performance_id=%s AND t.seat_id IS NOT NULL AND x.status NOT IN ('refunded','cancelled')''', (o['performance_id'],)) or [])}
+    seats = []
+    for s in fetchall(conn, '''SELECT id, seat_label, section, row_name, x, y FROM seat_map_seats
+            WHERE seat_map_id=%s AND COALESCE(active,TRUE)=TRUE''', (perf['seat_map_id'],)) or []:
+        seats.append({'x': float(s['x']), 'y': float(s['y']), 'label': s.get('seat_label') or '', 'row': s.get('row_name') or '',
+                      'section': s.get('section') or '', 'mine': s['id'] in mine, 'taken': s['id'] in taken})
+    stage = None
+    if perf.get('stage_x') is not None:
+        stage = {'x': float(perf['stage_x']), 'y': float(perf['stage_y']), 'width': float(perf.get('stage_width') or 8),
+                 'depth': float(perf.get('stage_depth') or 2), 'rotation': float(perf.get('stage_rotation') or 0)}
+    shapes = [{k: (float(v) if k in ('x', 'y', 'width', 'height', 'rotation') else v) for k, v in sh.items()}
+              for sh in (fetchall(conn, 'SELECT x, y, width, height, rotation, label, fill_color FROM seat_map_shapes WHERE seat_map_id=%s',
+                                  (perf['seat_map_id'],)) or [])]
+    return {'seats': seats, 'stage': stage, 'shapes': shapes}
+
+
+def _seat_map_bounds(m):
+    xs = [s['x'] for s in m['seats']]; ys = [s['y'] for s in m['seats']]
+    st = m.get('stage')
+    if st:
+        xs += [st['x'] - st['width'] / 2, st['x'] + st['width'] / 2]; ys += [st['y'] - st['depth'] / 2, st['y'] + st['depth'] / 2]
+    for sh in m.get('shapes') or []:
+        xs += [sh['x'] - sh['width'] / 2, sh['x'] + sh['width'] / 2]; ys += [sh['y'] - sh['height'] / 2, sh['y'] + sh['height'] / 2]
+    pad = 1.2
+    return min(xs) - pad, min(ys) - pad, max(xs) + pad, max(ys) + pad
+
+
+def _row_label_points(m):
+    """Two (x, y, letter) points just past each end of every row."""
+    rows = {}
+    for s in m['seats']:
+        if s['row']:
+            rows.setdefault((s['section'], s['row']), []).append(s)
+    out = []
+    for (_, row), rs in rows.items():
+        a = b = rs[0]; far = -1
+        for p in rs:
+            for q in rs:
+                dd = (p['x'] - q['x']) ** 2 + (p['y'] - q['y']) ** 2
+                if dd > far:
+                    far, a, b = dd, p, q
+        dx, dy = b['x'] - a['x'], b['y'] - a['y']
+        ln = (dx * dx + dy * dy) ** 0.5
+        ux, uy = (dx / ln, dy / ln) if ln > 0.01 else (1.0, 0.0)
+        out.append((a['x'] - ux * 0.85, a['y'] - uy * 0.85, row))
+        out.append((b['x'] + ux * 0.85, b['y'] + uy * 0.85, row))
+    return out
+
+
+def seat_map_svg(m):
+    from html import escape as _e
+    x0, y0, x1, y1 = _seat_map_bounds(m)
+    h = [f'<svg viewBox="{x0} {y0} {x1 - x0} {y1 - y0}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;display:block" role="img" aria-label="Seat map with your seats highlighted">']
+    st = m.get('stage')
+    if st:
+        h.append(f'<g transform="translate({st["x"]},{st["y"]}) rotate({st["rotation"]})"><rect x="{-st["width"]/2}" y="{-st["depth"]/2}" width="{st["width"]}" height="{st["depth"]}" rx="0.15" fill="#334155"/>'
+                 f'<text x="0" y="0.15" font-size="0.6" text-anchor="middle" fill="#fff" font-weight="700" font-family="sans-serif">STAGE</text></g>')
+    else:
+        h.append(f'<text x="{(x0+x1)/2}" y="{y1-0.2}" font-size="0.9" text-anchor="middle" fill="#94a3b8" font-weight="700" font-family="sans-serif">STAGE</text>')
+    for sh in m.get('shapes') or []:
+        h.append(f'<g transform="translate({sh["x"]},{sh["y"]}) rotate({sh.get("rotation") or 0})"><rect x="{-sh["width"]/2}" y="{-sh["height"]/2}" width="{sh["width"]}" height="{sh["height"]}" rx="0.1" fill="{_e(sh.get("fill_color") or "#64748b")}" opacity="0.85"/>'
+                 + (f'<text x="0" y="0.13" font-size="0.32" text-anchor="middle" fill="#fff" font-weight="700" font-family="sans-serif">{_e(sh["label"])}</text>' if sh.get('label') else '') + '</g>')
+    for px, py, row in _row_label_points(m):
+        h.append(f'<text x="{px}" y="{py+0.13}" font-size="0.36" font-weight="700" text-anchor="middle" fill="#64748b" font-family="sans-serif">{_e(row)}</text>')
+    for s in m['seats']:
+        if s['mine']:
+            continue
+        h.append(f'<circle cx="{s["x"]}" cy="{s["y"]}" r="0.4" fill="{"#cbd5e1" if s["taken"] else "#e2e8f0"}"/>')
+    for s in m['seats']:
+        if s['mine']:
+            h.append(f'<circle cx="{s["x"]}" cy="{s["y"]}" r="0.48" fill="#f4b740" stroke="#92400e" stroke-width="0.08"/>'
+                     f'<text x="{s["x"]}" y="{s["y"]+0.12}" font-size="0.3" font-weight="700" text-anchor="middle" fill="#3b2a05" font-family="sans-serif">{_e(s["label"])}</text>')
+    h.append('</svg>')
+    return ''.join(h)
+
+
+def seat_map_png(m, max_px=1100):
+    import io, math
+    from PIL import Image, ImageDraw, ImageFont
+    x0, y0, x1, y1 = _seat_map_bounds(m)
+    scale = max(18, min(48, int(max_px / max(1e-6, (x1 - x0)))))
+    W, H = int((x1 - x0) * scale), int((y1 - y0) * scale)
+    img = Image.new('RGB', (W, H), (248, 250, 252))
+    d = ImageDraw.Draw(img)
+    P = lambda x, y: ((x - x0) * scale, (y - y0) * scale)
+    def font(sz):
+        for f in ('DejaVuSans-Bold.ttf', '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf', 'Arial Bold.ttf', 'arialbd.ttf'):
+            try: return ImageFont.truetype(f, sz)
+            except Exception: pass
+        try: return ImageFont.load_default(size=sz)
+        except Exception: return ImageFont.load_default()
+    def rect(cx, cy, w, hgt, rot, fill):
+        r = math.radians(rot or 0); c, s_ = math.cos(r), math.sin(r)
+        pts = []
+        for dx, dy in ((-w/2, -hgt/2), (w/2, -hgt/2), (w/2, hgt/2), (-w/2, hgt/2)):
+            pts.append(P(cx + dx * c - dy * s_, cy + dx * s_ + dy * c))
+        d.polygon(pts, fill=fill)
+    def text(x, y, t, sz, fill):
+        f = font(max(8, int(sz)))
+        px, py = P(x, y)
+        try: d.text((px, py), t, font=f, fill=fill, anchor='mm')
+        except Exception: d.text((px, py), t, font=f, fill=fill)
+    st = m.get('stage')
+    if st:
+        rect(st['x'], st['y'], st['width'], st['depth'], st['rotation'], (51, 65, 85))
+        text(st['x'], st['y'], 'STAGE', scale * 0.6, (255, 255, 255))
+    else:
+        text((x0 + x1) / 2, y1 - 0.5, 'STAGE', scale * 0.9, (148, 163, 184))
+    for sh in m.get('shapes') or []:
+        col = sh.get('fill_color') or '#64748b'
+        try: rgb = tuple(int(col.lstrip('#')[i:i+2], 16) for i in (0, 2, 4))
+        except Exception: rgb = (100, 116, 139)
+        rect(sh['x'], sh['y'], sh['width'], sh['height'], sh.get('rotation') or 0, rgb)
+        if sh.get('label'):
+            text(sh['x'], sh['y'], sh['label'], scale * 0.32, (255, 255, 255))
+    for px, py, row in _row_label_points(m):
+        text(px, py, row, scale * 0.36, (100, 116, 139))
+    for s in m['seats']:
+        if s['mine']:
+            continue
+        cx, cy = P(s['x'], s['y']); r = 0.4 * scale
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(203, 213, 225) if s['taken'] else (226, 232, 240))
+    for s in m['seats']:
+        if s['mine']:
+            cx, cy = P(s['x'], s['y']); r = 0.5 * scale
+            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(244, 183, 64), outline=(146, 64, 14), width=max(2, scale // 12))
+            text(s['x'], s['y'], s['label'], scale * 0.3, (59, 42, 5))
+    buf = io.BytesIO(); img.save(buf, 'PNG', optimize=True)
+    return buf.getvalue()
+
+
+@app.route('/t/<token>/seatmap.png')
+def public_ticket_seatmap(token):
+    conn = get_db()
+    try:
+        o = fetchone(conn, "SELECT id FROM ticket_orders WHERE view_token=%s AND status='completed'", (token,))
+        m = order_seat_map_data(conn, o['id']) if o else None
+    finally:
+        conn.close()
+    if not m:
+        return 'Not found', 404
+    resp = app.response_class(seat_map_png(m), mimetype='image/png')
+    resp.headers['Cache-Control'] = 'private, max-age=3600'
     return resp
 
 

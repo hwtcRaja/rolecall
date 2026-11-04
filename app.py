@@ -3171,6 +3171,25 @@ def init_db():
         "ALTER TABLE elics ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS auto_sold_out BOOLEAN DEFAULT FALSE",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS payment_method TEXT",
+        """CREATE TABLE IF NOT EXISTS workshop_proposals (
+            id TEXT PRIMARY KEY, token TEXT UNIQUE NOT NULL, status TEXT DEFAULT 'pending', status_note TEXT DEFAULT '',
+            volunteer_id TEXT REFERENCES volunteers(id) ON DELETE SET NULL,
+            name TEXT NOT NULL, email TEXT NOT NULL, phone TEXT DEFAULT '', is_volunteer BOOLEAN DEFAULT FALSE,
+            title TEXT NOT NULL, description TEXT DEFAULT '', workshop_type TEXT DEFAULT 'Other',
+            setup_hours NUMERIC, duration_hours NUMERIC, teardown_hours NUMERIC, time_notes TEXT DEFAULT '',
+            is_series BOOLEAN DEFAULT FALSE, series_days INTEGER, preferred_dates TEXT DEFAULT '', participants INTEGER,
+            age_range TEXT DEFAULT 'all', space TEXT DEFAULT 'studio_a', supplies TEXT DEFAULT '', bios TEXT DEFAULT '',
+            tour_date TEXT DEFAULT '', tour_time TEXT DEFAULT '', tour_done BOOLEAN DEFAULT FALSE,
+            elic_trained BOOLEAN DEFAULT FALSE, elic_trained_at TIMESTAMP, elic_trained_by TEXT,
+            program_id TEXT, history TEXT DEFAULT '[]',
+            created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS proposal_messages (
+            id TEXT PRIMARY KEY, proposal_id TEXT NOT NULL REFERENCES workshop_proposals(id) ON DELETE CASCADE,
+            sender TEXT NOT NULL, author TEXT, body TEXT NOT NULL, unread BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS proposal_notes (
+            id TEXT PRIMARY KEY, proposal_id TEXT NOT NULL REFERENCES workshop_proposals(id) ON DELETE CASCADE,
+            author TEXT, body TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW())""",
+        "INSERT INTO nav_icons (key, lucide_name) VALUES ('proposals', 'lightbulb') ON CONFLICT (key) DO NOTHING",
         """CREATE TABLE IF NOT EXISTS inventory_items (
             id TEXT PRIMARY KEY, name TEXT NOT NULL, category TEXT DEFAULT 'prop', kind TEXT DEFAULT 'piece',
             description TEXT DEFAULT '', sizes TEXT DEFAULT '', quantity INTEGER DEFAULT 1,
@@ -11218,6 +11237,428 @@ def get_pending_director_volunteers():
 
 
 
+# ══ Workshop & Event Proposals ════════════════════════════════════════════
+# Volunteers (or anyone) propose a workshop or event at /propose; staff
+# review it in RoleCall → Proposals: type and status, two-way messages with
+# the submitter, internal notes, a studio tour, and an "ELIC trained" check.
+# Volunteers who pick a workshop/class interest are emailed the form, the
+# same way picking Director sends the director form.
+PROPOSAL_TYPES = ['Dance', 'Tech', 'Acting', 'Improv', 'Stage Combat', 'Puppetry', 'Music / Voice', 'Event', 'Other']
+PROPOSAL_STATUSES = {'pending': 'Pending Review', 'sent_back': 'Sent Back', 'approved_to_schedule': 'Approved: To Be Scheduled',
+                     'approved_scheduled': 'Approved: Scheduled', 'denied': 'Denied', 'archived': 'Archived'}
+PROPOSAL_AGES = {'kids': 'Kids', 'teens': 'Teens', 'adults': 'Adults', 'all': 'All Ages'}
+PROPOSAL_SPACES = {'studio_a': 'Studio A', 'studio_b': 'Studio B', 'both': 'Both'}
+PROPOSAL_INTEREST_KEYWORDS_DEFAULT = 'workshop,class,teach,instruct'
+
+
+def _proposal_link(p):
+    return APP_BASE_URL.rstrip('/') + '/proposal/' + p['token']
+
+
+def _proposal_staff_email(conn):
+    return _setting(conn, 'proposal_notify_email') or 'info@hwtco.org'
+
+
+def _proposal_fields(d):
+    def num(v, cast=float):
+        try: return cast(v) if str(v).strip() != '' else None
+        except Exception: return None
+    return {
+        'name': (d.get('name') or '').strip()[:300], 'email': (d.get('email') or '').strip()[:200],
+        'phone': (d.get('phone') or '').strip()[:40], 'is_volunteer': bool(d.get('is_volunteer')),
+        'title': (d.get('title') or '').strip()[:200], 'description': (d.get('description') or '').strip()[:5000],
+        'workshop_type': d.get('workshop_type') if d.get('workshop_type') in PROPOSAL_TYPES else 'Other',
+        'setup_hours': num(d.get('setup_hours')), 'duration_hours': num(d.get('duration_hours')), 'teardown_hours': num(d.get('teardown_hours')),
+        'time_notes': (d.get('time_notes') or '').strip()[:1000],
+        'is_series': bool(d.get('is_series')), 'series_days': num(d.get('series_days'), int) if d.get('is_series') else None,
+        'preferred_dates': (d.get('preferred_dates') or '').strip()[:2000],
+        'participants': num(d.get('participants'), int),
+        'age_range': d.get('age_range') if d.get('age_range') in PROPOSAL_AGES else 'all',
+        'space': d.get('space') if d.get('space') in PROPOSAL_SPACES else 'studio_a',
+        'supplies': (d.get('supplies') or '').strip()[:3000], 'bios': (d.get('bios') or '').strip()[:6000],
+    }
+
+
+def _proposal_validate(f):
+    missing = [k for k, lab in (('name', 'instructor name'), ('email', 'email'), ('phone', 'phone'), ('title', 'title'),
+                                ('description', 'description'), ('preferred_dates', 'preferred dates'), ('bios', 'instructor bio'))
+               if not f.get(k)]
+    if missing:
+        return 'Please fill in: ' + ', '.join(lab for k, lab in (('name', 'instructor name'), ('email', 'email'), ('phone', 'phone'), ('title', 'title'),
+                                ('description', 'description'), ('preferred_dates', 'preferred dates'), ('bios', 'instructor bio')) if k in missing) + '.'
+    if '@' not in f['email']:
+        return 'Please enter a valid email.'
+    if f.get('participants') and f['participants'] > 50:
+        return 'The studio holds 50 people at most. Please lower the number of participants.'
+    if f.get('is_series') and not f.get('series_days'):
+        return 'How many days is the series?'
+    return None
+
+
+def _proposal_history(p, action, who, note=''):
+    import datetime as _dth
+    try: h = json.loads(p.get('history') or '[]')
+    except Exception: h = []
+    h.append({'action': action, 'by': who, 'at': _dth.datetime.now().isoformat(timespec='minutes'), 'note': note})
+    return json.dumps(h[-80:])
+
+
+def _proposal_summary_html(p):
+    from html import escape as _e
+    def row(k, v):
+        return f'<tr><td style="padding:6px 8px;color:#6b7280;width:170px;vertical-align:top">{k}</td><td style="padding:6px 8px">{v}</td></tr>' if v else ''
+    hours = []
+    for k, lab in (('setup_hours', 'set up'), ('duration_hours', 'event'), ('teardown_hours', 'tear down')):
+        if p.get(k) is not None: hours.append(f'{float(p[k]):g} h {lab}')
+    return ('<table style="width:100%;border-collapse:collapse;font-size:14px">'
+            + row('Instructor(s)', _e(p['name'])) + row('Email', _e(p['email'])) + row('Phone', _e(p.get('phone') or ''))
+            + row('Active HWTC volunteer', 'Yes' if p.get('is_volunteer') else 'No')
+            + row('Type', _e(p.get('workshop_type') or '')) + row('Title', '<strong>' + _e(p['title']) + '</strong>')
+            + row('Description', message_text_html(p.get('description') or ''))
+            + row('Time', ' · '.join(hours) + (('<br>' + _e(p['time_notes'])) if p.get('time_notes') else ''))
+            + row('Series', (f'Yes, {p["series_days"]} days' if p.get('is_series') else 'No'))
+            + row('Preferred dates', message_text_html(p.get('preferred_dates') or ''))
+            + row('Participants', str(p['participants']) if p.get('participants') else '')
+            + row('Ages', PROPOSAL_AGES.get(p.get('age_range'), '')) + row('Space', PROPOSAL_SPACES.get(p.get('space'), ''))
+            + row('Supplies &amp; cost', message_text_html(p.get('supplies') or ''))
+            + row('Bio(s)', message_text_html(p.get('bios') or ''))
+            + '</table>')
+
+
+@app.route('/propose')
+@app.route('/propose-workshop')
+def propose_page():
+    return send_from_directory('static', 'propose.html')
+
+
+@app.route('/proposal/<token>')
+def proposal_status_page(token):
+    return send_from_directory('static', 'propose.html')
+
+
+@app.route('/api/public/proposals', methods=['POST'])
+def public_submit_proposal():
+    d = request.json or {}
+    f = _proposal_fields(d)
+    msg = _proposal_validate(f)
+    if msg:
+        return jsonify({'error': msg}), 400
+    conn = get_db()
+    try:
+        vol = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(email)=LOWER(%s) LIMIT 1', (f['email'],))
+        pid, token = str(uuid.uuid4()), uuid.uuid4().hex
+        cols = list(f.keys())
+        execute(conn, f'''INSERT INTO workshop_proposals (id, token, status, volunteer_id, history, {", ".join(cols)})
+            VALUES (%s,%s,'pending',%s,%s,{",".join(["%s"] * len(cols))})''',
+            (pid, token, (vol or {}).get('id'), _proposal_history({}, 'Submitted', f['name'])) + tuple(f[c] for c in cols))
+        conn.commit()
+        p = fetchone(conn, 'SELECT * FROM workshop_proposals WHERE id=%s', (pid,))
+        try:
+            send_email([_proposal_staff_email(conn)], f'New workshop/class proposal: {f["title"]}',
+                       build_hwtc_email_html('New workshop / class proposal', _proposal_summary_html(p)
+                                             + '<p style="margin-top:14px">Review it in RoleCall → Workshop &amp; Class Proposals.</p>'))
+            send_email([f['email']], 'We got your workshop proposal', build_hwtc_email_html('Thanks for your proposal!',
+                f'<p>Hi {_h(f["name"].split(" ")[0])},</p><p>Thank you for proposing <strong>{_h(f["title"])}</strong>. Our team will review it and get back to you. '
+                'You can check its status and message us any time here:</p>'
+                f'<p style="margin:20px 0"><a href="{_proposal_link(p)}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">View my proposal</a></p>'))
+        except Exception as e:
+            app.logger.warning(f'proposal emails failed: {e}')
+        return jsonify({'ok': True, 'token': token})
+    finally:
+        conn.close()
+
+
+def _public_proposal(conn, token):
+    return fetchone(conn, 'SELECT * FROM workshop_proposals WHERE token=%s', (token,))
+
+
+@app.route('/api/public/proposals/<token>', methods=['GET', 'PUT'])
+def public_proposal(token):
+    conn = get_db()
+    try:
+        p = _public_proposal(conn, token)
+        if not p or p['status'] == 'deleted':
+            return jsonify({'error': 'Proposal not found'}), 404
+        if request.method == 'PUT':
+            # the submitter can update and resubmit while it's pending or sent back
+            if p['status'] not in ('pending', 'sent_back'):
+                return jsonify({'error': 'This proposal has already been reviewed, so it can\'t be edited. Send us a message instead.'}), 400
+            f = _proposal_fields(request.json or {})
+            msg = _proposal_validate(f)
+            if msg:
+                return jsonify({'error': msg}), 400
+            try: _hist = json.loads(p.get('history') or '[]')
+            except Exception: _hist = []
+            if any(str(x.get('action', '')).startswith('Type') or '; Type' in str(x.get('action', '')) for x in _hist):
+                f.pop('workshop_type', None)     # staff set the type; keep theirs
+            sets = ', '.join(f'{k}=%s' for k in f.keys())
+            was_back = p['status'] == 'sent_back'
+            execute(conn, f"UPDATE workshop_proposals SET {sets}, status='pending', updated_at=NOW(), history=%s WHERE id=%s",
+                    tuple(f.values()) + (_proposal_history(p, 'Resubmitted with changes' if was_back else 'Updated', f['name']), p['id']))
+            conn.commit()
+            if was_back:
+                try:
+                    send_email([_proposal_staff_email(conn)], f'Proposal resubmitted: {f["title"]}',
+                               build_hwtc_email_html('A proposal was resubmitted', _proposal_summary_html(fetchone(conn, 'SELECT * FROM workshop_proposals WHERE id=%s', (p['id'],)))))
+                except Exception:
+                    pass
+            p = _public_proposal(conn, token)
+        msgs = fetchall(conn, '''SELECT sender, author, body, created_at FROM proposal_messages WHERE proposal_id=%s ORDER BY created_at''', (p['id'],)) or []
+        for m in msgs:
+            m['created_at'] = str(m['created_at'])[:16]
+            if m['sender'] == 'staff':
+                m['author'] = (m.get('author') or 'HWTC').split(' ')[0] + ' (HWTC)'
+        out = {k: p.get(k) for k in ('name', 'email', 'phone', 'is_volunteer', 'title', 'description', 'workshop_type', 'setup_hours', 'duration_hours',
+                                      'teardown_hours', 'time_notes', 'is_series', 'series_days', 'preferred_dates', 'participants', 'age_range',
+                                      'space', 'supplies', 'bios', 'tour_date', 'tour_time')}
+        for k in ('setup_hours', 'duration_hours', 'teardown_hours'):
+            if out.get(k) is not None: out[k] = float(out[k])
+        out.update({'status': p['status'], 'status_label': PROPOSAL_STATUSES.get(p['status'], p['status']),
+                    'status_note': p.get('status_note') or '', 'messages': msgs, 'editable': p['status'] in ('pending', 'sent_back')})
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+@app.route('/api/public/proposals/<token>/messages', methods=['POST'])
+def public_proposal_message(token):
+    body = ((request.json or {}).get('body') or '').strip()[:5000]
+    if not body:
+        return jsonify({'error': 'Write a message first'}), 400
+    conn = get_db()
+    try:
+        p = _public_proposal(conn, token)
+        if not p:
+            return jsonify({'error': 'Proposal not found'}), 404
+        execute(conn, '''INSERT INTO proposal_messages (id, proposal_id, sender, author, body, unread) VALUES (%s,%s,'submitter',%s,%s,TRUE)''',
+                (str(uuid.uuid4()), p['id'], p['name'], body))
+        execute(conn, 'UPDATE workshop_proposals SET updated_at=NOW() WHERE id=%s', (p['id'],))
+        conn.commit()
+        try:
+            send_email([_proposal_staff_email(conn)], f'New message about a proposal: {p["title"]}',
+                       build_hwtc_email_html(f'Message from {_h(p["name"])}', message_text_html(body) + '<p style="margin-top:14px">Reply in RoleCall → Workshop &amp; Class Proposals.</p>'))
+        except Exception:
+            pass
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/proposals', methods=['GET'])
+def list_proposals():
+    err = require_permission('proposals', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT p.*, (SELECT COUNT(*) FROM proposal_messages m WHERE m.proposal_id=p.id AND m.sender='submitter' AND m.unread) AS unread,
+                (SELECT COUNT(*) FROM proposal_messages m WHERE m.proposal_id=p.id) AS message_count,
+                (SELECT COUNT(*) FROM proposal_notes n WHERE n.proposal_id=p.id) AS note_count
+            FROM workshop_proposals p WHERE p.status <> 'deleted' ORDER BY p.created_at DESC''') or []
+        for r in rows:
+            for k in ('created_at', 'updated_at', 'elic_trained_at'):
+                if r.get(k) is not None: r[k] = str(r[k])[:16]
+            for k in ('setup_hours', 'duration_hours', 'teardown_hours'):
+                if r.get(k) is not None: r[k] = float(r[k])
+            r.pop('token', None)
+        return jsonify({'proposals': rows, 'types': PROPOSAL_TYPES, 'statuses': PROPOSAL_STATUSES, 'ages': PROPOSAL_AGES, 'spaces': PROPOSAL_SPACES})
+    finally:
+        conn.close()
+
+
+@app.route('/api/proposals/<pid>', methods=['GET', 'PUT', 'DELETE'])
+def proposal_detail(pid):
+    err = require_permission('proposals', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        p = fetchone(conn, 'SELECT * FROM workshop_proposals WHERE id=%s', (pid,))
+        if not p:
+            return jsonify({'error': 'Not found'}), 404
+        who = session.get('name') or 'Staff'
+        if request.method == 'DELETE':
+            execute(conn, "UPDATE workshop_proposals SET status='deleted', history=%s WHERE id=%s", (_proposal_history(p, 'Deleted', who), pid))
+            conn.commit()
+            return jsonify({'ok': True})
+        if request.method == 'PUT':
+            d = request.json or {}
+            sets, vals, actions = [], [], []
+            if 'workshop_type' in d and d['workshop_type'] in PROPOSAL_TYPES and d['workshop_type'] != p.get('workshop_type'):
+                sets.append('workshop_type=%s'); vals.append(d['workshop_type']); actions.append('Type → ' + d['workshop_type'])
+            if 'tour_date' in d or 'tour_time' in d:
+                sets += ['tour_date=%s', 'tour_time=%s']; vals += [(d.get('tour_date') or '')[:10], (d.get('tour_time') or '')[:5]]
+                actions.append('Tour ' + ((d.get('tour_date') or '') + ' ' + (d.get('tour_time') or '')).strip() if d.get('tour_date') else 'Tour cleared')
+            if 'tour_done' in d:
+                sets.append('tour_done=%s'); vals.append(bool(d['tour_done'])); actions.append('Tour done' if d['tour_done'] else 'Tour not done')
+            if 'elic_trained' in d:
+                sets += ['elic_trained=%s', 'elic_trained_at=' + ('NOW()' if d['elic_trained'] else 'NULL'), 'elic_trained_by=%s']
+                vals += [bool(d['elic_trained']), who if d['elic_trained'] else None]
+                actions.append('ELIC trained ✓' if d['elic_trained'] else 'ELIC trained unchecked')
+                if d['elic_trained'] and p.get('volunteer_id'):
+                    # also mark it on their volunteer profile if that field exists
+                    try: execute(conn, 'UPDATE volunteers SET elic_trained=TRUE WHERE id=%s', (p['volunteer_id'],))
+                    except Exception: conn.rollback()
+            if 'program_id' in d:
+                sets.append('program_id=%s'); vals.append(d.get('program_id') or None)
+            send_note = (d.get('message') or '').strip()
+            if d.get('status') in PROPOSAL_STATUSES and d['status'] != p['status']:
+                st = d['status']
+                sets += ['status=%s', 'status_note=%s']; vals += [st, send_note[:3000]]
+                actions.append('Status → ' + PROPOSAL_STATUSES[st])
+            if sets:
+                sets.append('updated_at=NOW()'); sets.append('history=%s')
+                vals.append(_proposal_history(p, '; '.join(actions) or 'Updated', who, send_note[:300]))
+                execute(conn, f'UPDATE workshop_proposals SET {", ".join(sets)} WHERE id=%s', tuple(vals) + (pid,))
+                conn.commit()
+            # let the submitter know about decisions (and tours)
+            if d.get('status') in ('approved_to_schedule', 'approved_scheduled', 'denied', 'sent_back') and d.get('status') != p['status'] and d.get('notify', True):
+                head = {'approved_to_schedule': 'Your proposal was approved!', 'approved_scheduled': 'Your workshop is on the schedule!',
+                        'denied': 'An update on your proposal', 'sent_back': 'A few changes to your proposal'}[d['status']]
+                lead = {'approved_to_schedule': f'Great news: we\'d love to run <strong>{_h(p["title"])}</strong>. We\'ll be in touch to pick dates.',
+                        'approved_scheduled': f'<strong>{_h(p["title"])}</strong> is officially on our schedule. Thank you!',
+                        'denied': f'Thank you for proposing <strong>{_h(p["title"])}</strong>. We\'re not able to move forward with it at this time.',
+                        'sent_back': f'Thanks for proposing <strong>{_h(p["title"])}</strong>. We\'d like a few changes before we can review it. You can update it and resubmit from the link below.'}[d['status']]
+                try:
+                    send_email([p['email']], head, build_hwtc_email_html(head, f'<p>Hi {_h(p["name"].split(" ")[0])},</p><p>{lead}</p>'
+                        + (f'<div style="background:#f8fafc;border-left:3px solid #145466;padding:10px 14px;margin:12px 0">{message_text_html(send_note)}</div>' if send_note else '')
+                        + f'<p style="margin:20px 0"><a href="{_proposal_link(p)}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">View my proposal</a></p>'))
+                except Exception as e:
+                    app.logger.warning(f'proposal status email failed: {e}')
+            if ('tour_date' in d and d.get('tour_date') and d.get('notify_tour')):
+                try:
+                    when = (d.get('tour_date') or '') + (' at ' + _fmt_time12(d.get('tour_time')) if d.get('tour_time') else '')
+                    send_email([p['email']], 'Your HWTC studio tour', build_hwtc_email_html('Your studio tour',
+                        f'<p>Hi {_h(p["name"].split(" ")[0])},</p><p>We\'ve set up a tour of the HWTC Studio for <strong>{_h(when)}</strong> to talk about <strong>{_h(p["title"])}</strong>.</p>'
+                        '<p>HWTC Studio, 1220 Winter Garden Vineland Rd, Suite 108, Winter Garden. Reply to this email if that time doesn\'t work.</p>'))
+                except Exception:
+                    pass
+            p = fetchone(conn, 'SELECT * FROM workshop_proposals WHERE id=%s', (pid,))
+        # detail with messages + notes (and mark their messages read)
+        execute(conn, "UPDATE proposal_messages SET unread=FALSE WHERE proposal_id=%s AND sender='submitter'", (pid,))
+        conn.commit()
+        msgs = fetchall(conn, 'SELECT * FROM proposal_messages WHERE proposal_id=%s ORDER BY created_at', (pid,)) or []
+        notes = fetchall(conn, 'SELECT * FROM proposal_notes WHERE proposal_id=%s ORDER BY created_at DESC', (pid,)) or []
+        for x in msgs + notes:
+            x['created_at'] = str(x['created_at'])[:16]
+        out = dict(p)
+        for k in ('created_at', 'updated_at', 'elic_trained_at'):
+            if out.get(k) is not None: out[k] = str(out[k])[:16]
+        for k in ('setup_hours', 'duration_hours', 'teardown_hours'):
+            if out.get(k) is not None: out[k] = float(out[k])
+        try: out['history'] = json.loads(out.get('history') or '[]')
+        except Exception: out['history'] = []
+        out['public_link'] = _proposal_link(p)
+        out.pop('token', None)
+        out['messages'], out['notes'] = msgs, notes
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+@app.route('/api/proposals/<pid>/messages', methods=['POST'])
+def staff_proposal_message(pid):
+    err = require_permission('proposals', 'edit')
+    if err: return err
+    body = ((request.json or {}).get('body') or '').strip()[:5000]
+    if not body:
+        return jsonify({'error': 'Write a message first'}), 400
+    conn = get_db()
+    try:
+        p = fetchone(conn, 'SELECT * FROM workshop_proposals WHERE id=%s', (pid,))
+        if not p:
+            return jsonify({'error': 'Not found'}), 404
+        who = session.get('name') or 'HWTC'
+        execute(conn, '''INSERT INTO proposal_messages (id, proposal_id, sender, author, body, unread) VALUES (%s,%s,'staff',%s,%s,FALSE)''',
+                (str(uuid.uuid4()), pid, who, body))
+        conn.commit()
+        try:
+            send_email([p['email']], f'A message about your proposal: {p["title"]}', build_hwtc_email_html('A message from HWTC',
+                f'<p>Hi {_h(p["name"].split(" ")[0])},</p>{message_text_html(body)}<p style="color:#6b7280;font-size:13px">{_h(who.split(" ")[0])}, Horizon West Theater Company</p>'
+                f'<p style="margin:20px 0"><a href="{_proposal_link(p)}" style="background:#145466;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">Reply</a></p>'))
+        except Exception as e:
+            app.logger.warning(f'proposal message email failed: {e}')
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/proposals/<pid>/notes', methods=['POST'])
+def staff_proposal_note(pid):
+    err = require_permission('proposals', 'edit')
+    if err: return err
+    body = ((request.json or {}).get('body') or '').strip()[:5000]
+    if not body:
+        return jsonify({'error': 'Write a note first'}), 400
+    conn = get_db()
+    try:
+        execute(conn, 'INSERT INTO proposal_notes (id, proposal_id, author, body) VALUES (%s,%s,%s,%s)',
+                (str(uuid.uuid4()), pid, session.get('name') or 'Staff', body))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/proposals/notes/<nid>', methods=['DELETE'])
+def staff_proposal_note_delete(nid):
+    err = require_permission('proposals', 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        execute(conn, 'DELETE FROM proposal_notes WHERE id=%s', (nid,)); conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+def _volunteer_wants_to_teach(interests, conn=None):
+    kws = PROPOSAL_INTEREST_KEYWORDS_DEFAULT
+    if conn is not None:
+        kws = _setting(conn, 'proposal_interest_keywords') or kws
+    words = [w.strip().lower() for w in kws.split(',') if w.strip()]
+    return any(any(w in str(i).lower() for w in words) for i in (interests or []))
+
+
+def send_proposal_form_email(name, email):
+    from urllib.parse import quote
+    url = APP_BASE_URL.rstrip('/') + f'/propose?email={quote(email)}&name={quote(name or "")}'
+    html = (f'<p>Hi {_h((name or "").split(" ")[0] or "there")},</p>'
+            '<p>Thank you for your interest in teaching with Horizon West Theater Company! If you have a workshop or class in mind, '
+            'we\'d love to hear about it. Tell us what you\'d teach, who it\'s for, and what you\'d need.</p>'
+            f'<p style="margin:24px 0"><a href="{url}" style="background:#145466;color:#fff;padding:13px 28px;border-radius:8px;text-decoration:none;font-weight:700;font-size:15px">Propose a workshop or class</a></p>'
+            '<p style="color:#6b7280;font-size:13px">It takes about 10 minutes. Questions? Reach us at info@hwtco.org.</p>')
+    return send_email([email], 'Propose a workshop or class at HWTC', build_hwtc_email_html('Teach with HWTC', html))
+
+
+@app.route('/api/proposals/pending-volunteers', methods=['GET'])
+def proposal_pending_volunteers():
+    """Volunteers with a workshop/class interest who haven't sent a proposal."""
+    err = require_permission('proposals', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        sent = {r['e'] for r in (fetchall(conn, "SELECT LOWER(email) AS e FROM workshop_proposals WHERE status <> 'deleted'") or [])}
+        out = []
+        for v in fetchall(conn, "SELECT id, name, email, interests, created_at FROM volunteers WHERE status='active' AND COALESCE(email,'') <> '' ORDER BY created_at DESC") or []:
+            try: ints = json.loads(v.get('interests') or '[]')
+            except Exception: ints = []
+            if _volunteer_wants_to_teach(ints, conn) and v['email'].lower() not in sent:
+                out.append({'id': v['id'], 'name': v['name'], 'email': v['email'], 'joined': str(v.get('created_at') or '')[:10]})
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+@app.route('/api/proposals/send-form-email', methods=['POST'])
+def proposal_send_form_email():
+    err = require_permission('proposals', 'edit')
+    if err: return err
+    d = request.json or {}
+    if not (d.get('email') or '').strip():
+        return jsonify({'error': 'Email required'}), 400
+    ok, msg = send_proposal_form_email(d.get('name') or '', d['email'].strip())
+    return jsonify({'ok': True}) if ok else (jsonify({'error': msg or 'Could not send'}), 500)
+
+
 @app.route('/api/director-interest/send-form-email', methods=['POST'])
 def send_director_form_email():
     err = require_auth()
@@ -17609,6 +18050,12 @@ def join_submit():
                 send_email([applicant_email], 'HWTC Director Interest Form', build_hwtc_email_html('HWTC Director Interest Form', dir_html))
     except Exception as e:
         app.logger.warning(f'Director interest email failed: {e}')
+    # If they want to teach a workshop/class, send the proposal form
+    try:
+        if _volunteer_wants_to_teach(d.get('interests', []), conn) and (d.get('email') or '').strip():
+            send_proposal_form_email((d.get('name') or '').strip(), d['email'].strip())
+    except Exception as e:
+        app.logger.warning(f'Proposal form email failed: {e}')
     conn.close()
     return jsonify({'ok': True, 'id': aid})
 

@@ -33502,6 +33502,30 @@ async function saveRentalPaymentPlan(agreementId){
 }
 
 // ── Generic all-invoices viewer (works for deposit/final and installment plans alike) ──
+async function findRentalDuplicates(aid){
+  toast('Checking Square…','success')
+  const r = await api('/api/rental/agreements/'+aid+'/square-duplicates','POST',{apply:false})
+  if(r.error){ toast(r.error,'error'); return }
+  if(!r.plan.length){ toast('No duplicate invoices found in Square','success'); return }
+  const rows = r.plan.map(function(x){
+    return '<div style="padding:9px 0;border-bottom:1px solid var(--border);font-size:13px"><strong>'+escHtml(x.label)+'</strong>'
+      + '<div style="color:var(--text-muted);font-size:12.5px">Keep #'+escHtml(x.keep.number||'?')+' ('+escHtml(String(x.keep.status||'').toLowerCase())+')'
+      + (x.relink?' <span style="color:#166534">and link RoleCall to it</span>':'')+'</div>'
+      + x.cancel.map(function(c){ return '<div style="font-size:12.5px;color:'+(c.can_cancel?'#991b1b':'#b45309')+'">'+(c.can_cancel?'Cancel':'Leave')+' #'+escHtml(c.number||'?')+' ('+escHtml(String(c.status||'').toLowerCase())+')'+(c.status==='PAID'?': ALSO PAID, refund one in Square':'')+'</div>' }).join('')
+      + '</div>' }).join('')
+  showAdHocModal('rp-dupes','Duplicate invoices in Square',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px;line-height:1.5">These payments were sent to Square more than once. For each one, RoleCall keeps the copy that was paid (or the one it has on file) and cancels the extra unpaid copies, so the partner is only asked to pay once. Square emails them that the extra invoices were cancelled.</div>'
+    + rows + '<button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="applyRentalDuplicates(\''+aid+'\')">Clean up '+r.plan.length+' payment'+(r.plan.length===1?'':'s')+'</button>', 560)
+}
+async function applyRentalDuplicates(aid){
+  const r = await api('/api/rental/agreements/'+aid+'/square-duplicates','POST',{apply:true})
+  if(r.error){ toast(r.error,'error'); return }
+  closeAdHocModal('rp-dupes')
+  if((r.problems||[]).length) alert('Done, with some things to check:\n\n'+r.problems.join('\n'))
+  else toast('Cancelled '+r.cancelled+' duplicate invoice'+(r.cancelled===1?'':'s'),'success')
+  document.getElementById('rental-payments-list-modal')?.remove(); openRentalPaymentsListModal(aid)
+  if(typeof loadRentalsPage==='function') loadRentalsPage()
+}
 async function recheckRentalPayments(aid){
   const r = await api('/api/rental/agreements/'+aid+'/sync-payments','POST',{})
   if(r.error){ toast(r.error,'error'); return }
@@ -33518,7 +33542,7 @@ async function openRentalPaymentsListModal(agreementId){
     <div style="font-size:16px;font-weight:800;color:var(--teal-dark)">Invoices</div>
     <button onclick="document.getElementById('rental-payments-list-modal').remove()" style="background:none;border:none;font-size:20px;cursor:pointer;color:var(--text-muted)">×</button>
    </div>
-   <div style="margin-bottom:12px"><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline;margin-right:14px" onclick="recheckRentalPayments('${agreementId}')">Check Square for payments</span><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline" onclick="copyRentalPaymentPlanLink('${agreementId}')"> Copy Payment Plan link (for the partner)</span></div>
+   <div style="margin-bottom:12px"><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline;margin-right:14px" onclick="recheckRentalPayments('${agreementId}')">Check Square for payments</span><span style="font-size:11px;color:#991b1b;font-weight:600;cursor:pointer;text-decoration:underline;margin-right:14px" onclick="findRentalDuplicates('${agreementId}')">Fix duplicate invoices</span><span style="font-size:11px;color:var(--teal-dark);font-weight:600;cursor:pointer;text-decoration:underline" onclick="copyRentalPaymentPlanLink('${agreementId}')"> Copy Payment Plan link (for the partner)</span></div>
    <div id="rp-list-body" style="font-size:13px;color:var(--text-muted)">Loading…</div>
    <div id="rp-add-installment-wrap" style="margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
     <div id="rp-add-installment-form" style="display:none">

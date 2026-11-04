@@ -460,6 +460,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('surveys',this)"><span class="nav-icon" id="ni-surveys"></span>Surveys</div>
         <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers"></span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('directors',this)"><span class="nav-icon" id="ni-directors"></span>Directors</div>
+        <div class="nav-item" onclick="navTo('proposals',this)"><span class="nav-icon" id="ni-proposals"></span>Workshop &amp; Class Proposals<span id="proposals-nav-badge" style="display:none;margin-left:auto;font-size:10px;font-weight:800;background:#145466;color:#fff;border-radius:9px;padding:1px 7px"></span></div>
         <div class="nav-item" onclick="navTo('patrons',this)"><span class="nav-icon" id="ni-patrons"></span>Patrons</div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
@@ -1304,6 +1305,14 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </section>
 
  <!-- TALENT DATABASE PAGE -->
+ <section class="page" id="page-proposals">
+ <div class="page-header">
+ <div><div class="page-title">Workshop &amp; Class Proposals</div>
+ <div class="page-subtitle">Ideas from volunteers and instructors for workshops and classes: review, message them, schedule a tour, and track ELIC training.</div></div>
+ </div>
+ <div class="page-body"><div id="proposals-body"></div></div>
+ </section>
+
  <section class="page" id="page-patrons">
  <div class="page-header">
  <div><div class="page-title">Patrons</div>
@@ -3125,6 +3134,17 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
 <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-proposals">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Workshop &amp; Class Proposals</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-proposals" placeholder="lightbulb" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('proposals',this.value)"/>
+ </div>
+ </div>
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-responsibility">
  <span style="font-size:16px"></span>
  </div>
@@ -4615,6 +4635,7 @@ async function loginSuccess(user){
  const overlay = document.getElementById('app-loading-overlay')
  if(overlay) overlay.remove()
  refreshInboxNavBadge()
+ if(canView('proposals')) refreshProposalsNavBadge()
  if(!window._inboxBadgeTimer) window._inboxBadgeTimer = setInterval(refreshInboxNavBadge, 120000)
  // Deep-link support — a link like #refund-requests (used in email
  // notifications) should actually land there instead of always dumping
@@ -4732,6 +4753,7 @@ const NAV_PERM_MAP = {
  'licensing': 'licensing',
  'talent': 'talent',
  'patrons': 'patrons',
+ 'proposals': 'proposals',
  'youth': 'youth',
  'youth-programs-page': 'programs',
  'rising-stars-page':'rising_stars',
@@ -4934,6 +4956,7 @@ function navTo(page,el){
  if(page==='licensing') loadLicensingPage()
  if(page==='talent') loadTalentPage()
  if(page==='patrons') loadPatronsPage()
+ if(page==='proposals') loadProposalsPage()
  if(page==='settings') loadSettings()
  if(page==='email-templates-page') loadEmailTemplatesPage()
  if(page==='portal-admin'){ renderPortalAdmin() }
@@ -9221,6 +9244,9 @@ function onInboxSearchInput(){
 
 // Sidebar badge: number of Open tickets (with unread in the tooltip),
 // loaded at login and every 2 minutes, not just when the Inbox is opened
+async function refreshProposalsNavBadge(){
+  try{ var d = await api('/api/proposals'); if(d && !d.error){ _prop.list = d.proposals; _prop.meta = d; updateProposalsBadge() } }catch(e){}
+}
 async function refreshInboxNavBadge(){
  var badge = document.getElementById('inbox-nav-badge'); if(!badge) return
  var r = await api('/api/inbox/badge')
@@ -11283,7 +11309,7 @@ const NAV_ICON_DEFAULTS = {
  donors:'', 'donor-campaigns':'', 'donor-tiers':'', 'donor-benefits':'', 'donor-templates':'',
   board:'', directors:'', 'my-time':'', 'space-requests':'', surveys:'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
-  oncall:'', 'hours-store':'', responsibility:'', licensing:'', talent:'', inbox:'', patrons:'',
+  oncall:'', 'hours-store':'', responsibility:'', licensing:'', talent:'', inbox:'', patrons:'', proposals:'',
  'instructor-dashboard':'', 'director-dashboard':'', 'foh-training':'', 'studio-after-dark':''
 }
 
@@ -14174,6 +14200,166 @@ var _talentQuery = ''
 var _talentTimer = null
 // ── Patron Database ──
 var _pat = {data: null, q: '', seg: 'all', show: '', sort: 'last', tag: ''}
+// ══ Workshop & Class Proposals ══
+var _prop = {list: [], meta: {}, status: 'active', type: '', q: '', tab: 'list'}
+var PROP_STATUS_STYLE = {pending:'#fef3c7;color:#92400e', sent_back:'#ffedd5;color:#9a3412', approved_to_schedule:'#dcfce7;color:#166534',
+  approved_scheduled:'#bbf7d0;color:#14532d', denied:'#fee2e2;color:#991b1b', archived:'#f1f5f9;color:#475569'}
+async function loadProposalsPage(){
+  var body = document.getElementById('proposals-body'); if(!body) return
+  if(!_prop.list.length) body.innerHTML = '<div class="loading"><div class="spinner"></div>Loading proposals…</div>'
+  var d = await api('/api/proposals')
+  if(!d || d.error){ body.innerHTML = '<div class="card" style="padding:20px">'+escHtml((d&&d.error)||'Could not load')+'</div>'; return }
+  _prop.list = d.proposals; _prop.meta = d
+  updateProposalsBadge()
+  renderProposals()
+}
+function renderProposals(){
+  var body = document.getElementById('proposals-body'); if(!body) return
+  var M = _prop.meta, all = _prop.list
+  var count = function(fn){ return all.filter(fn).length }
+  var statusTabs = [['active','Needs attention', function(p){ return p.status==='pending'||p.status==='sent_back'||p.unread>0 }],
+    ['pending','Pending Review', function(p){ return p.status==='pending' }], ['sent_back','Sent Back', function(p){ return p.status==='sent_back' }],
+    ['approved_to_schedule','Approved: To Be Scheduled', function(p){ return p.status==='approved_to_schedule' }],
+    ['approved_scheduled','Approved: Scheduled', function(p){ return p.status==='approved_scheduled' }],
+    ['denied','Denied', function(p){ return p.status==='denied' }], ['archived','Archived', function(p){ return p.status==='archived' }],
+    ['all','All', function(p){ return p.status!=='archived' }]]
+  var cur = statusTabs.find(function(t){ return t[0]===_prop.status }) || statusTabs[0]
+  var q = _prop.q.toLowerCase()
+  var list = all.filter(cur[2]).filter(function(p){ return (!_prop.type || p.workshop_type===_prop.type) && (!q || [p.title,p.name,p.email,p.description].join(' ').toLowerCase().indexOf(q)>=0) })
+  var h = '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">' + statusTabs.map(function(t){
+      var on = t[0]===_prop.status, n = count(t[2])
+      return '<button class="btn btn-sm '+(on?'btn-primary':'btn-secondary')+'" onclick="_prop.status=\''+t[0]+'\';renderProposals()">'+t[1]+' <span style="opacity:.7">'+n+'</span></button>' }).join('') + '</div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px">'
+    + '<select onchange="_prop.type=this.value;renderProposals()" style="width:auto;padding:6px 10px;font-size:13px"><option value="">All types</option>'
+    + (M.types||[]).map(function(t){ return '<option'+(_prop.type===t?' selected':'')+'>'+escHtml(t)+'</option>' }).join('') + '</select>'
+    + '<input placeholder="Search title, instructor, email…" value="'+escHtml(_prop.q)+'" oninput="_prop.q=this.value;clearTimeout(window._pqT);window._pqT=setTimeout(renderProposals,200)" style="width:260px;padding:7px 10px;font-size:13px"/>'
+    + '<span style="flex:1"></span>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openProposalPendingVolunteers()">Volunteers who want to teach</button>'
+    + '<button class="btn btn-secondary btn-sm" onclick="copyProposalFormLink()">Copy form link</button></div>'
+  h += list.length ? '<div class="card" style="padding:0;overflow:hidden">' + list.map(function(p){
+      var ages = (M.ages||{})[p.age_range]||'', space = (M.spaces||{})[p.space]||''
+      return '<div onclick="openProposal(\''+p.id+'\')" style="display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--border);cursor:pointer" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+        + '<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">'+escHtml(p.title)
+        + (p.unread?' <span style="font-size:10px;font-weight:800;background:#145466;color:#fff;border-radius:8px;padding:1px 7px">'+p.unread+' NEW MESSAGE'+(p.unread>1?'S':'')+'</span>':'')+'</div>'
+        + '<div style="font-size:12.5px;color:var(--text-muted)">'+escHtml(p.name)+(p.is_volunteer?' · volunteer':'')+' · '+escHtml(p.workshop_type||'')+' · '+escHtml(ages)+' · '+escHtml(space)
+        + (p.participants?' · up to '+p.participants:'')+(p.is_series?' · series of '+p.series_days:'')+'</div></div>'
+        + '<div style="display:flex;gap:6px;align-items:center;flex-shrink:0">'
+        + (p.tour_date?'<span title="Studio tour" style="font-size:11px;font-weight:700;background:'+(p.tour_done?'#dcfce7;color:#166534':'#e0f2fe;color:#075985')+';border-radius:8px;padding:2px 8px">Tour '+(p.tour_done?'✓':escHtml(p.tour_date.slice(5)))+'</span>':'')
+        + (p.elic_trained?'<span style="font-size:11px;font-weight:700;background:#dcfce7;color:#166534;border-radius:8px;padding:2px 8px">ELIC ✓</span>':'')
+        + '<span style="font-size:11px;font-weight:700;background:'+(PROP_STATUS_STYLE[p.status]||'#eee')+';border-radius:999px;padding:3px 10px;white-space:nowrap">'+escHtml((M.statuses||{})[p.status]||p.status)+'</span>'
+        + '<span style="font-size:11.5px;color:var(--text-hint);width:74px;text-align:right">'+escHtml(String(p.created_at).slice(0,10))+'</span></div></div>'
+    }).join('') + '</div>'
+    : '<div class="card" style="padding:32px;text-align:center;color:var(--text-muted)">No proposals here.</div>'
+  body.innerHTML = h
+}
+function updateProposalsBadge(){
+  var n = (_prop.list||[]).filter(function(p){ return p.status==='pending' || p.unread>0 }).length
+  var b = document.getElementById('proposals-nav-badge'); if(!b) return
+  b.textContent = n; b.style.display = n ? '' : 'none'
+}
+function copyProposalFormLink(){
+  var url = location.origin + '/propose'
+  navigator.clipboard.writeText(url).then(function(){ toast('Copied: '+url,'success') }, function(){ prompt('Copy this link:', url) })
+}
+async function openProposal(id){
+  var p = await api('/api/proposals/'+id)
+  if(p.error){ toast(p.error,'error'); return }
+  var M = _prop.meta, canEd = canEdit('proposals')
+  var hours = [['setup_hours','set up'],['duration_hours','event'],['teardown_hours','tear down']].filter(function(x){ return p[x[0]]!=null }).map(function(x){ return p[x[0]]+' h '+x[1] }).join(' · ')
+  var total = (p.setup_hours||0)+(p.duration_hours||0)+(p.teardown_hours||0)
+  var kv = function(k, v){ return v!==''&&v!=null ? '<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px"><span style="color:var(--text-muted);width:140px;flex-shrink:0">'+k+'</span><span style="white-space:pre-wrap;flex:1">'+v+'</span></div>' : '' }
+  var statusBtns = [['approved_to_schedule','Approve: to be scheduled','btn-primary'],['approved_scheduled','Approved: scheduled','btn-secondary'],
+    ['sent_back','Send back for changes','btn-secondary'],['denied','Deny','btn-danger'],['archived','Archive','btn-secondary'],['pending','Back to pending','btn-secondary']]
+    .filter(function(b){ return b[0]!==p.status })
+  var left = '<div style="flex:1.2;min-width:300px">'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><span style="font-size:12px;font-weight:700;background:'+(PROP_STATUS_STYLE[p.status]||'#eee')+';border-radius:999px;padding:4px 12px">'+escHtml(M.statuses[p.status]||p.status)+'</span>'
+    + (canEd ? '<select onchange="saveProposal(\''+p.id+'\',{workshop_type:this.value})" style="width:auto;padding:4px 8px;font-size:12.5px">'+(M.types||[]).map(function(t){ return '<option'+(t===p.workshop_type?' selected':'')+'>'+escHtml(t)+'</option>' }).join('')+'</select>' : '<span>'+escHtml(p.workshop_type)+'</span>')
+    + '<a href="'+escHtml(p.public_link)+'" target="_blank" style="font-size:12px;margin-left:auto">Their view ↗</a></div>'
+    + kv('Instructor(s)', escHtml(p.name)) + kv('Email', '<a href="mailto:'+escHtml(p.email)+'">'+escHtml(p.email)+'</a>') + kv('Phone', escHtml(p.phone))
+    + kv('Active volunteer', p.is_volunteer ? 'Yes' : 'No') + kv('Description', escHtml(p.description))
+    + kv('Time', escHtml(hours)+(total?' <strong>('+total+' h total)</strong>':'')+(p.time_notes?'<br>'+escHtml(p.time_notes):''))
+    + kv('Series', p.is_series ? 'Yes, '+p.series_days+' days' : 'No') + kv('Preferred dates', escHtml(p.preferred_dates))
+    + kv('Participants', p.participants ? p.participants+(p.participants>25&&p.space==='studio_a'?' <span style="color:#b45309">(over 25 in Studio A)</span>':'') : '')
+    + kv('Ages', escHtml(M.ages[p.age_range]||'')) + kv('Space', escHtml(M.spaces[p.space]||''))
+    + kv('Supplies &amp; cost', escHtml(p.supplies)) + kv('Bio(s)', escHtml(p.bios))
+    + (canEd ? '<div style="margin-top:14px"><div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Decision</div>'
+        + '<textarea id="prop-dec-note" rows="2" style="width:100%;box-sizing:border-box" placeholder="Note to include in the email to them (optional; for Send back, say what to change)"></textarea>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px">'+statusBtns.map(function(b){ return '<button class="btn btn-sm '+b[2]+'" onclick="setProposalStatus(\''+p.id+'\',\''+b[0]+'\')">'+b[1]+'</button>' }).join('')
+        + '<button class="btn btn-sm btn-secondary" style="margin-left:auto;color:#991b1b" onclick="deleteProposal(\''+p.id+'\')">Delete</button></div>'
+        + '<div style="font-size:11.5px;color:var(--text-hint);margin-top:4px">Approve, Send back and Deny email them (with your note). Archive and Delete don\'t.</div></div>' : '')
+    + '</div>'
+  var right = '<div style="flex:1;min-width:280px">'
+    + '<div class="card" style="padding:12px 14px;margin-bottom:12px"><div style="font-weight:700;font-size:13px;margin-bottom:8px">Studio tour &amp; training</div>'
+    + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><input type="date" id="prop-tour-d" value="'+escHtml(p.tour_date||'')+'" style="width:auto;padding:5px"/><input type="time" id="prop-tour-t" value="'+escHtml(p.tour_time||'')+'" style="width:auto;padding:5px"/>'
+    + (canEd?'<button class="btn btn-secondary btn-sm" onclick="saveProposalTour(\''+p.id+'\')">Save tour</button>':'')+'</div>'
+    + '<label style="display:flex;gap:6px;align-items:center;font-size:12.5px;margin-top:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500"><input type="checkbox" id="prop-tour-email" checked style="width:auto"/> Email them the tour time</label>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:8px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:600"><input type="checkbox" '+(p.tour_done?'checked':'')+(canEd?'':' disabled')+' onchange="saveProposal(\''+p.id+'\',{tour_done:this.checked})" style="width:auto"/> Tour done</label>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-top:6px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:600"><input type="checkbox" '+(p.elic_trained?'checked':'')+(canEd?'':' disabled')+' onchange="saveProposal(\''+p.id+'\',{elic_trained:this.checked})" style="width:auto"/> ELIC trained'
+    + (p.elic_trained&&p.elic_trained_at?' <span style="font-weight:400;color:var(--text-muted)">· '+escHtml(String(p.elic_trained_at).slice(0,10))+(p.elic_trained_by?' by '+escHtml(p.elic_trained_by):'')+'</span>':'')+'</label></div>'
+    + '<div class="card" style="padding:12px 14px;margin-bottom:12px"><div style="font-weight:700;font-size:13px;margin-bottom:8px">Messages with '+escHtml(p.name.split(' ')[0])+'</div>'
+    + '<div style="max-height:260px;overflow:auto">' + (p.messages.length ? p.messages.map(function(m){
+        var me = m.sender==='staff'
+        return '<div style="background:'+(me?'#e6f4f7':'#f1f5f9')+';border-radius:10px;padding:8px 10px;margin:0 0 6px '+(me?'14%':'0')+';margin-right:'+(me?'0':'14%')+'"><div style="font-size:11px;color:var(--text-muted);font-weight:700">'+escHtml(me?m.author:p.name)+' · '+escHtml(m.created_at)+'</div><div style="font-size:13px;white-space:pre-wrap">'+escHtml(m.body)+'</div></div>' }).join('')
+        : '<div style="font-size:12.5px;color:var(--text-muted)">No messages yet.</div>') + '</div>'
+    + (canEd?'<textarea id="prop-msg" rows="2" placeholder="Message them (they get an email and can reply)" style="margin-top:6px;width:100%;box-sizing:border-box"></textarea><button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="sendProposalMessage(\''+p.id+'\')">Send message</button>':'') + '</div>'
+    + '<div class="card" style="padding:12px 14px;margin-bottom:12px"><div style="font-weight:700;font-size:13px;margin-bottom:8px">Internal notes <span style="font-weight:400;color:var(--text-muted)">· staff only</span></div>'
+    + (canEd?'<textarea id="prop-note" rows="2" placeholder="Add a note for the team" style="width:100%;box-sizing:border-box"></textarea><button class="btn btn-secondary btn-sm" style="margin-top:6px" onclick="addProposalNote(\''+p.id+'\')">Add note</button>':'')
+    + p.notes.map(function(n){ return '<div style="font-size:12.5px;padding:7px 0;border-bottom:1px solid var(--border)"><div style="color:var(--text-muted);font-size:11px;font-weight:700">'+escHtml(n.author||'')+' · '+escHtml(n.created_at)
+        + (canEd?' <a href="#" onclick="deleteProposalNote(\''+n.id+'\',\''+p.id+'\');return false" style="color:var(--text-hint);font-weight:400">delete</a>':'')+'</div><div style="white-space:pre-wrap">'+escHtml(n.body)+'</div></div>' }).join('') + '</div>'
+    + '<details style="font-size:12px;color:var(--text-muted)"><summary style="cursor:pointer">History</summary>'
+    + (p.history||[]).slice().reverse().map(function(x){ return '<div style="padding:3px 0">'+escHtml(String(x.at).replace('T',' '))+' · '+escHtml(x.by||'')+': '+escHtml(x.action)+(x.note?' ("'+escHtml(x.note)+'")':'')+'</div>' }).join('') + '</details>'
+    + '</div>'
+  showAdHocModal('proposal-modal', escHtml(p.title), '<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">'+left+right+'</div>', 1040)
+  // reading it clears the "new message" flag in the list
+  var row = _prop.list.find(function(x){ return x.id===id }); if(row && row.unread){ row.unread = 0; renderProposals() }
+}
+async function saveProposal(id, body){
+  var r = await api('/api/proposals/'+id,'PUT',body); if(r.error){ toast(r.error,'error'); return }
+  toast('Saved','success'); await loadProposalsPage(); openProposal(id)
+}
+async function setProposalStatus(id, st){
+  var note = (document.getElementById('prop-dec-note')||{}).value || ''
+  var labels = (_prop.meta.statuses||{})
+  var emails = ['approved_to_schedule','approved_scheduled','sent_back','denied'].indexOf(st) >= 0
+  if(st==='sent_back' && !note.trim()){ toast('Say what they should change in the note box first','error'); return }
+  if(!confirm('Set to "'+labels[st]+'"?'+(emails?' They\'ll get an email'+(note.trim()?' with your note':'')+'.':''))) return
+  saveProposal(id, {status: st, message: note})
+}
+function saveProposalTour(id){
+  saveProposal(id, {tour_date: document.getElementById('prop-tour-d').value, tour_time: document.getElementById('prop-tour-t').value,
+    notify_tour: document.getElementById('prop-tour-email').checked})
+}
+async function sendProposalMessage(id){
+  var b = document.getElementById('prop-msg').value.trim(); if(!b) return
+  var r = await api('/api/proposals/'+id+'/messages','POST',{body:b}); if(r.error){ toast(r.error,'error'); return }
+  toast('Sent','success'); openProposal(id)
+}
+async function addProposalNote(id){
+  var b = document.getElementById('prop-note').value.trim(); if(!b) return
+  var r = await api('/api/proposals/'+id+'/notes','POST',{body:b}); if(r.error){ toast(r.error,'error'); return }
+  openProposal(id)
+}
+async function deleteProposalNote(nid, id){ if(!confirm('Delete this note?')) return; await api('/api/proposals/notes/'+nid,'DELETE'); openProposal(id) }
+async function deleteProposal(id){
+  if(!confirm('Delete this proposal? It disappears from every list. (Archive keeps it out of the way instead.)')) return
+  var r = await api('/api/proposals/'+id,'DELETE'); if(r.error){ toast(r.error,'error'); return }
+  closeAdHocModal('proposal-modal'); loadProposalsPage()
+}
+async function openProposalPendingVolunteers(){
+  var rows = await api('/api/proposals/pending-volunteers'); rows = Array.isArray(rows) ? rows : []
+  showAdHocModal('prop-pending','Volunteers who want to teach',
+    '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">Active volunteers with a workshop or class interest who haven\'t sent a proposal yet. New ones get the form automatically when they sign up; use this to send it again.</div>'
+    + (rows.length ? rows.map(function(v){ return '<div style="display:flex;align-items:center;gap:8px;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px"><div style="flex:1"><strong>'+escHtml(v.name)+'</strong><div style="color:var(--text-muted);font-size:12px">'+escHtml(v.email)+' · joined '+escHtml(v.joined)+'</div></div>'
+        + '<button class="btn btn-secondary btn-sm" onclick="sendProposalForm(this,\''+escHtml(v.name).replace(/'/g,"\\'")+'\',\''+escHtml(v.email)+'\')">Send the form</button></div>' }).join('')
+      : '<div style="color:var(--text-muted);font-size:13px">Nobody waiting.</div>'), 560)
+}
+async function sendProposalForm(btn, name, email){
+  btn.disabled = true
+  var r = await api('/api/proposals/send-form-email','POST',{name:name, email:email})
+  if(r.error){ toast(r.error,'error'); btn.disabled = false; return }
+  btn.textContent = 'Sent ✓'
+}
+
 async function loadPatronsPage(){
  var body = document.getElementById('patrons-body'); if(!body) return
  body.innerHTML = '<div class="loading"><div class="spinner"></div>Loading patrons…</div>'
@@ -19490,6 +19676,7 @@ async function resetUserPassword(uid, name){
 
 const PERM_SECTIONS = [
  {key:'volunteers', label:'Volunteers', desc:'Volunteer profiles & history'},
+ {key:'proposals', label:'Workshop & Class Proposals', desc:'Proposals for workshops and classes: review, approve or deny, message submitters, internal notes, tours, ELIC training. View = read only; Edit = make decisions and send messages.'},
  {key:'patrons', label:'Patrons', desc:'Patron database: everyone who has bought tickets, contact info, shows seen, spending, trends, notes and tags. Has buyers\' emails and phone numbers.'},
  {key:'waivers', label:'  ↳ Waivers', desc:'Waivers page: signed waivers and waiver types', parent:'volunteers'},
  {key:'directors', label:'Directors', desc:'Director interest & submissions'},

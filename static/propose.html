@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Propose a workshop or class · Horizon West Theater Company</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"/>
+<style>
+:root{--ink:#1f2a30;--muted:#5f6b72;--line:#dfe5e8;--bg:#f4f7f8;--brand:#16728b;--brand-dark:#0f5566;--soft:#e3f1f5;--ok:#166534;--bad:#991b1b}
+*{box-sizing:border-box}
+body{margin:0;font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font-family:inherit;font-size:15px}
+.hero{background:linear-gradient(135deg,var(--brand-dark),var(--brand));color:#fff;padding:34px 20px 30px;text-align:center}
+.hero h1{font-family:'Playfair Display',Georgia,serif;font-size:clamp(26px,4vw,36px);margin:0 0 6px}
+.hero p{margin:0 auto;max-width:620px;opacity:.9;line-height:1.55}
+.wrap{max-width:760px;margin:-18px auto 40px;padding:0 16px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px 22px;margin-bottom:14px}
+h2{font-size:17px;margin:0 0 12px;color:var(--brand-dark)}
+.q{margin-bottom:16px}
+.q label.t{font-size:14px;font-weight:700;display:block;margin-bottom:3px}
+.q .h{font-size:12.5px;color:var(--muted);margin-bottom:6px;line-height:1.5}
+.req{color:#be123c}
+input[type=text],input[type=email],input[type=tel],input[type=number],textarea,select{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff}
+textarea{resize:vertical}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:600px){.grid3,.grid2{grid-template-columns:1fr}}
+.seg{display:flex;flex-wrap:wrap;gap:8px}
+.seg label{display:flex;align-items:center;gap:6px;border:1.5px solid var(--line);border-radius:999px;padding:7px 14px;cursor:pointer;font-size:14px;font-weight:600}
+.seg input{accent-color:var(--brand)}
+.seg label:has(input:checked){border-color:var(--brand);background:var(--soft);color:var(--brand-dark)}
+.btn{border:none;border-radius:10px;padding:12px 18px;font-weight:700;cursor:pointer}
+.btn-p{background:var(--brand);color:#fff;font-size:16px;padding:14px 24px}
+.btn-s{background:var(--soft);color:var(--brand-dark)}
+.err{color:var(--bad);font-weight:700;margin-top:10px}
+.pill{display:inline-block;font-size:12px;font-weight:800;border-radius:999px;padding:4px 12px}
+.msg{border-radius:12px;padding:10px 14px;margin-bottom:8px;max-width:88%;line-height:1.5;font-size:14.5px}
+.msg.me{background:var(--soft);margin-left:auto}
+.msg.them{background:#f1f5f9}
+.msg .who{font-size:11.5px;color:var(--muted);margin-bottom:2px;font-weight:700}
+.kv{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}
+.kv span:first-child{color:var(--muted);width:150px;flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="hero"><h1 id="hero-title">Propose a workshop or class</h1><p id="hero-sub">Have a workshop or class you'd love to teach at the HWTC Studio? Tell us about it. We review every proposal and will get back to you.</p></div>
+<div class="wrap" id="app"></div>
+<script>
+var TOKEN = (location.pathname.match(/^\/proposal\/([a-f0-9]+)/)||[])[1] || ''
+var TYPES = ['Dance','Tech','Acting','Improv','Stage Combat','Puppetry','Music / Voice','Event','Other']
+var P = null
+function esc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+function radios(name, opts, cur){ return '<div class="seg">'+opts.map(function(o){ return '<label><input type="radio" name="'+name+'" value="'+o[0]+'"'+(String(cur)===String(o[0])?' checked':'')+(name==='is_series'?' onchange="seriesToggle()"':'')+'/> '+o[1]+'</label>' }).join('')+'</div>' }
+function q(label, help, field, req){ return '<div class="q"><label class="t">'+label+(req?' <span class="req">*</span>':'')+'</label>'+(help?'<div class="h">'+help+'</div>':'')+field+'</div>' }
+function formHTML(v){
+  v = v || {}
+  var qs = new URLSearchParams(location.search)
+  if(!TOKEN){ v.email = v.email || qs.get('email') || ''; v.name = v.name || qs.get('name') || '' }
+  return '<div class="card"><h2>About you</h2>'
+    + q('1. Instructor(s) name', 'If more than one person is teaching, list everyone.', '<input type="text" id="f-name" value="'+esc(v.name)+'"/>', 1)
+    + '<div class="grid2">' + q('2. Email', '', '<input type="email" id="f-email" value="'+esc(v.email)+'"/>', 1) + q('3. Phone', '', '<input type="tel" id="f-phone" value="'+esc(v.phone)+'"/>', 1) + '</div>'
+    + q('4. Are you currently an active volunteer with HWTC?', '', radios('is_volunteer', [['1','Yes'],['0','No']], v.is_volunteer===undefined?'':(v.is_volunteer?'1':'0')), 1)
+    + '</div><div class="card"><h2>Your workshop or class</h2>'
+    + q('5. Title of the proposed workshop/class', '', '<input type="text" id="f-title" value="'+esc(v.title)+'"/>', 1)
+    + q('What kind is it?', '', radios('workshop_type', TYPES.map(function(t){ return [t,t] }), v.workshop_type||''), 0)
+    + q('6. A brief description of the workshop', 'What will people do and take away?', '<textarea id="f-desc" rows="4">'+esc(v.description)+'</textarea>', 1)
+    + q('7. Estimated time needed', 'Hours to set up the space, the event itself, and tear down.',
+        '<div class="grid3"><div><div class="h">Set up (hours)</div><input type="number" min="0" step="0.25" id="f-setup" value="'+(v.setup_hours==null?'':v.setup_hours)+'"/></div>'
+        + '<div><div class="h">Event (hours)</div><input type="number" min="0" step="0.25" id="f-dur" value="'+(v.duration_hours==null?'':v.duration_hours)+'"/></div>'
+        + '<div><div class="h">Tear down (hours)</div><input type="number" min="0" step="0.25" id="f-tear" value="'+(v.teardown_hours==null?'':v.teardown_hours)+'"/></div></div>'
+        + '<input type="text" id="f-timenotes" placeholder="Anything else about timing (optional)" value="'+esc(v.time_notes)+'" style="margin-top:8px"/>', 1)
+    + q('8. Is this workshop a series?', '', radios('is_series', [['1','Yes'],['0','No']], v.is_series===undefined?'0':(v.is_series?'1':'0'))
+        + '<div id="series-days" style="margin-top:8px;'+(v.is_series?'':'display:none')+'"><div class="h">How many days?</div><input type="number" min="2" id="f-days" value="'+(v.series_days||'')+'" style="max-width:140px"/></div>', 1)
+    + q('9. Preferred dates', 'List the dates (and times) that work for you, or a range.', '<textarea id="f-dates" rows="2">'+esc(v.preferred_dates)+'</textarea>', 1)
+    + q('10. How many participants?', 'We recommend no more than 25 in Studio A for a dance class. The whole studio holds 50 people and we can\'t go over.', '<input type="number" min="1" max="50" id="f-part" value="'+(v.participants||'')+'" style="max-width:160px"/>', 1)
+    + q('11. Age range', '', radios('age_range', [['kids','Kids'],['teens','Teens'],['adults','Adults'],['all','All Ages']], v.age_range||''), 1)
+    + q('12. Space needed', '', radios('space', [['studio_a','Studio A'],['studio_b','Studio B'],['both','Both']], v.space||''), 1)
+    + q('13. Supplies / materials and a rough cost', 'Example: speakers/music: free, spike tape: $30, printed packets: $15', '<textarea id="f-supplies" rows="3">'+esc(v.supplies)+'</textarea>', 0)
+    + '</div><div class="card"><h2>About the instructor(s)</h2>'
+    + q('14. A short bio for each instructor', 'Your theater experience and experience in what you\'re teaching. Example: <em>Tori Lucas: Walt Disney performer (Festival of the Lion King, FOF Parade, The Trolley Show)</em>', '<textarea id="f-bios" rows="5">'+esc(v.bios)+'</textarea>', 1)
+    + '<button class="btn btn-p" onclick="submitForm()">'+(TOKEN?'Save &amp; resubmit':'Send proposal')+'</button>'
+    + (TOKEN?' <button class="btn btn-s" onclick="render()">Cancel</button>':'') + '<div id="f-err" class="err"></div></div>'
+}
+function seriesToggle(){ var on = (document.querySelector('input[name=is_series]:checked')||{}).value==='1'; document.getElementById('series-days').style.display = on?'':'none' }
+function rv(n){ var e = document.querySelector('input[name='+n+']:checked'); return e ? e.value : '' }
+function gv(id){ return (document.getElementById(id)||{}).value || '' }
+function collect(){
+  return {name:gv('f-name'), email:gv('f-email'), phone:gv('f-phone'), is_volunteer: rv('is_volunteer')==='1', title:gv('f-title'),
+    workshop_type: rv('workshop_type')||'Other', description:gv('f-desc'), setup_hours:gv('f-setup'), duration_hours:gv('f-dur'), teardown_hours:gv('f-tear'),
+    time_notes:gv('f-timenotes'), is_series: rv('is_series')==='1', series_days:gv('f-days'), preferred_dates:gv('f-dates'), participants:gv('f-part'),
+    age_range: rv('age_range'), space: rv('space'), supplies:gv('f-supplies'), bios:gv('f-bios')}
+}
+async function submitForm(){
+  var d = collect(), err = document.getElementById('f-err')
+  if(!rv('is_volunteer')){ err.textContent = 'Please answer whether you\'re an active HWTC volunteer.'; return }
+  if(!d.age_range || !d.space){ err.textContent = 'Please choose an age range and a space.'; return }
+  if(!d.duration_hours){ err.textContent = 'Please estimate how long the event itself is.'; return }
+  err.textContent = ''
+  var r = await (await fetch(TOKEN ? '/api/public/proposals/'+TOKEN : '/api/public/proposals', {method: TOKEN?'PUT':'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(d)})).json()
+  if(r.error){ err.textContent = r.error; return }
+  if(!TOKEN){ location.href = '/proposal/'+r.token+'?new=1'; return }
+  P = r; render()
+}
+var STATUS_STYLE = {pending:'background:#fef3c7;color:#92400e', sent_back:'background:#ffedd5;color:#9a3412', approved_to_schedule:'background:#dcfce7;color:#166534',
+  approved_scheduled:'background:#166534;color:#fff', denied:'background:#fee2e2;color:#991b1b', archived:'background:#f1f5f9;color:#475569'}
+function render(){
+  var app = document.getElementById('app')
+  if(!TOKEN){ app.innerHTML = formHTML({}); return }
+  if(!P){ app.innerHTML = '<div class="card">Loading…</div>'; return }
+  document.getElementById('hero-title').textContent = P.title
+  document.getElementById('hero-sub').textContent = 'Your proposal for Horizon West Theater Company'
+  var fresh = new URLSearchParams(location.search).get('new')
+  var h = (fresh ? '<div class="card" style="border-color:#86efac;background:#f0fdf4"><strong>Thanks, we got your proposal!</strong> We\'ve emailed you this page\'s link. Check back here for updates, or message us below.</div>' : '')
+    + '<div class="card"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="pill" style="'+(STATUS_STYLE[P.status]||'')+'">'+esc(P.status_label)+'</span>'
+    + (P.editable ? '<button class="btn btn-s" style="margin-left:auto" onclick="editMode()">Edit '+(P.status==='sent_back'?'&amp; resubmit':'my proposal')+'</button>' : '') + '</div>'
+    + (P.status_note ? '<div style="background:#f8fafc;border-left:3px solid var(--brand);padding:10px 14px;margin-top:12px;white-space:pre-wrap">'+esc(P.status_note)+'</div>' : '')
+    + (P.tour_date ? '<div style="margin-top:12px"><strong>Studio tour:</strong> '+esc(P.tour_date)+(P.tour_time?' at '+esc(P.tour_time):'')+'</div>' : '')
+    + '</div>'
+  h += '<div class="card"><h2>Messages</h2>'
+    + (P.messages.length ? P.messages.map(function(m){ return '<div class="msg '+(m.sender==='submitter'?'me':'them')+'"><div class="who">'+esc(m.sender==='submitter'?'You':m.author)+' · '+esc(m.created_at)+'</div><div style="white-space:pre-wrap">'+esc(m.body)+'</div></div>' }).join('')
+       : '<div style="color:var(--muted);font-size:14px;margin-bottom:8px">No messages yet. Questions? Send us one.</div>')
+    + '<textarea id="m-body" rows="3" placeholder="Write a message to the HWTC team"></textarea><button class="btn btn-p" style="margin-top:8px;font-size:15px;padding:11px 20px" onclick="sendMsg()">Send</button><div id="m-err" class="err"></div></div>'
+  var kv = function(k, v){ return v ? '<div class="kv"><span>'+k+'</span><span style="white-space:pre-wrap">'+esc(v)+'</span></div>' : '' }
+  var hours = [['setup_hours','set up'],['duration_hours','event'],['teardown_hours','tear down']].filter(function(x){ return P[x[0]]!=null }).map(function(x){ return P[x[0]]+' h '+x[1] }).join(' · ')
+  h += '<div class="card"><h2>What you sent</h2>' + kv('Instructor(s)', P.name) + kv('Email', P.email) + kv('Phone', P.phone) + kv('Active volunteer', P.is_volunteer?'Yes':'No')
+    + kv('Type', P.workshop_type) + kv('Description', P.description) + kv('Time', hours + (P.time_notes?'\n'+P.time_notes:'')) + kv('Series', P.is_series?'Yes, '+P.series_days+' days':'No')
+    + kv('Preferred dates', P.preferred_dates) + kv('Participants', P.participants) + kv('Ages', {kids:'Kids',teens:'Teens',adults:'Adults',all:'All Ages'}[P.age_range])
+    + kv('Space', {studio_a:'Studio A',studio_b:'Studio B',both:'Both'}[P.space]) + kv('Supplies', P.supplies) + kv('Bio(s)', P.bios) + '</div>'
+  app.innerHTML = h
+}
+function editMode(){ document.getElementById('app').innerHTML = formHTML(P) }
+async function sendMsg(){
+  var b = document.getElementById('m-body').value.trim(); if(!b) return
+  var r = await (await fetch('/api/public/proposals/'+TOKEN+'/messages', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({body:b})})).json()
+  if(r.error){ document.getElementById('m-err').textContent = r.error; return }
+  load()
+}
+async function load(){
+  if(!TOKEN){ render(); return }
+  var r = await (await fetch('/api/public/proposals/'+TOKEN)).json()
+  if(r.error){ document.getElementById('app').innerHTML = '<div class="card">'+esc(r.error)+'</div>'; return }
+  P = r; render()
+}
+load()
+</script>
+</body>
+</html>

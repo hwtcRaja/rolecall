@@ -38274,6 +38274,7 @@ async function loadTicketsTab(pid){
     + menu('tk-setup-'+pid, 'Setup', [
         mi("openProductionTicketTypes('"+pid+"','"+esc_pn+"')", 'Ticket types', 'Adult, Child, prices…'),
         mi("openRushSettings('"+pid+"')", '⚡ Rush tickets', 'Discounted tickets before curtain'),
+        mi("openKbygModal('"+pid+"')", 'Know before you go', 'Directions, parking, concessions, content notes'),
         mi("toggleSeatHoldsPanel('"+pid+"')", 'Seat holds', 'Hold seats for staff, VIPs or accessibility'),
         mi("openTeamComps('"+pid+"')", 'Team comps', 'Complimentary tickets for cast and crew'),
         mi("openTicketingSettings('"+pid+"')", 'Ticketing settings', 'Fees, limits, sales windows, donations'),
@@ -38677,13 +38678,9 @@ async function openTicketingSettings(pid){
     + '</select>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">What the donation buttons start on at checkout. Buyers can still change it or pick No Thanks. Handy for free shows where you want to nudge a small gift.</div></div>'
     + '<div style="border-top:1px solid var(--border);margin:16px 0"></div>'
-    + '<div class="form-group" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px">'
-    + '<label style="display:flex;align-items:center;gap:8px;margin:0 0 6px;cursor:pointer"><input type="checkbox" id="tk-kbyg-on" '+((prod&&prod.kbyg_enabled===false)?'':'checked')+' style="width:auto"/> Send a "Know before you go" email</label>'
-    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px"><input type="number" id="tk-kbyg-hours" min="1" max="240" value="'+((prod&&prod.kbyg_hours_before)||24)+'" style="width:80px"/> hours before each performance</div>'
-    + '<textarea id="tk-kbyg-text" rows="4" placeholder="Parking, which entrance to use, run time, concessions, photo/video policy, accessibility drop-off…">'+escHtml((prod&&prod.kbyg_text)||'')+'</textarea>'
-    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px;line-height:1.6">Both the ticket email (sent right after purchase) and this reminder include their QR codes, the date and time, doors open (the performance\'s doors time, or 30 minutes before), the venue address with directions, and a calendar file. This text is added as "Know before you go."</div>'
-    + '<div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn btn-secondary btn-sm" onclick="sendKbygTest(\''+pid+'\',\'confirmation\')">Email me a sample ticket email</button>'
-    + '<button type="button" class="btn btn-secondary btn-sm" onclick="sendKbygTest(\''+pid+'\',\'reminder\')">Email me a sample reminder</button></div></div>'
+    + '<div class="form-group" style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius);padding:12px 14px;font-size:13px">'
+    + '<strong>Know before you go</strong> (directions, parking, concessions, content notes, when it\'s emailed) is now its own checklist: '
+    + '<a href="#" onclick="closeAdHocModal(\'ticketing-settings-modal\');openKbygModal(\''+pid+'\');return false">open it</a>, or use Setup → Know before you go.</div>'
     + '<div class="form-group"><label>Open companion seats to everyone</label>'
     + '<div style="display:flex;align-items:center;gap:8px"><input type="number" id="tk-companion-days" min="0" value="'+((prod&&prod.companion_release_days!=null)?prod.companion_release_days:2)+'" style="width:80px"/><span style="font-size:13px">days before each performance</span></div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Companion seats (set in the seat map editor) can only be booked with the wheelchair space next to them. If they\'re still open this many days before the show, anyone can book them. Use 0 to keep them saved right up to showtime.</div></div>'
@@ -39083,6 +39080,56 @@ async function sendKbygTest(pid, kind){
   toast('Sample sent to '+res.sent_to+' (uses the newest order for this show; save first to include your latest text)','success')
 }
 
+// ── Know before you go (per production checklist) ──
+async function openKbygModal(pid){
+  var r = await api('/api/productions/'+pid+'/kbyg')
+  if(r.error){ toast(r.error,'error'); return }
+  var c = r.config
+  var row = function(id, on, title, help, field){
+    return '<div style="border:1.5px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+      + '<label style="display:flex;gap:8px;align-items:center;cursor:pointer;text-transform:none;letter-spacing:0;font-size:14px;font-weight:700;margin:0">'
+      + '<input type="checkbox" id="kb-'+id+'" '+(on?'checked':'')+' style="width:auto"/>'+title+'</label>'
+      + (help?'<div style="font-size:12px;color:var(--text-muted);margin:3px 0 0 24px">'+help+'</div>':'')
+      + (field?'<div style="margin:6px 0 0 24px">'+field+'</div>':'') + '</div>'
+  }
+  var ta = function(id, val, ph){ return '<textarea id="kb-'+id+'-text" rows="2" placeholder="'+escHtml(ph||'')+'" style="width:100%;box-sizing:border-box">'+escHtml(val||'')+'</textarea>' }
+  var venueInfo = (r.venues||[]).length ? r.venues.map(function(v){
+      return '<div style="font-size:12px;margin-top:2px">'+escHtml(v.name)+': '+((v.arrival_instructions||v.has_image)
+        ? '<span style="color:#166534">directions'+(v.has_image?' + photo':'')+' set</span>' : '<span style="color:#b45309">nothing set yet</span>')+'</div>' }).join('')
+    + '<div style="font-size:12px;margin-top:4px"><a href="#" onclick="closeAdHocModal(\'kbyg-modal\');openVenuesModal();return false">Edit in Setup → Venues &amp; seat maps</a></div>'
+    : '<div style="font-size:12px;color:var(--text-muted)">Set a venue on the performances to use its directions.</div>'
+  var adv = c.advisories || {}
+  var advBoxes = (r.advisory_options||[]).map(function(o){ return '<label style="display:inline-flex;gap:6px;align-items:center;margin:0 12px 6px 0;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px;cursor:pointer"><input type="checkbox" class="kb-adv" value="'+escHtml(o)+'" '+((adv.items||[]).indexOf(o)>=0?'checked':'')+' style="width:auto"/>'+escHtml(o)+'</label>' }).join('')
+  showAdHocModal('kbyg-modal','Know before you go',
+    '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px;font-size:13px">'
+    + '<label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:700;font-size:13px;margin:0;cursor:pointer"><input type="checkbox" id="kb-enabled" '+(r.enabled?'checked':'')+' style="width:auto"/> Email it</label>'
+    + '<input type="number" id="kb-hours" min="1" max="240" value="'+r.hours_before+'" style="width:70px"/> hours before each performance</div>'
+    + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:12px">Tick what to include for this show. It goes in the ticket emails and on each buyer\'s ticket page.</div>'
+    + row('showtime', c.showtime, 'Performance time', 'From each performance.')
+    + row('doors', c.doors, 'Doors open time', 'From each performance (or 30 minutes before, if not set).')
+    + row('directions', c.directions, 'Directions &amp; which entrance', 'Comes from the venue: written instructions and a photo/map.', venueInfo)
+    + row('parking', (c.parking||{}).on, 'Parking', '', ta('parking', (c.parking||{}).text, 'Parking is free.'))
+    + row('concessions', (c.concessions||{}).on, 'Concessions', '', ta('concessions', (c.concessions||{}).text, 'Concessions will be sold before the show and at intermission.'))
+    + row('brightness', c.brightness, 'Phone tickets at full brightness', '"Have your tickets open on your phone with the screen brightness all the way up, so they scan quickly."')
+    + row('advisories', adv.on, 'Notes about this performance', 'Content and effects people should know about.', advBoxes + ta('advisories', adv.text, 'Anything else, e.g. "Recommended for ages 8 and up."'))
+    + row('extra', (c.extra||{}).on, 'Extra notes', '', ta('extra', (c.extra||{}).text, 'e.g. Run time is about 2 hours with a 15-minute intermission.'))
+    + '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn btn-primary" onclick="saveKbyg(\''+pid+'\')">Save</button>'
+    + '<button class="btn btn-secondary" onclick="saveKbyg(\''+pid+'\', true)">Save &amp; email me a sample</button></div>', 640)
+}
+async function saveKbyg(pid, sample){
+  var g = function(id){ return document.getElementById('kb-'+id) }
+  var body = {enabled: g('enabled').checked, hours_before: g('hours').value,
+    showtime: g('showtime').checked, doors: g('doors').checked, directions: g('directions').checked, brightness: g('brightness').checked,
+    parking: {on: g('parking').checked, text: g('parking-text').value}, concessions: {on: g('concessions').checked, text: g('concessions-text').value},
+    extra: {on: g('extra').checked, text: g('extra-text').value},
+    advisories: {on: g('advisories').checked, text: g('advisories-text').value, items: Array.from(document.querySelectorAll('.kb-adv:checked')).map(function(x){ return x.value })}}
+  var r = await api('/api/productions/'+pid+'/kbyg','PUT',body)
+  if(r.error){ toast(r.error,'error'); return }
+  var prod = (allProductions||[]).find(function(p){ return p.id===pid }); if(prod){ prod.kbyg_enabled = r.enabled; prod.kbyg_hours_before = r.hours_before }
+  toast('Saved','success')
+  if(sample) sendKbygTest(pid, 'reminder')
+}
+
 async function saveTicketingSettings(pid, presaleAction){
   var raw = (document.getElementById('tk-max-per-perf')?.value || '').trim()
   var limit = raw === '' ? null : parseInt(raw, 10)
@@ -39100,9 +39147,6 @@ async function saveTicketingSettings(pid, presaleAction){
     share_name: document.getElementById('tk-share-name')?.value || '',
     presale_opens_at: document.getElementById('tk-presale-opens')?.value || '',
     companion_release_days: document.getElementById('tk-companion-days')?.value ?? '',
-    kbyg_enabled: !!document.getElementById('tk-kbyg-on')?.checked,
-    kbyg_hours_before: document.getElementById('tk-kbyg-hours')?.value || '',
-    kbyg_text: document.getElementById('tk-kbyg-text')?.value || '',
     presale: presaleAction || ''
   })
   if(res.error){ toast(res.error,'error'); return }
@@ -39117,7 +39161,6 @@ async function saveTicketingSettings(pid, presaleAction){
     prod.share_name = res.share_name || ''
     prod.presale_opens_at = res.presale_opens_at || ''
     if(res.companion_release_days != null) prod.companion_release_days = res.companion_release_days
-    prod.kbyg_enabled = res.kbyg_enabled; prod.kbyg_hours_before = res.kbyg_hours_before; prod.kbyg_text = res.kbyg_text
     prod.presale_key = res.presale_key || ''
   }
   if(presaleAction){
@@ -39602,6 +39645,13 @@ function tkVenueForm(vid){
     +   '<div class="form-group"><label>City</label><input type="text" id="tk-v-city" value="'+escHtml(v.city||'')+'"/></div>'
     + '</div>'
     + '<div class="form-group"><label>Notes</label><input type="text" id="tk-v-notes" value="'+escHtml(v.notes||'')+'"/></div>'
+    + '<div class="form-group"><label>Directions &amp; arrival (for "Know before you go")</label>'
+    + '<textarea id="tk-v-arrival" rows="3" placeholder="e.g. Enter from Hwy 27. At the top of the hill, keep left toward the south side of the building and park near the Recreation Entrance.">'+escHtml(v.arrival_instructions||'')+'</textarea></div>'
+    + (vid ? '<div class="form-group"><label>Directions photo / map</label>'
+        + (v.arrival_image ? '<img src="/venue-arrival/'+vid+'.jpg?v='+Date.now()+'" style="display:block;max-width:220px;border-radius:8px;margin-bottom:6px"/>' : '')
+        + '<div style="display:flex;gap:8px;align-items:center"><label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0;text-transform:none;letter-spacing:0">'+(v.arrival_image?'Replace image':'Upload image')+'<input type="file" accept="image/*" style="display:none" onchange="tkVenueArrivalImage(\''+vid+'\',this)"/></label>'
+        + (v.arrival_image ? '<button class="btn btn-secondary btn-sm" onclick="tkVenueArrivalImage(\''+vid+'\',null)">Remove</button>' : '') + '</div></div>'
+      : '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Save the venue first, then you can add a directions photo.</div>')
     + (vid? '<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:10px;cursor:pointer"><input type="checkbox" id="tk-v-active" '+(v.active===false?'':'checked')+' style="width:auto"/> Active</label>':'')
     + '<div style="display:flex;gap:8px">'
     +   '<button class="btn btn-primary btn-sm" onclick="tkSaveVenue(\''+(vid||'')+'\')">Save</button>'
@@ -39616,7 +39666,8 @@ async function tkSaveVenue(vid){
     name: document.getElementById('tk-v-name').value.trim(),
     address: document.getElementById('tk-v-address').value.trim(),
     city: document.getElementById('tk-v-city').value.trim(),
-    notes: document.getElementById('tk-v-notes').value.trim()
+    notes: document.getElementById('tk-v-notes').value.trim(),
+    arrival_instructions: document.getElementById('tk-v-arrival').value.trim()
   };
   if(vid){ var a=document.getElementById('tk-v-active'); if(a) body.active=a.checked; }
   if(!body.name){ toast('Venue name is required','error'); return; }
@@ -39627,6 +39678,20 @@ async function tkSaveVenue(vid){
   renderVenuesList();
 }
 
+async function tkVenueArrivalImage(vid, input){
+  var res
+  if(input){
+    var f = input.files[0]; if(!f) return
+    var fd = new FormData(); fd.append('file', f)
+    res = await fetch('/api/venues/'+vid+'/arrival-image', {method:'POST', credentials:'include', body: fd}).then(function(r){ return r.json() })
+  } else {
+    if(!confirm('Remove the directions image?')) return
+    res = await api('/api/venues/'+vid+'/arrival-image','DELETE')
+  }
+  if(res && res.error){ toast(res.error,'error'); return }
+  toast(input ? 'Image saved' : 'Image removed','success')
+  await renderVenuesList(); tkVenueForm(vid)
+}
 async function tkDeleteVenue(vid){
   if(!confirm('Delete this venue?')) return;
   var res = await api('/api/venues/'+vid,'DELETE');

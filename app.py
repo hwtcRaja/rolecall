@@ -47598,6 +47598,28 @@ def kbyg_sections(ctx, base):
     return out
 
 
+def _kbyg_visible(ctx):
+    """The ticket page shows Know before you go at the same time the reminder
+    email goes out (or once that email has been sent)."""
+    try:
+        if ctx['order'].get('kbyg_sent_at'):
+            return True
+        return kbyg_window_open_for(ctx['perf'], ctx['prod'].get('kbyg_hours_before'))
+    except Exception:
+        return False
+
+
+def kbyg_window_open_for(perf, hours):
+    import datetime as _dt
+    try:
+        d = _dt.date.fromisoformat(str(perf.get('performance_date'))[:10])
+        t = (perf.get('performance_time') or '19:00')[:5]
+        start = _dt.datetime.combine(d, _dt.time(int(t[:2]), int(t[3:5])))
+    except Exception:
+        return False
+    return now_eastern() >= start - _dt.timedelta(hours=int(hours or 24))
+
+
 def kbyg_html(ctx, base):
     secs = kbyg_sections(ctx, base)
     if not secs:
@@ -47804,9 +47826,9 @@ def ticket_email_html(ctx, kind='confirmation'):
                        + ('<br><span style="color:#b45309">Limited view</span>' if t.get('obstructed_view') else '') + '</td></tr>'
                        for t in ctx['tickets'])
              + '</table>')
-    # Know before you go: the show's checklist (full in the reminder, and in
-    # the confirmation too so the info is there from the start)
-    extra = kbyg_html(ctx, base)
+    # Know before you go: only in the reminder. The purchase email is just
+    # the tickets.
+    extra = kbyg_html(ctx, base) if kind == 'reminder' else ''
     cal = '<p style="font-size:13px;margin:16px 0 0"><a href="' + link + '/calendar.ics" style="color:#16728b;font-weight:600">Add to your calendar</a></p>'
     # the ticket policy, in short, with a link to change dates or ask for a refund
     _rush_here = any((t.get('type_name') or '').lower().startswith('rush') for t in ctx['tickets'])
@@ -47929,7 +47951,7 @@ def public_ticket_view(token):
             + ('<div style="margin-top:12px;font-size:14px;line-height:1.6;border-top:1px solid #e5eaec;padding-top:10px"><strong>Know before you go</strong><br>' + _h(kbyg).replace('\n', '<br>') + '</div>' if kbyg else '')
             + ''.join('<div class="card"><div style="font-weight:800;margin-bottom:8px">Know before you go</div>' + ''.join(
                 '<div style="margin:0 0 10px;font-size:14px;line-height:1.55"><div style="font-weight:800;color:#0f5566;font-size:12px;text-transform:uppercase;letter-spacing:.04em">' + _h(t) + '</div>' + h_ + '</div>'
-                for t, h_ in _kb) + '</div>' for _kb in [kbyg_sections(ctx, '')] if _kb)
+                for t, h_ in _kb) + '</div>' for _kb in [kbyg_sections(ctx, '') if _kbyg_visible(ctx) else []] if _kb)
             + '<div class="card" style="font-size:13.5px;color:#4b5563">Can\'t make it? Regular tickets can be exchanged for another date. '
             + '<a href="/ticket-policy?email=' + _h(ctx['order'].get('guardian_email') or '') + '&code=' + _h((ctx['tickets'][0].get('confirmation_code') if ctx['tickets'] else '') or '') + '#req" style="color:#16728b;font-weight:700">Request an exchange or refund</a></div>'
             + '</div><div class="tip">At the door, tap <strong>Show my ticket' + ('s' if n_t != 1 else '') + '</strong>: each QR code fills the screen on its own, '
@@ -48144,6 +48166,22 @@ def public_ticket_calendar(token):
         conn.close()
     from flask import Response
     return Response(ics or '', mimetype='text/calendar', headers={'Content-Disposition': 'attachment; filename="performance.ics"'})
+
+
+def kbyg_window_open(conn, performance_id):
+    """True once a performance is inside its production's reminder window."""
+    import datetime as _dt
+    r = fetchone(conn, '''SELECT pf.performance_date, pf.performance_time, COALESCE(pr.kbyg_hours_before, 24) AS hrs
+        FROM performances pf JOIN productions pr ON pr.id=pf.production_id WHERE pf.id=%s''', (performance_id,))
+    if not r:
+        return False
+    try:
+        d = _dt.date.fromisoformat(str(r['performance_date'])[:10])
+        t = (r.get('performance_time') or '19:00')[:5]
+        start = _dt.datetime.combine(d, _dt.time(int(t[:2]), int(t[3:5])))
+    except Exception:
+        return False
+    return now_eastern() >= start - _dt.timedelta(hours=int(r['hrs'] or 24))
 
 
 def send_due_kbyg_reminders():

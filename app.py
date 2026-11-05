@@ -45279,7 +45279,8 @@ def rush_state(conn, perf):
     note = (cfg.get('eligibility_note') or '').strip() if elig == 'custom' else ('' if elig == 'anyone' else RUSH_ELIGIBILITY.get(elig, ''))
     return {'type_id': cfg['ticket_type_id'], 'price_cents': int(cfg.get('price_cents') or 0), 'online': bool(cfg.get('online')), 'door': bool(cfg.get('door')),
             'opens_at': opens, 'closes_at': curtain, 'open': opens <= now < curtain, 'upcoming': now < opens,
-            'opens_label': opens.strftime('%A %-I:%M %p') if opens.date() != now.date() else 'today at ' + opens.strftime('%-I:%M %p'),
+            'opens_label': (opens.strftime('%A, %B ') + str(opens.day) + ('th' if 11 <= opens.day % 100 <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(opens.day % 10, 'th'))
+                            + ' at ' + opens.strftime('%-I:%M %p')) if opens.date() != now.date() else 'today at ' + opens.strftime('%-I:%M %p'),
             'cap': cap, 'sold': sold, 'left': left, 'per_order': int(cfg.get('per_order_limit') or 0),
             'eligibility': elig, 'eligibility_note': note, 'seat_mode': cfg.get('seat_mode') or 'pick',
             'disclaimer': (cfg.get('disclaimer') or '').strip(),

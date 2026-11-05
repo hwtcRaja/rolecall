@@ -3227,6 +3227,9 @@ def init_db():
         "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS is_rush BOOLEAN DEFAULT FALSE",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS rush_off BOOLEAN DEFAULT FALSE",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS policy_agreed_at TIMESTAMP",
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_config TEXT",
+        "ALTER TABLE venues ADD COLUMN IF NOT EXISTS arrival_instructions TEXT DEFAULT ''",
+        "ALTER TABLE venues ADD COLUMN IF NOT EXISTS arrival_image TEXT",
         """CREATE TABLE IF NOT EXISTS production_rush (
             production_id TEXT PRIMARY KEY REFERENCES productions(id) ON DELETE CASCADE,
             enabled BOOLEAN DEFAULT FALSE, ticket_type_id TEXT, price_cents INTEGER DEFAULT 0,
@@ -43898,6 +43901,8 @@ def update_venue(vid):
             ((d.get('name') or '').strip(), (d.get('address') or '').strip(),
              (d.get('city') or '').strip(), (d.get('notes') or '').strip(),
              bool(d.get('active', True)), vid))
+    if 'arrival_instructions' in d:
+        execute(conn, 'UPDATE venues SET arrival_instructions=%s WHERE id=%s', ((d.get('arrival_instructions') or '').strip()[:4000], vid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM venues WHERE id=%s', (vid,))
     conn.close()
@@ -47519,14 +47524,161 @@ def _fmt_time12(t):
     return str((h % 12) or 12) + (':' + m if m != '00' else '') + (' PM' if h >= 12 else ' AM')
 
 
+# ══ "Know before you go": a checklist template per production ═════════════
+# Each show picks which sections go in its reminder email (and on the
+# buyer's ticket page). Directions / arrival instructions and a photo live
+# on the venue, so every show at that venue reuses them.
+KBYG_ADVISORIES = ['Loud noises', 'Flashing or strobe lights', 'Haze or fog', 'Prop weapons', 'Gunshot sound effects',
+                   'Mature language', 'Mature themes']
+
+
+def kbyg_config(prod):
+    import json as _jk
+    try: c = _jk.loads(prod.get('kbyg_config') or '') if prod.get('kbyg_config') else {}
+    except Exception: c = {}
+    d = {'directions': True, 'doors': True, 'showtime': True,
+         'parking': {'on': True, 'text': 'Parking is free.'},
+         'concessions': {'on': False, 'text': 'Concessions will be sold before the show and at intermission.'},
+         'brightness': True,
+         'advisories': {'on': False, 'items': [], 'text': ''},
+         'extra': {'on': bool((prod.get('kbyg_text') or '').strip()), 'text': (prod.get('kbyg_text') or '').strip()}}
+    for k, v in c.items():
+        if isinstance(d.get(k), dict) and isinstance(v, dict):
+            d[k].update(v)
+        elif k in d:
+            d[k] = v
+    return d
+
+
+def kbyg_sections(ctx, base):
+    """[(title, html)] for this order's Know-before-you-go, in order."""
+    cfg = kbyg_config(ctx['prod'])
+    v, out = ctx.get('venue') or {}, []
+    when = []
+    if cfg.get('showtime') and ctx.get('time_txt'):
+        when.append('The performance starts at <strong>' + _h(ctx['time_txt']) + '</strong>.')
+    if cfg.get('doors') and ctx.get('doors_txt'):
+        when.append('Doors open at <strong>' + _h(ctx['doors_txt']) + '</strong>. Please arrive a little early to find your seats.')
+    if when:
+        out.append(('When', ' '.join(when)))
+    if cfg.get('directions') and ((v.get('arrival_instructions') or '').strip() or v.get('arrival_image')):
+        h = message_text_html(v.get('arrival_instructions') or '') if (v.get('arrival_instructions') or '').strip() else ''
+        if v.get('arrival_image') and v.get('id'):
+            h += ('<img src="' + base + '/venue-arrival/' + v['id'] + '.jpg" alt="Directions to ' + _h(v.get('name') or 'the venue') + '" width="560" '
+                  'style="display:block;width:100%;max-width:560px;height:auto;border-radius:10px;margin-top:8px"/>')
+        out.append(('Getting there', h))
+    if (cfg.get('parking') or {}).get('on') and (cfg['parking'].get('text') or '').strip():
+        out.append(('Parking', message_text_html(cfg['parking']['text'])))
+    if (cfg.get('concessions') or {}).get('on') and (cfg['concessions'].get('text') or '').strip():
+        out.append(('Concessions', message_text_html(cfg['concessions']['text'])))
+    if cfg.get('brightness'):
+        out.append(('Your tickets', 'Have your tickets open on your phone with the <strong>screen brightness all the way up</strong>, so they scan quickly at the door.'))
+    adv = cfg.get('advisories') or {}
+    if adv.get('on') and (adv.get('items') or (adv.get('text') or '').strip()):
+        h = ''
+        if adv.get('items'):
+            h += 'This performance includes: <strong>' + _h(', '.join(adv['items']).lower()) + '</strong>.'
+        if (adv.get('text') or '').strip():
+            h += (' ' if h else '') + message_text_html(adv['text'])
+        out.append(('About this performance', h))
+    ex = cfg.get('extra') or {}
+    if ex.get('on') and (ex.get('text') or '').strip():
+        out.append(('Good to know', message_text_html(ex['text'])))
+    return out
+
+
+def kbyg_html(ctx, base):
+    secs = kbyg_sections(ctx, base)
+    if not secs:
+        return ''
+    return ('<div style="margin:18px 0 0;padding:16px 18px;background:#fff8e6;border-radius:10px;font-size:14px;line-height:1.6">'
+            '<div style="font-weight:800;font-size:16px;margin-bottom:8px">Know before you go</div>'
+            + ''.join('<div style="margin:0 0 12px"><div style="font-weight:800;color:#0f5566;font-size:13px;text-transform:uppercase;letter-spacing:.04em">' + _h(t) + '</div>' + h + '</div>'
+                      for t, h in secs) + '</div>')
+
+
+@app.route('/api/productions/<pid>/kbyg', methods=['GET', 'PUT'])
+def production_kbyg(pid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+        if not prod:
+            return jsonify({'error': 'Production not found'}), 404
+        if request.method == 'PUT':
+            d = request.json or {}
+            cfg = kbyg_config(prod)
+            for k in ('directions', 'doors', 'showtime', 'brightness'):
+                if k in d: cfg[k] = bool(d[k])
+            for k in ('parking', 'concessions', 'extra'):
+                if isinstance(d.get(k), dict):
+                    cfg[k] = {'on': bool(d[k].get('on')), 'text': (d[k].get('text') or '').strip()[:2000]}
+            if isinstance(d.get('advisories'), dict):
+                cfg['advisories'] = {'on': bool(d['advisories'].get('on')), 'items': [x for x in (d['advisories'].get('items') or []) if isinstance(x, str)][:12],
+                                     'text': (d['advisories'].get('text') or '').strip()[:1500]}
+            hrs = d.get('hours_before')
+            try: hrs = max(1, min(240, int(hrs))) if hrs not in (None, '') else (prod.get('kbyg_hours_before') or 24)
+            except Exception: hrs = prod.get('kbyg_hours_before') or 24
+            execute(conn, 'UPDATE productions SET kbyg_config=%s, kbyg_enabled=%s, kbyg_hours_before=%s WHERE id=%s',
+                    (json.dumps(cfg), bool(d.get('enabled', prod.get('kbyg_enabled', True))), hrs, pid))
+            conn.commit()
+            prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+        venues = fetchall(conn, '''SELECT DISTINCT v.id, v.name, v.arrival_instructions, (v.arrival_image IS NOT NULL AND v.arrival_image <> '') AS has_image
+            FROM performances pf JOIN venues v ON v.id=pf.venue_id WHERE pf.production_id=%s''', (pid,)) or []
+        return jsonify({'config': kbyg_config(prod), 'enabled': prod.get('kbyg_enabled') is not False, 'hours_before': prod.get('kbyg_hours_before') or 24,
+                        'advisory_options': KBYG_ADVISORIES, 'venues': venues})
+    finally:
+        conn.close()
+
+
+@app.route('/api/venues/<vid>/arrival-image', methods=['POST', 'DELETE'])
+def venue_arrival_image(vid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        old = (fetchone(conn, 'SELECT arrival_image FROM venues WHERE id=%s', (vid,)) or {}).get('arrival_image')
+        name = None
+        if request.method == 'POST':
+            f = request.files.get('file')
+            ext = os.path.splitext(secure_filename(f.filename if f else ''))[1].lower()
+            if not f or ext not in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
+                return jsonify({'error': 'Choose a JPG, PNG or WebP image'}), 400
+            name = 'venue-' + uuid.uuid4().hex + ext
+            f.save(os.path.join(UPLOAD_FOLDER, name))
+        execute(conn, 'UPDATE venues SET arrival_image=%s WHERE id=%s', (name, vid))
+        conn.commit()
+        if old:
+            try: os.remove(os.path.join(UPLOAD_FOLDER, old))
+            except Exception: pass
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/venue-arrival/<vid>.jpg')
+def venue_arrival_image_public(vid):
+    conn = get_db()
+    try:
+        r = fetchone(conn, 'SELECT arrival_image FROM venues WHERE id=%s', (vid,))
+    finally:
+        conn.close()
+    if not r or not r.get('arrival_image') or not os.path.exists(os.path.join(UPLOAD_FOLDER, r['arrival_image'])):
+        return 'Not found', 404
+    resp = send_from_directory(UPLOAD_FOLDER, r['arrival_image'], conditional=True)
+    resp.headers['Cache-Control'] = 'public, max-age=86400'
+    return resp
+
+
 def ticket_order_context(conn, order_id):
     o = fetchone(conn, 'SELECT * FROM ticket_orders WHERE id=%s', (order_id,))
     if not o:
         return None
     perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (o['performance_id'],)) or {}
-    prod = fetchone(conn, '''SELECT id, name, share_name, slug, image_url, ticket_logo_url, kbyg_enabled, kbyg_hours_before, kbyg_text
+    prod = fetchone(conn, '''SELECT id, name, share_name, slug, image_url, ticket_logo_url, kbyg_enabled, kbyg_hours_before, kbyg_text, kbyg_config
         FROM productions WHERE id=%s''', (perf.get('production_id'),)) or {}
-    venue = fetchone(conn, 'SELECT name, address, city, notes FROM venues WHERE id=%s', (perf.get('venue_id'),)) if perf.get('venue_id') else None
+    venue = fetchone(conn, 'SELECT id, name, address, city, notes, arrival_instructions, arrival_image FROM venues WHERE id=%s', (perf.get('venue_id'),)) if perf.get('venue_id') else None
     tickets = fetchall(conn, '''SELECT t.id, t.seat_id, t.seat_label, t.section, t.confirmation_code, t.checked_in_at, t.view_note, t.obstructed_view,
             tt.name AS type_name FROM tickets t LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id
         WHERE t.ticket_order_id=%s ORDER BY t.seat_label''', (order_id,)) or []
@@ -47618,13 +47770,9 @@ def ticket_email_html(ctx, kind='confirmation'):
                        + ('<br><span style="color:#b45309">Limited view</span>' if t.get('obstructed_view') else '') + '</td></tr>'
                        for t in ctx['tickets'])
              + '</table>')
-    kbyg = (prod.get('kbyg_text') or '').strip()
-    extra = ('<div style="margin:18px 0 0;padding:14px 16px;background:#fff8e6;border-radius:10px;font-size:14px;line-height:1.6">'
-             '<div style="font-weight:800;margin-bottom:6px">Know before you go</div>'
-             + (_h(kbyg).replace('\n', '<br>') if kbyg else
-                'Doors open ' + (_h(ctx['doors_txt']) if ctx['doors_txt'] else '30 minutes before the show') + '. Please arrive a little early so you can find your seats. '
-                'Have your tickets open on your phone at the door (use the button above).')
-             + '</div>')
+    # Know before you go: the show's checklist (full in the reminder, and in
+    # the confirmation too so the info is there from the start)
+    extra = kbyg_html(ctx, base)
     cal = '<p style="font-size:13px;margin:16px 0 0"><a href="' + link + '/calendar.ics" style="color:#16728b;font-weight:600">Add to your calendar</a></p>'
     # the ticket policy, in short, with a link to change dates or ask for a refund
     _rush_here = any((t.get('type_name') or '').lower().startswith('rush') for t in ctx['tickets'])
@@ -47744,6 +47892,9 @@ def public_ticket_view(token):
             + ('<div class="row"><span>Where</span><strong style="text-align:right">' + _h(v.get('name') or '') + ('<br><span style="font-weight:500;font-size:13px">' + _h(ctx['address']) + '</span>' if ctx['address'] else '') + '</strong></div>' if (v.get('name') or ctx['address']) else '')
             + ('<div style="margin-top:8px"><a href="' + maps + '" target="_blank">Get directions</a> &nbsp;·&nbsp; <a href="' + base + '/calendar.ics">Add to calendar</a></div>' if maps else '<div style="margin-top:8px"><a href="' + base + '/calendar.ics">Add to calendar</a></div>')
             + ('<div style="margin-top:12px;font-size:14px;line-height:1.6;border-top:1px solid #e5eaec;padding-top:10px"><strong>Know before you go</strong><br>' + _h(kbyg).replace('\n', '<br>') + '</div>' if kbyg else '')
+            + ''.join('<div class="card"><div style="font-weight:800;margin-bottom:8px">Know before you go</div>' + ''.join(
+                '<div style="margin:0 0 10px;font-size:14px;line-height:1.55"><div style="font-weight:800;color:#0f5566;font-size:12px;text-transform:uppercase;letter-spacing:.04em">' + _h(t) + '</div>' + h_ + '</div>'
+                for t, h_ in _kb) + '</div>' for _kb in [kbyg_sections(ctx, '')] if _kb)
             + '<div class="card" style="font-size:13.5px;color:#4b5563">Can\'t make it? Regular tickets can be exchanged for another date. '
             + '<a href="/ticket-policy?email=' + _h(ctx['order'].get('guardian_email') or '') + '&code=' + _h((ctx['tickets'][0].get('confirmation_code') if ctx['tickets'] else '') or '') + '#req" style="color:#16728b;font-weight:700">Request an exchange or refund</a></div>'
             + '</div><div class="tip">At the door, tap <strong>Show my ticket' + ('s' if n_t != 1 else '') + '</strong>: each QR code fills the screen on its own, '

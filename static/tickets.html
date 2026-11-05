@@ -224,7 +224,7 @@ function currentPerformanceLineItems(){
     return Object.keys(selectedSeats).map(function(sid){
       var seat = seats.find(function(s){ return s.id===sid })
       var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
-      return {seat_id: sid, ticket_type_id: selectedSeats[sid], seat_label: seat?seat.seat_label:'', price_cents: tt?tt.price_cents:0}
+      return {seat_id: sid, ticket_type_id: selectedSeats[sid], seat_label: seat ? seat.seat_label : (String(sid).indexOf('rush:')===0 ? 'Rush seat (assigned after checkout)' : ''), price_cents: tt?tt.price_cents:0}
     })
   }
   var items = []
@@ -1015,8 +1015,8 @@ function rushBannerHTML(){
     var pick = (currentPerformance.reserved_seating && r.seat_mode !== 'pick')
       ? '<div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap"><select id="rush-qty" style="width:auto;padding:6px 10px">'
         + Array.from({length: Math.min(r.per_order||6, r.left==null?6:r.left, 10)}, function(_, i){ return '<option>'+(i+1)+'</option>' }).join('')
-        + '</select><button class="btn btn-primary" style="width:auto;padding:9px 16px" onclick="getRushSeats()">'+(r.seat_mode==='block'?'Get rush seats':'Get the best available rush seats')+'</button></div>'
-        + (r.seat_mode==='block' ? '<div style="font-size:12px;color:#7c2d12;margin-top:6px">Or tap a gold-ringed rush seat on the map.</div>' : '')
+        + '</select><button class="btn btn-primary" style="width:auto;padding:9px 16px" onclick="getRushSeats()">Add rush tickets</button></div>'
+        + '<div style="font-size:12px;color:#7c2d12;margin-top:6px">Your seats are assigned for you and shown on your tickets after checkout.</div>'
       : (currentPerformance.reserved_seating ? '<div style="font-size:12.5px;margin-top:6px">Pick your seats below, then choose <strong>Rush</strong> as the ticket type.</div>' : '')
     return '<div style="background:#fff7ed;border:1.5px solid #fdba74;border-radius:12px;padding:14px 16px;margin-bottom:12px">'
       + '<div style="font-weight:800;color:#9a3412;font-size:15px">⚡ Rush tickets for this performance on sale now: '+fmtMoney(r.price_cents)+' each</div>'
@@ -1034,10 +1034,8 @@ async function getRushSeats(){
   var qty = parseInt((document.getElementById('rush-qty')||{}).value)||1
   var res = await api('/api/public/performances/'+currentPerformance.id+'/rush-assign','POST',{quantity: qty, session_token: getSessionToken()})
   if(res.error){ alert(res.error); return }
-  res.seats.forEach(function(x){
-    selectedSeats[x.id] = res.type_id; rushAssigned[x.id] = true
-    var st = seats.find(function(z){ return z.id===x.id }); if(st) st.status = 'mine'
-  })
+  // stand-ins: which seats they are stays a surprise until after checkout
+  res.seats.forEach(function(x){ selectedSeats[x.id] = res.type_id; rushAssigned[x.id] = true })
   armHoldExpiry(); refreshPickerAndCart(); renderPurchaseScreen()
 }
 // "I agree to the Ticket Policy" with a link that opens the policy right here
@@ -1275,7 +1273,8 @@ function renderCart(){
       var seat = seats.find(function(s){ return s.id===sid })
       var tt = ticketTypes.find(function(t){ return t.id===selectedSeats[sid] })
       count++
-      rows += '<div class="cart-row"><span>'+escH(seat?seat.seat_label:'')+(ticketTypes.length>1?' — '+seatTicketTypeSelect(sid):' '+escH(tt?tt.name:'')) +'</span><span>'+fmtMoney(tt?tt.price_cents:0)+'</span></div>'
+      var isRushStandIn = String(sid).indexOf('rush:')===0
+      rows += '<div class="cart-row"><span>'+(isRushStandIn ? '<span style="color:#9a3412">Seat assigned after checkout</span>' : escH(seat?seat.seat_label:''))+(ticketTypes.length>1||isRushStandIn?' — '+seatTicketTypeSelect(sid):' '+escH(tt?tt.name:'')) +'</span><span>'+fmtMoney(tt?tt.price_cents:0)+'</span></div>'
       if(seat && seat.accessible){
         rows += '<div style="font-size:12px;color:#16728b;margin:-4px 0 6px;padding-left:2px">Wheelchair accessible space</div>'
       }

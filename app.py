@@ -3227,6 +3227,8 @@ def init_db():
         "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS is_rush BOOLEAN DEFAULT FALSE",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS rush_off BOOLEAN DEFAULT FALSE",
         "ALTER TABLE production_rush ADD COLUMN IF NOT EXISTS disclaimer TEXT DEFAULT ''",
+        # rush seats held for a buyer without telling them which ones (revealed after checkout)
+        "ALTER TABLE seat_holds ADD COLUMN IF NOT EXISTS rush_ref TEXT",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS policy_agreed_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_config TEXT",
         "ALTER TABLE venues ADD COLUMN IF NOT EXISTS arrival_instructions TEXT DEFAULT ''",
@@ -45381,6 +45383,18 @@ def _seat_score(s, stage):
     return float(s['y']) * 3 + abs(float(s['x']))
 
 
+def _resolve_rush_refs(conn, fid, token, ids):
+    """'rush:<ref>' -> the real seat id held for this buyer (others unchanged)."""
+    out = []
+    for x in ids or []:
+        if isinstance(x, str) and x.startswith('rush:'):
+            r = fetchone(conn, 'SELECT seat_id FROM seat_holds WHERE performance_id=%s AND session_token=%s AND rush_ref=%s', (fid, token, x[5:]))
+            out.append(r['seat_id'] if r else None)
+        else:
+            out.append(x)
+    return out
+
+
 @app.route('/api/public/performances/<fid>/rush-assign', methods=['POST'])
 def public_rush_assign(fid):
     """Best available (or from the rush block): pick N seats together if
@@ -45434,17 +45448,24 @@ def public_rush_assign(fid):
         if len(best) < qty:
             return jsonify({'error': 'Not enough seats left for that many rush tickets.'}), 409
         ids = [s['id'] for s in best]
+        refs = []
         for sid in ids:
-            row = fetchone(conn, '''INSERT INTO seat_holds (id, performance_id, seat_id, session_token, expires_at)
-                VALUES (%s,%s,%s,%s, NOW() + INTERVAL '15 minutes')
-                ON CONFLICT (performance_id, seat_id) DO UPDATE SET session_token=EXCLUDED.session_token, expires_at=EXCLUDED.expires_at, id=EXCLUDED.id
+            ref = uuid.uuid4().hex[:12]
+            row = fetchone(conn, '''INSERT INTO seat_holds (id, performance_id, seat_id, session_token, expires_at, rush_ref)
+                VALUES (%s,%s,%s,%s, NOW() + INTERVAL '15 minutes', %s)
+                ON CONFLICT (performance_id, seat_id) DO UPDATE SET session_token=EXCLUDED.session_token, expires_at=EXCLUDED.expires_at,
+                    id=EXCLUDED.id, rush_ref=EXCLUDED.rush_ref
                 WHERE seat_holds.session_token=EXCLUDED.session_token OR seat_holds.expires_at < NOW() RETURNING session_token''',
-                (str(uuid.uuid4()), fid, sid, token))
+                (str(uuid.uuid4()), fid, sid, token, ref))
             if not row or row.get('session_token') != token:
                 conn.rollback()
                 return jsonify({'error': 'Those seats were just taken. Try again.'}), 409
+            refs.append(ref)
         conn.commit()
-        return jsonify({'ok': True, 'seats': [{'id': s['id'], 'label': s['seat_label']} for s in best], 'type_id': st['type_id']})
+        # The buyer only learns their seats after checkout (on the tickets and
+        # in the email), so we send back stand-ins instead of seat numbers.
+        return jsonify({'ok': True, 'seats': [{'id': 'rush:' + r, 'label': 'Rush seat'} for r in refs], 'type_id': st['type_id']})
+
     finally:
         conn.close()
 
@@ -45484,8 +45505,8 @@ def public_seat_status(fid):
             (perf['seat_map_id'],)) or []
         sold_ids = {r['seat_id'] for r in fetchall(conn,
             'SELECT seat_id FROM tickets WHERE performance_id=%s AND seat_id IS NOT NULL', (fid,))}
-        held_rows = fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))
-        held_map = {r['seat_id']: r['session_token'] for r in held_rows}
+        held_rows = fetchall(conn, 'SELECT seat_id, session_token, rush_ref FROM seat_holds WHERE performance_id=%s', (fid,))
+        held_map = {r['seat_id']: (r['session_token'] if not r.get('rush_ref') else '__rush__') for r in held_rows}
         for s in seats:
             if s['id'] in sold_ids:
                 s['status'] = 'sold'
@@ -45509,10 +45530,8 @@ def public_seat_status(fid):
     if _rush and _rush['block_ids']:
         for s in seats:
             if s['id'] in _rush['block_ids']:
-                if _rush['open'] and _rush['online'] and s['status'] == 'available':
-                    s['rush_only'] = True
-                elif s['status'] == 'available':
-                    s['status'] = 'held'
+                if s['status'] == 'available':
+                    s['status'] = 'held'   # handed out by "Get rush seats", never picked
     ticket_types = fetchall(conn, '''SELECT tt.* FROM ticket_types tt
         JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
         WHERE ptt.performance_id=%s AND tt.active=TRUE ORDER BY tt.sort_order''', (fid,))
@@ -45550,6 +45569,22 @@ def public_hold_seats(fid):
     session_token = (d.get('session_token') or '').strip()
     if not session_token or not seat_ids:
         return jsonify({'error': 'session_token and seat_ids are required'}), 400
+    rush_ids = [x for x in seat_ids if isinstance(x, str) and x.startswith('rush:')]
+    if rush_ids:
+        _c = get_db()
+        try:
+            for x in rush_ids:
+                ok = fetchone(_c, '''UPDATE seat_holds SET expires_at=NOW() + INTERVAL '15 minutes'
+                    WHERE performance_id=%s AND session_token=%s AND rush_ref=%s RETURNING id''', (fid, session_token, x[5:]))
+                if not ok:
+                    _c.rollback()
+                    return jsonify({'error': 'Your rush seat hold ran out. Please get rush seats again.', 'unavailable': [x]}), 409
+            _c.commit()
+        finally:
+            _c.close()
+        seat_ids = [x for x in seat_ids if x not in rush_ids]
+        if not seat_ids:
+            return jsonify({'ok': True})
     conn = get_db()
     perf = fetchone(conn, 'SELECT id, production_id FROM performances WHERE id=%s', (fid,))
     if not perf:
@@ -45590,7 +45625,7 @@ def public_hold_seats(fid):
         conn.close(); return _cp
     _blk = active_seat_blocks(conn, fid)
     _rs = rush_state(conn, fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,)))
-    if _rs and _rs['block_ids'] and not (_rs['open'] and _rs['online']):
+    if _rs and _rs['block_ids']:
         _blk = dict(_blk); _blk.update({x: True for x in _rs['block_ids']})
     _mine = [x for x in seat_ids if x in _blk]
     if _mine:
@@ -45658,6 +45693,7 @@ def public_release_hold(fid):
     conn = get_db()
     also = []
     if seat_ids:
+        seat_ids = [x for x in _resolve_rush_refs(conn, fid, session_token, seat_ids) if x]
         execute(conn, 'DELETE FROM seat_holds WHERE performance_id=%s AND session_token=%s AND seat_id = ANY(%s)',
             (fid, session_token, seat_ids))
         # letting go of a wheelchair space lets go of its companion seats too
@@ -45745,6 +45781,12 @@ def public_ticket_checkout():
 
         line_items = []  # each: seat_id (nullable), ticket_type_id, seat_label, price_cents
         if perf.get('reserved_seating'):
+            # rush seats arrive as 'rush:<ref>' stand-ins; look up the real seat
+            _real = _resolve_rush_refs(conn, fid, session_token, [sel.get('seat_id') for sel in seat_selections])
+            if any(x is None for x in _real):
+                conn.close()
+                return jsonify({'error': 'Your rush seat hold ran out. Please get rush seats again.'}), 409
+            seat_selections = [dict(sel, seat_id=r) for sel, r in zip(seat_selections, _real)]
             _clear_expired_holds(conn, fid)
             held = {r['seat_id']: r['session_token'] for r in
                 fetchall(conn, 'SELECT seat_id, session_token FROM seat_holds WHERE performance_id=%s', (fid,))}

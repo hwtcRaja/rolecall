@@ -47577,10 +47577,10 @@ def kbyg_sections(ctx, base):
     if adv.get('on') and (adv.get('items') or (adv.get('text') or '').strip()):
         h = ''
         if adv.get('items'):
-            h += 'This performance includes: <strong>' + _h(', '.join(adv['items']).lower()) + '</strong>.'
+            h += '⚠️ Please be aware that this performance includes <strong>' + _h(', '.join(adv['items']).lower()) + '</strong>.'
         if (adv.get('text') or '').strip():
             h += (' ' if h else '') + message_text_html(adv['text'])
-        out.append(('About this performance', h))
+        out.append(('Content advisory', h))
     ex = cfg.get('extra') or {}
     if ex.get('on') and (ex.get('text') or '').strip():
         out.append(('Good to know', message_text_html(ex['text'])))

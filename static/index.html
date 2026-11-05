@@ -35882,7 +35882,7 @@ function rrStatusMeta(status){
    denied:{c:'#991b1b',bg:'#fee2e2',l:'Denied'}, processed:{c:'#1e40af',bg:'#dbeafe',l:'Processed'}}[status]
    || {c:'#6b7280',bg:'#f3f4f6',l:status||'Unknown'}
 }
-var RR_TYPE_LABELS = {refund:'Cash Refund', credit:'Account Credit', transfer:'Spot Transfer', find_replacement:'Help Find Replacement'}
+var RR_TYPE_LABELS = {refund:'Cash Refund', credit:'Account Credit', transfer:'Spot Transfer', find_replacement:'Help Find Replacement', ticket_exchange:'Ticket Exchange (another date)', ticket_refund:'Ticket Refund (needs Board approval)'}
 
 async function loadRefundRequestsPage(){
  var newBtn = document.getElementById('rr-new-btn')

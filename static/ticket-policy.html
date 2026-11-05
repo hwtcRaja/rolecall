@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ticket Exchange &amp; Refund Request — Horizon West Theater Company</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;color:#111;min-height:100vh}
+.header{background:linear-gradient(135deg,#0d3d4d,#145466);padding:20px 24px;display:flex;align-items:center;gap:16px}
+.header img{height:48px;width:auto}
+.header-text h1{font-size:18px;font-weight:700;color:#fff}
+.header-text p{font-size:13px;color:rgba(255,255,255,0.75)}
+.container{max-width:720px;margin:0 auto;padding:32px 20px 80px}
+.step-indicator{display:flex;align-items:center;gap:0;margin-bottom:32px}
+.step{display:flex;align-items:center;gap:8px;flex:1}
+.step-num{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;border:2px solid #d1d5db;background:#fff;color:#9ca3af}
+.step-num.active{background:#145466;border-color:#145466;color:#fff}
+.step-num.done{background:#16a34a;border-color:#16a34a;color:#fff}
+.step-label{font-size:12px;font-weight:600;color:#9ca3af}
+.step-label.active{color:#145466}
+.step-label.done{color:#16a34a}
+.step-line{flex:1;height:2px;background:#e5e7eb;margin:0 8px}
+.step-line.done{background:#16a34a}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:28px;margin-bottom:20px}
+.card-title{font-size:16px;font-weight:700;color:#111;margin-bottom:4px}
+.card-sub{font-size:13px;color:#6b7280;margin-bottom:20px}
+.policy-box{background:#f8fafc;border:1.5px solid #e5e7eb;border-radius:8px;padding:20px;height:340px;overflow-y:auto;font-size:13px;line-height:1.7;color:#374151;margin-bottom:16px}
+.policy-box h3{font-size:13px;font-weight:700;color:#111;margin:16px 0 6px}
+.policy-box h3:first-child{margin-top:0}
+.policy-box p{margin-bottom:10px}
+.policy-box ul{margin:6px 0 10px 20px}
+.policy-box li{margin-bottom:4px}
+.policy-warn{background:#fef3c7;border:1.5px solid #fde68a;border-radius:8px;padding:14px 16px;font-size:13px;font-weight:600;color:#92400e;margin-bottom:16px;line-height:1.5}
+label{display:block;font-size:12px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:4px}
+input,select,textarea{width:100%;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;font-family:inherit;font-size:14px;color:#111;outline:none;margin-bottom:16px;background:#fff}
+input:focus,select:focus,textarea:focus{border-color:#145466}
+textarea{resize:vertical;min-height:100px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.required{color:#dc2626}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 28px;border:none;border-radius:8px;font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;transition:all 0.15s}
+.btn-primary{background:#145466;color:#fff}
+.btn-primary:hover{background:#0d3d4d}
+.btn-primary:disabled{background:#9ca3af;cursor:not-allowed}
+.btn-secondary{background:#f3f4f6;color:#374151;border:1.5px solid #e5e7eb}
+.btn-secondary:hover{background:#e5e7eb}
+.btn-row{display:flex;gap:12px;justify-content:space-between;margin-top:8px}
+.check-wrap{display:flex;align-items:flex-start;gap:10px;margin-bottom:16px}
+.check-wrap input[type=checkbox]{width:18px;height:18px;flex-shrink:0;margin-top:2px;accent-color:#145466;cursor:pointer}
+.check-wrap span{font-size:13px;color:#374151;line-height:1.5}
+.option-card{border:2px solid #e5e7eb;border-radius:10px;padding:16px;margin-bottom:12px;cursor:pointer;transition:all 0.15s}
+.option-card:hover{border-color:#145466;background:#f0f9fb}
+.option-card.selected{border-color:#145466;background:#e0f4f0}
+.option-card input[type=radio]{accent-color:#145466;margin:0 8px 0 0;width:auto;vertical-align:-2px}
+.option-title{font-size:14px;font-weight:700;color:#111}
+.option-desc{font-size:12px;color:#6b7280;margin-top:3px;line-height:1.4}
+.alert{padding:14px 16px;border-radius:8px;font-size:13px;margin-bottom:16px}
+.alert-info{background:#e0f4f0;border:1.5px solid #86c936;color:#0d3d4d}
+.alert-warn{background:#fef3c7;border:1.5px solid #fde68a;color:#92400e}
+.section-div{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#9ca3af;padding:8px 0 4px;border-bottom:1px solid #f3f4f6;margin-bottom:16px}
+.success-box{text-align:center;padding:48px 24px}
+.success-box .icon{font-size:56px;margin-bottom:16px}
+.success-box h2{font-size:24px;font-weight:700;color:#111;margin-bottom:8px}
+.success-box p{font-size:15px;color:#6b7280;line-height:1.6;max-width:480px;margin:0 auto 8px}
+.ref-num{display:inline-block;background:#f3f4f6;border:1.5px solid #e5e7eb;border-radius:8px;padding:8px 20px;font-size:16px;font-weight:700;font-family:monospace;color:#145466;margin:12px 0}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<div class="header">
+  <img src="/static/images/hwtc_logo_white.png" alt="HWTC" style="height:48px;mix-blend-mode:screen" onerror="this.style.display='none'"/>
+  <div class="header-text">
+    <h1>Ticket Exchange &amp; Refund Request</h1>
+  </div>
+</div>
+
+<div class="container">
+  <div class="step-indicator">
+    <div class="step"><div class="step-num active" id="sn1">1</div><div class="step-label active" id="sl1">Policy</div></div>
+    <div class="step-line" id="line1"></div>
+    <div class="step"><div class="step-num" id="sn2">2</div><div class="step-label" id="sl2">Your Tickets</div></div>
+    <div class="step-line" id="line2"></div>
+    <div class="step"><div class="step-num" id="sn3">3</div><div class="step-label" id="sl3">Request</div></div>
+    <div class="step-line" id="line3"></div>
+    <div class="step"><div class="step-num" id="sn4">4</div><div class="step-label" id="sl4">Review</div></div>
+  </div>
+
+  <!-- STEP 1: Policy -->
+  <div id="step-1">
+    <div class="card">
+      <div class="card-title">Ticket Policy: Exchanges &amp; Refunds</div>
+      <div class="card-sub">Please read our ticket policy before submitting your request. Program and class registrations follow the separate <a href="/request-a-refund" style="color:#145466;font-weight:600">Cancellation &amp; Refund Policy</a>.</div>
+      <div class="policy-warn">IMPORTANT: This is a REQUEST. Submitting it does not guarantee an exchange or refund. Refunds need approval from the HWTC Board of Directors. Rush tickets are final sale.</div>
+      <div class="policy-box" id="policy-box">
+        <h3>Horizon West Theater Company (HWTC) — Ticket Policy</h3>
+        <p><em>Horizon West Theater Company (HWTC), a 501(c)(3) nonprofit organization. Governing Authority: HWTC Board of Directors.</em></p>
+
+        <h3>Section 1 — General Terms</h3>
+        <p>Ticket sales directly fund our nonprofit productions. By buying tickets, you agree to this policy. All exchange and refund decisions are made at the sole discretion of HWTC and its Board of Directors.</p>
+
+        <h3>Section 2 — Exchanges to Another Date</h3>
+        <ul>
+          <li>Regular tickets can be exchanged for another performance of the same production, as long as tickets are available for that date.</li>
+          <li>We can't guarantee the same seats, or seats in the same section. We'll offer the best available seats for the new date.</li>
+          <li>Exchanges must be requested before the original performance begins. Tickets for a performance that has already started can't be exchanged.</li>
+          <li>If the new performance has a different ticket price, any difference may need to be paid; we don't refund price differences.</li>
+        </ul>
+
+        <h3>Section 3 — Refunds</h3>
+        <p>Refunds are not guaranteed. Every refund request is reviewed and must be approved by the HWTC Board of Directors. We encourage an exchange first where possible. Requests that may be considered include:</p>
+        <ul>
+          <li>Medical emergency or serious illness affecting the ticket holder or an immediate family member (documentation may be requested)</li>
+          <li>Death of an immediate family member</li>
+          <li>Natural disaster, act of God, or government-declared emergency</li>
+          <li>Other extraordinary circumstances as determined by the HWTC Board of Directors</li>
+        </ul>
+        <p>Generally not eligible: change of mind, schedule conflicts, missing or arriving late to the performance, or dissatisfaction with seats or the performance. Approved refunds are processed within 10 business days to the original payment method. Service fees and donations added at checkout are not refunded.</p>
+
+        <h3>Section 4 — Rush Tickets</h3>
+        <p><strong>Rush tickets are final sale.</strong> They can never be refunded, and can never be exchanged or transferred to another performance.</p>
+
+        <h3>Section 5 — Performances Canceled by HWTC</h3>
+        <p>If HWTC cancels or reschedules a performance, ticket holders will be offered an exchange to another performance or a full refund.</p>
+
+        <h3>Section 6 — Appeals</h3>
+        <p>If a refund request is denied, you may submit a written appeal to the HWTC Board of Directors within 14 days of receiving the denial notice. The Board of Directors' decision on appeal is final.</p>
+
+        <h3>Section 7 — Governing Authority</h3>
+        <p>This policy is administered by HWTC and governed by its Board of Directors. HWTC reserves the right to amend this policy at any time. The Board of Directors has final authority over all exchange and refund decisions.</p>
+
+        <h3>Section 8 — No Guarantee</h3>
+        <p>Submission of this form does not constitute approval of an exchange or refund. HWTC's decision is final and binding. You will be notified of our decision within 5–7 business days.</p>
+      </div>
+      <div class="check-wrap">
+        <input type="checkbox" id="policy-agree"/>
+        <span>I have read and understand the HWTC Ticket Policy. I acknowledge that submitting this form does not guarantee an exchange or refund, and that all decisions are made at the sole discretion of HWTC and its Board of Directors.</span>
+      </div>
+      <div class="btn-row" style="justify-content:flex-end">
+        <button class="btn btn-primary" onclick="goStep(2)">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2: Find tickets -->
+  <div id="step-2" class="hidden">
+    <div class="card">
+      <div class="card-title">Your Tickets</div>
+      <div class="card-sub">Enter the email you bought with and a confirmation code from your tickets (it's under each QR code, e.g. F5B2729E).</div>
+      <label>Email Address <span class="required">*</span></label>
+      <input id="r-email" type="email" placeholder="your@email.com"/>
+      <div class="form-row">
+        <div><label>Confirmation Code <span class="required">*</span></label><input id="r-code" type="text" placeholder="e.g. F5B2729E" style="font-family:monospace;text-transform:uppercase"/></div>
+        <div><label>Phone Number</label><input id="r-phone" type="tel" placeholder="(407) 555-0123"/></div>
+      </div>
+      <div id="lookup-error" class="alert alert-warn hidden"></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goStep(1)">Back</button>
+        <button class="btn btn-primary" onclick="lookupTickets()">Find My Tickets</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3: Request -->
+  <div id="step-3" class="hidden">
+    <div class="card">
+      <div class="card-title">Request Details</div>
+      <div class="card-sub">Tell us what you'd like to do with these tickets.</div>
+      <div class="section-div">Your Tickets</div>
+      <div id="ticket-summary" style="font-size:14px;line-height:1.7;color:#374151;margin-bottom:16px"></div>
+      <div id="rush-note" class="alert alert-warn hidden"></div>
+
+      <div id="request-options">
+        <div class="section-div">What Are You Requesting?</div>
+        <div class="option-card" id="opt-exchange" onclick="selectRequestType('exchange')">
+          <label style="text-transform:none;letter-spacing:0;font-size:14px;cursor:pointer;margin:0">
+            <input type="radio" name="req-type" value="exchange"/> <span class="option-title">Exchange to Another Date</span>
+          </label>
+          <div class="option-desc">Move your tickets to another performance of this show. Subject to availability; the same seats aren't guaranteed.</div>
+        </div>
+        <div class="option-card" id="opt-refund" onclick="selectRequestType('refund')">
+          <label style="text-transform:none;letter-spacing:0;font-size:14px;cursor:pointer;margin:0">
+            <input type="radio" name="req-type" value="refund"/> <span class="option-title">Refund</span>
+          </label>
+          <div class="option-desc">Request a refund to your original payment method. Not guaranteed; needs Board approval.</div>
+        </div>
+
+        <div id="exchange-fields" class="hidden">
+          <div class="section-div">New Performance</div>
+          <div id="exchange-dates"></div>
+        </div>
+
+        <div id="refund-fields" class="hidden">
+          <div class="section-div">Reason for Request</div>
+          <label>Reason Category <span class="required">*</span></label>
+          <select id="r-reason-cat">
+            <option value="">Select a reason...</option>
+            <option value="medical">Medical emergency or serious illness</option>
+            <option value="family_death">Death of an immediate family member</option>
+            <option value="act_of_god">Natural disaster / act of God / government emergency</option>
+            <option value="hwtc_change">HWTC canceled or rescheduled the performance</option>
+            <option value="other">Other extraordinary circumstance</option>
+          </select>
+        </div>
+
+        <label id="reason-label">Anything we should know?</label>
+        <textarea id="r-reason" placeholder="Please provide as much detail as you can. If you have documentation, you may email it to info@hwtco.org after submitting, with your request number."></textarea>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goStep(2)">Back</button>
+        <button class="btn btn-primary" id="btn-step3" onclick="goStep(4)">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 4: Review -->
+  <div id="step-4" class="hidden">
+    <div class="card">
+      <div class="card-title">Review Your Request</div>
+      <div class="card-sub">Please confirm everything is correct before submitting.</div>
+      <div id="review-content" style="font-size:14px;line-height:1.8;color:#374151"></div>
+      <div class="policy-warn" style="margin-top:20px">By submitting this request, I confirm that the information provided is accurate and that I have read and agreed to the HWTC Ticket Policy. I understand that submission does not guarantee an exchange or refund.</div>
+      <div id="submit-error" style="display:none;color:#dc2626;font-size:13px;margin-bottom:12px"></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" onclick="goStep(3)">Back</button>
+        <button class="btn btn-primary" id="btn-submit" onclick="submitRequest()">Submit Request</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUCCESS -->
+  <div id="step-success" class="hidden">
+    <div class="card">
+      <div class="success-box">
+        <div class="icon">&#10003;</div>
+        <h2>Request Submitted</h2>
+        <div class="ref-num" id="success-ref"></div>
+        <p>Your ticket request has been received. Please save your request number above — you will need it for any follow-up communication.</p>
+        <p>You will receive a confirmation email at <strong id="success-email"></strong>. Our team will review your request and respond within <strong>5–7 business days</strong>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var INFO = null, REQ_TYPE = ''
+function esc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+function t12(t){ t=(t||'').slice(0,5); if(t.length<5) return ''; var h=+t.slice(0,2), m=t.slice(3,5); return ((h%12)||12)+(m!=='00'?':'+m:'')+(h>=12?' PM':' AM') }
+function fd(d){ var m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? new Date(+m[1],+m[2]-1,+m[3]).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : d }
+async function post(u, b){ var r = await fetch(u,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); return r.json() }
+var CUR = 1
+function showStep(n){
+  ['1','2','3','4','success'].forEach(function(k){ document.getElementById('step-'+k).classList.toggle('hidden', String(n)!==k) })
+  for(var i=1;i<=4;i++){
+    var num = document.getElementById('sn'+i), lab = document.getElementById('sl'+i), done = n==='success' || i < n, act = i === n
+    num.className = 'step-num'+(done?' done':act?' active':''); lab.className = 'step-label'+(done?' done':act?' active':'')
+    num.innerHTML = done ? '&#10003;' : i
+    var line = document.getElementById('line'+i); if(line) line.className = 'step-line'+(done?' done':'')
+  }
+  CUR = n; window.scrollTo(0,0)
+}
+function goStep(n){
+  if(n === 2 && CUR === 1 && !document.getElementById('policy-agree').checked){ alert('Please read and agree to the Ticket Policy to continue.'); return }
+  if(n === 4 && CUR === 3){
+    if(!REQ_TYPE){ alert('Choose an exchange or a refund.'); return }
+    if(REQ_TYPE==='exchange' && !(document.querySelector('input[name=new-perf]:checked'))){ alert('Pick the performance you\'d like instead.'); return }
+    if(REQ_TYPE==='refund' && (!document.getElementById('r-reason-cat').value || !document.getElementById('r-reason').value.trim())){ alert('Choose a reason and describe your situation.'); return }
+    buildReview()
+  }
+  showStep(n)
+}
+(function(){
+  var q = new URLSearchParams(location.search)
+  if(q.get('email')) document.getElementById('r-email').value = q.get('email')
+  if(q.get('code')) document.getElementById('r-code').value = q.get('code')
+})()
+async function lookupTickets(){
+  var err = document.getElementById('lookup-error'); err.classList.add('hidden')
+  var r = await post('/api/public/ticket-request/lookup', {email: document.getElementById('r-email').value, code: document.getElementById('r-code').value})
+  if(r.error){ err.textContent = r.error; err.classList.remove('hidden'); return }
+  INFO = r
+  var rush = r.tickets.filter(function(t){ return t.rush }), regular = r.tickets.filter(function(t){ return !t.rush })
+  document.getElementById('ticket-summary').innerHTML = '<strong>'+esc(r.show)+'</strong><br>'+esc(fd(r.date))+(r.time?' at '+t12(r.time):'')
+    + '<br><span style="color:#6b7280">'+r.tickets.map(function(t){ return esc(t.label)+(t.type?' ('+esc(t.type)+')':'') }).join(', ')+'</span>'
+  var note = document.getElementById('rush-note')
+  if(!regular.length){ note.innerHTML = '<strong>These are rush tickets, which are final sale.</strong> They can\'t be refunded or exchanged for another date.'; note.classList.remove('hidden')
+    document.getElementById('request-options').classList.add('hidden'); document.getElementById('btn-step3').classList.add('hidden') }
+  else {
+    document.getElementById('request-options').classList.remove('hidden'); document.getElementById('btn-step3').classList.remove('hidden')
+    if(rush.length){ note.innerHTML = 'The rush ticket'+(rush.length>1?'s':'')+' in this order ('+rush.map(function(t){ return esc(t.label) }).join(', ')+') can\'t be changed. This request covers the others.'; note.classList.remove('hidden') }
+    else note.classList.add('hidden')
+  }
+  document.getElementById('opt-exchange').classList.toggle('hidden', !!r.past)
+  document.getElementById('exchange-dates').innerHTML = r.other_dates.length
+    ? r.other_dates.map(function(o){ return '<div class="option-card" onclick="this.querySelector(\'input\').checked=true;markPerf(this)"><label style="text-transform:none;letter-spacing:0;font-size:14px;cursor:pointer;margin:0"><input type="radio" name="new-perf" value="'+o.id+'"/> <span class="option-title">'+esc(fd(o.date))+(o.time?' at '+t12(o.time):'')+'</span></label></div>' }).join('')
+      + '<div class="alert alert-info">We can\'t guarantee the same seats. We\'ll give you the best available seats for the new date.</div>'
+    : '<div class="alert alert-warn">There are no other performances of this show on sale right now. You can still request a refund.</div>'
+  REQ_TYPE = ''; ['opt-exchange','opt-refund'].forEach(function(id){ document.getElementById(id).classList.remove('selected') })
+  document.getElementById('exchange-fields').classList.add('hidden'); document.getElementById('refund-fields').classList.add('hidden')
+  goStep(3)
+}
+function markPerf(el){ document.querySelectorAll('#exchange-dates .option-card').forEach(function(c){ c.classList.toggle('selected', c===el) }) }
+function selectRequestType(t){
+  REQ_TYPE = t
+  document.getElementById('opt-exchange').classList.toggle('selected', t==='exchange'); document.getElementById('opt-refund').classList.toggle('selected', t==='refund')
+  document.querySelector('input[name=req-type][value='+t+']').checked = true
+  document.getElementById('exchange-fields').classList.toggle('hidden', t!=='exchange')
+  document.getElementById('refund-fields').classList.toggle('hidden', t!=='refund')
+  document.getElementById('reason-label').innerHTML = t==='refund' ? 'Please describe your situation <span class="required">*</span>' : 'Anything we should know?'
+}
+function buildReview(){
+  var regular = INFO.tickets.filter(function(t){ return !t.rush })
+  var np = document.querySelector('input[name=new-perf]:checked'), npo = np && INFO.other_dates.find(function(o){ return o.id===np.value })
+  var cat = document.getElementById('r-reason-cat'); var catText = cat.value ? cat.options[cat.selectedIndex].text : ''
+  document.getElementById('review-content').innerHTML =
+    '<strong>Email:</strong> '+esc(document.getElementById('r-email').value)+'<br>'
+    + '<strong>Show:</strong> '+esc(INFO.show)+', '+esc(fd(INFO.date))+(INFO.time?' at '+t12(INFO.time):'')+'<br>'
+    + '<strong>Tickets:</strong> '+regular.map(function(t){ return esc(t.label) }).join(', ')+'<br>'
+    + '<strong>Request:</strong> '+(REQ_TYPE==='exchange' ? 'Exchange to '+esc(fd(npo.date))+(npo.time?' at '+t12(npo.time):'') : 'Refund')+'<br>'
+    + (REQ_TYPE==='refund' ? '<strong>Reason:</strong> '+esc(catText)+'<br>' : '')
+    + (document.getElementById('r-reason').value.trim() ? '<strong>Details:</strong> '+esc(document.getElementById('r-reason').value.trim()) : '')
+}
+async function submitRequest(){
+  var btn = document.getElementById('btn-submit'), err = document.getElementById('submit-error')
+  btn.disabled = true; err.style.display = 'none'
+  var np = document.querySelector('input[name=new-perf]:checked')
+  var r = await post('/api/public/ticket-request', {email: document.getElementById('r-email').value, code: document.getElementById('r-code').value,
+    type: REQ_TYPE, new_performance_id: np ? np.value : '', reason_category: document.getElementById('r-reason-cat').value,
+    reason: document.getElementById('r-reason').value, phone: document.getElementById('r-phone').value})
+  btn.disabled = false
+  if(r.error){ err.textContent = r.error; err.style.display = ''; return }
+  document.getElementById('success-ref').textContent = r.ref
+  document.getElementById('success-email').textContent = document.getElementById('r-email').value
+  showStep('success')
+}
+if(new URLSearchParams(location.search).get('email')) { /* came from their ticket page: policy first, details prefilled */ }
+</script>
+</body>
+</html>

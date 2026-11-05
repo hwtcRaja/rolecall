@@ -3226,6 +3226,7 @@ def init_db():
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS send_claim_at TIMESTAMP",
         "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS is_rush BOOLEAN DEFAULT FALSE",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS rush_off BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS policy_agreed_at TIMESTAMP",
         """CREATE TABLE IF NOT EXISTS production_rush (
             production_id TEXT PRIMARY KEY REFERENCES productions(id) ON DELETE CASCADE,
             enabled BOOLEAN DEFAULT FALSE, ticket_type_id TEXT, price_cents INTEGER DEFAULT 0,
@@ -27521,6 +27522,113 @@ def submit_survey_response(slug):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+# ══ Ticket policy: exchanges & refunds ════════════════════════════════════
+# The public policy page (/ticket-policy) with a request form. Requests go
+# into the same Refund Requests list staff already use, marked as ticket
+# exchanges or ticket refunds; refunds always need Board approval. Rush
+# tickets are final sale.
+@app.route('/ticket-policy')
+def ticket_policy_page():
+    return send_from_directory('static', 'ticket-policy.html')
+
+
+@app.route('/api/public/ticket-request/lookup', methods=['POST'])
+def public_ticket_request_lookup():
+    """Find an order by the buyer's email + any ticket confirmation code."""
+    d = request.json or {}
+    email = (d.get('email') or '').strip().lower()
+    code = (d.get('code') or '').strip().upper()
+    if not email or not code:
+        return jsonify({'error': 'Enter the email you bought with and a confirmation code from your tickets.'}), 400
+    conn = get_db()
+    try:
+        t = fetchone(conn, '''SELECT t.ticket_order_id FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+            WHERE UPPER(t.confirmation_code)=%s AND LOWER(o.guardian_email)=%s AND o.status='completed' LIMIT 1''', (code, email))
+        if not t:
+            return jsonify({'error': 'We couldn\'t find tickets with that email and code. Check your confirmation email, or contact us.'}), 404
+        return jsonify(_ticket_request_order_info(conn, t['ticket_order_id']))
+    finally:
+        conn.close()
+
+
+def _ticket_request_order_info(conn, oid):
+    o = fetchone(conn, '''SELECT o.*, pf.performance_date, pf.performance_time, pf.production_id, p.name AS show_name
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id JOIN productions p ON p.id=pf.production_id WHERE o.id=%s''', (oid,))
+    tix = fetchall(conn, '''SELECT t.seat_label, t.price_cents, COALESCE(tt.is_rush,FALSE) AS is_rush, tt.name AS type_name
+        FROM tickets t LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id WHERE t.ticket_order_id=%s ORDER BY t.seat_label''', (oid,)) or []
+    others = fetchall(conn, '''SELECT id, performance_date, performance_time FROM performances WHERE production_id=%s AND id<>%s
+        AND status IN ('on_sale','presale') ORDER BY performance_date, performance_time''', (o['production_id'], o['performance_id'])) or []
+    others = [x for x in others if not perf_online_sales_closed(x)]
+    return {'order_id': o['id'], 'show': o['show_name'], 'date': str(o['performance_date'])[:10], 'time': o.get('performance_time') or '',
+            'name': o.get('guardian_name') or '', 'past': perf_online_sales_closed(o),
+            'tickets': [{'label': x['seat_label'] or 'General admission', 'type': x.get('type_name') or '', 'rush': bool(x['is_rush']),
+                         'price_cents': int(x.get('price_cents') or 0)} for x in tix],
+            'other_dates': [{'id': x['id'], 'date': str(x['performance_date'])[:10], 'time': x.get('performance_time') or ''} for x in others]}
+
+
+@app.route('/api/public/ticket-request', methods=['POST'])
+def public_ticket_request():
+    d = request.json or {}
+    email = (d.get('email') or '').strip().lower(); code = (d.get('code') or '').strip().upper()
+    kind = d.get('type') if d.get('type') in ('exchange', 'refund') else None
+    if not kind:
+        return jsonify({'error': 'Choose an exchange or a refund.'}), 400
+    reason = (d.get('reason') or '').strip()[:2000]
+    if kind == 'refund' and not reason:
+        return jsonify({'error': 'Please tell us why you\'re asking for a refund.'}), 400
+    conn = get_db()
+    try:
+        t = fetchone(conn, '''SELECT t.ticket_order_id FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+            WHERE UPPER(t.confirmation_code)=%s AND LOWER(o.guardian_email)=%s AND o.status='completed' LIMIT 1''', (code, email))
+        if not t:
+            return jsonify({'error': 'We couldn\'t find that order.'}), 404
+        info = _ticket_request_order_info(conn, t['ticket_order_id'])
+        regular = [x for x in info['tickets'] if not x['rush']]
+        if not regular:
+            return jsonify({'error': 'Rush tickets are final sale: they can\'t be refunded or exchanged for another date.'}), 400
+        if kind == 'exchange' and info['past']:
+            return jsonify({'error': 'This performance has already started, so these tickets can\'t be exchanged.'}), 400
+        new_date = ''
+        if kind == 'exchange':
+            nd = next((x for x in info['other_dates'] if x['id'] == d.get('new_performance_id')), None)
+            if not nd:
+                return jsonify({'error': 'Pick the performance you\'d like instead.'}), 400
+            new_date = nd['date'] + (' ' + _fmt_time12(nd['time']) if nd['time'] else '')
+        import random, string
+        ref = 'TKT-' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
+        amount = sum(x['price_cents'] for x in regular)
+        when = info['date'] + (' ' + _fmt_time12(info['time']) if info['time'] else '')
+        detail = (f'Exchange to: {new_date}. ' if kind == 'exchange' else '') + \
+                 f'Tickets: {", ".join(x["label"] for x in regular)}' + \
+                 (f' (rush tickets not included: {", ".join(x["label"] for x in info["tickets"] if x["rush"])})' if len(regular) < len(info['tickets']) else '') + \
+                 (f'. Reason: {reason}' if reason else '')
+        execute(conn, '''INSERT INTO refund_requests (id, ref_number, requester_name, requester_email, requester_phone, participant_name,
+                program_name, square_order_id, amount_paid, program_start_date, request_type, refund_amount_cents, reason_category,
+                reason_detail, requires_board_approval)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), ref, info['name'] or email, email, (d.get('phone') or '').strip()[:40], info['name'] or email,
+             f'Tickets: {info["show"]} ({when})', info['order_id'], f'${amount/100:,.2f}', info['date'],
+             'ticket_exchange' if kind == 'exchange' else 'ticket_refund', amount if kind == 'refund' else None,
+             (d.get('reason_category') or ('exchange' if kind == 'exchange' else 'other'))[:60], detail[:4000], kind == 'refund'))
+        conn.commit()
+        try:
+            send_email([email], f'We got your ticket {kind} request ({ref})', build_hwtc_email_html(f'Ticket {kind} request received',
+                f'<p>Hi {_h((info["name"] or "").split(" ")[0] or "there")},</p><p>We received your request to '
+                + (f'exchange your <strong>{_h(info["show"])}</strong> tickets for <strong>{_h(new_date)}</strong>' if kind == 'exchange'
+                   else f'refund your <strong>{_h(info["show"])}</strong> tickets') + f'. Reference: <strong>{ref}</strong>.</p>'
+                + ('<p>Exchanges depend on availability, and we can\'t guarantee the same seats. ' if kind == 'exchange'
+                   else '<p>Refunds aren\'t guaranteed and need approval from the HWTC Board of Directors. ')
+                + 'We\'ll let you know within 5–7 business days.</p>'
+                + f'<p style="font-size:13px;color:#6b7280">See the full <a href="{APP_BASE_URL.rstrip("/")}/ticket-policy">ticket policy</a>.</p>'))
+            send_email([_setting(conn, 'refund_notify_email') or 'info@hwtco.org'], f'Ticket {kind} request {ref}: {info["show"]}',
+                build_hwtc_email_html(f'New ticket {kind} request', f'<p><strong>{_h(info["name"])}</strong> ({_h(email)})</p><p>{_h(detail)}</p><p>Review it in RoleCall → Refund Requests.</p>'))
+        except Exception as e:
+            app.logger.warning(f'ticket request emails failed: {e}')
+        return jsonify({'ok': True, 'ref': ref})
+    finally:
+        conn.close()
+
+
 @app.route('/request-a-refund')
 def refund_request_page():
     return send_from_directory('static', 'request-a-refund.html')
@@ -45593,6 +45701,8 @@ def public_ticket_checkout():
         return jsonify({'error': 'Name and email are required'}), 400
     if not phone_key:
         return jsonify({'error': 'Please enter a 10-digit phone number'}), 400
+    if not d.get('policy_agreed') and not staff_ticket_preview(d.get('preview')):
+        return jsonify({'error': 'Please read and agree to the HWTC Ticket Policy to continue.'}), 400
     if not cart:
         return jsonify({'error': 'Your cart is empty'}), 400
 
@@ -45843,6 +45953,8 @@ def public_ticket_checkout():
             execute(conn, 'UPDATE ticket_orders SET team_comp_code_id=%s WHERE id=%s', (benefit_code['id'], order_id))
         execute(conn, 'UPDATE ticket_orders SET sale_channel=%s WHERE id=%s',
                 (sale_channel_for(conn, grp['performance_id'], d.get('presale_keys') or {}, staff_ticket_preview(d.get('preview'))), order_id))
+        if d.get('policy_agreed'):
+            execute(conn, 'UPDATE ticket_orders SET policy_agreed_at=NOW() WHERE id=%s', (order_id,))
         _perf = fetchone(conn, 'SELECT performance_date, performance_time FROM performances WHERE id=%s', (grp['performance_id'],)) or {}
         _when = str(_perf.get('performance_date') or '')[:10] + (' ' + (_perf.get('performance_time') or '')[:5] if _perf.get('performance_time') else '')
         for li in grp['line_items']:
@@ -47514,6 +47626,13 @@ def ticket_email_html(ctx, kind='confirmation'):
                 'Have your tickets open on your phone at the door (use the button above).')
              + '</div>')
     cal = '<p style="font-size:13px;margin:16px 0 0"><a href="' + link + '/calendar.ics" style="color:#16728b;font-weight:600">Add to your calendar</a></p>'
+    # the ticket policy, in short, with a link to change dates or ask for a refund
+    _rush_here = any((t.get('type_name') or '').lower().startswith('rush') for t in ctx['tickets'])
+    policy = ('<div style="margin:16px 0 0;padding:10px 14px;background:#f8fafc;border-radius:8px;font-size:12.5px;color:#4b5563;line-height:1.55">'
+              '<strong>Can\'t make it?</strong> Regular tickets can be exchanged for another performance of this show, '
+              'depending on availability (we can\'t guarantee the same seats). Refunds aren\'t guaranteed and need Board approval. '
+              + ('<strong>Rush tickets are final sale: no refunds or exchanges.</strong> ' if _rush_here else '')
+              + '<a href="' + base + '/ticket-policy" style="color:#16728b">Ticket policy &amp; requests</a></div>')
     # map of where they're sitting (an image: email apps don't show SVG)
     seatmap = ''
     if ctx['perf'].get('reserved_seating') and ctx['perf'].get('seat_map_id') and any(t.get('seat_id') for t in ctx['tickets']):
@@ -47522,7 +47641,7 @@ def ticket_email_html(ctx, kind='confirmation'):
                    'style="display:block;width:100%;max-width:560px;height:auto;border:1px solid #e5eaec;border-radius:10px"/></a>'
                    '<div style="font-size:12px;color:#5f6b72;margin-top:4px">Your seats are in gold.</div>')
     return build_hwtc_email_html(('Your tickets: ' if kind == 'confirmation' else 'Know before you go: ') + show,
-                                 intro + details + btn + cards + seatmap + extra + cal)
+                                 intro + details + btn + cards + seatmap + extra + cal + policy)
 
 
 def send_ticket_email(conn, order_id, kind='confirmation', to_override=None):
@@ -47625,6 +47744,8 @@ def public_ticket_view(token):
             + ('<div class="row"><span>Where</span><strong style="text-align:right">' + _h(v.get('name') or '') + ('<br><span style="font-weight:500;font-size:13px">' + _h(ctx['address']) + '</span>' if ctx['address'] else '') + '</strong></div>' if (v.get('name') or ctx['address']) else '')
             + ('<div style="margin-top:8px"><a href="' + maps + '" target="_blank">Get directions</a> &nbsp;·&nbsp; <a href="' + base + '/calendar.ics">Add to calendar</a></div>' if maps else '<div style="margin-top:8px"><a href="' + base + '/calendar.ics">Add to calendar</a></div>')
             + ('<div style="margin-top:12px;font-size:14px;line-height:1.6;border-top:1px solid #e5eaec;padding-top:10px"><strong>Know before you go</strong><br>' + _h(kbyg).replace('\n', '<br>') + '</div>' if kbyg else '')
+            + '<div class="card" style="font-size:13.5px;color:#4b5563">Can\'t make it? Regular tickets can be exchanged for another date. '
+            + '<a href="/ticket-policy?email=' + _h(ctx['order'].get('guardian_email') or '') + '&code=' + _h((ctx['tickets'][0].get('confirmation_code') if ctx['tickets'] else '') or '') + '#req" style="color:#16728b;font-weight:700">Request an exchange or refund</a></div>'
             + '</div><div class="tip">At the door, tap <strong>Show my ticket' + ('s' if n_t != 1 else '') + '</strong>: each QR code fills the screen on its own, '
               + ('and you swipe sideways for the next one. ' if n_t > 1 else '') + 'Turn your screen brightness up for a quick scan. '
               'Tip: add this page to your home screen (Share → Add to Home Screen) so it\'s one tap away.</div>'

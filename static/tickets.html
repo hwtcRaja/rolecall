@@ -1019,13 +1019,13 @@ function rushBannerHTML(){
         + (r.seat_mode==='block' ? '<div style="font-size:12px;color:#7c2d12;margin-top:6px">Or tap a gold-ringed rush seat on the map.</div>' : '')
       : (currentPerformance.reserved_seating ? '<div style="font-size:12.5px;margin-top:6px">Pick your seats below, then choose <strong>Rush</strong> as the ticket type.</div>' : '')
     return '<div style="background:#fff7ed;border:1.5px solid #fdba74;border-radius:12px;padding:14px 16px;margin-bottom:12px">'
-      + '<div style="font-weight:800;color:#9a3412;font-size:15px">⚡ Rush tickets on sale now: '+fmtMoney(r.price_cents)+' each</div>'
+      + '<div style="font-weight:800;color:#9a3412;font-size:15px">⚡ Rush tickets for this performance on sale now: '+fmtMoney(r.price_cents)+' each</div>'
       + '<div style="font-size:13px;color:#7c2d12;margin-top:2px">'+(r.per_order?'Up to '+r.per_order+' per order. ':'')+(r.left!=null?r.left+' left. ':'')+note+' Final sale: no refunds or exchanges.</div>'
       + (r.disclaimer ? '<details style="margin-top:8px;font-size:12.5px;color:#7c2d12"><summary style="cursor:pointer;font-weight:700">Rush ticket details</summary><div style="margin-top:4px;white-space:pre-wrap;line-height:1.5">'+escH(r.disclaimer)+'</div></details>' : '')
       + pick + '</div>'
   }
   if(r.open && r.sold_out) return '<div style="background:#f1f5f9;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px">Rush tickets for this performance are sold out.</div>'
-  if(r.upcoming) return '<div style="background:#fff7ed;border:1px dashed #fdba74;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#7c2d12">⚡ Rush tickets ('+fmtMoney(r.price_cents)+') go on sale '+escH(r.opens_label)+'.'+note
+  if(r.upcoming) return '<div style="background:#fff7ed;border:1px dashed #fdba74;border-radius:12px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:#7c2d12">⚡ Rush tickets ('+fmtMoney(r.price_cents)+') for this performance go on sale '+escH(r.opens_label)+'.'+note
     + (r.disclaimer ? '<details style="margin-top:6px;font-size:12.5px"><summary style="cursor:pointer;font-weight:700">Rush ticket details</summary><div style="margin-top:4px;white-space:pre-wrap;line-height:1.5">'+escH(r.disclaimer)+'</div></details>' : '')
     + '</div>'
   return ''

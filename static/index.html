@@ -39111,7 +39111,7 @@ async function openKbygModal(pid){
     + row('parking', (c.parking||{}).on, 'Parking', '', ta('parking', (c.parking||{}).text, 'Parking is free.'))
     + row('concessions', (c.concessions||{}).on, 'Concessions', '', ta('concessions', (c.concessions||{}).text, 'Concessions will be sold before the show and at intermission.'))
     + row('brightness', c.brightness, 'Phone tickets at full brightness', '"Have your tickets open on your phone with the screen brightness all the way up, so they scan quickly."')
-    + row('advisories', adv.on, 'Notes about this performance', 'Content and effects people should know about.', advBoxes + ta('advisories', adv.text, 'Anything else, e.g. "Recommended for ages 8 and up."'))
+    + row('advisories', adv.on, 'Content advisory', 'Warnings about content and effects (shown as "Content advisory" in the email).', advBoxes + ta('advisories', adv.text, 'Anything else, e.g. "Recommended for ages 8 and up."'))
     + row('extra', (c.extra||{}).on, 'Extra notes', '', ta('extra', (c.extra||{}).text, 'e.g. Run time is about 2 hours with a 15-minute intermission.'))
     + '<div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn btn-primary" onclick="saveKbyg(\''+pid+'\')">Save</button>'
     + '<button class="btn btn-secondary" onclick="saveKbyg(\''+pid+'\', true)">Save &amp; email me a sample</button></div>', 640)

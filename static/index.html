@@ -419,8 +419,9 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .rp-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.14);padding:6px;min-width:280px}
 .rp-menu button{display:block;width:100%;text-align:left;background:none;border:none;border-radius:8px;padding:9px 12px;cursor:pointer;font-family:inherit}
 .rp-menu button:hover{background:var(--bg)}
-.rp-menu button strong{display:block;font-size:13.5px;color:var(--text)}
-.rp-menu button span{display:block;font-size:12px;color:var(--text-muted);margin-top:1px}
+.rp-menu button strong,.rp-menu a strong{display:block;font-size:13.5px;color:var(--text)}
+.rp-menu button span,.rp-menu a span{display:block;font-size:12px;color:var(--text-muted);margin-top:1px}
+.rp-menu a:hover{background:var(--bg)}
 </style>
  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
 </head>
@@ -38247,31 +38248,47 @@ async function loadTicketsTab(pid){
   }
   var prod = (typeof allProductions!=='undefined' ? allProductions : []).find(function(p){ return p.id===pid });
   var ticketUrl = prod && prod.slug ? '/tickets/'+prod.slug : '';
+  // Toolbar, grouped: the public page on the left; Show night, Orders &
+  // email and Setup as menus; + Add Performance as the one main button.
+  var esc_pn = (prod?escHtml(prod.name).replace(/'/g,"\\'"):'')
+  var mi = function(onclick, title, sub, href){
+    var inner = '<strong>'+title+'</strong><span>'+sub+'</span>'
+    return href ? '<a href="'+href+'" target="_blank" onclick="closeRentalsMenus()" style="display:block;text-decoration:none;border-radius:8px;padding:9px 12px">'+inner+'</a>'
+                : '<button onclick="closeRentalsMenus();'+onclick+'">'+inner+'</button>'
+  }
+  var menu = function(id, label, items){
+    return '<div style="position:relative"><button class="btn btn-secondary btn-sm" onclick="toggleRentalsMenu(event,\''+id+'\')">'+label+' ▾</button>'
+      + '<div id="'+id+'" class="rp-menu" style="display:none">'+items.join('')+'</div></div>'
+  }
+  var P = "\\''+pid+'\\'"
   var toolbar =
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px">'
-    + '<div style="font-size:15px;font-weight:700"> Performances</div>'
-    + '<div style="display:flex;gap:8px">'
-    + '<button class="btn btn-secondary btn-sm" onclick="openVenuesModal()"> Venues</button>'
-    + '<button class="btn btn-secondary btn-sm" onclick="openProductionTicketTypes(\''+pid+'\',\''+(prod?escHtml(prod.name).replace(/'/g,"\\'"):'')+'\')">Manage Ticket Types</button>'
-    + '<button class="btn btn-secondary btn-sm" onclick="toggleTicketOrdersPanel(\''+pid+'\')"> Orders &amp; Patrons</button>'
-    + '<button class="btn btn-secondary btn-sm" onclick="toggleSeatHoldsPanel(\''+pid+'\')"> Seat Holds</button>'
-    + '<button class="btn btn-secondary btn-sm" onclick="openTeamComps(\''+pid+'\')">Team Comps</button>'
-    + '<button class="btn btn-secondary btn-sm" onclick="openTicketingSettings(\''+pid+'\')"> Ticketing Settings</button>'
+    '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">'
+    + '<div style="font-size:15px;font-weight:700;margin-right:auto">Performances</div>'
+    + menu('tk-night-'+pid, 'Show night', [
+        mi('', 'Door scanner', 'Scan tickets at the door (phone or handheld scanner)', '/tickets/scan'),
+        mi('', 'House Manager', 'Live check-in, seat map, door sales, volunteers', '/house')])
+    + menu('tk-orders-'+pid, 'Orders &amp; email', [
+        mi("toggleTicketOrdersPanel('"+pid+"')", 'Orders &amp; patrons', 'Everyone who bought, refunds, resend tickets'),
+        mi("openEmailTicketsModal('"+pid+"')", 'Email tickets', 'Resend the tickets email to buyers'),
+        mi("openAudienceEmailModal('"+pid+"')", 'Email audience', 'Thank-you, survey or news to everyone who came')])
+    + menu('tk-setup-'+pid, 'Setup', [
+        mi("openProductionTicketTypes('"+pid+"','"+esc_pn+"')", 'Ticket types', 'Adult, Child, prices…'),
+        mi("openRushSettings('"+pid+"')", '⚡ Rush tickets', 'Discounted tickets before curtain'),
+        mi("toggleSeatHoldsPanel('"+pid+"')", 'Seat holds', 'Hold seats for staff, VIPs or accessibility'),
+        mi("openTeamComps('"+pid+"')", 'Team comps', 'Complimentary tickets for cast and crew'),
+        mi("openTicketingSettings('"+pid+"')", 'Ticketing settings', 'Fees, limits, sales windows, donations'),
+        mi('openVenuesModal()', 'Venues &amp; seat maps', 'Places you perform and their seating')])
     + '<button class="btn btn-primary btn-sm" onclick="ticketPerfModal(\''+pid+'\')">+ Add Performance</button>'
-    + '</div></div>'
+    + '</div>'
     + '<div id="ticket-orders-panel-'+pid+'" style="display:none;margin-bottom:16px"></div>'
     + '<div id="seat-holds-panel-'+pid+'" style="display:none;margin-bottom:16px"></div>'
     + (ticketUrl
-        ? '<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;padding:10px 14px;background:var(--teal-light,#e0f2fe);border-radius:var(--radius);font-size:13px">'
-          + '<button class="btn btn-secondary btn-sm" onclick="openEmailTicketsModal(\''+pid+'\')" title="Send the tickets email to people who already bought">Email Tickets</button>'
-          + '<button class="btn btn-secondary btn-sm" onclick="openAudienceEmailModal(\''+pid+'\')" title="Thank-you, survey or news email to everyone who bought tickets">Email Audience</button>'
-          + '<button class="btn btn-secondary btn-sm" onclick="openRushSettings(\''+pid+'\')" title="Discounted tickets that go on sale shortly before curtain">⚡ Rush Tickets</button>'
-          + '<a class="btn btn-secondary btn-sm" href="/tickets/scan" target="_blank" title="Scan ticket QR codes at the door">Door Scanner</a>'
-          + '<a class="btn btn-secondary btn-sm" href="/house" target="_blank" title="Live check-in dashboard for show night">House Manager</a>'
+        ? '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:16px;padding:10px 14px;background:var(--teal-light,#e0f2fe);border-radius:var(--radius);font-size:13px">'
+          + '<span style="font-weight:700">Public ticket page</span>'
+          + '<a href="'+ticketUrl+'" target="_blank" style="color:var(--teal-dark);font-weight:700">'+ticketUrl+'</a>'
+          + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(location.origin+\''+ticketUrl+'\');toast(\'Link copied!\',\'success\')">Copy link</button>'
           + '<a class="btn btn-secondary btn-sm" href="'+ticketUrl+'?preview=1" target="_blank" title="Try the whole flow before sales open, including Draft and Pre-Sale performances. Only works while you\'re logged in.">Preview as a buyer</a>'
-          + '<span style="flex:1">Public ticket page: <a href="'+ticketUrl+'" target="_blank" style="color:var(--teal-dark);font-weight:700">'+ticketUrl+'</a>'
-          + ' <span style="color:var(--text-muted)">— only performances marked "On Sale" below show up here.</span></span>'
-          + '<button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(location.origin+\''+ticketUrl+'\');toast(\'Link copied!\',\'success\')">Copy Link</button>'
+          + '<span style="color:var(--text-muted);font-size:12px;margin-left:auto">Only performances marked "On Sale" show there.</span>'
           + '</div>'
         : '<div style="font-size:12px;color:var(--text-muted);margin-bottom:16px">Set a URL slug on this production (Info tab) to get a public ticket link.</div>');
 

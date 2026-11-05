@@ -3226,6 +3226,7 @@ def init_db():
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS send_claim_at TIMESTAMP",
         "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS is_rush BOOLEAN DEFAULT FALSE",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS rush_off BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE production_rush ADD COLUMN IF NOT EXISTS disclaimer TEXT DEFAULT ''",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS policy_agreed_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_config TEXT",
         "ALTER TABLE venues ADD COLUMN IF NOT EXISTS arrival_instructions TEXT DEFAULT ''",
@@ -45281,6 +45282,7 @@ def rush_state(conn, perf):
             'opens_label': opens.strftime('%A %-I:%M %p') if opens.date() != now.date() else 'today at ' + opens.strftime('%-I:%M %p'),
             'cap': cap, 'sold': sold, 'left': left, 'per_order': int(cfg.get('per_order_limit') or 0),
             'eligibility': elig, 'eligibility_note': note, 'seat_mode': cfg.get('seat_mode') or 'pick',
+            'disclaimer': (cfg.get('disclaimer') or '').strip(),
             'block_ids': _rush_seat_ids(cfg, perf.get('seat_map_id'), conn) if (cfg.get('seat_mode') == 'block' and perf.get('reserved_seating')) else set()}
 
 
@@ -45289,6 +45291,7 @@ def rush_public_info(st):
         return None
     return {'open': st['open'], 'upcoming': st['upcoming'], 'opens_label': st['opens_label'], 'price_cents': st['price_cents'],
             'left': st['left'], 'per_order': st['per_order'], 'eligibility_note': st['eligibility_note'], 'seat_mode': st['seat_mode'],
+            'disclaimer': st.get('disclaimer') or '',
             'type_id': st['type_id'], 'sold_out': st['left'] is not None and st['left'] <= 0}
 
 
@@ -45340,7 +45343,8 @@ def production_rush_settings(pid):
                     'eligibility': d.get('eligibility') if d.get('eligibility') in RUSH_ELIGIBILITY else 'anyone',
                     'eligibility_note': (d.get('eligibility_note') or '').strip()[:200],
                     'seat_mode': d.get('seat_mode') if d.get('seat_mode') in ('pick', 'block', 'best') else 'pick',
-                    'block_labels': _expand_seat_labels(d.get('block_labels') or '')}
+                    'block_labels': _expand_seat_labels(d.get('block_labels') or ''),
+                    'disclaimer': (d.get('disclaimer') or '').strip()[:2000]}
             cols = list(vals.keys())
             execute(conn, f'''INSERT INTO production_rush (production_id, {", ".join(cols)}, updated_at) VALUES (%s,{",".join(["%s"] * len(cols))}, NOW())
                 ON CONFLICT (production_id) DO UPDATE SET {", ".join(f"{c}=EXCLUDED.{c}" for c in cols)}, updated_at=NOW()''',
@@ -45350,7 +45354,7 @@ def production_rush_settings(pid):
             conn.commit()
         cfg = _rush_cfg(conn, pid) or {}
         out = {k: cfg.get(k) for k in ('enabled', 'price_cents', 'online', 'door', 'opens_mode', 'opens_hours', 'opens_time', 'cap_per_performance',
-                                       'per_order_limit', 'eligibility', 'eligibility_note', 'seat_mode', 'block_labels')}
+                                       'per_order_limit', 'eligibility', 'eligibility_note', 'seat_mode', 'block_labels', 'disclaimer')}
         if out.get('opens_hours') is not None: out['opens_hours'] = float(out['opens_hours'])
         out['eligibility_options'] = RUSH_ELIGIBILITY
         # how it's going per upcoming performance
@@ -47707,6 +47711,8 @@ def ticket_order_context(conn, order_id):
     prod = fetchone(conn, '''SELECT id, name, share_name, slug, image_url, ticket_logo_url, kbyg_enabled, kbyg_hours_before, kbyg_text, kbyg_config
         FROM productions WHERE id=%s''', (perf.get('production_id'),)) or {}
     venue = fetchone(conn, 'SELECT id, name, address, city, notes, arrival_instructions, arrival_image, arrival_image_v FROM venues WHERE id=%s', (perf.get('venue_id'),)) if perf.get('venue_id') else None
+    if prod.get('id'):
+        prod['rush_disclaimer'] = ((fetchone(conn, 'SELECT disclaimer FROM production_rush WHERE production_id=%s', (prod['id'],)) or {}).get('disclaimer') or '').strip()
     tickets = fetchall(conn, '''SELECT t.id, t.seat_id, t.seat_label, t.section, t.confirmation_code, t.checked_in_at, t.view_note, t.obstructed_view,
             tt.name AS type_name FROM tickets t LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id
         WHERE t.ticket_order_id=%s ORDER BY t.seat_label''', (order_id,)) or []
@@ -47808,6 +47814,7 @@ def ticket_email_html(ctx, kind='confirmation'):
               '<strong>Can\'t make it?</strong> Regular tickets can be exchanged for another performance of this show, '
               'depending on availability (we can\'t guarantee the same seats). Refunds aren\'t guaranteed and need Board approval. '
               + ('<strong>Rush tickets are final sale: no refunds or exchanges.</strong> ' if _rush_here else '')
+              + ((_h(prod.get('rush_disclaimer') or '') + ' ') if (_rush_here and prod.get('rush_disclaimer')) else '')
               + '<a href="' + base + '/ticket-policy" style="color:#16728b">Ticket policy &amp; requests</a></div>')
     # map of where they're sitting (an image: email apps don't show SVG)
     seatmap = ''

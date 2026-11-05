@@ -39648,7 +39648,7 @@ function tkVenueForm(vid){
     + '<div class="form-group"><label>Directions &amp; arrival (for "Know before you go")</label>'
     + '<textarea id="tk-v-arrival" rows="3" placeholder="e.g. Enter from Hwy 27. At the top of the hill, keep left toward the south side of the building and park near the Recreation Entrance.">'+escHtml(v.arrival_instructions||'')+'</textarea></div>'
     + (vid ? '<div class="form-group"><label>Directions photo / map</label>'
-        + (v.arrival_image ? '<img src="/venue-arrival/'+vid+'.jpg?v='+Date.now()+'" style="display:block;max-width:220px;border-radius:8px;margin-bottom:6px"/>' : '')
+        + (v.arrival_image ? '<img src="/venue-arrival/'+vid+'.jpg?v='+(v.arrival_image_v||0)+'" style="display:block;max-width:220px;border-radius:8px;margin-bottom:6px"/>' : '')
         + '<div style="display:flex;gap:8px;align-items:center"><label class="btn btn-secondary btn-sm" style="cursor:pointer;margin:0;text-transform:none;letter-spacing:0">'+(v.arrival_image?'Replace image':'Upload image')+'<input type="file" accept="image/*" style="display:none" onchange="tkVenueArrivalImage(\''+vid+'\',this)"/></label>'
         + (v.arrival_image ? '<button class="btn btn-secondary btn-sm" onclick="tkVenueArrivalImage(\''+vid+'\',null)">Remove</button>' : '') + '</div></div>'
       : '<div style="font-size:12px;color:var(--text-muted);margin-bottom:10px">Save the venue first, then you can add a directions photo.</div>')

@@ -3225,6 +3225,7 @@ def init_db():
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMP",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS send_claim_at TIMESTAMP",
         "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS is_rush BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE performances ADD COLUMN IF NOT EXISTS rush_off BOOLEAN DEFAULT FALSE",
         """CREATE TABLE IF NOT EXISTS production_rush (
             production_id TEXT PRIMARY KEY REFERENCES productions(id) ON DELETE CASCADE,
             enabled BOOLEAN DEFAULT FALSE, ticket_type_id TEXT, price_cents INTEGER DEFAULT 0,
@@ -45133,6 +45134,8 @@ def rush_state(conn, perf):
     cfg = _rush_cfg(conn, perf['production_id'])
     if not cfg or not cfg.get('enabled') or not cfg.get('ticket_type_id'):
         return None
+    if perf.get('rush_off'):
+        return None   # turned off for this one performance
     import datetime as _dtr
     now = now_eastern().replace(tzinfo=None)
     try:
@@ -45184,6 +45187,22 @@ def ensure_rush_ticket_type(conn, production_id, cfg):
     return tid
 
 
+@app.route('/api/performances/<fid>/rush', methods=['PUT'])
+def performance_rush_toggle(fid):
+    """Turn rush on or off for one performance (the production's rush
+    settings still apply to the ones that are on)."""
+    err = _require_ticketing()
+    if err: return err
+    on = bool((request.json or {}).get('enabled'))
+    conn = get_db()
+    try:
+        execute(conn, 'UPDATE performances SET rush_off=%s WHERE id=%s', (not on, fid))
+        conn.commit()
+        return jsonify({'ok': True, 'enabled': on})
+    finally:
+        conn.close()
+
+
 @app.route('/api/productions/<pid>/rush', methods=['GET', 'PUT'])
 def production_rush_settings(pid):
     err = _require_ticketing()
@@ -45218,10 +45237,12 @@ def production_rush_settings(pid):
         perfs = []
         for pf in fetchall(conn, '''SELECT * FROM performances WHERE production_id=%s AND status <> 'cancelled' ORDER BY performance_date, performance_time''', (pid,)) or []:
             st = rush_state(conn, pf) if cfg.get('enabled') else None
+            row = {'id': pf['id'], 'date': str(pf['performance_date'])[:10], 'time': pf.get('performance_time') or '',
+                   'name': pf.get('name') or '', 'rush_on': not pf.get('rush_off')}
             if st:
-                perfs.append({'id': pf['id'], 'date': str(pf['performance_date'])[:10], 'time': pf.get('performance_time') or '', 'sold': st['sold'],
-                              'left': st['left'], 'open': st['open'], 'opens': st['opens_at'].strftime('%a %b %-d, %-I:%M %p'),
-                              'block_found': len(st['block_ids']) if st['seat_mode'] == 'block' else None})
+                row.update({'sold': st['sold'], 'left': st['left'], 'open': st['open'], 'opens': st['opens_at'].strftime('%a %b %-d, %-I:%M %p'),
+                            'block_found': len(st['block_ids']) if st['seat_mode'] == 'block' else None})
+            perfs.append(row)
         out['performances'] = perfs
         return jsonify(out)
     finally:

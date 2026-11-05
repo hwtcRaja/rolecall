@@ -38848,9 +38848,15 @@ async function openRushSettings(pid){
   var el = r.eligibility_options || {}
   var v = function(x, d){ return x == null ? d : x }
   var perfRows = (r.performances||[]).map(function(p){
-    return '<tr><td style="padding:5px 6px">'+escHtml(tkFmtDate(p.date))+(p.time?' · '+escHtml(tkFmtTime(p.time)):'')+'</td>'
-      + '<td style="padding:5px 6px;color:var(--text-muted)">'+(p.open?'<strong style="color:#c2410c">On sale now</strong>':'opens '+escHtml(p.opens))+'</td>'
-      + '<td style="padding:5px 6px;text-align:right">'+p.sold+' sold'+(p.left!=null?' · '+p.left+' left':'')+(p.block_found!=null?' · '+p.block_found+' block seats found':'')+'</td></tr>' }).join('')
+    var status = !r.enabled ? '<span style="color:var(--text-hint)">turn on rush above first</span>'
+      : !p.rush_on ? '<span style="color:var(--text-hint)">no rush for this one</span>'
+      : (p.open ? '<strong style="color:#c2410c">On sale now</strong>' : 'opens '+escHtml(p.opens||''))
+    return '<tr style="border-top:1px solid var(--border)'+(p.rush_on?'':';opacity:.6')+'">'
+      + '<td style="padding:6px"><label style="display:flex;gap:8px;align-items:center;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:600;margin:0">'
+      + '<input type="checkbox" '+(p.rush_on?'checked':'')+' onchange="toggleRushForPerformance(\''+p.id+'\',this.checked,\''+pid+'\')" style="width:auto"/>'
+      + escHtml(tkFmtDate(p.date))+(p.time?' · '+escHtml(tkFmtTime(p.time)):'')+(p.name?' <span style="font-weight:400;color:var(--text-muted)">'+escHtml(p.name)+'</span>':'')+'</label></td>'
+      + '<td style="padding:6px;color:var(--text-muted)">'+status+'</td>'
+      + '<td style="padding:6px;text-align:right">'+(p.sold!=null&&p.rush_on?p.sold+' sold'+(p.left!=null?' · '+p.left+' left':'')+(p.block_found!=null?' · '+p.block_found+' block seats found':''):'')+'</td></tr>' }).join('')
   showAdHocModal('rush-modal','Rush tickets',
     '<label style="display:flex;gap:8px;align-items:center;font-size:14px;font-weight:700;margin-bottom:12px;cursor:pointer;text-transform:none;letter-spacing:0"><input type="checkbox" id="rush-on" '+(r.enabled?'checked':'')+' style="width:auto"/> Offer rush tickets for this production</label>'
     + '<div class="form-row"><div class="form-group"><label>Rush price ($)</label><input type="number" id="rush-price" min="0" step="0.01" value="'+(r.price_cents?(r.price_cents/100):'')+'" placeholder="e.g. 10"/></div>'
@@ -38873,8 +38879,18 @@ async function openRushSettings(pid){
     + '<div class="form-group" id="rush-block-w"><label>Rush seat block</label><input id="rush-block" value="'+escHtml(r.block_labels||'')+'" placeholder="e.g. R1-R12, Q1-Q4"/>'
     + '<div style="font-size:11.5px;color:var(--text-hint);margin-top:3px">Seat labels, with ranges. These can\'t be bought as regular tickets, and show as taken until rush opens. Unsold rush seats stay rush-only.</div></div>'
     + '<button class="btn btn-primary" style="width:100%" onclick="saveRushSettings(\''+pid+'\')">Save</button>'
-    + (perfRows ? '<div style="margin-top:16px;font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">By performance</div><table style="width:100%;font-size:12.5px;border-collapse:collapse">'+perfRows+'</table>' : ''), 620)
+    + (perfRows ? '<div style="margin-top:16px;font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted)">Which performances have rush</div>'
+        + '<div style="font-size:12px;color:var(--text-muted);margin:2px 0 6px">Untick any performance that shouldn\'t offer rush tickets (e.g. opening night). Saves right away.</div>'
+        + '<table style="width:100%;font-size:12.5px;border-collapse:collapse">'+perfRows+'</table>' : ''), 640)
   rushModeUI()
+}
+async function toggleRushForPerformance(fid, on, pid){
+  var r = await api('/api/performances/'+fid+'/rush','PUT',{enabled:on})
+  if(r.error){ toast(r.error,'error'); return }
+  toast(on ? 'Rush on for that performance' : 'No rush for that performance','success')
+  // update just that row, so anything you've typed above isn't lost
+  var cb = document.querySelector('#rush-modal input[onchange*="'+fid+'"]')
+  var tr = cb && cb.closest('tr'); if(tr) tr.style.opacity = on ? '' : '.6'
 }
 function rushModeUI(){
   var m = document.getElementById('rush-mode').value

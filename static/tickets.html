@@ -637,6 +637,7 @@ function renderPurchaseScreen(){
     + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
     + '</div>'
     + renderDonorCodeSection()
+    + policyCheckboxHTML()
     + '<div id="checkout-error"></div>'
     + '<button class="btn btn-primary" style="width:100%;margin-bottom:8px" id="checkout-btn" onclick="doCheckout()" disabled>Checkout</button>'
     + '<button class="btn btn-secondary" style="width:100%" id="add-to-cart-btn" onclick="addCurrentSelectionToCart()" disabled> Add to Cart</button>'
@@ -1034,6 +1035,36 @@ async function getRushSeats(){
     var st = seats.find(function(z){ return z.id===x.id }); if(st) st.status = 'mine'
   })
   armHoldExpiry(); refreshPickerAndCart(); renderPurchaseScreen()
+}
+// "I agree to the Ticket Policy" with a link that opens the policy right here
+function policyCheckboxHTML(){
+  return '<label style="display:flex;gap:10px;align-items:flex-start;margin:12px 0;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:400">'
+    + '<input type="checkbox" id="tk-policy" '+(window._policyAgreed?'checked ':'')+'onchange="window._policyAgreed=this.checked" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;accent-color:#145466;cursor:pointer"/>'
+    + '<span style="font-size:13px;color:#374151;line-height:1.5">I have read and agree to the <a href="#" onclick="openTicketPolicy();return false" style="color:#145466;font-weight:600">HWTC Ticket Policy</a>. '
+    + 'Regular tickets can be exchanged for another date, depending on availability; refunds aren\'t guaranteed.'
+    + (cartHasRush() ? ' <strong>Rush tickets are final sale.</strong>' : '') + '</span></label>'
+}
+function openTicketPolicy(){
+  var o = document.getElementById('policy-overlay')
+  if(!o){
+    o = document.createElement('div'); o.id = 'policy-overlay'
+    o.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;align-items:center;justify-content:center;padding:16px'
+    o.innerHTML = '<div style="background:#fff;border-radius:14px;max-width:640px;width:100%;max-height:86vh;display:flex;flex-direction:column;overflow:hidden">'
+      + '<div style="padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center"><strong style="flex:1;font-size:16px">HWTC Ticket Policy</strong>'
+      + '<button onclick="document.getElementById(\'policy-overlay\').style.display=\'none\'" style="border:none;background:none;font-size:22px;cursor:pointer;line-height:1">&times;</button></div>'
+      + '<div id="policy-text" style="padding:16px 20px;overflow:auto;font-size:13.5px;line-height:1.65;color:#374151">Loading…</div>'
+      + '<div style="padding:12px 20px;border-top:1px solid #e5e7eb;display:flex;gap:8px;justify-content:flex-end">'
+      + '<button class="btn btn-secondary" style="width:auto" onclick="document.getElementById(\'policy-overlay\').style.display=\'none\'">Close</button>'
+      + '<button class="btn btn-primary" style="width:auto" onclick="window._policyAgreed=true;var c=document.getElementById(\'tk-policy\');if(c)c.checked=true;document.getElementById(\'policy-overlay\').style.display=\'none\'">I agree</button></div></div>'
+    o.addEventListener('click', function(e){ if(e.target === o) o.style.display = 'none' })
+    document.body.appendChild(o)
+    // the one policy text, read from the policy page itself
+    fetch('/ticket-policy').then(function(r){ return r.text() }).then(function(h){
+      var m = h.match(/<div class="policy-box" id="policy-box">([\s\S]*?)<\/div>\s*<div class="check-wrap">/)
+      document.getElementById('policy-text').innerHTML = m ? m[1].replace(/<h3>/g,'<h3 style="font-size:13.5px;margin:14px 0 4px">') : '<a href="/ticket-policy" target="_blank">Open the Ticket Policy</a>'
+    }).catch(function(){ document.getElementById('policy-text').innerHTML = '<a href="/ticket-policy" target="_blank">Open the Ticket Policy</a>' })
+  }
+  o.style.display = 'flex'
 }
 function cartHasRush(){
   try{ return JSON.stringify(buildFullCartPayload()).indexOf('"ticket_type_id":"') >= 0 && ticketTypes.some(function(t){ return t.is_rush && JSON.stringify(buildFullCartPayload()).indexOf(t.id) >= 0 }) }catch(e){ return false }
@@ -1628,11 +1659,7 @@ function renderCartPage(){
     + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
     + '</div>'
     + renderDonorCodeSection()
-    + '<label style="display:flex;gap:10px;align-items:flex-start;margin:12px 0;cursor:pointer">'
-    + '<input type="checkbox" id="tk-policy" style="width:18px;height:18px;flex-shrink:0;margin-top:2px;accent-color:#145466;cursor:pointer"/>'
-    + '<span style="font-size:13px;color:#374151;line-height:1.5">I have read and agree to the <a href="/ticket-policy" target="_blank" style="color:#145466;font-weight:600">HWTC Ticket Policy</a>. '
-    + 'Regular tickets can be exchanged for another date, depending on availability; refunds aren\'t guaranteed.'
-    + (cartHasRush() ? ' <strong>Rush tickets are final sale.</strong>' : '') + '</span></label>'
+    + policyCheckboxHTML()
     + '<div id="checkout-error"></div>'
     + '<button class="btn btn-primary" style="width:100%" id="checkout-btn" onclick="doCheckout()">Checkout</button>'
     + '</div>'

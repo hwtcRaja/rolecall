@@ -46689,7 +46689,10 @@ def notify_ticket_sale(conn, cart_id):
                 h, m = int(t[:2]), t[3:5]
                 dt += ' · ' + str((h % 12) or 12) + (':' + m if m != '00' else '') + (' PM' if h >= 12 else ' AM')
             show = o.get('share_name') or o.get('production_name')
+            _rush_n = int((fetchone(conn, '''SELECT COUNT(*) AS c FROM tickets t JOIN ticket_types tt ON tt.id=t.ticket_type_id
+                WHERE t.ticket_order_id=%s AND tt.is_rush''', (o['id'],)) or {}).get('c') or 0)
             lines.append('• *' + str(n) + ' ticket' + ('' if n == 1 else 's') + '* for ' + show + ' — ' + dt
+                         + ((' _(⚡ ' + (str(_rush_n) + ' ' if _rush_n != n else '') + 'rush)_') if _rush_n else '')
                          + (' _(pre-sale)_' if o.get('sale_channel') == 'presale' else '')
                          + (' _(TEST order from staff preview)_' if o.get('sale_channel') == 'test' else '')
                          + (' _(code, ' + _money(o.get('discount_cents')) + ' off)_' if o.get('discount_cents') else ''))
@@ -46995,6 +46998,41 @@ def post_sale_countdown_alerts():
                     requests.post(url, json={'text': text}, timeout=10)
                 except Exception as e:
                     app.logger.warning(f'Countdown Slack post failed: {e}')
+        # Rush tickets: same 10-minute / 5-minute / open alerts, per performance
+        perfs = fetchall(conn, '''SELECT pf.*, p.name AS prod_name, p.share_name, p.slug FROM performances pf
+            JOIN productions p ON p.id=pf.production_id JOIN production_rush r ON r.production_id=p.id
+            WHERE r.enabled=TRUE AND COALESCE(pf.rush_off,FALSE)=FALSE AND COALESCE(pf.status,'') NOT IN ('cancelled')
+              AND pf.performance_date BETWEEN %s AND %s''', ((now.date() - _dt.timedelta(days=1)).isoformat(), (now.date() + _dt.timedelta(days=2)).isoformat())) or []
+        for pf in perfs:
+            st = rush_state(conn, pf)
+            if not st or not (st['online'] or st['door']):
+                continue
+            show = pf.get('share_name') or pf['prod_name']
+            link = APP_BASE_URL.rstrip('/') + '/tickets/' + (pf.get('slug') or pf['production_id'])
+            try:
+                perf_txt = _dt.date.fromisoformat(str(pf['performance_date'])[:10]).strftime('%a %b %-d') + (' · ' + _fmt_time12(pf.get('performance_time')) if pf.get('performance_time') else '')
+            except Exception:
+                perf_txt = str(pf.get('performance_date') or '')
+            secs = (st['opens_at'] - now.replace(tzinfo=None)).total_seconds()
+            clock = st['opens_at'].strftime('%-I:%M %p').replace(':00 ', ' ')
+            extra = ' (' + _money(st['price_cents']) + (f', {st["left"]} available' if st['left'] is not None else '') + ')'
+            if 300 < secs <= 600:
+                mark, text = '10', ':zap: *' + show + '* rush tickets for *' + perf_txt + '* open in *10 minutes* (' + clock + ')' + extra + '.'
+            elif 0 < secs <= 300:
+                mark, text = '5', ':zap: *' + show + '* rush tickets for *' + perf_txt + '* open in *5 minutes* (' + clock + ').'
+            elif -900 < secs <= 0:
+                mark, text = 'open', (':zap: *' + show + '* rush tickets for *' + perf_txt + '* are *OPEN!*' + extra
+                                      + ('\n<' + link + '|' + link.replace('https://', '') + '>' if st['online'] else '\nSold at the door only.'))
+            else:
+                continue
+            key = 'slack_countdown:rush:' + pf['id'] + ':' + st['opens_at'].strftime('%Y%m%d%H%M') + ':' + mark
+            if _setting(conn, key) or (mark == '10' and _setting(conn, key[:-2] + '5')):
+                continue
+            _set_setting(conn, key, '1'); conn.commit()
+            try:
+                requests.post(url, json={'text': text}, timeout=10)
+            except Exception as e:
+                app.logger.warning(f'Rush countdown Slack post failed: {e}')
     finally:
         conn.close()
 

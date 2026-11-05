@@ -3230,6 +3230,9 @@ def init_db():
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_config TEXT",
         "ALTER TABLE venues ADD COLUMN IF NOT EXISTS arrival_instructions TEXT DEFAULT ''",
         "ALTER TABLE venues ADD COLUMN IF NOT EXISTS arrival_image TEXT",
+        # kept in the database (not the uploads folder) so it survives deploys
+        "ALTER TABLE venues ADD COLUMN IF NOT EXISTS arrival_image_data BYTEA",
+        "ALTER TABLE venues ADD COLUMN IF NOT EXISTS arrival_image_v INTEGER DEFAULT 0",
         """CREATE TABLE IF NOT EXISTS production_rush (
             production_id TEXT PRIMARY KEY REFERENCES productions(id) ON DELETE CASCADE,
             enabled BOOLEAN DEFAULT FALSE, ticket_type_id TEXT, price_cents INTEGER DEFAULT 0,
@@ -43867,6 +43870,8 @@ def get_venues():
         FROM venues v {where}
         ORDER BY v.name''')
     conn.close()
+    for v in venues or []:
+        v.pop('arrival_image_data', None)   # the image itself is served at /venue-arrival/<id>.jpg
     return jsonify(venues or [])
 
 
@@ -43887,6 +43892,7 @@ def create_venue():
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM venues WHERE id=%s', (vid,))
     conn.close()
+    if row: row.pop('arrival_image_data', None)
     return jsonify(row)
 
 
@@ -43906,6 +43912,7 @@ def update_venue(vid):
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM venues WHERE id=%s', (vid,))
     conn.close()
+    if row: row.pop('arrival_image_data', None)
     return jsonify(row or {'ok': True})
 
 
@@ -47564,7 +47571,7 @@ def kbyg_sections(ctx, base):
     if cfg.get('directions') and ((v.get('arrival_instructions') or '').strip() or v.get('arrival_image')):
         h = message_text_html(v.get('arrival_instructions') or '') if (v.get('arrival_instructions') or '').strip() else ''
         if v.get('arrival_image') and v.get('id'):
-            h += ('<img src="' + base + '/venue-arrival/' + v['id'] + '.jpg" alt="Directions to ' + _h(v.get('name') or 'the venue') + '" width="560" '
+            h += ('<img src="' + base + '/venue-arrival/' + v['id'] + '.jpg?v=' + str(v.get('arrival_image_v') or 0) + '" alt="Directions to ' + _h(v.get('name') or 'the venue') + '" width="560" '
                   'style="display:block;width:100%;max-width:560px;height:auto;border-radius:10px;margin-top:8px"/>')
         out.append(('Getting there', h))
     if (cfg.get('parking') or {}).get('on') and (cfg['parking'].get('text') or '').strip():
@@ -47639,15 +47646,31 @@ def venue_arrival_image(vid):
     conn = get_db()
     try:
         old = (fetchone(conn, 'SELECT arrival_image FROM venues WHERE id=%s', (vid,)) or {}).get('arrival_image')
-        name = None
+        name, data = None, None
         if request.method == 'POST':
             f = request.files.get('file')
             ext = os.path.splitext(secure_filename(f.filename if f else ''))[1].lower()
             if not f or ext not in ('.jpg', '.jpeg', '.png', '.webp', '.gif'):
                 return jsonify({'error': 'Choose a JPG, PNG or WebP image'}), 400
-            name = 'venue-' + uuid.uuid4().hex + ext
-            f.save(os.path.join(UPLOAD_FOLDER, name))
-        execute(conn, 'UPDATE venues SET arrival_image=%s WHERE id=%s', (name, vid))
+            # Shrink to a phone-friendly size and store it in the database, so it
+            # loads quickly in email apps and isn't lost when the server redeploys.
+            try:
+                import io as _io
+                from PIL import Image as _Img
+                im = _Img.open(f.stream)
+                if im.mode not in ('RGB', 'L'):
+                    bg = _Img.new('RGB', im.size, (255, 255, 255))
+                    bg.paste(im, mask=im.convert('RGBA').split()[-1])
+                    im = bg
+                if im.width > 1100:
+                    im = im.resize((1100, int(im.height * 1100 / im.width)), _Img.LANCZOS)
+                buf = _io.BytesIO(); im.convert('RGB').save(buf, 'JPEG', quality=82, optimize=True, progressive=True)
+                data = buf.getvalue()
+            except Exception as e:
+                return jsonify({'error': f'That image could not be read ({e}).'}), 400
+            name = 'db'
+        execute(conn, 'UPDATE venues SET arrival_image=%s, arrival_image_data=%s, arrival_image_v=COALESCE(arrival_image_v,0)+1 WHERE id=%s',
+                (name, psycopg2.Binary(data) if data else None, vid))
         conn.commit()
         if old:
             try: os.remove(os.path.join(UPLOAD_FOLDER, old))
@@ -47661,10 +47684,15 @@ def venue_arrival_image(vid):
 def venue_arrival_image_public(vid):
     conn = get_db()
     try:
-        r = fetchone(conn, 'SELECT arrival_image FROM venues WHERE id=%s', (vid,))
+        r = fetchone(conn, 'SELECT arrival_image, arrival_image_data FROM venues WHERE id=%s', (vid,))
     finally:
         conn.close()
-    if not r or not r.get('arrival_image') or not os.path.exists(os.path.join(UPLOAD_FOLDER, r['arrival_image'])):
+    if r and r.get('arrival_image_data'):
+        resp = app.response_class(bytes(r['arrival_image_data']), mimetype='image/jpeg')
+        resp.headers['Cache-Control'] = 'public, max-age=86400'
+        return resp
+    # older uploads saved as files
+    if not r or not r.get('arrival_image') or r['arrival_image'] == 'db' or not os.path.exists(os.path.join(UPLOAD_FOLDER, r['arrival_image'])):
         return 'Not found', 404
     resp = send_from_directory(UPLOAD_FOLDER, r['arrival_image'], conditional=True)
     resp.headers['Cache-Control'] = 'public, max-age=86400'
@@ -47678,7 +47706,7 @@ def ticket_order_context(conn, order_id):
     perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (o['performance_id'],)) or {}
     prod = fetchone(conn, '''SELECT id, name, share_name, slug, image_url, ticket_logo_url, kbyg_enabled, kbyg_hours_before, kbyg_text, kbyg_config
         FROM productions WHERE id=%s''', (perf.get('production_id'),)) or {}
-    venue = fetchone(conn, 'SELECT id, name, address, city, notes, arrival_instructions, arrival_image FROM venues WHERE id=%s', (perf.get('venue_id'),)) if perf.get('venue_id') else None
+    venue = fetchone(conn, 'SELECT id, name, address, city, notes, arrival_instructions, arrival_image, arrival_image_v FROM venues WHERE id=%s', (perf.get('venue_id'),)) if perf.get('venue_id') else None
     tickets = fetchall(conn, '''SELECT t.id, t.seat_id, t.seat_label, t.section, t.confirmation_code, t.checked_in_at, t.view_note, t.obstructed_view,
             tt.name AS type_name FROM tickets t LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id
         WHERE t.ticket_order_id=%s ORDER BY t.seat_label''', (order_id,)) or []

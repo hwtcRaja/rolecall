@@ -39733,7 +39733,21 @@ async function tkRenumberSections(mapId){
           + '<div><label style="font-size:11px">Add to seat numbers</label><input id="rn-off-'+i+'" type="number" placeholder="e.g. 300" value=""/></div>'
           + '<button class="btn btn-secondary btn-sm" onclick="tkRenumPreview('+i+',\''+escHtml(s.section||'').replace(/'/g,"\\'")+'\')">Preview</button></div>'
           + '<div id="rn-prev-'+i+'"></div></div>'
-      }).join('') + logHTML, 680)
+      }).join('') + logHTML
+    + '<details style="margin-top:14px;font-size:13px"><summary style="cursor:pointer;font-weight:700">Renumbered a section before this list existed? Add it here so you can email buyers</summary>'
+    + '<div style="margin-top:8px;display:grid;grid-template-columns:2fr 2fr 1fr auto;gap:8px;align-items:end">'
+    + '<div><label style="font-size:11px">Section (its name now)</label><select id="rn-past-sec">'+secs.map(function(x){ return '<option value="'+escHtml(x.section||'')+'">'+escHtml(x.section||'(no name)')+'</option>' }).join('')+'</select></div>'
+    + '<div><label style="font-size:11px">What it used to be called</label><input id="rn-past-old" placeholder="e.g. House Right"/></div>'
+    + '<div><label style="font-size:11px">Number added</label><input id="rn-past-off" type="number" placeholder="300"/></div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="tkRenumRecordPast()">Add</button></div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">RoleCall works out each seat\'s old number (today\'s number minus what was added) and lists the change above, with Send me a test and Email buyers.</div></details>', 680)
+}
+async function tkRenumRecordPast(){
+  var body = {section: document.getElementById('rn-past-sec').value, previous_name: document.getElementById('rn-past-old').value.trim(), offset: document.getElementById('rn-past-off').value}
+  var r = await api('/api/seat-maps/'+_renumMap+'/renumber-log','POST', body)
+  if(r.error){ toast(r.error,'error'); return }
+  toast('Added: '+r.sample.map(function(p){ return p[0]+' → '+p[1] }).join(', ')+'…','success')
+  tkRenumberSections(_renumMap)
 }
 async function tkRenumEmail(lid, test, n, already){
   if(!test && !confirm((already?'These already went out. Send them again to ':'Email ')+n+' buyer'+(n===1?'':'s')+' their updated seat numbers?')) return

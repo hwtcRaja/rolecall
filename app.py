@@ -3229,6 +3229,9 @@ def init_db():
         "ALTER TABLE production_rush ADD COLUMN IF NOT EXISTS disclaimer TEXT DEFAULT ''",
         # rush seats held for a buyer without telling them which ones (revealed after checkout)
         "ALTER TABLE seat_holds ADD COLUMN IF NOT EXISTS rush_ref TEXT",
+        """CREATE TABLE IF NOT EXISTS seat_renumber_log (
+            id TEXT PRIMARY KEY, seat_map_id TEXT, section_from TEXT, section_to TEXT, offset_by INTEGER,
+            mapping TEXT NOT NULL, created_by TEXT, created_at TIMESTAMP DEFAULT NOW(), emailed_at TIMESTAMP, emailed_count INTEGER)""",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS policy_agreed_at TIMESTAMP",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS kbyg_config TEXT",
         "ALTER TABLE venues ADD COLUMN IF NOT EXISTS arrival_instructions TEXT DEFAULT ''",
@@ -44386,6 +44389,171 @@ def update_seat(sid):
     out = dict(row or {'ok': True})
     out['tickets_relabeled'] = fixed
     return jsonify(out)
+
+
+@app.route('/api/seat-maps/<mid>/sections', methods=['GET'])
+def seat_map_sections(mid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT COALESCE(section,'') AS section, COUNT(*) AS seats, MIN(seat_number) AS lo, MAX(seat_number) AS hi,
+                (ARRAY_AGG(seat_label ORDER BY row_name, seat_number))[1:4] AS sample
+            FROM seat_map_seats WHERE seat_map_id=%s GROUP BY 1 ORDER BY 1''', (mid,)) or []
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+@app.route('/api/seat-maps/<mid>/renumber-section', methods=['POST'])
+def seat_map_renumber_section(mid):
+    """Rename a section and/or shift its seat numbers (e.g. +300 so seat 11
+    becomes 311), relabel its seats (row letter + new number), and carry the
+    change onto tickets already sold for upcoming performances. Preview
+    first (apply=false). Optionally email those buyers their new numbers."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    section = d.get('section') or ''
+    new_section = (d.get('new_section') or '').strip()
+    try: offset = int(d.get('offset') or 0)
+    except Exception: return jsonify({'error': 'The number to add must be a whole number, like 300.'}), 400
+    conn = get_db()
+    try:
+        seats = fetchall(conn, '''SELECT id, section, row_name, seat_number, seat_label FROM seat_map_seats
+            WHERE seat_map_id=%s AND COALESCE(section,'')=%s ORDER BY row_name, seat_number''', (mid, section)) or []
+        if not seats:
+            return jsonify({'error': 'No seats in that section.'}), 404
+        plan = []
+        for s in seats:
+            num = s.get('seat_number')
+            new_num = (int(num) + offset) if (num is not None and offset) else num
+            if offset and num is not None:
+                new_label = f'{s.get("row_name") or ""}{new_num}' if s.get('row_name') else str(new_num)
+            else:
+                new_label = s.get('seat_label') or ''
+            plan.append({'id': s['id'], 'old': s.get('seat_label') or '', 'new': new_label, 'new_num': new_num})
+        upcoming = fetchall(conn, '''SELECT t.id, t.ticket_order_id, t.seat_id, t.seat_label FROM tickets t
+            JOIN performances pf ON pf.id=t.performance_id JOIN ticket_orders o ON o.id=t.ticket_order_id
+            WHERE t.seat_id = ANY(%s) AND pf.performance_date >= %s AND o.status='completed' ''',
+            ([s['id'] for s in seats], today_eastern().isoformat())) or []
+        orders = sorted({u['ticket_order_id'] for u in upcoming})
+        if not d.get('apply'):
+            return jsonify({'seats': len(plan), 'sample': [{'old': p['old'], 'new': p['new']} for p in plan[:8]],
+                            'section_from': section, 'section_to': new_section or section,
+                            'sold_tickets': len(upcoming), 'orders': len(orders)})
+        by_id = {p['id']: p for p in plan}
+        for p in plan:
+            execute(conn, 'UPDATE seat_map_seats SET seat_number=%s, seat_label=%s, section=%s WHERE id=%s',
+                    (p['new_num'], p['new'], new_section or section, p['id']))
+        # rush blocks are saved by seat label: carry the new labels over
+        relabel = {p['old']: p['new'] for p in plan if p['old'] and p['old'] != p['new']}
+        if relabel:
+            for r in fetchall(conn, "SELECT production_id, block_labels FROM production_rush WHERE COALESCE(block_labels,'') <> ''") or []:
+                labs = [x.strip() for x in r['block_labels'].split(',') if x.strip()]
+                if any(x in relabel for x in labs):
+                    execute(conn, 'UPDATE production_rush SET block_labels=%s WHERE production_id=%s',
+                            (','.join(relabel.get(x, x) for x in labs), r['production_id']))
+        lid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO seat_renumber_log (id, seat_map_id, section_from, section_to, offset_by, mapping, created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''', (lid, mid, section, new_section or section, offset,
+            json.dumps({p['id']: [p['old'], p['new']] for p in plan}), session.get('name') or 'Staff'))
+        conn.commit()
+        changed = sync_ticket_seat_labels(conn, [p['id'] for p in plan])
+        emailed = _send_renumber_emails(conn, lid) if d.get('notify') else 0
+        return jsonify({'ok': True, 'seats': len(plan), 'tickets_updated': changed, 'emailed': emailed, 'change_id': lid})
+
+    finally:
+        conn.close()
+
+def _renumber_orders(conn, log):
+    """Upcoming paid orders with seats in this change: {order_id: [(old, new), ...]}."""
+    mapping = json.loads(log['mapping'] or '{}')
+    rows = fetchall(conn, '''SELECT t.ticket_order_id, t.seat_id FROM tickets t
+        JOIN performances pf ON pf.id=t.performance_id JOIN ticket_orders o ON o.id=t.ticket_order_id
+        WHERE t.seat_id = ANY(%s) AND pf.performance_date >= %s AND o.status='completed' ''',
+        (list(mapping.keys()), today_eastern().isoformat())) or []
+    out = {}
+    for r in rows:
+        out.setdefault(r['ticket_order_id'], []).append(tuple(mapping[r['seat_id']]))
+    return out
+
+
+def _renumber_email_html(ctx, pairs, section_to):
+    lines = ''.join('<li>' + _h(old) + ' &rarr; <strong>' + _h(new) + '</strong>' + (' (' + _h(section_to) + ')' if section_to else '') + '</li>'
+                    for old, new in sorted(pairs, key=lambda x: x[1]))
+    link = APP_BASE_URL.rstrip('/') + '/t/' + ctx['token']
+    show = ctx['prod'].get('share_name') or ctx['prod'].get('name') or 'the show'
+    html = (f'<p>Hi {_h((ctx["order"].get("guardian_name") or "").split(" ")[0] or "there")},</p>'
+            f'<p>We\'ve updated the seat numbers in our seating chart for <strong>{_h(show)}</strong> to match the theater\'s signs. '
+            '<strong>Your seats haven\'t moved</strong>; only their numbers changed:</p><ul>' + lines + '</ul>'
+            '<p>Your tickets and QR codes still work as they are. You don\'t need to do anything.</p>'
+            f'<p style="margin:20px 0"><a href="{link}" style="background:#16728b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">View my tickets</a></p>')
+    return f'Updated seat numbers for {show}', build_hwtc_email_html('Your seat numbers were updated', html)
+
+
+def _send_renumber_emails(conn, lid, test_to=None):
+    log = fetchone(conn, 'SELECT * FROM seat_renumber_log WHERE id=%s', (lid,))
+    if not log:
+        return 0
+    orders = _renumber_orders(conn, log)
+    sent = 0
+    for oid, pairs in orders.items():
+        try:
+            ctx = ticket_order_context(conn, oid)
+            to = test_to or (ctx['order'].get('guardian_email') or '').strip() if ctx else None
+            if not ctx or not to:
+                continue
+            subj, html = _renumber_email_html(ctx, pairs, log.get('section_to'))
+            send_email([to], ('[Test] ' if test_to else '') + subj, html, source='seat_renumber')
+            sent += 1
+            if test_to:
+                break        # a test is one sample, sent to you
+        except Exception as e:
+            app.logger.warning(f'seat renumber email failed for {oid}: {e}')
+    if not test_to:
+        execute(conn, 'UPDATE seat_renumber_log SET emailed_at=NOW(), emailed_count=%s WHERE id=%s', (sent, lid))
+        conn.commit()
+    return sent
+
+
+@app.route('/api/seat-maps/<mid>/renumber-log', methods=['GET'])
+def seat_map_renumber_log(mid):
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        out = []
+        for r in fetchall(conn, 'SELECT * FROM seat_renumber_log WHERE seat_map_id=%s ORDER BY created_at DESC LIMIT 20', (mid,)) or []:
+            orders = _renumber_orders(conn, r)
+            out.append({'id': r['id'], 'section_from': r['section_from'], 'section_to': r['section_to'], 'offset': r['offset_by'],
+                        'seats': len(json.loads(r['mapping'] or '{}')), 'orders': len(orders), 'tickets': sum(len(v) for v in orders.values()),
+                        'created_at': str(r['created_at'])[:16], 'created_by': r.get('created_by') or '',
+                        'emailed_at': str(r['emailed_at'])[:16] if r.get('emailed_at') else '', 'emailed_count': r.get('emailed_count')})
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
+@app.route('/api/seat-renumber/<lid>/email', methods=['POST'])
+def seat_renumber_email(lid):
+    """Send the 'your seat numbers changed' emails for a change: a test
+    sample to you first, then everyone."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        if d.get('test_email'):
+            n = _send_renumber_emails(conn, lid, test_to=d['test_email'].strip())
+            return jsonify({'ok': True, 'test': True, 'sent': n}) if n else (jsonify({'error': 'No upcoming tickets in this change to use as a sample.'}), 400)
+        log = fetchone(conn, 'SELECT emailed_at FROM seat_renumber_log WHERE id=%s', (lid,)) or {}
+        if log.get('emailed_at') and not d.get('again'):
+            return jsonify({'error': 'Those emails already went out. Send again?', 'already': True}), 409
+        n = _send_renumber_emails(conn, lid)
+        return jsonify({'ok': True, 'sent': n})
+    finally:
+        conn.close()
 
 
 def sync_ticket_seat_labels(conn, seat_ids=None):

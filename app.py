@@ -20750,16 +20750,22 @@ def email_event_signups(eid):
     if not event:
         conn.close()
         return jsonify({'error': 'Event not found'}), 404
-    # Get emails of all signed-up volunteers (status='interested')
-    signups = fetchall(conn, '''SELECT v.email, v.name FROM event_rsvps er
-        JOIN volunteers v ON er.volunteer_id=v.id
-        WHERE er.event_id=%s AND er.status IN ('interested','confirmed')
-        AND v.email IS NOT NULL AND v.email!=''
-        ''', (eid,))
+    # Everyone signed up, including people without a volunteer profile
+    # (their email is on the sign-up itself). Each person gets their own
+    # email, so nobody sees anyone else's address.
+    signups = fetchall(conn, '''SELECT COALESCE(NULLIF(v.email,''), er.volunteer_email) AS email,
+            COALESCE(v.name, er.volunteer_name) AS name FROM event_rsvps er
+        LEFT JOIN volunteers v ON er.volunteer_id=v.id
+        WHERE er.event_id=%s AND er.status IN ('interested','confirmed')''', (eid,)) or []
     conn.close()
-    if not signups:
-        return jsonify({'error': 'No signed-up volunteers with email addresses'}), 400
-    recipients = list({s['email'].strip().lower() for s in signups if s['email']})
+    missing = sorted({(s_['name'] or 'Unnamed') for s_ in signups if not (s_.get('email') or '').strip()})
+    seen, recipients = set(), []
+    for s_ in signups:
+        e_ = (s_.get('email') or '').strip().lower()
+        if e_ and e_ not in seen:
+            seen.add(e_); recipients.append(e_)
+    if not recipients:
+        return jsonify({'error': 'No signed-up volunteers with email addresses' + (' (missing: ' + ', '.join(missing) + ')' if missing else '')}), 400
     event_name = event.get('name', 'Event')
     event_date = event.get('event_date', '')
     html_body = f'''<div style="font-family:sans-serif;max-width:600px;margin:0 auto">
@@ -20774,11 +20780,18 @@ def email_event_signups(eid):
         <p style="font-size:12px;color:#94a3b8;margin:0">This message was sent to volunteers signed up for <strong>{event_name}</strong> by Horizon West Theater Company.</p>
       </div>
     </div>'''
-    try:
-        send_email(recipients, subject, build_hwtc_email_html(subject, html_body))
-        return jsonify({'ok': True, 'sent_to': len(recipients)})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+    sent, failed = 0, []
+    html_full = build_hwtc_email_html(subject, html_body)
+    for r_ in recipients:
+        try:
+            res = send_email([r_], subject, html_full)
+            if (res[0] if isinstance(res, tuple) else res): sent += 1
+            else: failed.append(r_)
+        except Exception:
+            failed.append(r_)
+    return jsonify({'ok': True, 'sent_to': sent, 'signups': len(signups), 'people': len(recipients),
+                    'missing_email': missing, 'duplicates': len([s_ for s_ in signups if (s_.get('email') or '').strip()]) - len(recipients),
+                    'failed': failed})
 
 @app.route('/api/events/<eid>/waivers', methods=['POST'])
 def add_event_waiver(eid):
@@ -22755,7 +22768,8 @@ def get_event_rsvps(eid):
     err = require_auth()
     if err: return err
     conn = get_db()
-    rsvps = fetchall(conn, '''SELECT r.*, v.name as vol_name, v.email as vol_email,
+    rsvps = fetchall(conn, '''SELECT r.*, v.name as vol_name,
+        COALESCE(NULLIF(v.email,''), r.volunteer_email) as vol_email, v.phone as vol_phone,
         r.last_invited_at
         FROM event_rsvps r LEFT JOIN volunteers v ON r.volunteer_id=v.id
         WHERE r.event_id=%s ORDER BY r.created_at ASC''', (eid,))
@@ -49020,7 +49034,7 @@ def house_volunteers(fid):
         people = []
         if ids:
             rows = fetchall(conn, '''SELECT r.id, r.event_id, r.volunteer_id, COALESCE(v.name, r.volunteer_name) AS name,
-                    COALESCE(v.phone,'') AS phone, r.role_name, r.status, er.block_time, er.block_time_end, er.sort_order,
+                    COALESCE(v.phone,'') AS phone, COALESCE(NULLIF(v.email,''), r.volunteer_email, '') AS email, r.role_name, r.status, er.block_time, er.block_time_end, er.sort_order,
                     ks.id AS session_id, EXTRACT(EPOCH FROM (NOW() - ks.started_at)) AS secs_in,
                     (SELECT hours FROM pending_hours ph WHERE ph.volunteer_id=r.volunteer_id AND ph.event_id=r.event_id AND ph.status IN ('pending','approved') LIMIT 1) AS pending_hours,
                     (SELECT hours FROM hours h WHERE h.volunteer_id=r.volunteer_id AND h.event_id=r.event_id LIMIT 1) AS approved_hours
@@ -49043,7 +49057,7 @@ def house_volunteers(fid):
                 seen[key] = bool(r.get('session_id'))
                 st = 'in' if r.get('session_id') else ('done' if (r.get('pending_hours') or r.get('approved_hours')) else 'waiting')
                 people.append({'_key': key, 'event_name': ev_names.get(r['event_id'], ''), 'rsvp_id': r['id'], 'event_id': r['event_id'], 'volunteer_id': r.get('volunteer_id'), 'name': r.get('name') or '',
-                               'phone': r.get('phone') or '', 'role': r.get('role_name') or 'Volunteer', 'status': st,
+                               'phone': r.get('phone') or '', 'email': r.get('email') or '', 'role': r.get('role_name') or 'Volunteer', 'status': st,
                                'signup_status': r.get('status'),
                                'block': ' – '.join(x for x in [_fmt_time12(r.get('block_time')), _fmt_time12(r.get('block_time_end'))] if x),
                                'since': (lambda m: (f'{m // 60}h {m % 60}m' if m >= 60 else f'{m} min'))(int(float(r['secs_in']) // 60)) if r.get('secs_in') is not None else '',

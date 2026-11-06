@@ -39705,6 +39705,66 @@ async function tkDeleteVenue(vid){
 }
 
 /* ── Seat maps for a venue ──────────────────────────────────────────────── */
+// ── Rename / renumber a section (e.g. House Right → House Right, Section 300; 11 → 311) ──
+async function tkRenumberSections(mapId){
+  var secs = await api('/api/seat-maps/'+mapId+'/sections')
+  if(!Array.isArray(secs)){ toast((secs&&secs.error)||'Could not load sections','error'); return }
+  var log = await api('/api/seat-maps/'+mapId+'/renumber-log'); log = Array.isArray(log) ? log : []
+  window._renumMap = mapId
+  var me = (currentUser&&currentUser.email)||''
+  var logHTML = log.length ? '<div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:16px 0 6px">Changes made</div>' + log.map(function(c){
+      return '<div class="card" style="padding:10px 12px;margin-bottom:8px;font-size:13px">'
+        + '<div><strong>'+escHtml(c.section_from||'(none)')+'</strong> → <strong>'+escHtml(c.section_to||'(none)')+'</strong>'+(c.offset?' · numbers +'+c.offset:'')+' · '+c.seats+' seats'
+        + '<span style="color:var(--text-muted)"> · '+escHtml(c.created_at)+(c.created_by?' by '+escHtml(c.created_by):'')+'</span></div>'
+        + '<div style="margin-top:4px">'+(c.orders ? c.orders+' buyer'+(c.orders===1?'':'s')+' with upcoming tickets ('+c.tickets+' ticket'+(c.tickets===1?'':'s')+')' : 'No upcoming tickets affected')
+        + (c.emailed_at ? ' · <span style="color:#166534;font-weight:700">emailed '+escHtml(c.emailed_at)+' ('+(c.emailed_count||0)+')</span>' : (c.orders?' · <span style="color:#b45309;font-weight:700">not emailed yet</span>':''))+'</div>'
+        + (c.orders ? '<div style="display:flex;gap:6px;align-items:center;margin-top:8px;flex-wrap:wrap"><input id="rn-test-'+c.id+'" type="email" value="'+escHtml(me)+'" style="width:220px;padding:5px 8px;font-size:12.5px"/>'
+            + '<button class="btn btn-secondary btn-sm" onclick="tkRenumEmail(\''+c.id+'\',true)">Send me a test</button>'
+            + '<button class="btn btn-primary btn-sm" onclick="tkRenumEmail(\''+c.id+'\',false,'+c.orders+','+(!!c.emailed_at)+')">Email '+c.orders+' buyer'+(c.orders===1?'':'s')+'</button></div>' : '')
+        + '</div>' }).join('') : ''
+  showAdHocModal('renum-modal','Rename / renumber sections',
+    '<div style="font-size:13px;color:var(--text-muted);line-height:1.6;margin-bottom:12px">Fix a section\'s name and seat numbers to match the theater. '
+    + 'Tickets already sold for upcoming performances are updated too (same seats, new numbers), and their QR codes keep working.</div>'
+    + secs.map(function(s, i){
+        return '<div class="card" style="padding:12px 14px;margin-bottom:10px">'
+          + '<div style="font-weight:700">'+escHtml(s.section||'(no section name)')+' <span style="font-weight:400;color:var(--text-muted);font-size:12.5px">· '+s.seats+' seats · numbers '+(s.lo==null?'?':s.lo)+'–'+(s.hi==null?'?':s.hi)+' · e.g. '+escHtml((s.sample||[]).join(', '))+'</span></div>'
+          + '<div style="display:grid;grid-template-columns:2fr 1fr auto;gap:8px;align-items:end;margin-top:8px">'
+          + '<div><label style="font-size:11px">New section name</label><input id="rn-name-'+i+'" value="'+escHtml(s.section||'')+'"/></div>'
+          + '<div><label style="font-size:11px">Add to seat numbers</label><input id="rn-off-'+i+'" type="number" placeholder="e.g. 300" value=""/></div>'
+          + '<button class="btn btn-secondary btn-sm" onclick="tkRenumPreview('+i+',\''+escHtml(s.section||'').replace(/'/g,"\\'")+'\')">Preview</button></div>'
+          + '<div id="rn-prev-'+i+'"></div></div>'
+      }).join('') + logHTML, 680)
+}
+async function tkRenumEmail(lid, test, n, already){
+  if(!test && !confirm((already?'These already went out. Send them again to ':'Email ')+n+' buyer'+(n===1?'':'s')+' their updated seat numbers?')) return
+  var body = test ? {test_email: document.getElementById('rn-test-'+lid).value.trim()} : {again: !!already}
+  var r = await api('/api/seat-renumber/'+lid+'/email','POST', body)
+  if(r.error){ toast(r.error,'error'); return }
+  toast(test ? 'Test sent (one buyer\'s email, sent to you)' : 'Emailed '+r.sent+' buyer'+(r.sent===1?'':'s'),'success')
+  if(!test) tkRenumberSections(_renumMap)
+}
+async function tkRenumPreview(i, section){
+  var body = {section: section, new_section: document.getElementById('rn-name-'+i).value.trim(), offset: document.getElementById('rn-off-'+i).value}
+  var r = await api('/api/seat-maps/'+_renumMap+'/renumber-section','POST', body)
+  var el = document.getElementById('rn-prev-'+i)
+  if(r.error){ el.innerHTML = '<div style="color:#991b1b;font-size:13px;margin-top:8px">'+escHtml(r.error)+'</div>'; return }
+  el.innerHTML = '<div style="background:var(--bg);border-radius:8px;padding:10px 12px;margin-top:10px;font-size:13px">'
+    + '<div><strong>'+escHtml(r.section_from||'(none)')+'</strong> → <strong>'+escHtml(r.section_to||'(none)')+'</strong> · '+r.seats+' seats</div>'
+    + '<div style="color:var(--text-muted);margin:4px 0">'+r.sample.map(function(x){ return escHtml(x.old)+' → <strong style="color:var(--text)">'+escHtml(x.new)+'</strong>' }).join(' · ')+(r.seats>r.sample.length?' …':'')+'</div>'
+    + '<div>'+(r.sold_tickets ? r.sold_tickets+' ticket'+(r.sold_tickets===1?'':'s')+' already sold for upcoming performances ('+r.orders+' order'+(r.orders===1?'':'s')+') will show the new numbers.' : 'No tickets sold in this section for upcoming performances.')+'</div>'
+    + (r.orders ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:6px">Buyers are <strong>not</strong> emailed yet. After applying, check the seat map and a ticket or two, send yourself a test, then email everyone from "Changes made" below.</div>' : '')
+    + '<button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="tkRenumApply('+i+',\''+section.replace(/'/g,"\\'")+'\')">Apply</button></div>'
+}
+async function tkRenumApply(i, section){
+  var n = document.getElementById('rn-notify-'+i)
+  var body = {section: section, new_section: document.getElementById('rn-name-'+i).value.trim(), offset: document.getElementById('rn-off-'+i).value, apply: true, notify: false}
+  if(!confirm('Apply this change to the seat map and sold tickets? (No emails go out yet.)')) return
+  var r = await api('/api/seat-maps/'+_renumMap+'/renumber-section','POST', body)
+  if(r.error){ toast(r.error,'error'); return }
+  toast('Updated '+r.seats+' seats · '+r.tickets_updated+' sold ticket'+(r.tickets_updated===1?'':'s')+' updated. Buyers not emailed yet.','success')
+  tkRenumberSections(_renumMap)
+}
+
 async function openSeatMaps(venueId, venueName){
   var body = document.getElementById('tk-venues-body');
   body.innerHTML = '<div style="color:var(--text-muted)">Loading seat maps…</div>';
@@ -39719,6 +39779,7 @@ async function openSeatMaps(venueId, venueName){
       +       '<div style="font-size:12px;color:var(--text-muted)">'+(m.seat_count||0)+' seats</div></div>'
       +     '<div style="display:flex;gap:6px;flex-wrap:wrap">'
       +       '<button class="btn btn-secondary btn-sm" onclick="tkTogglePreview(\''+m.id+'\')"> Preview</button>'
+      +       (m.seat_count ? '<button class="btn btn-secondary btn-sm" onclick="tkRenumberSections(\''+m.id+'\')">Rename / renumber sections</button>' : '')
       +       '<button class="btn btn-secondary btn-sm" onclick="tkGenerateSectionForm(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">+ Add Rectangular Block</button>'
       +       '<button class="btn btn-secondary btn-sm" onclick="tkGenerateFanSectionForm(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">+ Add Angled/Fan Block</button>'
  +       (!m.seat_count ? '<button class="btn btn-secondary btn-sm" onclick="tkSeedBBTChart(\''+venueId+'\',\''+m.id+'\',\''+escHtml(venueName).replace(/'/g,"\\'")+'\')">Seed BBT Chart (draft)</button>' : '')

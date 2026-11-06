@@ -44480,16 +44480,22 @@ def _renumber_orders(conn, log):
 
 
 def _renumber_email_html(ctx, pairs, section_to):
-    lines = ''.join('<li>' + _h(old) + ' &rarr; <strong>' + _h(new) + '</strong>' + (' (' + _h(section_to) + ')' if section_to else '') + '</li>'
+    lines = ''.join('<li style="margin:4px 0">' + _h(old) + ' &rarr; <strong>' + _h(new) + '</strong>' + (' <span style="color:#6b7280">(' + _h(section_to) + ')</span>' if section_to else '') + '</li>'
                     for old, new in sorted(pairs, key=lambda x: x[1]))
     link = APP_BASE_URL.rstrip('/') + '/t/' + ctx['token']
     show = ctx['prod'].get('share_name') or ctx['prod'].get('name') or 'the show'
-    html = (f'<p>Hi {_h((ctx["order"].get("guardian_name") or "").split(" ")[0] or "there")},</p>'
-            f'<p>We\'ve updated the seat numbers in our seating chart for <strong>{_h(show)}</strong> to match the theater\'s signs. '
-            '<strong>Your seats haven\'t moved</strong>; only their numbers changed:</p><ul>' + lines + '</ul>'
-            '<p>Your tickets and QR codes still work as they are. You don\'t need to do anything.</p>'
+    venue = (ctx.get('venue') or {}).get('name') or 'the venue'
+    first = (ctx['order'].get('guardian_name') or '').split(' ')[0] or 'there'
+    html = (f'<p>Hi {_h(first)},</p>'
+            f'<p>We wanted to let you know that the seating map we were given for <strong>{_h(venue)}</strong> wasn\'t fully accurate, '
+            f'so we\'ve updated our seat labels for <strong>{_h(show)}</strong> to match the theater.</p>'
+            '<p><strong>Your seats haven\'t changed, only their labels:</strong></p>'
+            '<ul style="padding-left:20px;margin:0 0 14px">' + lines + '</ul>'
+            '<p>No action is needed on your part. Your tickets and QR codes work just as they did.</p>'
+            '<p>We\'re sorry for any confusion. If you have any questions, just reply to this email.</p>'
+            '<p>Horizon West Theater Company</p>'
             f'<p style="margin:20px 0"><a href="{link}" style="background:#16728b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">View my tickets</a></p>')
-    return f'Updated seat numbers for {show}', build_hwtc_email_html('Your seat numbers were updated', html)
+    return f'A quick update about your seats for {show}', build_hwtc_email_html('A quick update about your seats', html)
 
 
 def _send_renumber_emails(conn, lid, test_to=None):
@@ -44531,6 +44537,43 @@ def seat_map_renumber_log(mid):
                         'created_at': str(r['created_at'])[:16], 'created_by': r.get('created_by') or '',
                         'emailed_at': str(r['emailed_at'])[:16] if r.get('emailed_at') else '', 'emailed_count': r.get('emailed_count')})
         return jsonify(out)
+    finally:
+        conn.close()
+
+
+@app.route('/api/seat-maps/<mid>/renumber-log', methods=['POST'])
+def seat_map_record_past_renumber(mid):
+    """For a section renumbered before changes were recorded: rebuild the
+    old -> new labels from today's labels and the number that was added
+    (old = row letter + (number - added)), so buyers can still be emailed."""
+    err = _require_ticketing()
+    if err: return err
+    d = request.json or {}
+    section = d.get('section') or ''
+    try: offset = int(d.get('offset') or 0)
+    except Exception: return jsonify({'error': 'Enter the number that was added, like 300.'}), 400
+    if not offset:
+        return jsonify({'error': 'Enter the number that was added, like 300.'}), 400
+    conn = get_db()
+    try:
+        seats = fetchall(conn, '''SELECT id, row_name, seat_number, seat_label FROM seat_map_seats
+            WHERE seat_map_id=%s AND COALESCE(section,'')=%s''', (mid, section)) or []
+        if not seats:
+            return jsonify({'error': 'No seats in that section.'}), 404
+        mapping = {}
+        for st in seats:
+            if st.get('seat_number') is None:
+                continue
+            old_num = int(st['seat_number']) - offset
+            old = f'{st.get("row_name") or ""}{old_num}' if st.get('row_name') else str(old_num)
+            mapping[st['id']] = [old, st.get('seat_label') or '']
+        lid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO seat_renumber_log (id, seat_map_id, section_from, section_to, offset_by, mapping, created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''', (lid, mid, (d.get('previous_name') or '').strip() or '(earlier name)', section, offset,
+            json.dumps(mapping), (session.get('name') or 'Staff') + ' (recorded after)'))
+        conn.commit()
+        sample = list(mapping.values())[:4]
+        return jsonify({'ok': True, 'id': lid, 'seats': len(mapping), 'sample': sample})
     finally:
         conn.close()
 

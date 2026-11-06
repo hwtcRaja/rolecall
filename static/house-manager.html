@@ -216,7 +216,9 @@ function listHTML(){
           return '<div class="item" style="display:flex;align-items:center;gap:10px;cursor:default"><div style="flex:1;min-width:0">'
             + '<div class="n">'+esc(v.name)+' '+lab[v.status]+'</div>'
             + (VOLS.events.length > 1 && v.event_name ? '<div class="d" style="color:var(--muted)">'+esc(v.event_name)+'</div>' : '')
-            + '<div class="d">'+(v.block?esc(v.block)+' · ':'')+(v.status==='in'&&v.since?'here '+esc(v.since)+' · ':'')+(v.hours?v.hours+' h logged · ':'')+(v.phone?'<a href="tel:'+esc(v.phone)+'">'+esc(v.phone)+'</a>':'')+'</div></div>'+btn+'</div>'
+            + '<div class="d">'+(v.block?esc(v.block)+' · ':'')+(v.status==='in'&&v.since?'here '+esc(v.since)+' · ':'')+(v.hours?v.hours+' h logged':'')+'</div>'
+            + '<div class="d">'+(v.phone?'<a href="tel:'+esc(v.phone)+'">'+esc(v.phone)+'</a>':'<span style="color:var(--bad)">no phone</span>')+' · '
+            + (v.email?'<a href="mailto:'+esc(v.email)+'">'+esc(v.email)+'</a>':'<span style="color:var(--bad)">no email</span>')+'</div></div>'+btn+'</div>'
         }).join('')
     }).join('') + '<div class="empty" style="padding:10px 4px;text-align:left">Signing in starts their volunteer time for the event; signing out sends the hours for approval.</div>'
   }

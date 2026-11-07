@@ -38905,6 +38905,24 @@ async function openSquareItemLookup(name, from, to){
   showAdHocModal('sq-item', 'Square item lookup', form + body, 760)
 }
 
+async function openSalesCategories(pid){
+  showAdHocModal('sales-cats','Which Square categories count','<div style="color:var(--text-muted);font-size:13px">Loading categories from Square…</div>', 480)
+  var r = await api('/api/square/sales-categories')
+  if(r.error){ toast(r.error,'error'); return }
+  var chosen = r.chosen || []
+  showAdHocModal('sales-cats','Which Square categories count',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px;line-height:1.5">Show-night sales only count items in the categories you tick, so the rest of what you sell in Square isn\'t mixed in. If a single sale has items from both, only the ticked items count. Nothing ticked = everything counts.</div>'
+    + '<div style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:6px 10px">'
+    + r.available.map(function(c){ return '<label style="display:flex;gap:8px;align-items:center;padding:5px 0;text-transform:none;letter-spacing:0;font-weight:500;font-size:13.5px;cursor:pointer"><input type="checkbox" class="sc-cat" value="'+escHtml(c)+'" '+(chosen.indexOf(c)>=0?'checked':'')+' style="width:auto"/>'+escHtml(c)+'</label>' }).join('')
+    + '</div><button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="saveSalesCategories(\''+(pid||'')+'\')">Save</button>', 480)
+}
+async function saveSalesCategories(pid){
+  var cats = Array.from(document.querySelectorAll('.sc-cat:checked')).map(function(x){ return x.value })
+  var r = await api('/api/square/sales-categories','PUT',{categories: cats})
+  if(r.error){ toast(r.error,'error'); return }
+  closeAdHocModal('sales-cats'); toast(cats.length ? 'Counting '+cats.length+' categor'+(cats.length===1?'y':'ies') : 'Counting everything','success')
+  if(pid) openProductionSales(pid)
+}
 async function openProductionSales(pid){
   showAdHocModal('prod-sales','Concessions & show-night sales','<div style="color:var(--text-muted);font-size:13px">Reading Square…</div>', 760)
   var rows = await api('/api/productions/'+pid+'/concessions')
@@ -38928,6 +38946,10 @@ async function openProductionSales(pid){
         }).join('') + '</tbody></table>'
       + '<div style="font-size:12px;color:var(--text-muted);margin-top:10px">Square in-person sales from doors (or 90 minutes before) to 4 hours after curtain, grouped by your Square item categories. Online ticket and registration payments aren\'t included. For item-by-item detail, the cash box, or a different time window, use <strong>Sales</strong> in House Manager.</div>'
   }
+  var catsNow = await api('/api/square/sales-categories')
+  body = '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;font-size:13px;background:var(--bg);border-radius:8px;padding:8px 12px"><span style="flex:1">Counting: <strong>'
+    + (catsNow && catsNow.chosen && catsNow.chosen.length ? catsNow.chosen.map(escHtml).join(', ') : 'every Square category')+'</strong></span>'
+    + '<button class="btn btn-secondary btn-sm" onclick="openSalesCategories(\''+pid+'\')">Choose categories</button></div>' + body
   var el = document.querySelector('#prod-sales .adhoc-body') || document.getElementById('prod-sales')
   showAdHocModal('prod-sales','Concessions & show-night sales', body, 760)
 }

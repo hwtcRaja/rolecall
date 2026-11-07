@@ -421,6 +421,7 @@ async function loadSales(){
   var card = function(k, v, s){ return '<div class="m" style="padding:10px 12px"><div class="k">'+k+'</div><div class="v" style="font-size:22px">'+v+'</div>'+(s?'<div class="s">'+s+'</div>':'')+'</div>' }
   var h = head
     + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Square in-person sales from <input type="datetime-local" id="sw-s" value="'+r.window.start+'" style="width:auto;padding:3px 6px"/> to <input type="datetime-local" id="sw-e" value="'+r.window.end+'" style="width:auto;padding:3px 6px"/> <button class="btn" style="padding:4px 10px" onclick="SALES_WIN=[document.getElementById(\'sw-s\').value,document.getElementById(\'sw-e\').value];loadSales()">Apply</button></div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Counting: <strong style="color:#fff">'+((r.categories_filter||[]).length ? r.categories_filter.map(esc).join(', ') : 'every Square category')+'</strong> (change in Marquee → Show night → Concessions &amp; sales)</div>'
     + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">'
     + card('Total', m(r.net_cents), r.transactions+' sale'+(r.transactions===1?'':'s')+' · avg '+m(r.avg_cents)+(r.refunds_cents?' · '+m(r.refunds_cents)+' refunded':''))
     + card('Cash / card', m(r.cash_cents)+' / '+m(r.card_cents), r.other_cents?m(r.other_cents)+' other':'') + '</div>'

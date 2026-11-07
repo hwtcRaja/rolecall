@@ -3229,6 +3229,10 @@ def init_db():
         "ALTER TABLE production_rush ADD COLUMN IF NOT EXISTS disclaimer TEXT DEFAULT ''",
         # rush seats held for a buyer without telling them which ones (revealed after checkout)
         "ALTER TABLE seat_holds ADD COLUMN IF NOT EXISTS rush_ref TEXT",
+        """CREATE TABLE IF NOT EXISTS performance_cash_box (
+            performance_id TEXT PRIMARY KEY REFERENCES performances(id) ON DELETE CASCADE,
+            starting_cash_cents INTEGER, ending_cash_cents INTEGER, unrung_cash_cents INTEGER DEFAULT 0,
+            notes TEXT DEFAULT '', updated_by TEXT, updated_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS seat_renumber_log (
             id TEXT PRIMARY KEY, seat_map_id TEXT, section_from TEXT, section_to TEXT, offset_by INTEGER,
             mapping TEXT NOT NULL, created_by TEXT, created_at TIMESTAMP DEFAULT NOW(), emailed_at TIMESTAMP, emailed_count INTEGER)""",
@@ -48861,6 +48865,228 @@ def house_manager_data(fid):
 DOOR_PAYMENT_METHODS = {'cash': 'Cash', 'card': 'Card (door reader)', 'check': 'Check', 'comp': 'Comp'}
 
 
+# ══ Concessions & show-night sales (from Square) ══════════════════════════
+# In-person Square sales (Square app / reader: concessions, merch, raffle…)
+# made around a performance, grouped by the Square item category, with cash
+# vs card, plus a cash box count. Online orders (tickets, registrations,
+# invoices) are left out.
+_POS_CACHE = {}
+
+
+def _square_pos_orders(start_utc, end_utc):
+    """Completed in-person orders at our location between two UTC datetimes."""
+    import datetime as _dtq
+    out, cursor = [], None
+    for _ in range(20):
+        body = {'location_ids': [SQUARE_LOCATION_ID], 'limit': 500,
+                'query': {'filter': {'state_filter': {'states': ['COMPLETED']},
+                                     'date_time_filter': {'closed_at': {'start_at': start_utc.strftime('%Y-%m-%dT%H:%M:%SZ'),
+                                                                        'end_at': end_utc.strftime('%Y-%m-%dT%H:%M:%SZ')}}},
+                          'sort': {'sort_field': 'CLOSED_AT', 'sort_order': 'ASC'}}}
+        if cursor: body['cursor'] = cursor
+        r = requests.post(f'{SQUARE_API_BASE}/v2/orders/search', json=body, headers=square_headers(), timeout=25)
+        data = r.json()
+        if r.status_code != 200:
+            raise RuntimeError(f'Square orders search failed: {data}')
+        out += data.get('orders') or []
+        cursor = data.get('cursor')
+        if not cursor:
+            break
+    return out
+
+
+def _square_categories_for(variation_ids):
+    """variation id -> (item name, category name)."""
+    res = {}
+    ids = [v for v in set(variation_ids) if v]
+    if not ids:
+        return res
+    for i in range(0, len(ids), 900):
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/batch-retrieve', json={'object_ids': ids[i:i + 900], 'include_related_objects': True},
+                          headers=square_headers(), timeout=25)
+        data = r.json() if r.status_code == 200 else {}
+        items = {o['id']: o for o in (data.get('related_objects') or []) if o.get('type') == 'ITEM'}
+        cats = {o['id']: (o.get('category_data') or {}).get('name') for o in (data.get('related_objects') or []) if o.get('type') == 'CATEGORY'}
+        for o in data.get('objects') or []:
+            if o.get('type') != 'ITEM_VARIATION':
+                continue
+            it = items.get((o.get('item_variation_data') or {}).get('item_id')) or {}
+            idata = it.get('item_data') or {}
+            cid = idata.get('category_id') or (((idata.get('categories') or [{}])[0]) or {}).get('id') or (idata.get('reporting_category') or {}).get('id')
+            res[o['id']] = (idata.get('name') or '', cats.get(cid) or '')
+    return res
+
+
+def _sales_window(perf):
+    """Doors (or 90 min before curtain) to 4 hours after curtain, local time."""
+    import datetime as _dtw
+    d = _dtw.date.fromisoformat(str(perf['performance_date'])[:10])
+    t = (perf.get('performance_time') or '19:00')[:5]
+    start = _dtw.datetime.combine(d, _dtw.time(int(t[:2]), int(t[3:5])))
+    dt = (perf.get('doors_time') or '')[:5]
+    try:
+        opens = _dtw.datetime.combine(d, _dtw.time(int(dt[:2]), int(dt[3:5]))) - _dtw.timedelta(minutes=30) if len(dt) == 5 else start - _dtw.timedelta(minutes=90)
+    except Exception:
+        opens = start - _dtw.timedelta(minutes=90)
+    return opens, start + _dtw.timedelta(hours=4)
+
+
+def concession_report(conn, perf, start_local=None, end_local=None):
+    from zoneinfo import ZoneInfo
+    import datetime as _dtc
+    w_start, w_end = _sales_window(perf)
+    w_start, w_end = start_local or w_start, end_local or w_end
+    tz = ZoneInfo('America/New_York')
+    to_utc = lambda x: x.replace(tzinfo=tz).astimezone(ZoneInfo('UTC'))
+    key = (perf['id'], w_start.isoformat(), w_end.isoformat())
+    hit = _POS_CACHE.get(key)
+    if hit and (_dtc.datetime.now() - hit[0]).total_seconds() < 60:
+        orders = hit[1]
+    else:
+        orders = _square_pos_orders(to_utc(w_start), to_utc(w_end))
+        _POS_CACHE[key] = (_dtc.datetime.now(), orders)
+    # leave out anything RoleCall created online (tickets, registrations, invoices…)
+    ours = set()
+    for tbl in ('ticket_orders', 'rental_payments', 'registrations', 'youth_registrations', 'playbill_orders', 'hour_redemptions', 'donor_donations'):
+        try:
+            for r in fetchall(conn, f"SELECT square_order_id FROM {tbl} WHERE COALESCE(square_order_id,'') <> ''") or []:
+                ours.add(r['square_order_id'])
+        except Exception:
+            conn.rollback()
+    pos = []
+    for o in orders:
+        if o['id'] in ours:
+            continue
+        src = ((o.get('source') or {}).get('name') or '').lower()
+        tenders = o.get('tenders') or []
+        in_person = any(t.get('type') in ('CASH', 'OTHER', 'NO_SALE', 'SQUARE_GIFT_CARD') or
+                        ((t.get('card_details') or {}).get('entry_method') in ('SWIPED', 'EMV', 'CONTACTLESS', 'KEYED')) for t in tenders)
+        if ('online' in src or 'invoice' in src or 'checkout' in src) and not in_person:
+            continue
+        if not tenders and 'point of sale' not in src:
+            continue
+        pos.append(o)
+    cat_map = _square_categories_for([li.get('catalog_object_id') for o in pos for li in (o.get('line_items') or [])])
+    total = cash = card = other = refunds = 0
+    cats = {}
+    for o in pos:
+        amt = int(((o.get('total_money') or {}).get('amount')) or 0)
+        ref = sum(int(((r.get('amount_money') or {}).get('amount')) or 0) for r in (o.get('refunds') or []))
+        total += amt; refunds += ref
+        for t in o.get('tenders') or []:
+            a = int(((t.get('amount_money') or {}).get('amount')) or 0)
+            if t.get('type') == 'CASH': cash += a
+            elif t.get('type') == 'CARD': card += a
+            else: other += a
+        for li in o.get('line_items') or []:
+            nm, cat = cat_map.get(li.get('catalog_object_id'), ('', ''))
+            nm = li.get('name') or nm or 'Custom amount'
+            cat = cat or ('Custom amounts' if not li.get('catalog_object_id') else 'Uncategorized')
+            q = float(li.get('quantity') or 1)
+            m = int(((li.get('total_money') or {}).get('amount')) or 0)
+            c = cats.setdefault(cat, {'name': cat, 'total_cents': 0, 'qty': 0, 'items': {}})
+            c['total_cents'] += m; c['qty'] += q
+            it = c['items'].setdefault(nm, {'name': nm, 'qty': 0, 'total_cents': 0})
+            it['qty'] += q; it['total_cents'] += m
+    cat_list = sorted(cats.values(), key=lambda c: -c['total_cents'])
+    for c in cat_list:
+        c['items'] = sorted(c['items'].values(), key=lambda x: -x['total_cents'])
+        c['qty'] = int(c['qty']) if c['qty'] == int(c['qty']) else c['qty']
+        for it in c['items']:
+            it['qty'] = int(it['qty']) if it['qty'] == int(it['qty']) else it['qty']
+    box = fetchone(conn, 'SELECT * FROM performance_cash_box WHERE performance_id=%s', (perf['id'],)) or {}
+    expected = None
+    if box.get('starting_cash_cents') is not None:
+        expected = int(box['starting_cash_cents']) + cash + int(box.get('unrung_cash_cents') or 0)
+    return {'window': {'start': w_start.strftime('%Y-%m-%dT%H:%M'), 'end': w_end.strftime('%Y-%m-%dT%H:%M')},
+            'transactions': len(pos), 'total_cents': total, 'refunds_cents': refunds, 'net_cents': total - refunds,
+            'avg_cents': int(total / len(pos)) if pos else 0, 'cash_cents': cash, 'card_cents': card, 'other_cents': other,
+            'categories': cat_list,
+            'cash_box': {'starting_cash_cents': box.get('starting_cash_cents'), 'ending_cash_cents': box.get('ending_cash_cents'),
+                         'unrung_cash_cents': box.get('unrung_cash_cents') or 0, 'notes': box.get('notes') or '',
+                         'updated_by': box.get('updated_by') or '', 'expected_cents': expected,
+                         'difference_cents': (int(box['ending_cash_cents']) - expected) if (expected is not None and box.get('ending_cash_cents') is not None) else None}}
+
+
+def _cents_in(v):
+    try: return int(round(float(str(v).replace('$', '').replace(',', '')) * 100)) if str(v).strip() != '' else None
+    except Exception: return None
+
+
+@app.route('/api/performances/<fid>/concessions', methods=['GET'])
+def performance_concessions(fid):
+    err = require_permission('house_manager', 'view')
+    if err:
+        err2 = _require_ticketing()
+        if err2: return err
+    if not SQUARE_ACCESS_TOKEN:
+        return jsonify({'error': 'Square isn\'t connected.'}), 400
+    import datetime as _dtp
+    conn = get_db()
+    try:
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+        if not perf:
+            return jsonify({'error': 'Performance not found'}), 404
+        s_, e_ = None, None
+        try:
+            if request.args.get('start'): s_ = _dtp.datetime.fromisoformat(request.args['start'][:16])
+            if request.args.get('end'): e_ = _dtp.datetime.fromisoformat(request.args['end'][:16])
+        except Exception:
+            pass
+        try:
+            return jsonify(concession_report(conn, perf, s_, e_))
+        except Exception as e:
+            return jsonify({'error': f'Could not read sales from Square: {e}'}), 502
+    finally:
+        conn.close()
+
+
+@app.route('/api/performances/<fid>/cash-box', methods=['PUT'])
+def performance_cash_box(fid):
+    err = require_permission('house_manager', 'edit')
+    if err:
+        err2 = _require_ticketing()
+        if err2: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO performance_cash_box (performance_id, starting_cash_cents, ending_cash_cents, unrung_cash_cents, notes, updated_by, updated_at)
+            VALUES (%s,%s,%s,%s,%s,%s,NOW()) ON CONFLICT (performance_id) DO UPDATE SET starting_cash_cents=EXCLUDED.starting_cash_cents,
+            ending_cash_cents=EXCLUDED.ending_cash_cents, unrung_cash_cents=EXCLUDED.unrung_cash_cents, notes=EXCLUDED.notes,
+            updated_by=EXCLUDED.updated_by, updated_at=NOW()''',
+            (fid, _cents_in(d.get('starting')), _cents_in(d.get('ending')), _cents_in(d.get('unrung')) or 0, (d.get('notes') or '').strip()[:1000],
+             session.get('name') or 'Staff'))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
+@app.route('/api/productions/<pid>/concessions', methods=['GET'])
+def production_concessions(pid):
+    """Each performance's show-night sales, for Marquee."""
+    err = _require_ticketing()
+    if err: return err
+    if not SQUARE_ACCESS_TOKEN:
+        return jsonify({'error': 'Square isn\'t connected.'}), 400
+    conn = get_db()
+    try:
+        out = []
+        for pf in fetchall(conn, '''SELECT * FROM performances WHERE production_id=%s AND status <> 'cancelled' AND performance_date <= %s
+                ORDER BY performance_date, performance_time''', (pid, today_eastern().isoformat())) or []:
+            try:
+                rep = concession_report(conn, pf)
+                out.append({'id': pf['id'], 'date': str(pf['performance_date'])[:10], 'time': pf.get('performance_time') or '',
+                            'net_cents': rep['net_cents'], 'transactions': rep['transactions'], 'cash_cents': rep['cash_cents'], 'card_cents': rep['card_cents'],
+                            'categories': [{'name': c['name'], 'total_cents': c['total_cents'], 'qty': c['qty']} for c in rep['categories']],
+                            'cash_difference_cents': rep['cash_box']['difference_cents']})
+            except Exception as e:
+                out.append({'id': pf['id'], 'date': str(pf['performance_date'])[:10], 'time': pf.get('performance_time') or '', 'error': str(e)[:160]})
+        return jsonify(out)
+    finally:
+        conn.close()
+
+
 @app.route('/api/house/<fid>/door', methods=['GET'])
 def house_door_info(fid):
     err = require_permission('house_manager', 'view')
@@ -49666,6 +49892,70 @@ def update_ga_sold_out(conn, performance_id):
     elif not full and perf.get('status') == 'sold_out' and perf.get('auto_sold_out'):
         execute(conn, "UPDATE performances SET status='on_sale', auto_sold_out=FALSE WHERE id=%s", (performance_id,))
 
+@app.route('/api/ticketing/seat-conflicts', methods=['GET'])
+def ticketing_seat_conflicts():
+    """Find seats that look double-booked, and explain each case:
+    - the SAME seat sold twice for one performance (a real double booking)
+    - two DIFFERENT seats that share a label (e.g. A11 in two sections),
+      which looks like a double booking on paper but isn't
+    Also look up specific ticket codes (?codes=B1CFEEEA,65BCAF9B)."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        idx = bool(fetchone(conn, "SELECT 1 AS x FROM pg_indexes WHERE indexname='ux_tickets_performance_seat'"))
+        live = "o.status NOT IN ('refunded','cancelled')"
+        same_seat = fetchall(conn, f'''SELECT t.performance_id, t.seat_id, MIN(t.seat_label) AS seat_label, COUNT(*) AS n,
+                ARRAY_AGG(o.guardian_name || ' · ' || t.confirmation_code || ' · ' || COALESCE(o.sale_channel,'public') || ' · ' || to_char(o.created_at,'Mon DD HH24:MI') ORDER BY o.created_at) AS who,
+                MIN(pf.performance_date) AS performance_date, MIN(pf.performance_time) AS performance_time, MIN(p.name) AS show
+            FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id JOIN performances pf ON pf.id=t.performance_id JOIN productions p ON p.id=pf.production_id
+            WHERE t.seat_id IS NOT NULL AND {live}
+            GROUP BY t.performance_id, t.seat_id HAVING COUNT(*) > 1 ORDER BY 7''') or []
+        same_label = fetchall(conn, f'''SELECT t.performance_id, t.seat_label, COUNT(DISTINCT t.seat_id) AS seats,
+                ARRAY_AGG(DISTINCT COALESCE(NULLIF(t.section,''),'(no section)')) AS sections,
+                ARRAY_AGG(o.guardian_name || ' · ' || t.confirmation_code || ' · ' || COALESCE(NULLIF(t.section,''),'(no section)') ORDER BY o.created_at) AS who,
+                MIN(pf.performance_date) AS performance_date, MIN(pf.performance_time) AS performance_time, MIN(p.name) AS show
+            FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id JOIN performances pf ON pf.id=t.performance_id JOIN productions p ON p.id=pf.production_id
+            WHERE t.seat_id IS NOT NULL AND {live} AND pf.performance_date >= %s
+            GROUP BY t.performance_id, t.seat_label HAVING COUNT(DISTINCT t.seat_id) > 1 ORDER BY 6''', (today_eastern().isoformat(),)) or []
+        codes = [c.strip().upper() for c in (request.args.get('codes') or '').replace(' ', ',').split(',') if c.strip()]
+        lookups = []
+        for c in codes[:10]:
+            t = fetchone(conn, '''SELECT t.*, o.guardian_name, o.guardian_email, o.status AS order_status, o.sale_channel, o.created_at AS ordered_at,
+                    o.id AS order_id, pf.performance_date, pf.performance_time, p.name AS show
+                FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id JOIN performances pf ON pf.id=t.performance_id JOIN productions p ON p.id=pf.production_id
+                WHERE UPPER(t.confirmation_code)=%s OR UPPER(LEFT(o.id,8))=%s LIMIT 1''', (c, c))
+            if not t:
+                lookups.append({'code': c, 'found': False}); continue
+            seats = fetchall(conn, '''SELECT t.seat_id, t.seat_label, t.section, s.section AS map_section, s.seat_label AS map_label
+                FROM tickets t LEFT JOIN seat_map_seats s ON s.id=t.seat_id WHERE t.ticket_order_id=%s ORDER BY t.seat_label''', (t['ticket_order_id'],)) or []
+            lookups.append({'code': c, 'found': True, 'order_id': t['order_id'], 'buyer': t['guardian_name'], 'email': t['guardian_email'],
+                            'status': t['order_status'], 'channel': t.get('sale_channel') or 'public', 'ordered_at': str(t['ordered_at'])[:16],
+                            'show': t['show'], 'performance': str(t['performance_date'])[:10] + ' ' + (t.get('performance_time') or ''),
+                            'performance_id': t['performance_id'], 'seats': seats})
+        # do the two looked-up orders really share a seat?
+        verdict = None
+        if len([l for l in lookups if l.get('found')]) >= 2:
+            a, b = [l for l in lookups if l.get('found')][:2]
+            if a['performance_id'] != b['performance_id']:
+                verdict = 'These orders are for different performances, so they can\'t share seats.'
+            else:
+                shared_ids = {x['seat_id'] for x in a['seats']} & {x['seat_id'] for x in b['seats']}
+                shared_labels = {x['seat_label'] for x in a['seats']} & {x['seat_label'] for x in b['seats']}
+                if shared_ids:
+                    verdict = 'The SAME seat was sold to both orders: ' + ', '.join(sorted(x['seat_label'] for x in a['seats'] if x['seat_id'] in shared_ids)) + '. This is a real double booking.'
+                elif shared_labels:
+                    verdict = ('Same seat NUMBERS, but different seats: ' + ', '.join(sorted(shared_labels)) + ' exist in more than one section. '
+                               'Check the section on each ticket below. Renumbering the sections (Rename / renumber sections) gives each one a unique number.')
+                else:
+                    verdict = 'These orders don\'t share any seats.'
+        for r in same_seat + same_label:
+            r['performance_date'] = str(r.get('performance_date'))[:10]
+        return jsonify({'unique_rule_on': idx, 'double_booked': same_seat, 'shared_labels': same_label, 'lookups': lookups, 'verdict': verdict})
+    finally:
+        conn.close()
+
+
 def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
     """Turns a paid (or free) order into real tickets, releases the seat
     holds that produced them, and marks the order completed."""
@@ -49676,6 +49966,29 @@ def _finalize_ticket_order(conn, order_id, square_payment_id, square_order_id):
         line_items = json.loads(order.get('seats_json') or '[]')
     except Exception:
         line_items = []
+    # A buyer can pay after their seat hold ran out (e.g. left the payment
+    # page open). If someone else bought one of those seats meanwhile, don't
+    # double-book it: mark the order for staff to sort out, and say so.
+    _taken = []
+    _ids = [li.get('seat_id') for li in line_items if li.get('seat_id')]
+    if _ids:
+        _taken = fetchall(conn, '''SELECT t.seat_label FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+            WHERE t.performance_id=%s AND t.seat_id = ANY(%s) AND o.status NOT IN ('refunded','cancelled') AND o.id <> %s''',
+            (order['performance_id'], _ids, order_id)) or []
+    if _taken:
+        _labels = ', '.join(r['seat_label'] or '?' for r in _taken)
+        execute(conn, """UPDATE ticket_orders SET status='seat_conflict', notes=COALESCE(notes,'') || %s WHERE id=%s""",
+                (f' · PAID but seat(s) {_labels} were already sold to someone else. Contact the buyer to reseat or refund.', order_id))
+        conn.commit()
+        try:
+            send_email([_setting(conn, 'ticket_alert_email') or 'info@hwtco.org'], f'Seat conflict on a paid order ({order.get("guardian_name") or ""})',
+                       build_hwtc_email_html('A paid order needs new seats',
+                           f'<p><strong>{_h(order.get("guardian_name") or "")}</strong> ({_h(order.get("guardian_email") or "")}) paid for seat(s) <strong>{_h(_labels)}</strong>, '
+                           'but they were sold to someone else while this buyer was paying. No tickets were issued for this order. '
+                           'Please contact them to choose new seats or refund. Find it in Marquee → Orders (status: seat conflict).</p>'))
+        except Exception:
+            pass
+        return
     for li in line_items:
         execute(conn, '''INSERT INTO tickets
             (id, ticket_order_id, performance_id, seat_id, ticket_type_id, seat_label, price_cents, confirmation_code,

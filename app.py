@@ -22768,6 +22768,8 @@ def get_event_rsvps(eid):
     err = require_auth()
     if err: return err
     conn = get_db()
+    for _r in fetchall(conn, 'SELECT * FROM event_rsvps WHERE event_id=%s AND volunteer_id IS NULL', (eid,)) or []:
+        link_rsvp_to_volunteer(conn, _r)
     rsvps = fetchall(conn, '''SELECT r.*, v.name as vol_name,
         COALESCE(NULLIF(v.email,''), r.volunteer_email) as vol_email, v.phone as vol_phone,
         r.last_invited_at
@@ -49020,6 +49022,32 @@ def _closest_events(rows, perf):
     return [r for sc, r in scored if sc <= best + 30 or not r.get('start_time')]
 
 
+def link_rsvp_to_volunteer(conn, rsvp):
+    """Sign-ups made without being matched to a volunteer profile (e.g. the
+    public sign-up page with a slightly different email) get matched by
+    email, then phone, then exact name if only one volunteer has it.
+    Returns the volunteer id (and saves the link) or None."""
+    if rsvp.get('volunteer_id'):
+        return rsvp['volunteer_id']
+    em = (rsvp.get('volunteer_email') or '').strip().lower()
+    v = None
+    if em:
+        v = fetchone(conn, "SELECT id FROM volunteers WHERE LOWER(TRIM(email))=%s ORDER BY (status='active') DESC LIMIT 1", (em,))
+    if not v and (rsvp.get('volunteer_phone') or '').strip():
+        digits = ''.join(ch for ch in rsvp['volunteer_phone'] if ch.isdigit())[-10:]
+        if len(digits) == 10:
+            v = fetchone(conn, "SELECT id FROM volunteers WHERE RIGHT(REGEXP_REPLACE(COALESCE(phone,''),'[^0-9]','','g'),10)=%s LIMIT 1", (digits,))
+    if not v and (rsvp.get('volunteer_name') or '').strip():
+        rows = fetchall(conn, "SELECT id FROM volunteers WHERE LOWER(TRIM(name))=%s AND status='active'", ((rsvp['volunteer_name'] or '').strip().lower(),)) or []
+        if len(rows) == 1:
+            v = rows[0]
+    if v:
+        execute(conn, 'UPDATE event_rsvps SET volunteer_id=%s WHERE id=%s', (v['id'], rsvp['id']))
+        conn.commit()
+        return v['id']
+    return None
+
+
 @app.route('/api/house/<fid>/volunteers', methods=['GET'])
 def house_volunteers(fid):
     err = require_permission('house_manager', 'view')
@@ -49033,6 +49061,8 @@ def house_volunteers(fid):
         ids = [e['id'] for e in evs]
         people = []
         if ids:
+            for _r in fetchall(conn, 'SELECT * FROM event_rsvps WHERE event_id = ANY(%s) AND volunteer_id IS NULL', (ids,)) or []:
+                link_rsvp_to_volunteer(conn, _r)
             rows = fetchall(conn, '''SELECT r.id, r.event_id, r.volunteer_id, COALESCE(v.name, r.volunteer_name) AS name,
                     COALESCE(v.phone,'') AS phone, COALESCE(NULLIF(v.email,''), r.volunteer_email, '') AS email, r.role_name, r.status, er.block_time, er.block_time_end, er.sort_order,
                     ks.id AS session_id, EXTRACT(EPOCH FROM (NOW() - ks.started_at)) AS secs_in,
@@ -49120,7 +49150,12 @@ def house_volunteer_action(fid, rid, action):
         if not r:
             return jsonify({'error': 'Sign-up not found'}), 404
         if not r.get('volunteer_id'):
-            return jsonify({'error': 'This person isn\'t linked to a volunteer profile, so hours can\'t be logged. Add them in Volunteers first.'}), 400
+            vid_ = link_rsvp_to_volunteer(conn, r)
+            if vid_:
+                r['volunteer_id'] = vid_
+            else:
+                return jsonify({'error': f'We couldn\'t match "{r.get("volunteer_name") or "this person"}" ({r.get("volunteer_email") or "no email"}) to a volunteer profile, '
+                                         'so hours can\'t be logged. Check that their volunteer profile has the same email they signed up with.'}), 400
         who = session.get('name') or 'House manager'
         if action == 'signin':
             dup = existing_event_credit(conn, r['volunteer_id'], r['event_id'])

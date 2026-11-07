@@ -443,10 +443,26 @@ def init_db():
     # migration that can't get its lock within a few seconds is skipped
     # (each is retried on the next start) instead of hanging the startup,
     # which is what made Railway report "Application failed to respond".
-    conn = psycopg2.connect(
-        DATABASE_URL,
-        options="-c timezone=America/New_York -c lock_timeout=4000 -c statement_timeout=90000"
-    )
+    # If the database is restarting ("in recovery mode", "starting up"),
+    # wait for it instead of crashing the app on deploy: try for ~2 minutes.
+    import time as _time
+    _last = None
+    for _attempt in range(24):
+        try:
+            conn = psycopg2.connect(
+                DATABASE_URL,
+                options="-c timezone=America/New_York -c lock_timeout=4000 -c statement_timeout=90000"
+            )
+            break
+        except psycopg2.OperationalError as e:
+            _last = e
+            msg = str(e)
+            if not any(x in msg for x in ('recovery mode', 'starting up', 'Connection refused', 'could not connect', 'shutting down')):
+                raise
+            print(f'Database not ready yet ({msg.strip().splitlines()[-1][:120]}); retrying in 5s…', flush=True)
+            _time.sleep(5)
+    else:
+        raise _last
     c = conn.cursor()
 
     c.execute('''CREATE TABLE IF NOT EXISTS users (

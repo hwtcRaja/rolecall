@@ -49057,6 +49057,84 @@ def performance_concessions(fid):
         conn.close()
 
 
+@app.route('/api/square/item-usage', methods=['GET'])
+def square_item_usage():
+    """Which Square items with a given name actually sold (and how much)
+    in a date range, so duplicates can be cleaned up safely."""
+    err = _require_ticketing()
+    if err: return err
+    if not SQUARE_ACCESS_TOKEN:
+        return jsonify({'error': 'Square isn\'t connected.'}), 400
+    import datetime as _dti
+    from zoneinfo import ZoneInfo
+    name = (request.args.get('name') or '').strip()
+    if not name:
+        return jsonify({'error': 'Enter an item name'}), 400
+    try:
+        d1 = _dti.date.fromisoformat((request.args.get('from') or today_eastern().isoformat())[:10])
+        d2 = _dti.date.fromisoformat((request.args.get('to') or d1.isoformat())[:10])
+    except Exception:
+        return jsonify({'error': 'Dates must look like 2026-11-07'}), 400
+    # 1) every item with that name (any capitalization), with its variations
+    items, cursor = [], None
+    for _ in range(20):
+        body = {'object_types': ['ITEM'], 'include_related_objects': True, 'limit': 1000,
+                'query': {'text_query': {'keywords': [name]}}}
+        if cursor: body['cursor'] = cursor
+        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/search', json=body, headers=square_headers(), timeout=25)
+        data = r.json()
+        if r.status_code != 200:
+            return jsonify({'error': f'Square catalog search failed: {data}'}), 502
+        cats = {o['id']: (o.get('category_data') or {}).get('name') for o in (data.get('related_objects') or []) if o.get('type') == 'CATEGORY'}
+        for o in data.get('objects') or []:
+            idata = o.get('item_data') or {}
+            if (idata.get('name') or '').strip().lower() != name.lower():
+                continue
+            cid = idata.get('category_id') or (((idata.get('categories') or [{}])[0]) or {}).get('id') or (idata.get('reporting_category') or {}).get('id')
+            items.append({'id': o['id'], 'name': idata.get('name'), 'category': cats.get(cid) or '', 'created_at': (o.get('created_at') or '')[:10],
+                          'updated_at': (o.get('updated_at') or '')[:10], 'deleted': bool(o.get('is_deleted')),
+                          'variations': [{'id': v['id'], 'name': (v.get('item_variation_data') or {}).get('name') or '',
+                                          'price_cents': (((v.get('item_variation_data') or {}).get('price_money') or {}).get('amount'))}
+                                         for v in (idata.get('variations') or [])],
+                          'sold_qty': 0, 'sold_cents': 0, 'sales': 0, 'last_sale': ''})
+        cursor = data.get('cursor')
+        if not cursor:
+            break
+    by_var = {v['id']: it for it in items for v in it['variations']}
+    # 2) orders in the date range (local days), tallied by the variation sold
+    tz = ZoneInfo('America/New_York')
+    start = _dti.datetime.combine(d1, _dti.time(0, 0)).replace(tzinfo=tz).astimezone(ZoneInfo('UTC'))
+    end = _dti.datetime.combine(d2 + _dti.timedelta(days=1), _dti.time(0, 0)).replace(tzinfo=tz).astimezone(ZoneInfo('UTC'))
+    try:
+        orders = _square_pos_orders(start, end) if (d2 - d1).days <= 62 else []
+    except Exception as e:
+        return jsonify({'error': f'Could not read sales from Square: {e}'}), 502
+    unmatched = 0
+    for o in orders:
+        hit_items = set()
+        for li in o.get('line_items') or []:
+            it = by_var.get(li.get('catalog_object_id'))
+            if not it:
+                if (li.get('name') or '').strip().lower() == name.lower() and not li.get('catalog_object_id'):
+                    unmatched += 1
+                continue
+            it['sold_qty'] += float(li.get('quantity') or 1)
+            it['sold_cents'] += int(((li.get('total_money') or {}).get('amount')) or 0)
+            hit_items.add(it['id'])
+            ts = (o.get('closed_at') or o.get('created_at') or '')
+            if ts > it['last_sale']: it['last_sale'] = ts
+        for iid in hit_items:
+            next(i for i in items if i['id'] == iid)['sales'] += 1
+    for it in items:
+        it['sold_qty'] = int(it['sold_qty']) if it['sold_qty'] == int(it['sold_qty']) else it['sold_qty']
+        if it['last_sale']:
+            try: it['last_sale'] = _dti.datetime.fromisoformat(it['last_sale'].replace('Z', '+00:00')).astimezone(tz).strftime('%b %-d, %-I:%M %p')
+            except Exception: pass
+    items.sort(key=lambda i: (-i['sales'], i['created_at']))
+    return jsonify({'name': name, 'from': d1.isoformat(), 'to': d2.isoformat(), 'items': items, 'orders_checked': len(orders),
+                    'custom_amount_lines': unmatched})
+
+
 @app.route('/api/performances/<fid>/cash-box', methods=['PUT'])
 def performance_cash_box(fid):
     err = require_permission('house_manager', 'edit')

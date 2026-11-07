@@ -38274,7 +38274,8 @@ async function loadTicketsTab(pid){
     + menu('tk-night-'+pid, 'Show night', [
         mi('', 'Door scanner', 'Scan tickets at the door (phone or handheld scanner)', '/tickets/scan'),
         mi('', 'House Manager', 'Live check-in, seat map, door sales, volunteers', '/house'),
-        mi("openProductionSales('"+pid+"')", 'Concessions &amp; sales', 'Square sales at each performance: concessions, merch, raffle')])
+        mi("openProductionSales('"+pid+"')", 'Concessions &amp; sales', 'Square sales at each performance: concessions, merch, raffle'),
+        mi("openSquareItemLookup('')", 'Square item lookup', 'Which of several same-named Square items actually sold')])
     + menu('tk-orders-'+pid, 'Orders &amp; email', [
         mi("toggleTicketOrdersPanel('"+pid+"')", 'Orders &amp; patrons', 'Everyone who bought, refunds, resend tickets'),
         mi("openEmailTicketsModal('"+pid+"')", 'Email tickets', 'Resend the tickets email to buyers'),
@@ -38874,6 +38875,36 @@ async function openSeatConflictCheck(codes){
 }
 
 // ── Concessions & show-night sales per performance (from Square) ──
+// ── Square item lookup: which of several same-named items actually sold ──
+async function openSquareItemLookup(name, from, to){
+  var today = new Date(); var iso = today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0')
+  name = name || ''; from = from || iso; to = to || from
+  var form = '<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:12px">'
+    + '<div><label style="font-size:11px">Item name in Square</label><input id="sq-name" value="'+escHtml(name)+'" placeholder="e.g. Donations"/></div>'
+    + '<div><label style="font-size:11px">From</label><input id="sq-from" type="date" value="'+from+'"/></div>'
+    + '<div><label style="font-size:11px">To</label><input id="sq-to" type="date" value="'+to+'"/></div>'
+    + '<button class="btn btn-primary btn-sm" onclick="openSquareItemLookup(document.getElementById(\'sq-name\').value,document.getElementById(\'sq-from\').value,document.getElementById(\'sq-to\').value)">Look up</button></div>'
+  if(!name.trim()){ showAdHocModal('sq-item', 'Square item lookup', form + '<div style="font-size:13px;color:var(--text-muted)">Finds every Square item with this exact name and shows which ones had sales in the dates you pick, so you can delete duplicates safely.</div>', 760); return }
+  showAdHocModal('sq-item', 'Square item lookup', form + '<div style="color:var(--text-muted);font-size:13px">Checking Square…</div>', 760)
+  var r = await api('/api/square/item-usage?name='+encodeURIComponent(name)+'&from='+from+'&to='+to)
+  var m = function(c){ return '$'+((c||0)/100).toFixed(2) }
+  var body
+  if(r.error) body = '<div style="color:#b91c1c">'+escHtml(r.error)+'</div>'
+  else if(!r.items.length) body = '<div style="font-size:13px">No Square items named "'+escHtml(name)+'".</div>'
+  else body = '<div style="font-size:13px;margin-bottom:8px">'+r.items.length+' item'+(r.items.length===1?'':'s')+' named "'+escHtml(r.name)+'" · '+r.orders_checked+' sales checked from '+escHtml(r.from)+(r.to!==r.from?' to '+escHtml(r.to):'')+'</div>'
+    + r.items.map(function(it){
+        var sold = it.sales > 0
+        return '<div class="card" style="padding:10px 12px;margin-bottom:8px;border-left:4px solid '+(sold?'#16a34a':'#cbd5e1')+'">'
+          + '<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><strong>'+escHtml(it.name)+'</strong>'+(it.category?' <span style="color:var(--text-muted)">· '+escHtml(it.category)+'</span>':'')
+          + '<div style="font-size:12px;color:var(--text-muted)">Created '+escHtml(it.created_at||'?')+' · last changed '+escHtml(it.updated_at||'?')+' · '+it.variations.map(function(v){ return escHtml(v.name||'Regular')+(v.price_cents!=null?' '+m(v.price_cents):' (variable price)') }).join(', ')+'</div>'
+          + '<div style="font-size:11px;color:var(--text-hint);font-family:monospace">Square item ID: '+escHtml(it.id)+'</div></div>'
+          + '<div style="text-align:right;white-space:nowrap">'+(sold ? '<div style="font-weight:800;color:#166534">'+it.sales+' sale'+(it.sales===1?'':'s')+' · '+m(it.sold_cents)+'</div><div style="font-size:12px;color:var(--text-muted)">last '+escHtml(it.last_sale)+'</div>' : '<div style="color:var(--text-muted)">No sales in these dates</div>')+'</div></div></div>'
+      }).join('')
+    + (r.custom_amount_lines ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:6px">'+r.custom_amount_lines+' sale line'+(r.custom_amount_lines===1?' was':'s were')+' typed in as a custom amount named "'+escHtml(r.name)+'" (not tied to any item).</div>' : '')
+    + '<div style="font-size:12.5px;color:var(--text-muted);margin-top:8px">Keep the one with sales (green). In the Square Dashboard, open each duplicate under <strong>Items</strong>; the item ID is in the page address, so you can match it to the ID shown here before deleting.</div>'
+  showAdHocModal('sq-item', 'Square item lookup', form + body, 760)
+}
+
 async function openProductionSales(pid){
   showAdHocModal('prod-sales','Concessions & show-night sales','<div style="color:var(--text-muted);font-size:13px">Reading Square…</div>', 760)
   var rows = await api('/api/productions/'+pid+'/concessions')

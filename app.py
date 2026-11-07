@@ -48983,21 +48983,35 @@ def concession_report(conn, perf, start_local=None, end_local=None):
             continue
         pos.append(o)
     cat_map = _square_categories_for([li.get('catalog_object_id') for o in pos for li in (o.get('line_items') or [])])
+    # Only the Square categories chosen for show-night sales (Settings in the
+    # Concessions & sales window). Nothing chosen = everything.
+    try: allowed = set(json.loads(_setting(conn, 'sales_categories') or '[]'))
+    except Exception: allowed = set()
+    def _cat_of(li):
+        nm, cat = cat_map.get(li.get('catalog_object_id'), ('', ''))
+        return nm, cat or ('Custom amounts' if not li.get('catalog_object_id') else 'Uncategorized')
     total = cash = card = other = refunds = 0
+    counted = 0
     cats = {}
     for o in pos:
-        amt = int(((o.get('total_money') or {}).get('amount')) or 0)
-        ref = sum(int(((r.get('amount_money') or {}).get('amount')) or 0) for r in (o.get('refunds') or []))
+        lis = [li for li in (o.get('line_items') or []) if not allowed or _cat_of(li)[1] in allowed]
+        if not lis:
+            continue
+        counted += 1
+        o_total = int(((o.get('total_money') or {}).get('amount')) or 0)
+        mine = sum(int(((li.get('total_money') or {}).get('amount')) or 0) for li in lis)
+        share = (mine / o_total) if (o_total and allowed) else 1.0     # part of a mixed sale
+        amt = mine if allowed else o_total
+        ref = int(round(sum(int(((r.get('amount_money') or {}).get('amount')) or 0) for r in (o.get('refunds') or [])) * share))
         total += amt; refunds += ref
         for t in o.get('tenders') or []:
-            a = int(((t.get('amount_money') or {}).get('amount')) or 0)
+            a = int(round(int(((t.get('amount_money') or {}).get('amount')) or 0) * share))
             if t.get('type') == 'CASH': cash += a
             elif t.get('type') == 'CARD': card += a
             else: other += a
-        for li in o.get('line_items') or []:
-            nm, cat = cat_map.get(li.get('catalog_object_id'), ('', ''))
+        for li in lis:
+            nm, cat = _cat_of(li)
             nm = li.get('name') or nm or 'Custom amount'
-            cat = cat or ('Custom amounts' if not li.get('catalog_object_id') else 'Uncategorized')
             q = float(li.get('quantity') or 1)
             m = int(((li.get('total_money') or {}).get('amount')) or 0)
             c = cats.setdefault(cat, {'name': cat, 'total_cents': 0, 'qty': 0, 'items': {}})
@@ -49015,8 +49029,9 @@ def concession_report(conn, perf, start_local=None, end_local=None):
     if box.get('starting_cash_cents') is not None:
         expected = int(box['starting_cash_cents']) + cash + int(box.get('unrung_cash_cents') or 0)
     return {'window': {'start': w_start.strftime('%Y-%m-%dT%H:%M'), 'end': w_end.strftime('%Y-%m-%dT%H:%M')},
-            'transactions': len(pos), 'total_cents': total, 'refunds_cents': refunds, 'net_cents': total - refunds,
-            'avg_cents': int(total / len(pos)) if pos else 0, 'cash_cents': cash, 'card_cents': card, 'other_cents': other,
+            'categories_filter': sorted(allowed),
+            'transactions': counted, 'total_cents': total, 'refunds_cents': refunds, 'net_cents': total - refunds,
+            'avg_cents': int(total / counted) if counted else 0, 'cash_cents': cash, 'card_cents': card, 'other_cents': other,
             'categories': cat_list,
             'cash_box': {'starting_cash_cents': box.get('starting_cash_cents'), 'ending_cash_cents': box.get('ending_cash_cents'),
                          'unrung_cash_cents': box.get('unrung_cash_cents') or 0, 'notes': box.get('notes') or '',
@@ -49133,6 +49148,37 @@ def square_item_usage():
     items.sort(key=lambda i: (-i['sales'], i['created_at']))
     return jsonify({'name': name, 'from': d1.isoformat(), 'to': d2.isoformat(), 'items': items, 'orders_checked': len(orders),
                     'custom_amount_lines': unmatched})
+
+
+@app.route('/api/square/sales-categories', methods=['GET', 'PUT'])
+def square_sales_categories():
+    """Which Square categories count as show-night sales."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            cats = [c for c in ((request.json or {}).get('categories') or []) if isinstance(c, str)][:60]
+            _set_setting(conn, 'sales_categories', json.dumps(cats)); conn.commit()
+        try: chosen = json.loads(_setting(conn, 'sales_categories') or '[]')
+        except Exception: chosen = []
+    finally:
+        conn.close()
+    names = []
+    if SQUARE_ACCESS_TOKEN:
+        cursor = None
+        for _ in range(10):
+            url = f'{SQUARE_API_BASE}/v2/catalog/list?types=CATEGORY' + (f'&cursor={cursor}' if cursor else '')
+            try:
+                r = requests.get(url, headers=square_headers(), timeout=20); data = r.json()
+            except Exception:
+                break
+            names += [(o.get('category_data') or {}).get('name') for o in (data.get('objects') or []) if not o.get('is_deleted')]
+            cursor = data.get('cursor')
+            if not cursor:
+                break
+    names = sorted({n for n in names if n}, key=str.lower) + ['Uncategorized', 'Custom amounts']
+    return jsonify({'chosen': chosen, 'available': names})
 
 
 @app.route('/api/performances/<fid>/cash-box', methods=['PUT'])

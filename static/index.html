@@ -37592,7 +37592,7 @@ async function renderMarqueeBoxOfficeOrders(){
   }
   function fmtMoney(c){ return c!=null ? '$'+(Math.abs(c)/100).toFixed(2) : '—' }
   function fmtDate(d){ if(!d) return ''; try{ return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) }catch(e){ return String(d).slice(0,10) } }
-  var statusMap = {completed:'background:#dcfce7;color:#166534', pending:'background:#fef3c7;color:#92400e', cancelled:'background:#f1f5f9;color:#475569'}
+  var statusMap = {completed:'background:#dcfce7;color:#166534', pending:'background:#fef3c7;color:#92400e', cancelled:'background:#f1f5f9;color:#475569', seat_conflict:'background:#fee2e2;color:#991b1b'}
   window._mqOrders = {}; orders.forEach(function(o){ window._mqOrders[o.id] = o })
   holder.innerHTML = '<div class="card" style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px">'
     + '<thead><tr style="border-bottom:2px solid var(--border)">'
@@ -38273,11 +38273,13 @@ async function loadTicketsTab(pid){
     + '<div style="font-size:15px;font-weight:700;margin-right:auto">Performances</div>'
     + menu('tk-night-'+pid, 'Show night', [
         mi('', 'Door scanner', 'Scan tickets at the door (phone or handheld scanner)', '/tickets/scan'),
-        mi('', 'House Manager', 'Live check-in, seat map, door sales, volunteers', '/house')])
+        mi('', 'House Manager', 'Live check-in, seat map, door sales, volunteers', '/house'),
+        mi("openProductionSales('"+pid+"')", 'Concessions &amp; sales', 'Square sales at each performance: concessions, merch, raffle')])
     + menu('tk-orders-'+pid, 'Orders &amp; email', [
         mi("toggleTicketOrdersPanel('"+pid+"')", 'Orders &amp; patrons', 'Everyone who bought, refunds, resend tickets'),
         mi("openEmailTicketsModal('"+pid+"')", 'Email tickets', 'Resend the tickets email to buyers'),
-        mi("openAudienceEmailModal('"+pid+"')", 'Email audience', 'Thank-you, survey or news to everyone who came')])
+        mi("openAudienceEmailModal('"+pid+"')", 'Email audience', 'Thank-you, survey or news to everyone who came'),
+        mi("openSeatConflictCheck('')", 'Check for double-booked seats', 'Look up two orders, or scan every show')])
     + menu('tk-setup-'+pid, 'Setup', [
         mi("openProductionTicketTypes('"+pid+"','"+esc_pn+"')", 'Ticket types', 'Adult, Child, prices…'),
         mi("openRushSettings('"+pid+"')", '⚡ Rush tickets', 'Discounted tickets before curtain'),
@@ -38847,6 +38849,58 @@ async function clearSlackTicketWebhook(){
 // ── Email the audience (thank-yous, surveys, anything) ──
 // ── Rush tickets (per production) ──
 var RUSH_DISCLAIMER_DEFAULT = 'Rush tickets are a discounted, last-minute option, available for a limited time and while they last. Seats are assigned from what is left at the time of purchase. We will do our best to seat groups together, but we cannot guarantee it. For the best seats, we recommend buying regular-price tickets in advance. All rush ticket sales are final: no refunds, and no exchanges to another performance.'
+// ── Double-booked seats check (Orders & email ▾) ──
+async function openSeatConflictCheck(codes){
+  var r = await api('/api/ticketing/seat-conflicts' + (codes ? '?codes='+encodeURIComponent(codes) : ''))
+  if(r.error){ toast(r.error,'error'); return }
+  var lk = (r.lookups||[]).map(function(l){
+    if(!l.found) return '<div style="font-size:13px;color:#b91c1c">'+escHtml(l.code)+': not found</div>'
+    return '<div class="card" style="padding:10px 12px;margin-bottom:8px;font-size:13px"><strong>'+escHtml(l.code)+'</strong> · '+escHtml(l.buyer||'')+' ('+escHtml(l.email||'')+') · '+escHtml(l.status)+' · '+escHtml(l.channel)+' · ordered '+escHtml(l.ordered_at)
+      + '<div style="color:var(--text-muted)">'+escHtml(l.show)+' · '+escHtml(l.performance)+'</div>'
+      + '<div style="margin-top:4px">'+l.seats.map(function(x){ return '<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 8px;border-radius:8px;background:var(--bg)">'+escHtml(x.seat_label)+' <span style="color:var(--text-muted)">· '+escHtml(x.section||x.map_section||'no section')+'</span></span>' }).join('')+'</div></div>'
+  }).join('')
+  var dbl = (r.double_booked||[]).map(function(x){ return '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:13px"><strong style="color:#b91c1c">'+escHtml(x.seat_label)+'</strong> · '+escHtml(x.show)+' '+escHtml(x.performance_date)+' · sold '+x.n+' times:<br>'+x.who.map(escHtml).join('<br>')+'</div>' }).join('')
+  var lab = (r.shared_labels||[]).map(function(x){ return '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:13px"><strong>'+escHtml(x.seat_label)+'</strong> · '+escHtml(x.show)+' '+escHtml(x.performance_date)+' · '+x.seats+' different seats with this number ('+x.sections.map(escHtml).join(', ')+'):<br>'+x.who.map(escHtml).join('<br>')+'</div>' }).join('')
+  showAdHocModal('seat-conflicts','Check for double-booked seats',
+    '<div style="display:flex;gap:8px;margin-bottom:12px"><input id="sc-codes" placeholder="Ticket or order codes, e.g. B1CFEEEA, 65BCAF9B" value="'+escHtml(codes||'')+'" style="flex:1"/>'
+    + '<button class="btn btn-primary btn-sm" onclick="openSeatConflictCheck(document.getElementById(\'sc-codes\').value)">Look up</button></div>'
+    + (r.verdict ? '<div style="padding:10px 12px;border-radius:8px;margin-bottom:10px;font-size:13.5px;font-weight:600;background:'+(/real double booking/.test(r.verdict)?'#fee2e2;color:#991b1b':'#ecfeff;color:#155e75')+'">'+escHtml(r.verdict)+'</div>' : '')
+    + lk
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:14px 0 4px">Same seat sold twice</div>'
+    + (dbl || '<div style="font-size:13px;color:#166534">None found.</div>')
+    + '<div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:14px 0 4px">Same number, different seats (upcoming shows)</div>'
+    + (lab || '<div style="font-size:13px;color:#166534">None found.</div>')
+    + (r.unique_rule_on ? '' : '<div style="margin-top:12px;font-size:12.5px;color:#b45309">The database rule that blocks selling one seat twice isn\'t active (usually because a duplicate already existed when it was added). Fix the duplicates above, then redeploy to turn it on.</div>'), 720)
+}
+
+// ── Concessions & show-night sales per performance (from Square) ──
+async function openProductionSales(pid){
+  showAdHocModal('prod-sales','Concessions & show-night sales','<div style="color:var(--text-muted);font-size:13px">Reading Square…</div>', 760)
+  var rows = await api('/api/productions/'+pid+'/concessions')
+  var m = function(c){ return '$'+((c||0)/100).toFixed(2) }
+  var body
+  if(rows && rows.error) body = '<div style="color:#b91c1c">'+escHtml(rows.error)+'</div>'
+  else if(!rows.length) body = '<div style="color:var(--text-muted)">No performances yet.</div>'
+  else {
+    var tot = rows.reduce(function(t,r){ return t + (r.net_cents||0) }, 0)
+    var cats = {}
+    rows.forEach(function(r){ (r.categories||[]).forEach(function(c){ cats[c.name] = (cats[c.name]||0) + c.total_cents }) })
+    body = '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px"><div class="card" style="padding:10px 14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">All performances</div><div style="font-size:22px;font-weight:800">'+m(tot)+'</div></div>'
+      + Object.keys(cats).sort(function(a,b){ return cats[b]-cats[a] }).map(function(k){ return '<div class="card" style="padding:10px 14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">'+escHtml(k)+'</div><div style="font-size:18px;font-weight:800">'+m(cats[k])+'</div></div>' }).join('') + '</div>'
+      + '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase"><th style="padding:6px">Performance</th><th style="padding:6px">By category</th><th style="padding:6px;text-align:right">Cash / card</th><th style="padding:6px;text-align:right">Total</th></tr></thead><tbody>'
+      + rows.map(function(r){
+          if(r.error) return '<tr style="border-top:1px solid var(--border)"><td style="padding:6px">'+escHtml(tkFmtDate(r.date))+'</td><td colspan="3" style="padding:6px;color:#b91c1c">'+escHtml(r.error)+'</td></tr>'
+          return '<tr style="border-top:1px solid var(--border)"><td style="padding:6px;white-space:nowrap">'+escHtml(tkFmtDate(r.date))+(r.time?' · '+escHtml(tkFmtTime(r.time)):'')+'<div style="font-size:11.5px;color:var(--text-muted)">'+r.transactions+' sale'+(r.transactions===1?'':'s')
+            + (r.cash_difference_cents!=null?' · cash box '+(r.cash_difference_cents===0?'<span style="color:#166534">balances</span>':'<span style="color:#b91c1c">'+(r.cash_difference_cents>0?'over ':'short ')+m(Math.abs(r.cash_difference_cents))+'</span>'):'')+'</div></td>'
+            + '<td style="padding:6px">'+(r.categories||[]).map(function(c){ return escHtml(c.name)+' '+m(c.total_cents) }).join(' · ')+'</td>'
+            + '<td style="padding:6px;text-align:right;white-space:nowrap">'+m(r.cash_cents)+' / '+m(r.card_cents)+'</td><td style="padding:6px;text-align:right;font-weight:800">'+m(r.net_cents)+'</td></tr>'
+        }).join('') + '</tbody></table>'
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:10px">Square in-person sales from doors (or 90 minutes before) to 4 hours after curtain, grouped by your Square item categories. Online ticket and registration payments aren\'t included. For item-by-item detail, the cash box, or a different time window, use <strong>Sales</strong> in House Manager.</div>'
+  }
+  var el = document.querySelector('#prod-sales .adhoc-body') || document.getElementById('prod-sales')
+  showAdHocModal('prod-sales','Concessions & show-night sales', body, 760)
+}
+
 async function openRushSettings(pid){
   var r = await api('/api/productions/'+pid+'/rush')
   if(r.error){ toast(r.error,'error'); return }

@@ -73,6 +73,7 @@ select,.inp{background:var(--panel2);color:#fff;border:1.5px solid var(--line);b
   <button class="btn p" onclick="openScanner()">Scan tickets</button>
   <button class="btn g" onclick="openDoorSale()">Sell tickets</button>
   <button class="btn" id="vol-top-btn" onclick="openVolunteers()">Volunteers</button>
+  <button class="btn" onclick="openSales()">Sales</button>
   <button class="btn" onclick="openUsherLink()">Usher scanner link</button>
   <div class="clock" id="clock"></div>
 </div>
@@ -256,7 +257,7 @@ function findRes(){
 // One sale can mix ticket types: pick a type, then tap seats (or use the
 // +/- per type for general seating).
 async function openDoorSale(){
-  OPEN_TICKET = null; VOL_DRAWER = false
+  OPEN_TICKET = null; VOL_DRAWER = false; SALES_DRAWER = false
   var info = await api('/api/house/'+PERF+'/door')
   if(info.error){ alert(info.error); return }
   if(!info.ticket_types.length){ alert('This performance has no ticket types set up. Add them in Ticketing first.'); return }
@@ -386,6 +387,7 @@ async function completeDoorSale(){
 // Volunteers panel from the top bar (same list as the Volunteers tab)
 var VOL_DRAWER = false
 function openVolunteers(){
+  SALES_DRAWER = false
   VOL_DRAWER = true; SELL = null; OPEN_TICKET = null
   drawVolunteers()
 }
@@ -402,6 +404,50 @@ function updateVolTopBtn(){
   var here = VOLS.volunteers.filter(function(v){ return v.status!=='waiting' }).length
   b.textContent = VOLS.volunteers.length ? 'Volunteers '+here+'/'+VOLS.volunteers.length : 'Volunteers'
 }
+// ── Show-night sales from Square (concessions, merch, raffle…) + cash box ──
+var SALES_DRAWER = false, SALES_WIN = null
+function openSales(){ VOL_DRAWER = false; SELL = null; OPEN_TICKET = null; SALES_DRAWER = true; loadSales() }
+async function loadSales(){
+  if(!SALES_DRAWER || !PERF) return
+  var dr = document.getElementById('drawer')
+  if(!dr.innerHTML || dr.dataset.kind !== 'sales'){ dr.innerHTML = '<h2>Sales</h2><div class="empty">Loading from Square…</div>'; dr.dataset.kind = 'sales'; dr.style.display = 'block' }
+  var q = SALES_WIN ? '?start='+encodeURIComponent(SALES_WIN[0])+'&end='+encodeURIComponent(SALES_WIN[1]) : ''
+  var r = await api('/api/performances/'+PERF+'/concessions'+q)
+  if(!SALES_DRAWER) return
+  var m = function(c){ return '$'+((c||0)/100).toFixed(2) }
+  var head = '<div style="display:flex;align-items:center;margin-bottom:10px"><h2 style="flex:1;margin:0">Sales</h2><button class="btn" onclick="loadSales()">↻</button> <button class="btn" onclick="SALES_DRAWER=false;closeDrawer()">✕ Close</button></div>'
+  if(r.error){ dr.innerHTML = head + '<div class="empty">'+esc(r.error)+'</div>'; return }
+  var box = r.cash_box || {}
+  var card = function(k, v, s){ return '<div class="m" style="padding:10px 12px"><div class="k">'+k+'</div><div class="v" style="font-size:22px">'+v+'</div>'+(s?'<div class="s">'+s+'</div>':'')+'</div>' }
+  var h = head
+    + '<div style="font-size:12px;color:var(--muted);margin-bottom:8px">Square in-person sales from <input type="datetime-local" id="sw-s" value="'+r.window.start+'" style="width:auto;padding:3px 6px"/> to <input type="datetime-local" id="sw-e" value="'+r.window.end+'" style="width:auto;padding:3px 6px"/> <button class="btn" style="padding:4px 10px" onclick="SALES_WIN=[document.getElementById(\'sw-s\').value,document.getElementById(\'sw-e\').value];loadSales()">Apply</button></div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px">'
+    + card('Total', m(r.net_cents), r.transactions+' sale'+(r.transactions===1?'':'s')+' · avg '+m(r.avg_cents)+(r.refunds_cents?' · '+m(r.refunds_cents)+' refunded':''))
+    + card('Cash / card', m(r.cash_cents)+' / '+m(r.card_cents), r.other_cents?m(r.other_cents)+' other':'') + '</div>'
+  h += r.categories.length ? r.categories.map(function(c){
+      return '<details style="margin-bottom:8px" open><summary style="cursor:pointer;font-weight:800;display:flex;justify-content:space-between"><span>'+esc(c.name)+' <span style="color:var(--muted);font-weight:500">· '+c.qty+'</span></span><span>'+m(c.total_cents)+'</span></summary>'
+        + c.items.map(function(it){ return '<div style="display:flex;justify-content:space-between;font-size:13px;padding:3px 0 3px 12px;border-bottom:1px solid var(--line)"><span>'+esc(it.name)+' × '+it.qty+'</span><span>'+m(it.total_cents)+'</span></div>' }).join('') + '</details>'
+    }).join('') : '<div class="empty">No Square sales in this window yet.</div>'
+  // cash box
+  var v = function(c){ return c==null ? '' : (c/100).toFixed(2) }
+  h += '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)"><div style="font-weight:800;margin-bottom:6px">Cash box</div>'
+    + '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px">'
+    + '<div><div class="k">Starting cash</div><input class="inp" id="cb-start" inputmode="decimal" value="'+v(box.starting_cash_cents)+'" style="width:100%"/></div>'
+    + '<div><div class="k">Cash not rung up</div><input class="inp" id="cb-unrung" inputmode="decimal" value="'+(box.unrung_cash_cents?v(box.unrung_cash_cents):'')+'" style="width:100%"/></div>'
+    + '<div><div class="k">Ending cash</div><input class="inp" id="cb-end" inputmode="decimal" value="'+v(box.ending_cash_cents)+'" style="width:100%"/></div></div>'
+    + '<input class="inp" id="cb-notes" placeholder="Notes (e.g. $20 in petty cash for ice)" value="'+esc(box.notes||'')+'" style="width:100%;margin-top:6px"/>'
+    + (box.expected_cents!=null ? '<div style="margin-top:8px;font-size:13px">Expected in the box: <strong>'+m(box.expected_cents)+'</strong> (start + Square cash + not rung up)'
+        + (box.difference_cents!=null ? ' · <strong style="color:'+(box.difference_cents===0?'var(--in)':'var(--bad)')+'">'+(box.difference_cents===0?'balances ✓':(box.difference_cents>0?'over ':'short ')+m(Math.abs(box.difference_cents)))+'</strong>' : '')+'</div>' : '')
+    + '<button class="btn g" style="margin-top:8px" onclick="saveCashBox()">Save cash box</button>'
+    + (box.updated_by ? '<span style="font-size:12px;color:var(--muted);margin-left:8px">last saved by '+esc(box.updated_by)+'</span>' : '') + '</div>'
+  dr.innerHTML = h; dr.dataset.kind = 'sales'; dr.style.display = 'block'
+}
+async function saveCashBox(){
+  var g = function(id){ return document.getElementById(id).value }
+  var r = await api('/api/performances/'+PERF+'/cash-box','PUT',{starting: g('cb-start'), ending: g('cb-end'), unrung: g('cb-unrung'), notes: g('cb-notes')})
+  if(r.error){ alert(r.error); return }
+  loadSales()
+}
 async function linkVolEvent(eid){
   var r = await api('/api/house/'+PERF+'/volunteer-event', 'PUT', {event_ids: [eid]})
   if(r.error){ alert(r.error); return }
@@ -415,7 +461,7 @@ async function volAct(rid, action){
   render(); drawVolunteers()
 }
 async function openTicket(id, quiet){
-  if(!quiet) VOL_DRAWER = false
+  if(!quiet){ VOL_DRAWER = false; SALES_DRAWER = false }
   OPEN_TICKET = id
   var t = await api('/api/house/ticket/'+id)
   if(t.error){ if(!quiet) alert(t.error); return }
@@ -441,7 +487,7 @@ async function openTicket(id, quiet){
   dr.style.display = 'block'
   if(!quiet && DATA) render()
 }
-function closeDrawer(){ OPEN_TICKET = null; var d = document.getElementById('drawer'); if(d) d.style.display = 'none'; if(DATA) render() }
+function closeDrawer(){ OPEN_TICKET = null; SALES_DRAWER = false; var d = document.getElementById('drawer'); if(d){ d.style.display = 'none'; delete d.dataset.kind } if(DATA) render() }
 async function toggleIn(id, isIn){
   var r = await api('/api/door/checkin-ticket','POST',{ticket_id:id, undo:!!isIn})
   if(r.error){ alert(r.error); return }

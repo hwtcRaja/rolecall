@@ -48816,6 +48816,7 @@ def house_manager_data(fid):
                     s['ticket_id'] = t['id']; s['who'] = t['guardian_name']
                 elif s['id'] in blocks:
                     s['status'] = 'held'; s['who'] = blocks[s['id']]['holder_name']
+                    s['volunteer'] = (blocks[s['id']]['holder_name'] or '').startswith('Volunteer:')
                 elif s['id'] in carts:
                     s['status'] = 'cart'
                 else:
@@ -48912,24 +48913,52 @@ def _square_pos_orders(start_utc, end_utc):
 
 
 def _square_categories_for(variation_ids):
-    """variation id -> (item name, category name)."""
+    """variation id -> (item name, category name).
+
+    Square only returns objects one step away: retrieving a variation
+    brings back its item, but not the item's category. So: variations ->
+    items, then look up the categories those items point to."""
     res = {}
     ids = [v for v in set(variation_ids) if v]
     if not ids:
         return res
-    for i in range(0, len(ids), 900):
-        r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/batch-retrieve', json={'object_ids': ids[i:i + 900], 'include_related_objects': True},
-                          headers=square_headers(), timeout=25)
-        data = r.json() if r.status_code == 200 else {}
-        items = {o['id']: o for o in (data.get('related_objects') or []) if o.get('type') == 'ITEM'}
-        cats = {o['id']: (o.get('category_data') or {}).get('name') for o in (data.get('related_objects') or []) if o.get('type') == 'CATEGORY'}
-        for o in data.get('objects') or []:
-            if o.get('type') != 'ITEM_VARIATION':
-                continue
-            it = items.get((o.get('item_variation_data') or {}).get('item_id')) or {}
-            idata = it.get('item_data') or {}
-            cid = idata.get('category_id') or (((idata.get('categories') or [{}])[0]) or {}).get('id') or (idata.get('reporting_category') or {}).get('id')
-            res[o['id']] = (idata.get('name') or '', cats.get(cid) or '')
+    def _batch(object_ids, related):
+        out_objs, out_rel = [], []
+        for i in range(0, len(object_ids), 900):
+            r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/batch-retrieve',
+                              json={'object_ids': object_ids[i:i + 900], 'include_related_objects': related},
+                              headers=square_headers(), timeout=25)
+            data = r.json() if r.status_code == 200 else {}
+            out_objs += data.get('objects') or []
+            out_rel += data.get('related_objects') or []
+        return out_objs, out_rel
+    objs, rel = _batch(ids, True)
+    items = {o['id']: o for o in rel + objs if o.get('type') == 'ITEM'}
+    cats = {o['id']: (o.get('category_data') or {}).get('name') for o in rel + objs if o.get('type') == 'CATEGORY'}
+
+    def _cat_ids(idata):
+        # newer items list categories (and a "reporting" one); older ones have category_id
+        out = []
+        if (idata.get('reporting_category') or {}).get('id'):
+            out.append(idata['reporting_category']['id'])
+        out += [c.get('id') for c in (idata.get('categories') or []) if c.get('id')]
+        if idata.get('category_id'):
+            out.append(idata['category_id'])
+        return out
+
+    need = sorted({cid for it in items.values() for cid in _cat_ids(it.get('item_data') or {}) if cid not in cats})
+    if need:
+        cobjs, _ = _batch(need, False)
+        for o in cobjs:
+            if o.get('type') == 'CATEGORY':
+                cats[o['id']] = (o.get('category_data') or {}).get('name')
+    for o in objs:
+        if o.get('type') != 'ITEM_VARIATION':
+            continue
+        it = items.get((o.get('item_variation_data') or {}).get('item_id')) or {}
+        idata = it.get('item_data') or {}
+        name = next((cats[c] for c in _cat_ids(idata) if cats.get(c)), '')
+        res[o['id']] = (idata.get('name') or '', name)
     return res
 
 
@@ -49105,7 +49134,7 @@ def square_item_usage():
             idata = o.get('item_data') or {}
             if (idata.get('name') or '').strip().lower() != name.lower():
                 continue
-            cid = idata.get('category_id') or (((idata.get('categories') or [{}])[0]) or {}).get('id') or (idata.get('reporting_category') or {}).get('id')
+            cid = (idata.get('reporting_category') or {}).get('id') or (((idata.get('categories') or [{}])[0]) or {}).get('id') or idata.get('category_id')
             items.append({'id': o['id'], 'name': idata.get('name'), 'category': cats.get(cid) or '', 'created_at': (o.get('created_at') or '')[:10],
                           'updated_at': (o.get('updated_at') or '')[:10], 'deleted': bool(o.get('is_deleted')),
                           'variations': [{'id': v['id'], 'name': (v.get('item_variation_data') or {}).get('name') or '',
@@ -49223,6 +49252,134 @@ def production_concessions(pid):
             except Exception as e:
                 out.append({'id': pf['id'], 'date': str(pf['performance_date'])[:10], 'time': pf.get('performance_time') or '', 'error': str(e)[:160]})
         return jsonify(out)
+    finally:
+        conn.close()
+
+
+# ── House Manager: move a party to other seats; hold seats for volunteers ──
+def _seat_taken_reason(conn, fid, seat_id, ignore_ticket_ids=()):
+    t = fetchone(conn, '''SELECT t.id, o.guardian_name FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+        WHERE t.performance_id=%s AND t.seat_id=%s AND o.status NOT IN ('refunded','cancelled')''', (fid, seat_id))
+    if t and t['id'] not in ignore_ticket_ids:
+        return 'sold to ' + (t.get('guardian_name') or 'someone')
+    h = fetchone(conn, 'SELECT 1 AS x FROM seat_holds WHERE performance_id=%s AND seat_id=%s AND expires_at > NOW()', (fid, seat_id))
+    if h:
+        return 'in someone\'s cart right now'
+    return None
+
+
+@app.route('/api/house/<fid>/move-seats', methods=['POST'])
+def house_move_seats(fid):
+    """moves: [{ticket_id, to_seat_id}]. Check-in status and QR codes stay
+    the same; only the seat changes. Optionally email the buyer."""
+    err = require_permission('house_manager', 'edit')
+    if err: return err
+    d = request.json or {}
+    moves = [m for m in (d.get('moves') or []) if m.get('ticket_id') and m.get('to_seat_id')]
+    if not moves:
+        return jsonify({'error': 'Pick the new seats first.'}), 400
+    if len({m['to_seat_id'] for m in moves}) != len(moves):
+        return jsonify({'error': 'Pick a different seat for each ticket.'}), 400
+    conn = get_db()
+    try:
+        perf = fetchone(conn, 'SELECT * FROM performances WHERE id=%s', (fid,))
+        if not perf or not perf.get('seat_map_id'):
+            return jsonify({'error': 'This performance has no seat map.'}), 400
+        _clear_expired_holds(conn, fid)
+        moving = [m['ticket_id'] for m in moves]
+        tix = {t['id']: t for t in (fetchall(conn, 'SELECT * FROM tickets WHERE id = ANY(%s) AND performance_id=%s', (moving, fid)) or [])}
+        if len(tix) != len(moves):
+            return jsonify({'error': 'Some of those tickets aren\'t for this performance.'}), 400
+        blocks = active_seat_blocks(conn, fid)
+        targets = {}
+        for m in moves:
+            st = fetchone(conn, 'SELECT * FROM seat_map_seats WHERE id=%s AND seat_map_id=%s', (m['to_seat_id'], perf['seat_map_id']))
+            if not st:
+                return jsonify({'error': 'That seat isn\'t on this seat map.'}), 400
+            why = _seat_taken_reason(conn, fid, st['id'], ignore_ticket_ids=moving)
+            if why:
+                return jsonify({'error': f'{st["seat_label"]} is {why}. Pick another seat.'}), 409
+            if st['id'] in blocks and not d.get('use_held'):
+                return jsonify({'error': f'{st["seat_label"]} is held ({blocks[st["id"]]["holder_name"]}). Use it anyway?', 'held': True}), 409
+            targets[m['ticket_id']] = st
+        who = session.get('name') or 'House manager'
+        changes = []
+        # free the old seats first so swaps within the party work
+        execute(conn, 'UPDATE tickets SET seat_id=NULL WHERE id = ANY(%s)', (moving,))
+        for tid, st in targets.items():
+            old = tix[tid]
+            execute(conn, '''UPDATE tickets SET seat_id=%s, seat_label=%s, section=%s, obstructed_view=%s, view_note=%s WHERE id=%s''',
+                    (st['id'], st['seat_label'], st.get('section') or '', bool(st.get('obstructed_view')), st.get('view_note') or '', tid))
+            execute(conn, 'DELETE FROM performance_seat_blocks WHERE performance_id=%s AND seat_id=%s', (fid, st['id']))
+            changes.append({'ticket_id': tid, 'order_id': old['ticket_order_id'], 'from': old.get('seat_label') or '', 'to': st['seat_label']})
+        # keep each order's seat list in step
+        for oid in {c['order_id'] for c in changes}:
+            o = fetchone(conn, 'SELECT seats_json, notes FROM ticket_orders WHERE id=%s', (oid,))
+            try: items = json.loads(o.get('seats_json') or '[]')
+            except Exception: items = []
+            cur = {t_['seat_label']: t_ for t_ in (fetchall(conn, 'SELECT seat_id, seat_label, section FROM tickets WHERE ticket_order_id=%s', (oid,)) or [])}
+            for c in [c for c in changes if c['order_id'] == oid]:
+                for it in items:
+                    if it.get('seat_label') == c['from']:
+                        it['seat_label'] = c['to']; it['seat_id'] = targets[c['ticket_id']]['id']; it['section'] = targets[c['ticket_id']].get('section') or ''
+                        break
+            note = ' · Moved by ' + who + ': ' + ', '.join(f'{c["from"]}→{c["to"]}' for c in changes if c['order_id'] == oid)
+            execute(conn, 'UPDATE ticket_orders SET seats_json=%s, notes=COALESCE(notes,\'\') || %s WHERE id=%s', (json.dumps(items), note, oid))
+        conn.commit()
+        emailed = 0
+        if d.get('notify'):
+            for oid in {c['order_id'] for c in changes}:
+                try:
+                    ctx = ticket_order_context(conn, oid)
+                    to = (ctx['order'].get('guardian_email') or '').strip()
+                    if not to:
+                        continue
+                    lines = ''.join(f'<li>{_h(c["from"])} &rarr; <strong>{_h(c["to"])}</strong></li>' for c in changes if c['order_id'] == oid)
+                    show = ctx['prod'].get('share_name') or ctx['prod'].get('name') or 'the show'
+                    html = (f'<p>Hi {_h((ctx["order"].get("guardian_name") or "").split(" ")[0] or "there")},</p>'
+                            f'<p>Your seats for <strong>{_h(show)}</strong> have been changed:</p><ul>{lines}</ul>'
+                            '<p>Your tickets and QR codes still work; they now show your new seats.</p>'
+                            f'<p style="margin:20px 0"><a href="{APP_BASE_URL.rstrip("/")}/t/{ctx["token"]}" style="background:#16728b;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:700">View my tickets</a></p>')
+                    send_email([to], f'Your new seats for {show}', build_hwtc_email_html('Your seats have changed', html), source='seat_move')
+                    emailed += 1
+                except Exception as e:
+                    app.logger.warning(f'seat move email failed: {e}')
+        return jsonify({'ok': True, 'moved': changes, 'emailed': emailed})
+    finally:
+        conn.close()
+
+
+@app.route('/api/house/<fid>/volunteer-seats', methods=['POST', 'DELETE'])
+def house_volunteer_seats(fid):
+    """Hold unsold seats for ushers/volunteers to sit in tonight (or release)."""
+    err = require_permission('house_manager', 'edit')
+    if err: return err
+    d = request.json or {}
+    ids = [x for x in (d.get('seat_ids') or []) if x]
+    if not ids:
+        return jsonify({'error': 'Pick the seats first.'}), 400
+    conn = get_db()
+    try:
+        if request.method == 'DELETE':
+            execute(conn, "DELETE FROM performance_seat_blocks WHERE performance_id=%s AND seat_id = ANY(%s) AND holder_name LIKE 'Volunteer:%%'", (fid, ids))
+            conn.commit()
+            return jsonify({'ok': True})
+        name = (d.get('name') or '').strip()[:120] or 'Volunteer'
+        _clear_expired_holds(conn, fid)
+        held, skipped = [], []
+        for sid in ids:
+            st = fetchone(conn, 'SELECT seat_label FROM seat_map_seats WHERE id=%s', (sid,)) or {}
+            why = _seat_taken_reason(conn, fid, sid)
+            if why:
+                skipped.append(f'{st.get("seat_label") or "?"} ({why})'); continue
+            execute(conn, '''INSERT INTO performance_seat_blocks (id, performance_id, seat_id, holder_name, note, hold_until, created_by)
+                VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (performance_id, seat_id) DO UPDATE SET holder_name=EXCLUDED.holder_name,
+                note=EXCLUDED.note, hold_until=EXCLUDED.hold_until''',
+                (str(uuid.uuid4()), fid, sid, 'Volunteer: ' + name, (d.get('note') or '').strip()[:200], today_eastern().isoformat(),
+                 session.get('name') or 'House manager'))
+            held.append(st.get('seat_label') or sid)
+        conn.commit()
+        return jsonify({'ok': True, 'held': held, 'skipped': skipped})
     finally:
         conn.close()
 

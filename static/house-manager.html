@@ -74,6 +74,7 @@ select,.inp{background:var(--panel2);color:#fff;border:1.5px solid var(--line);b
   <button class="btn g" onclick="openDoorSale()">Sell tickets</button>
   <button class="btn" id="vol-top-btn" onclick="openVolunteers()">Volunteers</button>
   <button class="btn" onclick="openSales()">Sales</button>
+  <button class="btn" onclick="startVolSeats()" title="Hold unsold seats for ushers and volunteers">Seat volunteers</button>
   <button class="btn" onclick="openUsherLink()">Usher scanner link</button>
   <div class="clock" id="clock"></div>
 </div>
@@ -118,6 +119,12 @@ async function tick(){
   if(d.error){ if(!DATA) document.getElementById('root').innerHTML = '<div class="empty" style="padding:30px 18px">'+esc(d.error)+'</div>'; return }
   DATA = d; render()
   if(OPEN_TICKET) openTicket(OPEN_TICKET, true)
+  if(PICK){
+    // keep the picker live: drop picked seats that just got taken
+    (d.seats||[]).forEach(function(s){ if(PICK.seats[s.id] && s.status !== 'open' && !(PICK.mode==='move' && s.status==='held')) delete PICK.seats[s.id] })
+    var ae2 = document.activeElement
+    if(!(ae2 && ae2.closest && ae2.closest('#drawer') && ae2.tagName === 'INPUT')) drawPick()
+  }
   if(SELL && SELL.info && SELL.info.reserved){
     // drop picked seats someone else just bought
     (d.seats||[]).forEach(function(s){ if(SELL.seats[s.id] && s.status !== 'open') delete SELL.seats[s.id] })
@@ -482,13 +489,117 @@ async function openTicket(id, quiet){
         + '</div><div style="font-size:11.5px;color:var(--muted);margin-top:4px">Tap a seat to check it in or undo.</div>' : '')
     + '<div style="margin-top:16px;display:flex;gap:8px;flex-wrap:wrap">'
     + (t.tickets_url?'<a class="btn" href="'+esc(t.tickets_url)+'" target="_blank">Show their tickets</a>':'')
-    + '<button class="btn" onclick="resend(\''+t.order_id+'\',\''+esc(t.guardian_email||'').replace(/'/g,"\\'")+'\')">Resend tickets email</button></div>'
+    + '<button class="btn" onclick="resend(\''+t.order_id+'\',\''+esc(t.guardian_email||'').replace(/'/g,"\\'")+'\')">Resend tickets email</button>'
+    + (t.seat_label && DATA && (DATA.seats||[]).length ? '<button class="btn" onclick="startMove(\''+t.id+'\')">Move seats</button>' : '') + '</div>'
     + '<div style="margin-top:18px;font-size:13px;font-weight:700">Scan history</div>'
     + (t.scans.length ? t.scans.map(function(s){ return '<div class="kv"><span>'+esc(lab[s.result]||s.result)+'</span><span style="color:#fff">'+ago(s.ago_s)+(s.scanned_by?' · '+esc(s.scanned_by):'')+'</span></div>' }).join('') : '<div class="empty">Not scanned yet.</div>')
   dr.style.display = 'block'
   if(!quiet && DATA) render()
 }
-function closeDrawer(){ OPEN_TICKET = null; SALES_DRAWER = false; var d = document.getElementById('drawer'); if(d){ d.style.display = 'none'; delete d.dataset.kind } if(DATA) render() }
+// ── Pick seats on a map: move a party, or seat volunteers ──
+// PICK = {mode:'move'|'vol', need, tickets:[{id,label}], seats:{id:label}, zoom, name, notify}
+var PICK = null
+function pickMapSVG(){
+  var seats = (DATA && DATA.seats) || []
+  if(!seats.length) return '<div class="empty">Seat map not loaded yet.</div>'
+  var xs = seats.map(function(s){ return +s.x }), ys = seats.map(function(s){ return +s.y })
+  var minX=Math.min.apply(null,xs)-1, maxX=Math.max.apply(null,xs)+1, minY=Math.min.apply(null,ys)-1, maxY=Math.max.apply(null,ys)+1
+  var col = {'in':'var(--sold)', sold:'var(--sold)', open:'var(--open)', held:'var(--held)', cart:'var(--cart)'}
+  var moving = {}; (PICK.tickets||[]).forEach(function(t){ moving[t.id] = 1 })
+  var svg = '<svg viewBox="'+minX+' '+minY+' '+(maxX-minX)+' '+(maxY-minY)+'" style="width:'+Math.round(100*PICK.zoom)+'%;display:block" preserveAspectRatio="xMidYMid meet">'
+  seats.forEach(function(s){
+    var mine = PICK.seats[s.id], own = s.ticket_id && moving[s.ticket_id]
+    var ok = s.status==='open' || (PICK.mode==='move' && s.status==='held' && !s.volunteer) || own
+    var lab = esc(s.seat_label||'').replace(/'/g,"\\'")
+    svg += '<g'+(ok||mine?' onclick="pickToggle(\''+s.id+'\',\''+lab+'\')" style="cursor:pointer"':'')+'>'
+      + '<circle cx="'+s.x+'" cy="'+s.y+'" r="0.44" fill="'+(mine?'var(--gold)':own?'#a78bfa':col[s.status]||'var(--sold)')+'" opacity="'+(ok||mine?1:0.4)+'"'+(s.volunteer?' stroke="#a78bfa" stroke-width="0.1"':'')+'/>'
+      + (PICK.zoom >= 2 ? '<text x="'+s.x+'" y="'+(+s.y+0.13)+'" font-size="0.32" text-anchor="middle" fill="#fff" style="pointer-events:none">'+esc(s.seat_label||'')+'</text>' : '')
+      + '<title>'+esc(s.seat_label||'')+(s.who?' — '+esc(s.who):'')+'</title></g>'
+  })
+  return '<div class="pick-map" style="overflow:auto;max-height:46vh;border:1px solid var(--line);border-radius:10px;background:#0b1d23;padding:6px;-webkit-overflow-scrolling:touch">'+svg+'</svg></div>'
+}
+function pickToggle(id, label){
+  if(PICK.seats[id]) delete PICK.seats[id]
+  else {
+    if(PICK.mode==='move' && Object.keys(PICK.seats).length >= PICK.need){ alert('You\'ve picked '+PICK.need+' seat'+(PICK.need===1?'':'s')+'. Tap one to unpick it first.'); return }
+    PICK.seats[id] = label
+  }
+  drawPick()
+}
+function pickZoom(z){ PICK.zoom = Math.max(1, Math.min(4, z)); drawPick() }
+function drawPick(){
+  var dr = document.getElementById('drawer'), keep = dr.scrollTop
+  var box = document.querySelector('#drawer .pick-map'); var ms = box ? [box.scrollLeft, box.scrollTop] : null
+  var picked = Object.keys(PICK.seats).map(function(k){ return PICK.seats[k] })
+  var h = '<div style="display:flex;align-items:center;margin-bottom:10px"><h2 style="flex:1;margin:0">'+(PICK.mode==='move'?'Move seats':'Seat volunteers')+'</h2><button class="btn" onclick="PICK=null;closeDrawer()">✕ Cancel</button></div>'
+  if(PICK.mode==='move'){
+    h += '<div style="font-size:13px;color:var(--muted);margin-bottom:6px">Moving <strong style="color:#fff">'+esc(PICK.who)+'</strong>: '
+      + PICK.tickets.map(function(t){ return '<label style="display:inline-flex;gap:4px;align-items:center;margin-right:8px"><input type="checkbox" '+(t.on?'checked':'')+' onchange="pickTicketOn(\''+t.id+'\',this.checked)"/>'+esc(t.label)+'</label>' }).join('')+'</div>'
+      + '<div style="font-size:13px;margin-bottom:8px">Tap <strong>'+PICK.need+'</strong> open seat'+(PICK.need===1?'':'s')+' (blue). Picked: <strong style="color:var(--gold)">'+(picked.join(', ')||'none yet')+'</strong></div>'
+  } else {
+    var names = (VOLS && VOLS.volunteers ? VOLS.volunteers : []).map(function(v){ return v.name })
+    h += '<div style="font-size:13px;color:var(--muted);margin-bottom:6px">Tap open seats (blue) to hold them tonight for ushers and volunteers. Held seats can\'t be sold online or at the door.</div>'
+      + '<input class="inp" id="pk-name" list="pk-names" placeholder="Who (optional), e.g. Ushers or a name" value="'+esc(PICK.name||'')+'" oninput="PICK.name=this.value" style="width:100%;margin-bottom:8px"/>'
+      + '<datalist id="pk-names">'+names.map(function(n){ return '<option value="'+esc(n)+'">' }).join('')+'</datalist>'
+      + '<div style="font-size:13px;margin-bottom:8px">Picked: <strong style="color:var(--gold)">'+(picked.join(', ')||'none yet')+'</strong></div>'
+  }
+  h += '<div style="display:flex;gap:6px;margin-bottom:6px"><button class="btn" onclick="pickZoom(PICK.zoom-0.5)">−</button><button class="btn" onclick="pickZoom(PICK.zoom+0.5)">+</button>'
+    + '<span style="font-size:12px;color:var(--muted);align-self:center">Zoom in to see seat numbers'+(PICK.mode==='move'?' · purple = their current seats':'')+'</span></div>'
+    + pickMapSVG()
+  if(PICK.mode==='move'){
+    h += '<label style="display:flex;gap:8px;align-items:center;margin:12px 0;font-size:14px"><input type="checkbox" '+(PICK.notify?'checked':'')+' onchange="PICK.notify=this.checked"/> Email them their new seats</label>'
+      + '<button class="btn g" style="width:100%;padding:14px" '+(picked.length===PICK.need&&PICK.need?'':'disabled')+' onclick="doMove()">Move '+PICK.need+' seat'+(PICK.need===1?'':'s')+'</button>'
+  } else {
+    h += '<button class="btn g" style="width:100%;padding:14px;margin-top:12px" '+(picked.length?'':'disabled')+' onclick="doVolHold()">Hold '+picked.length+' seat'+(picked.length===1?'':'s')+' for volunteers</button>'
+    var mine = (DATA.seats||[]).filter(function(s){ return s.volunteer })
+    if(mine.length) h += '<div style="margin-top:16px;font-weight:800">Held for volunteers tonight</div>'
+      + mine.map(function(s){ return '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:13px"><span>'+esc(s.seat_label)+' · '+esc((s.who||'').replace(/^Volunteer:\s*/,''))+'</span><button class="btn" style="padding:4px 10px" onclick="releaseVolSeat(\''+s.id+'\')">Release</button></div>' }).join('')
+  }
+  dr.innerHTML = h; dr.dataset.kind = 'pick'; dr.style.display = 'block'; dr.scrollTop = keep
+  if(ms){ var nb = document.querySelector('#drawer .pick-map'); if(nb){ nb.scrollLeft = ms[0]; nb.scrollTop = ms[1] } }
+}
+function pickTicketOn(id, on){
+  PICK.tickets.forEach(function(t){ if(t.id===id) t.on = on })
+  PICK.need = PICK.tickets.filter(function(t){ return t.on }).length
+  var keys = Object.keys(PICK.seats); while(keys.length > PICK.need){ delete PICK.seats[keys.pop()] }
+  drawPick()
+}
+async function startMove(ticketId){
+  var t = await api('/api/house/ticket/'+ticketId)
+  if(t.error){ alert(t.error); return }
+  var party = (t.party && t.party.length ? t.party : [{id: t.id, seat_label: t.seat_label}])
+  OPEN_TICKET = null; VOL_DRAWER = false; SALES_DRAWER = false; SELL = null
+  PICK = {mode:'move', who: t.guardian_name || 'Guest', tickets: party.map(function(p){ return {id:p.id, label:p.seat_label||'GA', on:true} }), seats:{}, zoom:1.5, notify:true}
+  PICK.need = PICK.tickets.length
+  drawPick()
+}
+function startVolSeats(){
+  OPEN_TICKET = null; VOL_DRAWER = false; SALES_DRAWER = false; SELL = null
+  PICK = {mode:'vol', seats:{}, zoom:1.5, name:''}
+  drawPick()
+}
+async function doMove(){
+  var on = PICK.tickets.filter(function(t){ return t.on }), to = Object.keys(PICK.seats)
+  var body = {moves: on.map(function(t, i){ return {ticket_id: t.id, to_seat_id: to[i]} }), notify: PICK.notify}
+  var r = await api('/api/house/'+PERF+'/move-seats','POST', body)
+  if(r.held && confirm(r.error)){ body.use_held = true; r = await api('/api/house/'+PERF+'/move-seats','POST', body) }
+  if(r.error){ alert(r.error); return }
+  alert('Moved: '+r.moved.map(function(c){ return c.from+' → '+c.to }).join(', ')+(r.emailed?'\nThey were emailed their new seats.':''))
+  PICK = null; closeDrawer(); tick()
+}
+async function doVolHold(){
+  var r = await api('/api/house/'+PERF+'/volunteer-seats','POST',{seat_ids: Object.keys(PICK.seats), name: PICK.name})
+  if(r.error){ alert(r.error); return }
+  if(r.skipped && r.skipped.length) alert('Held '+r.held.length+'. Skipped: '+r.skipped.join(', '))
+  PICK.seats = {}; await tick(); drawPick()
+}
+async function releaseVolSeat(id){
+  var r = await api('/api/house/'+PERF+'/volunteer-seats','DELETE',{seat_ids:[id]})
+  if(r.error){ alert(r.error); return }
+  await tick(); if(PICK) drawPick()
+}
+
+function closeDrawer(){ OPEN_TICKET = null; SALES_DRAWER = false; PICK = null; var d = document.getElementById('drawer'); if(d){ d.style.display = 'none'; delete d.dataset.kind } if(DATA) render() }
 async function toggleIn(id, isIn){
   var r = await api('/api/door/checkin-ticket','POST',{ticket_id:id, undo:!!isIn})
   if(r.error){ alert(r.error); return }

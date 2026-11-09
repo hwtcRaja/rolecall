@@ -35230,6 +35230,66 @@ def oncall_coverage_alerts():
         conn.close()
 
 
+@app.route('/api/oncall/balance', methods=['GET'])
+def oncall_balance():
+    """How often each person has been (and will be) on call, so the load
+    stays fair: days covered and weeks taken, in the past year and in the
+    weeks already booked ahead. Board members with no turns are listed too."""
+    err = require_permission('oncall', 'view')
+    if err: return err
+    import datetime as _db
+    months = max(1, min(24, int(request.args.get('months') or 12)))
+    conn = get_db()
+    try:
+        today = today_eastern()
+        since = today - _db.timedelta(days=int(months * 30.4))
+        rows = fetchall(conn, "SELECT * FROM on_call_schedule WHERE COALESCE(person_name,'') <> '' AND end_date >= %s", (since.isoformat(),)) or []
+        closures = fetchall(conn, 'SELECT start_date, end_date FROM oncall_closures') or []
+        closed = set()
+        for c in closures:
+            d = _db.date.fromisoformat(str(c['start_date'])[:10]); e = _db.date.fromisoformat(str(c['end_date'])[:10])
+            while d <= e:
+                closed.add(d); d += _db.timedelta(days=1)
+        members = fetchall(conn, "SELECT id, name, role FROM board_members WHERE COALESCE(status,'active')='active' ORDER BY name") or []
+        people = {}
+        def bucket(name):
+            k = name.strip().lower()
+            if k not in people:
+                bm = next((m for m in members if m['name'].strip().lower() == k), None)
+                people[k] = {'name': bm['name'] if bm else name.strip(), 'board': bool(bm), 'role': (bm or {}).get('role') or '',
+                             'past_days': 0, 'past_weeks': 0, 'ahead_days': 0, 'ahead_weeks': 0, 'last': '', 'next': ''}
+            return people[k]
+        for m in members:
+            bucket(m['name'])
+        for r in rows:
+            p = bucket(r['person_name'])
+            try: dows = set(json.loads(r.get('days_of_week') or '[0,1,2,3,4,5,6]') or range(7))
+            except Exception: dows = set(range(7))
+            d = max(_db.date.fromisoformat(str(r['start_date'])[:10]), since)
+            e = _db.date.fromisoformat(str(r['end_date'])[:10])
+            past = ahead = 0
+            while d <= e:
+                if d.weekday() in dows and d not in closed:
+                    if d < today: past += 1
+                    else: ahead += 1
+                d += _db.timedelta(days=1)
+            p['past_days'] += past; p['ahead_days'] += ahead
+            sd, ed = str(r['start_date'])[:10], str(r['end_date'])[:10]
+            if past:
+                p['past_weeks'] += 1
+                p['last'] = max(p['last'], min(ed, (today - _db.timedelta(days=1)).isoformat()))
+            if ahead:
+                p['ahead_weeks'] += 1
+                p['next'] = min(p['next'] or '9999', max(sd, today.isoformat()))
+        out = sorted(people.values(), key=lambda x: (-(x['past_days'] + x['ahead_days']), x['name'].lower()))
+        total_days = sum(x['past_days'] + x['ahead_days'] for x in out)
+        n_board = sum(1 for x in out if x['board']) or 1
+        return jsonify({'since': since.isoformat(), 'months': months, 'people': out, 'total_days': total_days,
+                        'fair_share_days': round(total_days / n_board, 1), 'board_members': n_board})
+    finally:
+        conn.close()
+
+
 @app.route('/api/oncall/closures', methods=['GET', 'POST'])
 def oncall_closures():
     err = require_permission('oncall', 'view' if request.method == 'GET' else 'edit')

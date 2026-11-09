@@ -73,13 +73,37 @@ function t12(t){ t=(t||'').slice(0,5); if(t.length<5) return ''; var h=+t.slice(
 function shiftOn(ds){ return (D.shifts||[]).filter(function(s){ return s.start_date <= ds && s.end_date >= ds }) }
 function closedOn(ds){ return (D.closures||[]).find(function(c){ return c.start_date <= ds && c.end_date >= ds }) }
 function move(n){ OFF += n; render() }
+// For weeks with closed days: which days still need covering, as short ranges
+function workDays(s){
+  var out = [], d = dt(s.start_date), end = dt(s.end_date)
+  while(d <= end){ var ds = iso(d); if((s.closed_days||[]).indexOf(ds) < 0) out.push(ds); d.setDate(d.getDate()+1) }
+  return out
+}
+function ranges(days){
+  var out = [], cur = null
+  days.forEach(function(ds){
+    if(cur){ var nx = dt(cur[1]); nx.setDate(nx.getDate()+1); if(iso(nx) === ds){ cur[1] = ds; return } out.push(cur) }
+    cur = [ds, ds]
+  })
+  if(cur) out.push(cur)
+  var f = function(x){ return dt(x).toLocaleDateString('en-US',{weekday:'short', month:'short', day:'numeric'}) }
+  var fw = function(x){ return dt(x).toLocaleDateString('en-US',{weekday:'short'}) }
+  return out.map(function(r){ return r[0]===r[1] ? f(r[0]) : (dt(r[0]).getMonth()===dt(r[1]).getMonth() ? f(r[0])+' – '+fw(r[1])+' '+dt(r[1]).getDate() : f(r[0])+' – '+f(r[1])) }).join(', ')
+}
+function partialNote(s){
+  var cd = s.closed_days || []; if(!cd.length) return ''
+  var cl = (D.closures||[]).find(function(c){ return cd.some(function(x){ return c.start_date <= x && c.end_date >= x }) })
+  var wd = workDays(s)
+  return '<span style="display:inline-block;background:#fef3c7;color:#92400e;font-weight:800;font-size:11.5px;border-radius:999px;padding:1px 8px;margin-right:6px">Partial week · '+wd.length+' day'+(wd.length===1?'':'s')+'</span>'
+    + 'On call '+ranges(wd)+(cl&&cl.label?' (closed for '+esc(cl.label)+')':' (closed the other days)')
+}
 function tagFor(s, ds){
   var range = fmt(s.start_date)+' – '+fmt(s.end_date)
   if(s.status === 'covered') return '<span class="tag t-cov">'+esc(s.who)+'</span>'
   if(s.status === 'closed') return ''
   if(s.status === 'requested') return '<span class="tag t-req">Requested</span>'
   if(s.past) return ''
-  return '<span class="tag t-open" onclick="pick(\''+s.id+'\')" title="'+esc(range)+'">Open · sign up</span>'
+  return '<span class="tag t-open" onclick="pick(\''+s.id+'\')" title="'+esc(range)+'">'+((s.closed_days||[]).length ? 'Open · partial week' : 'Open · sign up')+'</span>'
 }
 function render(){
   var today = dt(D.today), first = new Date(today.getFullYear(), today.getMonth() + OFF, 1)
@@ -110,6 +134,7 @@ function render(){
     var s = shiftOn(ws)[0], cdays = s ? s.closed_days : []
     var cl2 = (D.closures||[]).filter(function(c){ return c.end_date >= ws && c.start_date <= iso(we) })
     var right = s ? (s.status==='covered' ? '<span class="tag t-cov">'+esc(s.who)+'</span>' : s.status==='closed' ? '<span class="tag t-closed">Closed</span>' : s.status==='requested' ? '<span class="tag t-req">Requested</span>' : (s.past?'':'<button class="btn btn-p" onclick="pick(\''+s.id+'\')">Sign up</button>')) : ''
+    if(s && s.closed_days && s.closed_days.length && s.status==='open' && !s.past){ rows += '<div class="week"><div class="d"><strong>'+fmt(ws)+' – '+fmt(iso(we))+'</strong><div class="s">'+partialNote(s)+'</div></div>'+right+'</div>'; wk.setDate(wk.getDate()+7); if(wk.getMonth() !== first.getMonth() && wk > first) break; continue }
     rows += '<div class="week"><div class="d"><strong>'+fmt(ws)+' – '+fmt(iso(we))+'</strong>'
       + (cl2.length ? '<div class="s">Closed '+cl2.map(function(c){ return (c.label?esc(c.label)+': ':'')+fmt(c.start_date)+(c.end_date!==c.start_date?'–'+fmt(c.end_date):'') }).join(', ')+'</div>' : '')+'</div>'+right+'</div>'
     wk.setDate(wk.getDate()+7)
@@ -120,7 +145,7 @@ function render(){
   var open = (D.shifts||[]).filter(function(s){ return s.status==='open' && !s.past })
   document.getElementById('openlist').innerHTML = open.length ? open.slice(0, 12).map(function(s){
       return '<div class="week"><div class="d"><strong>'+fmt(s.start_date,{weekday:'short',month:'short',day:'numeric'})+' – '+fmt(s.end_date,{weekday:'short',month:'short',day:'numeric'})+'</strong>'
-        + '<div class="s">'+t12(s.start_time)+'–'+t12(s.end_time)+' each day'+(s.closed_days.length?' · closed '+s.closed_days.map(function(x){ return fmt(x,{weekday:'short',month:'short',day:'numeric'}) }).join(', '):'')+'</div></div>'
+        + '<div class="s">'+(s.closed_days.length ? partialNote(s)+' · '+t12(s.start_time)+'–'+t12(s.end_time) : t12(s.start_time)+'–'+t12(s.end_time)+' each day')+'</div></div>'
         + '<button class="btn btn-p" onclick="pick(\''+s.id+'\')">Sign up</button></div>' }).join('')
     : '<div class="s" style="color:var(--muted)">Every upcoming week is covered. Thank you!</div>'
 }
@@ -130,7 +155,7 @@ async function pick(id){
   var box = document.getElementById('mbox')
   box.innerHTML = '<h2 style="margin:0 0 4px;color:var(--brand-dark)">Sign up for on-call</h2>'
     + '<div style="color:var(--muted)">'+fmt(s.start_date,{weekday:'long',month:'long',day:'numeric'})+' – '+fmt(s.end_date,{weekday:'long',month:'long',day:'numeric'})+' · '+t12(s.start_time)+'–'+t12(s.end_time)+' each day</div>'
-    + (s.closed_days.length ? '<div style="margin-top:8px;background:var(--closedbg);border-radius:8px;padding:8px 10px;font-size:13px">We\'re closed '+s.closed_days.map(function(x){ return fmt(x,{weekday:'short',month:'short',day:'numeric'}) }).join(', ')+', so you won\'t get calls those days.</div>' : '')
+    + (s.closed_days.length ? '<div style="margin-top:8px;background:#fef3c7;border-radius:8px;padding:8px 10px;font-size:13px;color:#78350f">'+partialNote(s)+'. You won\'t get calls on the closed days.</div>' : '')
     + '<label>Your name</label><select id="m-who" onchange="whoChanged()"><option value="">Choose…</option>'+MEMBERS.map(function(m){ return '<option value="'+m.id+'" data-phone="'+(m.has_phone?1:0)+'">'+esc(m.name)+'</option>' }).join('')+'</select>'
     + '<div id="m-phone-w" style="display:none"><label>Your phone number</label><input id="m-phone" type="tel" placeholder="(407) 555-0123"/></div>'
     + '<label>Notes (optional)</label><textarea id="m-notes" rows="2"></textarea>'

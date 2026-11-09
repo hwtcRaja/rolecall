@@ -40,7 +40,14 @@ select,.inp{background:var(--panel2);color:#fff;border:1.5px solid var(--line);b
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;min-height:0}
 .map{height:62vh;min-height:320px}
 .map svg{width:100%;height:100%;display:block}
-.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px;align-items:center}
+.switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:700;color:#fff;user-select:none}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.switch .track{position:relative;width:38px;height:22px;border-radius:999px;background:#334155;transition:background .15s;flex-shrink:0}
+.switch .knob{position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+.switch input:checked + .track{background:var(--in)}
+.switch input:checked + .track .knob{transform:translateX(16px)}
+.switch input:focus-visible + .track{outline:2px solid var(--gold);outline-offset:2px}
 .legend span{display:inline-flex;align-items:center;gap:5px}
 .legend i{width:10px;height:10px;border-radius:50%;display:inline-block}
 .tabs{display:flex;gap:6px;margin-bottom:10px}
@@ -162,7 +169,7 @@ function render(){
   if(p.reserved && d.seats.length){
     var col = {'in':'var(--in)', sold:'var(--sold)', open:'var(--open)', held:'var(--held)', cart:'var(--cart)'}
     var xs = d.seats.map(function(s){ return +s.x }), ys = d.seats.map(function(s){ return +s.y })
-    var minX=Math.min.apply(null,xs)-1, maxX=Math.max.apply(null,xs)+1, minY=Math.min.apply(null,ys)-1, maxY=Math.max.apply(null,ys)+1
+    var minX=Math.min.apply(null,xs)-1, maxX=Math.max.apply(null,xs)+1, minY=Math.min.apply(null,ys)-(SHOW_LABELS?1.8:1), maxY=Math.max.apply(null,ys)+1
     var svg = '<svg viewBox="'+minX+' '+minY+' '+(maxX-minX)+' '+(maxY-minY)+'" preserveAspectRatio="xMidYMid meet">'
     d.seats.forEach(function(s){
       var tip = esc(s.seat_label||'')+(s.who?' — '+esc(s.who):'')+(s.status==='in'?' (here)':s.status==='sold'?' (not here yet)':s.status==='held'?' (held)':s.status==='cart'?' (in a cart)':' (open)')
@@ -173,11 +180,26 @@ function render(){
         if(SELL.seats[s.id]) ring = ' stroke="var(--gold)" stroke-width="0.18"'
       }
       svg += '<circle cx="'+s.x+'" cy="'+s.y+'" r="0.4" fill="'+col[s.status]+'"'+ring+click+'><title>'+tip+'</title></circle>'
+      if(SHOW_LABELS && s.seat_label){
+        var lab = String(s.seat_label), fs = lab.length <= 2 ? 0.32 : lab.length === 3 ? 0.27 : 0.22
+        svg += '<text x="'+s.x+'" y="'+(+s.y + fs*0.36)+'" font-size="'+fs+'" text-anchor="middle" font-weight="700" fill="'+(s.status==='sold'||s.status==='in'?'#052e16':'#fff')+'" style="pointer-events:none"'
+          + (lab.length > 4 ? ' textLength="0.72" lengthAdjust="spacingAndGlyphs"' : '') + '>'+esc(lab)+'</text>'
+      }
     })
+    // section names, above each section
+    if(SHOW_LABELS){
+      var secs = {}
+      d.seats.forEach(function(s){ if(s.section){ var g = secs[s.section] = secs[s.section] || {x:0, n:0, minY:Infinity}; g.x += +s.x; g.n++; g.minY = Math.min(g.minY, +s.y) } })
+      Object.keys(secs).forEach(function(k){
+        var g = secs[k]
+        svg += '<text x="'+(g.x/g.n)+'" y="'+(g.minY - 0.75)+'" font-size="0.5" text-anchor="middle" font-weight="800" fill="#e2e8f0" stroke="#0b1d23" stroke-width="0.18" paint-order="stroke" style="pointer-events:none">'+esc(k)+'</text>'
+      })
+    }
     svg += '</svg>'
     html += '<div class="panel"><div class="map">'+svg+'</div><div class="legend">'
       + [['in','Here'],['sold','Sold, not here yet'],['open','Open'],['held','Held by staff'],['cart','In a cart']].map(function(l){ return '<span><i style="background:'+col[l[0]]+'"></i>'+l[1]+'</span>' }).join('')
-      + '<span>Click a seat for details</span></div></div>'
+      + '<span>Click a seat for details</span>'
+      + '<label class="switch" style="margin-left:auto"><input type="checkbox" '+(SHOW_LABELS?'checked':'')+' onchange="setShowLabels(this.checked)"/><span class="track"><span class="knob"></span></span>Seat &amp; section numbers</label></div></div>'
   } else {
     html += '<div class="panel"><div class="empty">General admission: no seat map. Use the lists to find people.</div></div>'
   }
@@ -499,6 +521,9 @@ async function openTicket(id, quiet){
 // ── Pick seats on a map: move a party, or seat volunteers ──
 // PICK = {mode:'move'|'vol', need, tickets:[{id,label}], seats:{id:label}, zoom, name, notify}
 var PICK = null
+// map labels: seat numbers on each seat and section names (remembered on this device)
+var SHOW_LABELS = (function(){ try{ return localStorage.getItem('hm_labels') === '1' }catch(e){ return false } })()
+function setShowLabels(on){ SHOW_LABELS = on; try{ localStorage.setItem('hm_labels', on ? '1' : '0') }catch(e){} if(DATA) render() }
 function pickMapSVG(){
   var seats = (DATA && DATA.seats) || []
   if(!seats.length) return '<div class="empty">Seat map not loaded yet.</div>'
@@ -672,7 +697,7 @@ async function newUsherLink(){
 }
 
 document.addEventListener('keydown', function(e){ if(e.key==='Escape'){ if(document.getElementById('overlay').style.display==='flex'){ if(SC.on) closeScanner(); else overlay('') } else closeDrawer() } })
-boot()
+boot();
 
 // Handheld USB / Bluetooth scanners (e.g. NETUM NT-1228BL) act like a
 // keyboard: they type the ticket code very fast and press Enter. Catch

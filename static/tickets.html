@@ -518,7 +518,8 @@ async function loadPerformance(fid){
   document.getElementById('app').innerHTML = '<div class="loading">Loading seats…</div>'
   selectedSeats = {}; gaQuantities = {}
   pickerZoom = 1; pickerViewCenter = null; pickerViewBase = null
-  var data = await api('/api/public/performances/'+fid+'/seat-status?session_token='+encodeURIComponent(getSessionToken()))
+  var data = await api('/api/public/performances/'+fid+'/seat-status?session_token='+encodeURIComponent(getSessionToken())
+    + '&presale_keys='+encodeURIComponent(JSON.stringify(presaleKeysForServer())) + (TICKET_PREVIEW ? '&preview=1' : ''))
   if(data.error){
     document.getElementById('app').innerHTML = '<div class="error-box">'+escH(data.error)+'</div>'
     return
@@ -613,7 +614,7 @@ function renderPurchaseScreen(){
       var qty = gaQuantities[tt.id] || 0
       return '<div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border)">'
         + '<div><div style="font-weight:700">'+escH(tt.name)+'</div>'
-        + '<div style="font-size:12px;color:var(--text-muted)">'+fmtMoney(tt.price_cents)+(tt.description?' · '+escH(tt.description):'')+'</div></div>'
+        + '<div style="font-size:12px;color:var(--text-muted)">'+priceLabel(tt)+(tt.description?' · '+escH(tt.description):'')+'</div></div>'
         + '<div class="qty-stepper">'
         + '<button class="qty-btn" onclick="changeGaQty(\''+tt.id+'\',-1)">−</button>'
         + '<span style="min-width:20px;text-align:center;font-weight:700">'+qty+'</span>'
@@ -1068,6 +1069,12 @@ function openTicketPolicy(){
   }
   o.style.display = 'flex'
 }
+// "$10.00 pre-sale  $15.00" (regular price crossed out) for pre-sale buyers
+function priceLabel(tt){
+  return tt.presale_priced
+    ? '<strong style="color:#7c3aed">'+fmtMoney(tt.price_cents)+' pre-sale</strong> <s>'+fmtMoney(tt.regular_price_cents)+'</s>'
+    : fmtMoney(tt.price_cents)
+}
 function cartHasRush(){
   try{ return JSON.stringify(buildFullCartPayload()).indexOf('"ticket_type_id":"') >= 0 && ticketTypes.some(function(t){ return t.is_rush && JSON.stringify(buildFullCartPayload()).indexOf(t.id) >= 0 }) }catch(e){ return false }
 }
@@ -1243,7 +1250,7 @@ function seatTicketTypeSelect(seatId){
   }
   var r = rushInfo(), opts = ticketTypes.filter(function(tt){ return !tt.is_rush || (r && r.seat_mode === 'pick') })
   return '<select onchange="selectedSeats[\''+seatId+'\']=this.value;refreshCartOnly()" style="width:auto;padding:4px 8px;font-size:12px">'
-    + opts.map(function(tt){ return '<option value="'+tt.id+'"'+(tt.id===current?' selected':'')+'>'+escH(tt.name)+' — '+fmtMoney(tt.price_cents)+'</option>' }).join('')
+    + opts.map(function(tt){ return '<option value="'+tt.id+'"'+(tt.id===current?' selected':'')+'>'+escH(tt.name)+' — '+fmtMoney(tt.price_cents)+(tt.presale_priced?' pre-sale (reg. '+fmtMoney(tt.regular_price_cents)+')':'')+'</option>' }).join('')
     + '</select>'
 }
 

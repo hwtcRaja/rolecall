@@ -35230,6 +35230,66 @@ def oncall_coverage_alerts():
         conn.close()
 
 
+def oncall_limit(conn):
+    """(max weeks, months) or (None, months) when there's no limit."""
+    try: n = int(_setting(conn, 'oncall_limit_weeks') or 0)
+    except Exception: n = 0
+    try: m = int(_setting(conn, 'oncall_limit_months') or 3)
+    except Exception: m = 3
+    return (n or None), m
+
+
+def oncall_limit_problem(conn, person_name, board_member_id, new_start, exclude_request_id=None):
+    """If giving this person the week starting new_start would put them over
+    the limit in some rolling stretch, say so (counts approved weeks and
+    their other pending requests)."""
+    import datetime as _dl
+    limit, months = oncall_limit(conn)
+    if not limit:
+        return None
+    key = (person_name or '').strip().lower()
+    if board_member_id:
+        bm = fetchone(conn, 'SELECT name FROM board_members WHERE id=%s', (board_member_id,))
+        if bm: key = bm['name'].strip().lower()
+    span = _dl.timedelta(days=int(months * 30.4))
+    ns = _dl.date.fromisoformat(str(new_start)[:10])
+    starts = [ns]
+    for r in fetchall(conn, '''SELECT start_date FROM on_call_schedule WHERE LOWER(TRIM(COALESCE(person_name,'')))=%s
+            AND start_date BETWEEN %s AND %s''', (key, (ns - span).isoformat(), (ns + span).isoformat())) or []:
+        starts.append(_dl.date.fromisoformat(str(r['start_date'])[:10]))
+    for r in fetchall(conn, '''SELECT s.start_date FROM oncall_signup_requests q JOIN on_call_schedule s ON s.id=q.shift_id
+            LEFT JOIN board_members b ON b.id=q.board_member_id
+            WHERE q.status='pending' AND LOWER(TRIM(COALESCE(b.name, q.name)))=%s AND q.id <> COALESCE(%s,'')
+              AND s.start_date BETWEEN %s AND %s''', (key, exclude_request_id, (ns - span).isoformat(), (ns + span).isoformat())) or []:
+        starts.append(_dl.date.fromisoformat(str(r['start_date'])[:10]))
+    starts = sorted(set(starts))
+    for s0 in starts:
+        n = sum(1 for x in starts if s0 <= x < s0 + span)
+        if n > limit:
+            mo = 'month' if months == 1 else f'{months} months'
+            return (f'That would be {n} weeks within {"a month" if months == 1 else mo}; the limit is {limit} '
+                    f'week{"" if limit == 1 else "s"} per {mo}, so turns stay spread out.')
+    return None
+
+
+@app.route('/api/oncall/limit', methods=['GET', 'PUT'])
+def oncall_limit_setting():
+    err = require_permission('oncall', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            d = request.json or {}
+            try: n = max(0, int(d.get('weeks') or 0))
+            except Exception: n = 0
+            m = d.get('months') if d.get('months') in (1, 2, 3, 6, 12) else 3
+            _set_setting(conn, 'oncall_limit_weeks', str(n)); _set_setting(conn, 'oncall_limit_months', str(m)); conn.commit()
+        n, m = oncall_limit(conn)
+        return jsonify({'weeks': n or 0, 'months': m})
+    finally:
+        conn.close()
+
+
 @app.route('/api/oncall/balance', methods=['GET'])
 def oncall_balance():
     """How often each person has been (and will be) on call, so the load
@@ -35281,11 +35341,28 @@ def oncall_balance():
             if ahead:
                 p['ahead_weeks'] += 1
                 p['next'] = min(p['next'] or '9999', max(sd, today.isoformat()))
+        for p in people.values():
+            p['pending_days'] = 0; p['pending_weeks'] = 0
+        for q in fetchall(conn, '''SELECT COALESCE(b.name, q.name) AS who, s.start_date, s.end_date, s.days_of_week
+                FROM oncall_signup_requests q JOIN on_call_schedule s ON s.id=q.shift_id LEFT JOIN board_members b ON b.id=q.board_member_id
+                WHERE q.status='pending' AND s.end_date >= %s''', (today.isoformat(),)) or []:
+            p = bucket(q['who'])
+            try: dows = set(json.loads(q.get('days_of_week') or '[0,1,2,3,4,5,6]') or range(7))
+            except Exception: dows = set(range(7))
+            d = max(_db.date.fromisoformat(str(q['start_date'])[:10]), today); e = _db.date.fromisoformat(str(q['end_date'])[:10])
+            n = 0
+            while d <= e:
+                if d.weekday() in dows and d not in closed: n += 1
+                d += _db.timedelta(days=1)
+            if n:
+                p['pending_days'] = p.get('pending_days', 0) + n; p['pending_weeks'] = p.get('pending_weeks', 0) + 1
         out = sorted(people.values(), key=lambda x: (-(x['past_days'] + x['ahead_days']), x['name'].lower()))
+        lim_n, lim_m = oncall_limit(conn)
         total_days = sum(x['past_days'] + x['ahead_days'] for x in out)
         n_board = sum(1 for x in out if x['board']) or 1
         return jsonify({'since': since.isoformat(), 'months': months, 'people': out, 'total_days': total_days,
-                        'fair_share_days': round(total_days / n_board, 1), 'board_members': n_board})
+                        'fair_share_days': round(total_days / n_board, 1), 'board_members': n_board,
+                        'limit': {'weeks': lim_n or 0, 'months': lim_m}})
     finally:
         conn.close()
 
@@ -35514,6 +35591,9 @@ def public_oncall_signup():
     _cls = fetchall(conn, 'SELECT start_date, end_date FROM oncall_closures WHERE end_date >= %s', (str(shift['start_date'])[:10],)) or []
     if _shift_fully_closed(shift, _cls):
         conn.close(); return jsonify({'error': 'We\'re closed that whole week, so there\'s nothing to cover.'}), 400
+    _lp = oncall_limit_problem(conn, '', d.get('board_member_id'), shift['start_date'])
+    if _lp:
+        conn.close(); return jsonify({'error': _lp + ' Thanks for offering! Please pick a week further out, or ask a board officer.'}), 400
     # Name, email, and (when on file) phone come from the board roster and
     # its linked volunteer record — not client-supplied text. The picker
     # only lets someone select an existing active member in the first place.
@@ -35572,6 +35652,11 @@ def approve_oncall_signup(rid):
     conn = get_db()
     req = fetchone(conn, 'SELECT * FROM oncall_signup_requests WHERE id=%s', (rid,))
     if not req: conn.close(); return jsonify({'error': 'Not found'}), 404
+    if not (request.get_json(silent=True) or {}).get('override_limit'):
+        _sh = fetchone(conn, 'SELECT start_date FROM on_call_schedule WHERE id=%s', (req['shift_id'],)) or {}
+        _lp = oncall_limit_problem(conn, req['name'], req.get('board_member_id'), _sh.get('start_date'), exclude_request_id=rid) if _sh else None
+        if _lp:
+            conn.close(); return jsonify({'error': req['name'] + ': ' + _lp + ' Approve anyway?', 'over_limit': True}), 409
     me = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session['user_id'],))
     reviewer = (me or {}).get('name', '')
     execute(conn, "UPDATE on_call_schedule SET person_name=%s, phone=%s WHERE id=%s",

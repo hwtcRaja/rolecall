@@ -5387,6 +5387,72 @@ def get_events():
         app.logger.warning(f'Program session calendar merge error: {e}')
     return jsonify(events)
 
+# ══ Shareable calendar (view only, no login) ══════════════════════════════
+# A private, hard-to-guess link (/cal/<token>) to a phone-friendly view of
+# Events & Calendar, for bookmarking. Shows what/when/where only (no
+# volunteer names, notes or contact details). Staff can make a new link,
+# which turns the old one off.
+def _calendar_token(conn, rotate=False):
+    tok = _setting(conn, 'calendar_share_token') or ''
+    if rotate or not tok:
+        tok = uuid.uuid4().hex[:20]
+        _set_setting(conn, 'calendar_share_token', tok)
+        conn.commit()
+    return tok
+
+
+@app.route('/api/calendar-share', methods=['GET', 'POST'])
+def calendar_share_link():
+    err = require_permission('events', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        tok = _calendar_token(conn, rotate=request.method == 'POST')
+        return jsonify({'url': APP_BASE_URL.rstrip('/') + '/cal/' + tok})
+    finally:
+        conn.close()
+
+
+@app.route('/cal/<token>')
+def calendar_share_page(token):
+    return send_from_directory('static', 'calendar-view.html')
+
+
+@app.route('/api/public/calendar/<token>')
+def calendar_share_data(token):
+    import datetime as _dc
+    conn = get_db()
+    try:
+        if not token or token != (_setting(conn, 'calendar_share_token') or ''):
+            return jsonify({'error': 'This calendar link isn\'t valid anymore. Ask for the new one.'}), 404
+        today = today_eastern()
+        try:
+            start = _dc.date.fromisoformat((request.args.get('from') or '')[:10])
+        except Exception:
+            start = today.replace(day=1) - _dc.timedelta(days=7)
+        try:
+            end = _dc.date.fromisoformat((request.args.get('to') or '')[:10])
+        except Exception:
+            end = today + _dc.timedelta(days=120)
+        if (end - start).days > 400:
+            end = start + _dc.timedelta(days=400)
+        rows = fetchall(conn, """SELECT e.id, e.name, e.event_date, e.end_date, e.start_time, e.end_time, e.location, COALESCE(e.status,'draft') AS status,
+                et.name AS type_name, et.color AS type_color, p.name AS production_name, pg.name AS program_name
+            FROM events e LEFT JOIN event_types et ON et.id=e.event_type_id LEFT JOIN productions p ON p.id=e.production_id
+            LEFT JOIN youth_programs pg ON pg.id=e.program_id
+            WHERE e.event_date IS NOT NULL AND e.event_date <> '' AND e.event_date >= %s AND e.event_date <= %s
+            ORDER BY e.event_date, e.start_time NULLS FIRST, e.name""", (start.isoformat(), end.isoformat())) or []
+        out = [{'id': r['id'], 'name': r['name'], 'date': r['event_date'][:10], 'end_date': (r.get('end_date') or '')[:10],
+                'start': (r.get('start_time') or '')[:5], 'end': (r.get('end_time') or '')[:5], 'where': r.get('location') or '',
+                'type': r.get('type_name') or '', 'color': r.get('type_color') or '', 'cancelled': r['status'] == 'cancelled',
+                'group': r.get('production_name') or r.get('program_name') or ''} for r in rows]
+        types = sorted({(e['type'], e['color']) for e in out if e['type']})
+        return jsonify({'today': today.isoformat(), 'from': start.isoformat(), 'to': end.isoformat(), 'events': out,
+                        'types': [{'name': t, 'color': c} for t, c in types], 'updated': now_eastern().strftime('%-I:%M %p')})
+    finally:
+        conn.close()
+
+
 @app.route('/api/events', methods=['POST'])
 def create_event():
     d = request.json or {}
@@ -41993,68 +42059,6 @@ def _bloombooks_key_ok():
     return bool(stored) and hmac.compare_digest(hashlib.sha256(key.encode()).hexdigest(), stored)
 
 
-# ── Show-night sales (concessions) totals for BloomBooks ───────────────────
-# Adds up concession_report() for every performance that has happened. That
-# means one Square search per performance, which is too slow to do inside the
-# BloomBooks request (it waits ~6s), so totals are worked out in a background
-# thread and kept for 10 minutes. The first request after a cold start returns
-# "pending"; BloomBooks shows the line on its next refresh.
-_CONC_TOTALS = {}       # production id -> {'at': datetime, 'data': {...}}
-_CONC_TOTALS_BUSY = set()
-
-
-def _compute_production_concessions(pid):
-    import datetime as _dtk
-    conn = get_db()
-    try:
-        perfs = fetchall(conn, '''SELECT * FROM performances WHERE production_id=%s AND status <> 'cancelled' AND performance_date <= %s
-                ORDER BY performance_date, performance_time''', (pid, today_eastern().isoformat())) or []
-        net = items = orders = cash = card = unrung = fees = fees_pending = 0
-        per, failed = [], 0
-        for pf in perfs:
-            try:
-                rep = concession_report(conn, pf, lookup_fees=True)
-            except Exception as e:
-                failed += 1
-                per.append({'id': pf['id'], 'date': str(pf['performance_date'])[:10], 'error': str(e)[:160]})
-                continue
-            un = int((rep.get('cash_box') or {}).get('unrung_cash_cents') or 0)
-            qty = sum(float(c.get('qty') or 0) for c in rep.get('categories') or [])
-            net += int(rep['net_cents']); orders += int(rep['transactions']); items += qty
-            cash += int(rep['cash_cents']); card += int(rep['card_cents']); unrung += un
-            fees += int(rep.get('card_fees_cents') or 0); fees_pending += int(rep.get('card_fees_pending') or 0)
-            per.append({'id': pf['id'], 'date': str(pf['performance_date'])[:10], 'time': pf.get('performance_time') or '',
-                        'concessions_cents': int(rep['net_cents']) + un, 'transactions': int(rep['transactions'])})
-        data = {'concessions_cents': net + unrung, 'square_net_cents': net, 'unrung_cash_cents': unrung,
-                'cash_cents': cash, 'card_cents': card, 'items': int(items), 'orders': orders,
-                'card_fees_cents': fees, 'card_fees_pending': fees_pending,
-                'performances_counted': len(perfs) - failed, 'performances_failed': failed, 'by_performance': per,
-                'categories_filter': sorted(json.loads(_setting(conn, 'sales_categories') or '[]') or [])}
-        _CONC_TOTALS[pid] = {'at': _dtk.datetime.now(), 'data': data}
-    except Exception as e:
-        print(f'[CONCESSIONS] totals for production {pid} failed: {e}')
-    finally:
-        _CONC_TOTALS_BUSY.discard(pid)
-        try: conn.close()
-        except Exception: pass
-
-
-def production_concession_totals(pid):
-    """Cached totals (possibly up to 10 minutes old), or None while the first
-    calculation is still running. Starts a refresh in the background when the
-    cached copy is missing or stale."""
-    import datetime as _dtk
-    import threading
-    if not SQUARE_ACCESS_TOKEN:
-        return None
-    entry = _CONC_TOTALS.get(pid)
-    stale = not entry or (_dtk.datetime.now() - entry['at']).total_seconds() > 600
-    if stale and pid not in _CONC_TOTALS_BUSY:
-        _CONC_TOTALS_BUSY.add(pid)
-        threading.Thread(target=_compute_production_concessions, args=(pid,), daemon=True).start()
-    return entry['data'] if entry else None
-
-
 def production_financials(conn, pid):
     prod = fetchone(conn, '''SELECT id, name, slug, stage, status, start_date, end_date FROM productions WHERE id=%s''', (pid,))
     if not prod:
@@ -42090,11 +42094,7 @@ def production_financials(conn, pid):
     ticket_cents = int(tix.get('ticket_cents') or 0)
     svc = int(om.get('service_fee_cents') or 0)
     sq = int(om.get('square_fee_cents') or 0)
-    conc = production_concession_totals(prod['id'])
-    conc_cents = int(conc['concessions_cents']) if conc else 0
-    conc_fees = int(conc.get('card_fees_cents') or 0) if conc else 0
-    conc_by_perf = {p['id']: p for p in (conc or {}).get('by_performance') or []}
-    out = {
+    return {
         'production': {'id': prod['id'], 'name': prod['name'], 'slug': prod.get('slug'), 'stage': prod.get('stage'),
                        'status': prod.get('status'), 'start_date': prod.get('start_date'), 'end_date': prod.get('end_date')},
         'as_of': now_eastern().strftime('%Y-%m-%dT%H:%M:%S') + ' America/New_York',
@@ -42104,33 +42104,22 @@ def production_financials(conn, pid):
             'presale_ticket_sales_cents': int(tix.get('presale_cents') or 0),
             'service_fees_cents': svc,
             'program_ads_cents': int(ads.get('c') or 0),
-            **({'concessions_cents': conc_cents} if conc else {}),
             'discounts_given_cents': int(om.get('discount_cents') or 0),
             'refunds_cents': int(refunds.get('c') or 0)},
         'contributed_revenue': {'checkout_donations_cents': donations},
-        'expenses': {'square_processing_fees_cents': sq, 'square_fees_still_pending_orders': int(om.get('fees_pending') or 0),
-                     **({'concession_square_fees_cents': conc_fees,
-                         'concession_fees_still_pending': int(conc.get('card_fees_pending') or 0)} if conc else {})},
-        'net_cents': ticket_cents + svc + donations + int(ads.get('c') or 0) + conc_cents - sq - conc_fees,
+        'expenses': {'square_processing_fees_cents': sq, 'square_fees_still_pending_orders': int(om.get('fees_pending') or 0)},
+        'net_cents': ticket_cents + svc + donations + int(ads.get('c') or 0) - sq,
         'counts': {'tickets_sold': int(tix.get('tickets') or 0), 'orders': int(om.get('orders') or 0),
                    'comps': int(tix.get('comps') or 0), 'comp_face_value_cents': int(tix.get('comp_face_cents') or 0),
-                   'program_ad_items': int(ads.get('n') or 0),
-                   **({'concession_items': conc['items'], 'concession_orders': conc['orders']} if conc else {})},
-        'concessions': (dict(conc, status='ready') if conc
-                        else {'status': 'pending' if SQUARE_ACCESS_TOKEN else 'square_not_connected'}),
+                   'program_ad_items': int(ads.get('n') or 0)},
         'performances': [{'id': r['id'], 'date': str(r['performance_date'])[:10], 'time': r.get('performance_time') or '',
                           'status': r.get('status'), 'tickets_sold': int(r['tickets'] or 0), 'ticket_sales_cents': int(r['ticket_cents'] or 0),
                           'service_fees_cents': int((perf_fees.get(r['id']) or {}).get('service_fee_cents') or 0),
-                          'square_processing_fees_cents': int((perf_fees.get(r['id']) or {}).get('square_fee_cents') or 0),
-                          **({'concessions_cents': conc_by_perf[r['id']].get('concessions_cents', 0)} if r['id'] in conc_by_perf else {})}
+                          'square_processing_fees_cents': int((perf_fees.get(r['id']) or {}).get('square_fee_cents') or 0)}
                          for r in perfs],
-        'notes': ('net_cents = ticket sales + service fees + checkout donations + program ads + concessions '
-                  '- Square processing fees on tickets and on concession card sales '
-                  '(Square fees on program ads are not yet tracked, so net is slightly high when ads exist). '
-                  'Concessions = in-person Square sales in each performance\'s sales window, in the show-night sales categories, '
-                  'net of refunds, plus unrung cash from the cash box count. Test orders excluded. '
+        'notes': ('net_cents = ticket sales + service fees + checkout donations + program ads - Square processing fees '
+                  '(Program ad Square fees are not yet tracked, so net is slightly high when ads exist). Test orders excluded. '
                   'Checkout donations are contributed revenue, not show earned revenue.')}
-    return out
 
 
 @app.route('/api/integrations/bloombooks/productions', methods=['GET'])
@@ -49493,41 +49482,7 @@ def _sales_window(perf):
     return opens, start + _dtw.timedelta(hours=4)
 
 
-_POS_FEE_CACHE = {}   # Square payment id -> settled processing fee (cents); final fees never change
-
-
-def _pos_tender_fee(t, lookup):
-    """Square's processing fee on one in-person tender, in cents. Cash and
-    other non-card tenders have none. Returns None while Square hasn't
-    reported the fee yet (it can take a few minutes after a sale)."""
-    if t.get('type') not in ('CARD', 'WALLET'):
-        return 0
-    pf = (t.get('processing_fee_money') or {}).get('amount')
-    if pf is not None:
-        return int(pf)
-    pid = t.get('payment_id') or t.get('id')
-    if not pid:
-        return None
-    if pid in _POS_FEE_CACHE:
-        return _POS_FEE_CACHE[pid]
-    if not lookup:
-        return None
-    try:
-        r = requests.get(f'{SQUARE_API_BASE}/v2/payments/{pid}', headers=square_headers(), timeout=6)
-        fees = ((r.json() or {}).get('payment') or {}).get('processing_fee') or []
-    except Exception:
-        return None
-    if not fees:
-        return None
-    fee = sum(int((f.get('amount_money') or {}).get('amount') or 0) for f in fees)
-    _POS_FEE_CACHE[pid] = fee
-    return fee
-
-
-def concession_report(conn, perf, start_local=None, end_local=None, lookup_fees=False):
-    """lookup_fees=True also asks Square for any card fee the order doesn't
-    carry yet (one call per such payment) — used by the background totals for
-    BloomBooks, not by the live Concessions screen."""
+def concession_report(conn, perf, start_local=None, end_local=None):
     from zoneinfo import ZoneInfo
     import datetime as _dtc
     w_start, w_end = _sales_window(perf)
@@ -49571,7 +49526,6 @@ def concession_report(conn, perf, start_local=None, end_local=None, lookup_fees=
         nm, cat = cat_map.get(li.get('catalog_object_id'), ('', ''))
         return nm, cat or ('Custom amounts' if not li.get('catalog_object_id') else 'Uncategorized')
     total = cash = card = other = refunds = 0
-    fees = fees_pending = 0
     counted = 0
     cats = {}
     for o in pos:
@@ -49587,9 +49541,6 @@ def concession_report(conn, perf, start_local=None, end_local=None, lookup_fees=
         total += amt; refunds += ref
         for t in o.get('tenders') or []:
             a = int(round(int(((t.get('amount_money') or {}).get('amount')) or 0) * share))
-            fee = _pos_tender_fee(t, lookup_fees)
-            if fee is None: fees_pending += 1
-            else: fees += int(round(fee * share))
             if t.get('type') == 'CASH': cash += a
             elif t.get('type') == 'CARD': card += a
             else: other += a
@@ -49616,7 +49567,6 @@ def concession_report(conn, perf, start_local=None, end_local=None, lookup_fees=
             'categories_filter': sorted(allowed), 'catalog_error': _CATALOG_INDEX.get('error') or '',
             'transactions': counted, 'total_cents': total, 'refunds_cents': refunds, 'net_cents': total - refunds,
             'avg_cents': int(total / counted) if counted else 0, 'cash_cents': cash, 'card_cents': card, 'other_cents': other,
-            'card_fees_cents': fees, 'card_fees_pending': fees_pending,
             'categories': cat_list,
             'cash_box': {'starting_cash_cents': box.get('starting_cash_cents'), 'ending_cash_cents': box.get('ending_cash_cents'),
                          'unrung_cash_cents': box.get('unrung_cash_cents') or 0, 'notes': box.get('notes') or '',

@@ -38991,7 +38991,8 @@ async function openFinalReport(pid){
     + card('Donations', m(r.donation_cents), 'added at checkout')
     + card('Show-night sales', m(r.sales_cents), 'concessions, merch… (Square)')
     + card('Grand total', m(r.grand_total_cents), r.checked_in.toLocaleString()+' came ('+pct(r.checked_in,r.tickets)+' of sold)') + '</div>'
-  if(r.by_type.length) h += '<div style="font-size:13px;margin-bottom:6px"><strong>By ticket type:</strong> '+r.by_type.map(function(x){ return escHtml(x.name)+' '+x.tickets+' ('+m(x.cents)+')' }).join(' · ')+'</div>'
+  h += '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">Ticket sales are what buyers paid'+(r.fees_cents?', including '+m(r.fees_cents)+' in service fees':'')+(r.discount_cents?', after '+m(r.discount_cents)+' in discount codes':'')+'. Test orders aren\'t included.</div>'
+  if(r.by_type.length) h += '<div style="font-size:13px;margin-bottom:6px"><strong>By ticket type (at ticket price):</strong> '+r.by_type.map(function(x){ return escHtml(x.name)+' '+x.tickets+' ('+m(x.cents)+')' }).join(' · ')+'</div>'
   if(r.by_channel.length) h += '<div style="font-size:13px;margin-bottom:6px"><strong>How they were sold:</strong> '+r.by_channel.map(function(x){ return escHtml(x.name)+' '+x.tickets }).join(' · ')+'</div>'
   if(r.refunds) h += '<div style="font-size:13px;margin-bottom:6px;color:var(--text-muted)">'+r.refunds+' refunded order'+(r.refunds===1?'':'s')+' ('+m(r.refunds_cents)+') not included.</div>'
   h += '<div style="font-size:13px;margin:10px 0 6px"><strong>Show-night sales:</strong> '+(r.sales_error && !r.sales_cents ? '<span style="color:#b91c1c">couldn\'t read Square: '+escHtml(r.sales_error)+'</span>'

@@ -3197,6 +3197,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   </div>
   <div id="oncall-signup-requests"></div>
   <div id="oncall-closures" style="margin-bottom:16px"></div>
+  <div id="oncall-balance" style="margin-bottom:16px"></div>
   <div id="oncall-now" style="margin-bottom:16px"></div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
    <button class="btn btn-secondary btn-sm" onclick="oncallNav(-1)">← Prev</button>
@@ -12253,12 +12254,46 @@ async function loadOncallPage(){
  _oncallList=Array.isArray(res)?res:[]
  const cl = await api('/api/oncall/closures'); _oncallClosures = Array.isArray(cl) ? cl : []
  renderOncallClosures()
+ loadOncallBalance()
  await loadOncallSignupRequests()
  setOncallView('week')
  loadCallLog()
 }
 
 // ── Closures (holidays): callers hear a custom greeting and can leave a voicemail ──
+// ── Who's carrying the phone: turns per person, to keep it balanced ──
+var _balMonths = 12
+async function loadOncallBalance(months){
+  if(months) _balMonths = months
+  var el = document.getElementById('oncall-balance'); if(!el) return
+  var r = await api('/api/oncall/balance?months='+_balMonths)
+  if(r.error){ el.innerHTML = ''; return }
+  var max = Math.max.apply(null, r.people.map(function(p){ return p.past_days + p.ahead_days }).concat([1]))
+  var fair = r.fair_share_days
+  var fmt = function(d){ return d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '' }
+  var rows = r.people.map(function(p){
+    var tot = p.past_days + p.ahead_days
+    var w1 = Math.round(100*p.past_days/max), w2 = Math.round(100*p.ahead_days/max)
+    var diff = p.board ? tot - fair : null
+    var tag = !p.board ? '<span style="font-size:11px;color:var(--text-muted)">not on the board list</span>'
+      : tot === 0 ? '<span style="font-size:11px;font-weight:800;color:#b45309">no turns yet</span>'
+      : diff > fair*0.4 && diff >= 7 ? '<span style="font-size:11px;font-weight:800;color:#b91c1c">well above share</span>'
+      : diff < -fair*0.4 && -diff >= 7 ? '<span style="font-size:11px;font-weight:800;color:#b45309">below share</span>' : ''
+    return '<div style="display:grid;grid-template-columns:170px 1fr 120px;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--border);font-size:13px">'
+      + '<div><strong>'+escHtml(p.name)+'</strong>'+(p.role?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(p.role)+'</div>':'')+'</div>'
+      + '<div><div style="display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--bg);position:relative">'
+      +   '<div style="width:'+w1+'%;background:#16728b" title="'+p.past_days+' days covered"></div><div style="width:'+w2+'%;background:#7dd3fc" title="'+p.ahead_days+' days booked ahead"></div>'
+      +   (r.fair_share_days ? '<div title="Fair share" style="position:absolute;top:-2px;bottom:-2px;left:'+Math.min(100,Math.round(100*fair/max))+'%;width:2px;background:#f59e0b"></div>' : '')+'</div>'
+      +   '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">'+p.past_weeks+' week'+(p.past_weeks===1?'':'s')+' done'+(p.last?' (last '+fmt(p.last)+')':'')+(p.ahead_weeks?' · '+p.ahead_weeks+' booked'+(p.next?' (next '+fmt(p.next)+')':''):'')+' '+tag+'</div></div>'
+      + '<div style="text-align:right"><strong style="font-size:15px">'+tot+'</strong> <span style="color:var(--text-muted)">days</span></div></div>'
+  }).join('')
+  el.innerHTML = '<div class="card" style="padding:14px 16px">'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><strong style="flex:1">Coverage balance</strong>'
+    + [6,12,24].map(function(m){ return '<button class="btn btn-sm '+(_balMonths===m?'btn-primary':'btn-secondary')+'" onclick="loadOncallBalance('+m+')">'+(m===24?'2 years':m+' months')+'</button>' }).join('') + '</div>'
+    + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Days each person has been on call (dark) and has booked ahead (light), over the last '+(_balMonths===24?'2 years':_balMonths+' months')+' plus everything already scheduled. '
+    + 'The orange line is a fair share: '+fair+' days each across '+r.board_members+' board member'+(r.board_members===1?'':'s')+'. Closed days don\'t count.</div>'
+    + (r.people.length ? rows : '<div style="font-size:13px;color:var(--text-muted)">No one has been on call yet.</div>') + '</div>'
+}
 function oncallClosedOn(ds){ return _oncallClosures.find(function(c){ return c.start_date <= ds && c.end_date >= ds }) }
 function renderOncallClosures(){
   var el = document.getElementById('oncall-closures'); if(!el) return

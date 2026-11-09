@@ -35291,6 +35291,56 @@ def public_oncall_board_members():
     conn.close()
     return jsonify(rows)
 
+def _closed_days_in(closures, start, end):
+    import datetime as _dc
+    s_, e_ = _dc.date.fromisoformat(str(start)[:10]), _dc.date.fromisoformat(str(end)[:10])
+    out, d = [], s_
+    while d <= e_:
+        if any(str(c['start_date'])[:10] <= d.isoformat() <= str(c['end_date'])[:10] for c in closures):
+            out.append(d.isoformat())
+        d += _dc.timedelta(days=1)
+    return out
+
+
+def _shift_fully_closed(shift, closures):
+    import datetime as _dc
+    s_, e_ = _dc.date.fromisoformat(str(shift['start_date'])[:10]), _dc.date.fromisoformat(str(shift['end_date'])[:10])
+    return len(_closed_days_in(closures, s_, e_)) == (e_ - s_).days + 1
+
+
+@app.route('/api/public/oncall/calendar')
+def public_oncall_calendar():
+    """The whole schedule for the sign-up page: who has each week (first
+    name only), which weeks are open, and closed days."""
+    import datetime as _dc
+    conn = get_db()
+    try:
+        try:
+            ensure_oncall_open_weeks(conn)
+        except Exception:
+            conn.rollback()
+        today = today_eastern()
+        start = (today - _dc.timedelta(days=today.day - 1)).isoformat()
+        end = (today + _dc.timedelta(days=200)).isoformat()
+        shifts = fetchall(conn, '''SELECT id, start_date, end_date, start_time, end_time, days_of_week, person_name
+            FROM on_call_schedule WHERE end_date >= %s AND start_date <= %s ORDER BY start_date''', (start, end)) or []
+        pending = {p['shift_id'] for p in (fetchall(conn, "SELECT DISTINCT shift_id FROM oncall_signup_requests WHERE status='pending'") or [])}
+        closures = fetchall(conn, 'SELECT start_date, end_date, label FROM oncall_closures WHERE end_date >= %s ORDER BY start_date', (start,)) or []
+        out = []
+        for s in shifts:
+            who = (s.get('person_name') or '').strip()
+            full_closed = _shift_fully_closed(s, closures)
+            out.append({'id': s['id'], 'start_date': str(s['start_date'])[:10], 'end_date': str(s['end_date'])[:10],
+                        'start_time': s.get('start_time') or '', 'end_time': s.get('end_time') or '',
+                        'status': 'closed' if (full_closed and not who) else ('covered' if who else ('requested' if s['id'] in pending else 'open')),
+                        'who': who.split(' ')[0] if who else '', 'past': str(s['end_date'])[:10] < today.isoformat(),
+                        'closed_days': _closed_days_in(closures, s['start_date'], s['end_date'])})
+        return jsonify({'today': today.isoformat(), 'shifts': out,
+                        'closures': [{'start_date': str(c['start_date'])[:10], 'end_date': str(c['end_date'])[:10], 'label': c.get('label') or ''} for c in closures]})
+    finally:
+        conn.close()
+
+
 @app.route('/api/public/oncall/open-shifts')
 def public_oncall_open_shifts():
     """Upcoming shifts staff have left unassigned (blank person_name),
@@ -35309,10 +35359,16 @@ def public_oncall_open_shifts():
         ORDER BY start_date ASC""", (today_str,)) or []
     pending = fetchall(conn, "SELECT DISTINCT shift_id FROM oncall_signup_requests WHERE status='pending'") or []
     pending_ids = {p['shift_id'] for p in pending}
+    closures = fetchall(conn, 'SELECT start_date, end_date, label FROM oncall_closures WHERE end_date >= %s', (today_str,)) or []
     conn.close()
+    out = []
     for s in shifts:
         s['has_pending_request'] = s['id'] in pending_ids
-    return jsonify(shifts)
+        s['closed_days'] = _closed_days_in(closures, s['start_date'], s['end_date'])
+        if _shift_fully_closed(s, closures):
+            continue          # nothing to cover that week
+        out.append(s)
+    return jsonify(out)
 
 @app.route('/api/public/oncall/signup', methods=['POST'])
 def public_oncall_signup():
@@ -35329,6 +35385,9 @@ def public_oncall_signup():
         conn.close(); return jsonify({'error': 'That shift no longer exists'}), 404
     if (shift.get('person_name') or '').strip():
         conn.close(); return jsonify({'error': 'That shift has already been claimed'}), 400
+    _cls = fetchall(conn, 'SELECT start_date, end_date FROM oncall_closures WHERE end_date >= %s', (str(shift['start_date'])[:10],)) or []
+    if _shift_fully_closed(shift, _cls):
+        conn.close(); return jsonify({'error': 'We\'re closed that whole week, so there\'s nothing to cover.'}), 400
     # Name, email, and (when on file) phone come from the board roster and
     # its linked volunteer record — not client-supplied text. The picker
     # only lets someone select an existing active member in the first place.
@@ -47453,8 +47512,15 @@ def final_show_report(conn, pid, with_sales=True):
         WHERE pf.production_id=%s AND o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test' ''', (pid,)) or []
     refunds = fetchone(conn, '''SELECT COUNT(*) AS n, COALESCE(SUM(o.total_cents),0) AS c FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
         WHERE pf.production_id=%s AND o.status='refunded' ''', (pid,)) or {}
-    order_totals = fetchone(conn, '''SELECT COALESCE(SUM(o.service_fee_cents),0) AS fees FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+    # Money comes from the orders themselves (what people actually paid,
+    # after discount codes, including service fees), the same as Marquee.
+    order_totals = fetchone(conn, '''SELECT COALESCE(SUM(o.total_cents),0) AS total, COALESCE(SUM(o.service_fee_cents),0) AS fees,
+            COALESCE(SUM(o.discount_cents),0) AS disc
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
         WHERE pf.production_id=%s AND o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test' ''', (pid,)) or {}
+    perf_paid = {r['performance_id']: int(r['c'] or 0) for r in (fetchall(conn, '''SELECT o.performance_id, SUM(o.total_cents) AS c
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        WHERE pf.production_id=%s AND o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test' GROUP BY o.performance_id''', (pid,)) or [])}
     _, don_by_show, _ = ticket_checkout_donations(conn)
     donations = int(don_by_show.get(pid, 0) or 0)
     by_type, by_chan = {}, {}
@@ -47468,7 +47534,7 @@ def final_show_report(conn, pid, with_sales=True):
         pt = [t for t in tix if t['performance_id'] == pf['id']]
         cap = (pf.get('seat_map_capacity') if pf.get('reserved_seating') else pf.get('ga_capacity')) or pf.get('seat_map_capacity') or pf.get('ga_capacity') or 0
         row = {'date': str(pf['performance_date'])[:10], 'time': pf.get('performance_time') or '', 'sold': len(pt), 'capacity': int(cap or 0),
-               'checked_in': sum(1 for t in pt if t['checked_in_at']), 'tickets_cents': sum(int(t['price_cents'] or 0) for t in pt)}
+               'checked_in': sum(1 for t in pt if t['checked_in_at']), 'tickets_cents': perf_paid.get(pf['id'], 0)}
         if with_sales and SQUARE_ACCESS_TOKEN:
             try:
                 rep = concession_report(conn, pf)
@@ -47483,12 +47549,13 @@ def final_show_report(conn, pid, with_sales=True):
                 sales_err = str(e)[:160]
         perf_rows.append(row)
     fees_cents = int(order_totals.get('fees') or 0)
-    tickets_cents = sum(int(t['price_cents'] or 0) for t in tix) + fees_cents
+    discount_cents = int(order_totals.get('disc') or 0)
+    tickets_cents = int(order_totals.get('total') or 0)
     sold = len(tix); cap_total = sum(r['capacity'] for r in perf_rows); here = sum(r['checked_in'] for r in perf_rows)
     return {'id': pid, 'name': prod.get('share_name') or prod['name'],
             'first': perf_rows[0]['date'] if perf_rows else '', 'last': perf_rows[-1]['date'] if perf_rows else '',
             'performances': perf_rows, 'tickets': sold, 'capacity': cap_total, 'checked_in': here,
-            'tickets_cents': tickets_cents, 'fees_cents': fees_cents, 'donation_cents': donations,
+            'tickets_cents': tickets_cents, 'fees_cents': fees_cents, 'discount_cents': discount_cents, 'donation_cents': donations,
             'refunds': int(refunds.get('n') or 0), 'refunds_cents': int(refunds.get('c') or 0),
             'by_type': sorted(by_type.values(), key=lambda x: -x['tickets']), 'by_channel': sorted(by_chan.values(), key=lambda x: -x['tickets']),
             'sales_cents': sales_total, 'sales_cash_cents': sales_cash, 'sales_card_cents': sales_card,
@@ -47506,10 +47573,10 @@ def final_report_slack(r):
     lines = [f'*Run:* {d(r["first"])} – {d(r["last"])} · {len(r["performances"])} performance' + ('' if len(r['performances']) == 1 else 's'),
              '', '*Tickets*',
              f'Sold: *{r["tickets"]:,}* of {r["capacity"]:,} seats ({pct(r["tickets"], r["capacity"])} full) · checked in {r["checked_in"]:,} ({pct(r["checked_in"], r["tickets"])} of sold)',
-             f'Ticket sales: *{_money(r["tickets_cents"])}*' + (f' (incl. {_money(r["fees_cents"])} service fees)' if r.get('fees_cents') else '') + (f' · donations at checkout: *{_money(r["donation_cents"])}*' if r['donation_cents'] else '')
+             f'Ticket sales: *{_money(r["tickets_cents"])}*' + (f' (incl. {_money(r["fees_cents"])} service fees' + (f', after {_money(r["discount_cents"])} in discount codes' if r.get('discount_cents') else '') + ')' if r.get('fees_cents') else (f' (after {_money(r["discount_cents"])} in discount codes)' if r.get('discount_cents') else '')) + (f' · donations at checkout: *{_money(r["donation_cents"])}*' if r['donation_cents'] else '')
              + (f' · {r["refunds"]} refunded order' + ('' if r['refunds'] == 1 else 's') + f' ({_money(r["refunds_cents"])}, not included)' if r['refunds'] else '')]
     if r['by_type']:
-        lines.append('By ticket type: ' + ' · '.join(f'{x["name"]} {x["tickets"]} ({_money(x["cents"])})' for x in r['by_type']))
+        lines.append('By ticket type (at ticket price): ' + ' · '.join(f'{x["name"]} {x["tickets"]} ({_money(x["cents"])})' for x in r['by_type']))
     if r['by_channel']:
         lines.append('How they were sold: ' + ' · '.join(f'{x["name"]} {x["tickets"]}' for x in r['by_channel']))
     lines += ['', '*Concessions & show-night sales* (Square)']

@@ -12268,12 +12268,12 @@ async function loadOncallBalance(months){
   var el = document.getElementById('oncall-balance'); if(!el) return
   var r = await api('/api/oncall/balance?months='+_balMonths)
   if(r.error){ el.innerHTML = ''; return }
-  var max = Math.max.apply(null, r.people.map(function(p){ return p.past_days + p.ahead_days }).concat([1]))
+  var max = Math.max.apply(null, r.people.map(function(p){ return p.past_days + p.ahead_days + (p.pending_days||0) }).concat([1]))
   var fair = r.fair_share_days
   var fmt = function(d){ return d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '' }
   var rows = r.people.map(function(p){
-    var tot = p.past_days + p.ahead_days
-    var w1 = Math.round(100*p.past_days/max), w2 = Math.round(100*p.ahead_days/max)
+    var tot = p.past_days + p.ahead_days, pend = p.pending_days || 0
+    var w1 = Math.round(100*p.past_days/max), w2 = Math.round(100*p.ahead_days/max), w3 = Math.round(100*pend/max)
     var diff = p.board ? tot - fair : null
     var tag = !p.board ? '<span style="font-size:11px;color:var(--text-muted)">not on the board list</span>'
       : tot === 0 ? '<span style="font-size:11px;font-weight:800;color:#b45309">no turns yet</span>'
@@ -12283,16 +12283,28 @@ async function loadOncallBalance(months){
       + '<div><strong>'+escHtml(p.name)+'</strong>'+(p.role?'<div style="font-size:11px;color:var(--text-muted)">'+escHtml(p.role)+'</div>':'')+'</div>'
       + '<div><div style="display:flex;height:14px;border-radius:7px;overflow:hidden;background:var(--bg);position:relative">'
       +   '<div style="width:'+w1+'%;background:#16728b" title="'+p.past_days+' days covered"></div><div style="width:'+w2+'%;background:#7dd3fc" title="'+p.ahead_days+' days booked ahead"></div>'
+      +   (w3 ? '<div style="width:'+w3+'%;background:repeating-linear-gradient(45deg,#a78bfa 0 4px,#ede9fe 4px 8px)" title="'+pend+' days requested, waiting for approval"></div>' : '')
       +   (r.fair_share_days ? '<div title="Fair share" style="position:absolute;top:-2px;bottom:-2px;left:'+Math.min(100,Math.round(100*fair/max))+'%;width:2px;background:#f59e0b"></div>' : '')+'</div>'
-      +   '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">'+p.past_weeks+' week'+(p.past_weeks===1?'':'s')+' done'+(p.last?' (last '+fmt(p.last)+')':'')+(p.ahead_weeks?' · '+p.ahead_weeks+' booked'+(p.next?' (next '+fmt(p.next)+')':''):'')+' '+tag+'</div></div>'
-      + '<div style="text-align:right"><strong style="font-size:15px">'+tot+'</strong> <span style="color:var(--text-muted)">days</span></div></div>'
+      +   '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px">'+p.past_weeks+' week'+(p.past_weeks===1?'':'s')+' done'+(p.last?' (last '+fmt(p.last)+')':'')+(p.ahead_weeks?' · '+p.ahead_weeks+' booked'+(p.next?' (next '+fmt(p.next)+')':''):'')
+      +(p.pending_weeks?' · <span style="color:#6d28d9;font-weight:700">'+p.pending_weeks+' requested</span>':'')+' '+tag+'</div></div>'
+      + '<div style="text-align:right"><strong style="font-size:15px">'+tot+'</strong> <span style="color:var(--text-muted)">days</span>'+(pend?'<div style="font-size:11.5px;color:#6d28d9">+'+pend+' requested</div>':'')+'</div></div>'
   }).join('')
   el.innerHTML = '<div class="card" style="padding:14px 16px">'
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><strong style="flex:1">Coverage balance</strong>'
     + [6,12,24].map(function(m){ return '<button class="btn btn-sm '+(_balMonths===m?'btn-primary':'btn-secondary')+'" onclick="loadOncallBalance('+m+')">'+(m===24?'2 years':m+' months')+'</button>' }).join('') + '</div>'
     + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Days each person has been on call (dark) and has booked ahead (light), over the last '+(_balMonths===24?'2 years':_balMonths+' months')+' plus everything already scheduled. '
-    + 'The orange line is a fair share: '+fair+' days each across '+r.board_members+' board member'+(r.board_members===1?'':'s')+'. Closed days don\'t count.</div>'
+    + 'Striped purple is requested but not approved yet. The orange line is a fair share: '+fair+' days each across '+r.board_members+' board member'+(r.board_members===1?'':'s')+' (approved days only). Closed days don\'t count.</div>'
+    + '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:13px;background:var(--bg);border-radius:8px;padding:8px 10px;margin:6px 0 8px"><strong>Limit:</strong> no more than '
+    + '<input id="ocl-n" type="number" min="0" value="'+(r.limit.weeks||'')+'" placeholder="—" style="width:56px;padding:4px 6px"/> week(s) per '
+    + '<select id="ocl-m" style="width:auto;padding:4px 6px">'+[1,2,3,6,12].map(function(m){ return '<option value="'+m+'"'+(r.limit.months===m?' selected':'')+'>'+m+' month'+(m===1?'':'s')+'</option>' }).join('')+'</select>'
+    + '<button class="btn btn-secondary btn-sm" onclick="saveOncallLimit()">Save</button>'
+    + '<span style="color:var(--text-muted);font-size:12px">'+(r.limit.weeks ? 'Board members can\'t sign up past this; you can still approve over it.' : 'Blank = no limit.')+'</span></div>'
     + (r.people.length ? rows : '<div style="font-size:13px;color:var(--text-muted)">No one has been on call yet.</div>') + '</div>'
+}
+async function saveOncallLimit(){
+  var r = await api('/api/oncall/limit','PUT',{weeks: document.getElementById('ocl-n').value, months: parseInt(document.getElementById('ocl-m').value)})
+  if(r.error){ toast(r.error,'error'); return }
+  toast(r.weeks ? 'Limit: '+r.weeks+' week'+(r.weeks===1?'':'s')+' per '+r.months+' month'+(r.months===1?'':'s') : 'No limit','success'); loadOncallBalance()
 }
 function oncallClosedOn(ds){ return _oncallClosures.find(function(c){ return c.start_date <= ds && c.end_date >= ds }) }
 function renderOncallClosures(){
@@ -12362,9 +12374,11 @@ async function loadOncallSignupRequests(){
   + '</div>'
 }
 
-async function reviewOncallSignup(id, action){
- const res = await api('/api/oncall/signups/'+id+'/'+action, 'POST')
+async function reviewOncallSignup(id, action, override){
+ let res = await api('/api/oncall/signups/'+id+'/'+action, 'POST', override ? {override_limit: true} : {})
+ if(res && res.over_limit){ if(!confirm(res.error)) return; return reviewOncallSignup(id, action, true) }
  if(res&&res.ok){
+  loadOncallBalance()
   toast(action==='approve'?'Shift assigned!':'Request declined')
   const reloaded=await api('/api/oncall'); _oncallList=Array.isArray(reloaded)?reloaded:_oncallList
   await loadOncallSignupRequests()

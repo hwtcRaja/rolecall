@@ -3241,6 +3241,8 @@ def init_db():
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMP",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS send_claim_at TIMESTAMP",
         "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS is_rush BOOLEAN DEFAULT FALSE",
+        # optional cheaper price while buying through the pre-sale link
+        "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS presale_price_cents INTEGER",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS rush_off BOOLEAN DEFAULT FALSE",
         "ALTER TABLE production_rush ADD COLUMN IF NOT EXISTS disclaimer TEXT DEFAULT ''",
         # rush seats held for a buyer without telling them which ones (revealed after checkout)
@@ -44894,6 +44896,22 @@ def get_production_ticket_types(pid):
     return jsonify(rows or [])
 
 
+def _presale_price_in(d):
+    v = d.get('presale_price_dollars')
+    if v is None or str(v).strip() == '':
+        return None
+    try: return max(0, int(round(float(str(v).replace('$', '')) * 100)))
+    except Exception: return None
+
+
+def ticket_price_for(tt, channel):
+    """What a ticket type costs for this buyer: the pre-sale price while
+    they're buying through the pre-sale (if one is set), otherwise regular."""
+    if channel == 'presale' and tt.get('presale_price_cents') is not None:
+        return int(tt['presale_price_cents'])
+    return int(tt.get('price_cents') or 0)
+
+
 @app.route('/api/productions/<pid>/ticket-types', methods=['POST'])
 def create_production_ticket_type(pid):
     err = _require_ticketing()
@@ -44913,6 +44931,7 @@ def create_production_ticket_type(pid):
              (d.get('description') or '').strip(),
              d.get('quantity_limit') or None,
              (max_sort['m'] or 0) + 1, bool(d.get('active', True))))
+    execute(conn, 'UPDATE ticket_types SET presale_price_cents=%s WHERE id=%s', (_presale_price_in(d), tid))
     # New ticket types default to enabled on every existing on-sale/draft
     # performance of this production, so they're immediately usable instead
     # of silently applying to nothing until someone remembers to toggle it.
@@ -44938,6 +44957,8 @@ def update_ticket_type(tid):
                      quantity_limit=%s,active=%s WHERE id=%s''',
             ((d.get('name') or '').strip(), price_cents, (d.get('description') or '').strip(),
              d.get('quantity_limit') or None, bool(d.get('active', True)), tid))
+    if 'presale_price_dollars' in d:
+        execute(conn, 'UPDATE ticket_types SET presale_price_cents=%s WHERE id=%s', (_presale_price_in(d), tid))
     conn.commit()
     row = fetchone(conn, 'SELECT * FROM ticket_types WHERE id=%s', (tid,))
     conn.close()
@@ -45782,6 +45803,16 @@ def public_seat_status(fid):
     ticket_types = fetchall(conn, '''SELECT tt.* FROM ticket_types tt
         JOIN performance_ticket_types ptt ON ptt.ticket_type_id=tt.id
         WHERE ptt.performance_id=%s AND tt.active=TRUE ORDER BY tt.sort_order''', (fid,))
+    # Pre-sale buyers see pre-sale prices (and the regular price, crossed out)
+    try:
+        _pk = json.loads(request.args.get('presale_keys') or '{}')
+    except Exception:
+        _pk = {}
+    _chan = sale_channel_for(conn, fid, _pk, staff_ticket_preview(request.args.get('preview')))
+    for t in ticket_types or []:
+        if _chan == 'presale' and t.get('presale_price_cents') is not None and int(t['presale_price_cents']) != int(t.get('price_cents') or 0):
+            t['regular_price_cents'] = t['price_cents']; t['price_cents'] = int(t['presale_price_cents']); t['presale_priced'] = True
+    perf['sale_channel'] = _chan
     # Rush shows up only while it's on sale online and not sold out
     _ri = rush_public_info(_rush)
     ticket_types = [t for t in (ticket_types or []) if not t.get('is_rush') or (_ri and _ri['open'] and not _ri['sold_out'])]
@@ -46027,6 +46058,8 @@ def public_ticket_checkout():
             WHERE ptt.performance_id=%s AND tt.active=TRUE''', (fid,))}
 
         line_items = []  # each: seat_id (nullable), ticket_type_id, seat_label, price_cents
+        # pre-sale buyers pay the pre-sale price (where one is set)
+        _chan = sale_channel_for(conn, fid, d.get('presale_keys') or {}, staff_ticket_preview(d.get('preview')))
         if perf.get('reserved_seating'):
             # rush seats arrive as 'rush:<ref>' stand-ins; look up the real seat
             _real = _resolve_rush_refs(conn, fid, session_token, [sel.get('seat_id') for sel in seat_selections])
@@ -46094,7 +46127,7 @@ def public_ticket_checkout():
                     # misconfigured performance be checked out for free.
                     conn.close(); return jsonify({'error': f"Seat {seat['seat_label']} has no valid ticket type — please contact us."}), 400
                 line_items.append({'seat_id': sid, 'ticket_type_id': tt['id'],
-                    'seat_label': seat['seat_label'], 'price_cents': tt['price_cents'],
+                    'seat_label': seat['seat_label'], 'price_cents': ticket_price_for(tt, _chan),
                     'section': seat.get('section') or '', 'obstructed_view': bool(seat.get('obstructed_view')),
                     'view_note': seat.get('view_note') or ''})
         else:
@@ -46105,7 +46138,7 @@ def public_ticket_checkout():
                 qty = max(1, int(sel.get('quantity') or 1))
                 for _ in range(qty):
                     line_items.append({'seat_id': None, 'ticket_type_id': tt['id'],
-                        'seat_label': tt['name'], 'price_cents': tt['price_cents']})
+                        'seat_label': tt['name'], 'price_cents': ticket_price_for(tt, _chan)})
 
         # Rush rules: only while on sale, within the per-order limit and the
         # performance's rush cap; block seats are rush-only and vice versa

@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
+<meta name="robots" content="noindex,nofollow"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="HWTC Calendar"/>
+<meta name="theme-color" content="#0f5566"/>
+<title>HWTC Calendar</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{--ink:#1f2a30;--muted:#64748b;--line:#e2e8f0;--bg:#f4f7f8;--brand:#16728b;--brand-dark:#0f5566;--soft:#e3f1f5}
+*{box-sizing:border-box}
+body{margin:0;font-family:'DM Sans',-apple-system,sans-serif;background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased}
+header{position:sticky;top:0;z-index:10;background:var(--brand-dark);color:#fff;padding:calc(env(safe-area-inset-top,0px) + 10px) 14px 10px}
+.top{display:flex;align-items:center;gap:8px}
+.top h1{flex:1;margin:0;font-size:18px;font-weight:800}
+.ib{border:none;background:rgba(255,255,255,.14);color:#fff;border-radius:10px;padding:8px 12px;font-weight:700;font-size:14px;cursor:pointer;font-family:inherit}
+.ib.on{background:#fff;color:var(--brand-dark)}
+.seg{display:flex;gap:6px;margin-top:10px}
+.chips{display:flex;gap:6px;overflow-x:auto;padding:10px 14px 2px;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex-shrink:0;border:1.5px solid var(--line);background:#fff;border-radius:999px;padding:5px 11px;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;font-family:inherit;color:var(--ink)}
+.chip.on{border-color:var(--brand);background:var(--soft);color:var(--brand-dark)}
+.chip i{width:9px;height:9px;border-radius:50%;display:inline-block}
+main{padding:6px 12px calc(env(safe-area-inset-bottom,0px) + 30px);max-width:720px;margin:0 auto}
+.mhead{position:sticky;top:var(--hh,108px);z-index:5;background:var(--bg);font-weight:800;font-size:15px;color:var(--brand-dark);padding:12px 2px 6px}
+.day{display:flex;gap:12px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px}
+.day.today{border-color:var(--brand);box-shadow:0 0 0 1px var(--brand)}
+.dl{width:44px;flex-shrink:0;text-align:center}
+.dl .w{font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted)}
+.dl .n{font-size:22px;font-weight:800;line-height:1.1}
+.day.today .dl .n{color:var(--brand)}
+.evs{flex:1;min-width:0}
+.ev{display:flex;gap:8px;padding:5px 0}
+.ev + .ev{border-top:1px solid var(--line)}
+.bar{width:4px;border-radius:3px;flex-shrink:0}
+.ev .t{font-size:12.5px;color:var(--muted);font-weight:700}
+.ev .nm{font-size:15px;font-weight:700;line-height:1.3}
+.ev .sub{font-size:12.5px;color:var(--muted)}
+.ev.x .nm{text-decoration:line-through;color:var(--muted)}
+.empty{text-align:center;color:var(--muted);padding:40px 10px}
+/* month grid */
+.grid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:8px;margin-top:8px}
+.grid .h{font-size:11px;font-weight:800;color:var(--muted);text-align:center;padding:4px 0}
+.cell{aspect-ratio:1/1.05;border-radius:9px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:5px;cursor:pointer;font-size:14px;font-weight:700}
+.cell.o{color:#cbd5e1}
+.cell.today{background:var(--soft);color:var(--brand-dark)}
+.cell.sel{background:var(--brand);color:#fff}
+.dots{display:flex;gap:2px;margin-top:3px;flex-wrap:wrap;justify-content:center;max-width:28px}
+.dots i{width:5px;height:5px;border-radius:50%;display:block}
+.foot{text-align:center;font-size:12px;color:var(--muted);margin-top:16px}
+</style>
+</head>
+<body>
+<header id="hdr">
+  <div class="top"><h1 id="title">HWTC Calendar</h1><button class="ib" onclick="goToday()">Today</button></div>
+  <div class="seg"><button class="ib on" id="v-list" onclick="setView('list')">Upcoming</button><button class="ib" id="v-month" onclick="setView('month')">Month</button></div>
+</header>
+<div class="chips" id="chips"></div>
+<main id="main"><div class="empty">Loading…</div></main>
+<script>
+var TOKEN = (location.pathname.match(/\/cal\/([^/?#]+)/)||[])[1] || ''
+var D = null, VIEW = 'list', TYPE = '', MONTH = null, SEL = null
+try{ VIEW = localStorage.getItem('cal_view') || 'list'; TYPE = localStorage.getItem('cal_type') || '' }catch(e){}
+function esc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;') }
+function dt(s){ var m = s.split('-'); return new Date(+m[0], +m[1]-1, +m[2]) }
+function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') }
+function t12(t){ if(!t || t.length < 5) return ''; var h = +t.slice(0,2), m = t.slice(3,5); return ((h%12)||12)+(m!=='00'?':'+m:'')+(h>=12?'pm':'am') }
+// same palette as the Events page (event types store a color name like "amber")
+var NAMED = {teal:'#145466', blue:'#185FA5', amber:'#B7791F', pink:'#BE185D', purple:'#6D28D9', gray:'#5F5E5A', green:'#3B6D11', red:'#A32D2D',
+  orange:'#C2500A', indigo:'#4338CA', rose:'#BE123C', lime:'#3A6B0A', cyan:'#00838F', violet:'#5B21B6', slate:'#334155', brown:'#7C3F1E',
+  yellow:'#A16207', emerald:'#065F46', fuchsia:'#86198F', sky:'#0369A1', stone:'#57534E', maroon:'#7F1D1D', olive:'#4D5A0B', navy:'#1E3A5F'}
+function colorOf(c){ return !c ? '#185FA5' : (c.charAt(0)==='#' ? c : (NAMED[c] || '#185FA5')) }
+function col(e){ return colorOf(e.color) }
+function evs(){ return (D.events||[]).filter(function(e){ return !TYPE || e.type === TYPE }) }
+function byDay(list){
+  var m = {}
+  list.forEach(function(e){
+    // multi-day events show on each day
+    var d = dt(e.date), end = e.end_date && e.end_date > e.date ? dt(e.end_date) : dt(e.date)   // a separate Date, not the same object
+    while(d <= end){ var k = iso(d); (m[k] = m[k] || []).push(e); d.setDate(d.getDate()+1) }
+  })
+  return m
+}
+function evHTML(e){
+  var time = e.start ? t12(e.start)+(e.end?' – '+t12(e.end):'') : 'All day'
+  return '<div class="ev'+(e.cancelled?' x':'')+'"><div class="bar" style="background:'+esc(col(e))+'"></div><div style="min-width:0">'
+    + '<div class="t">'+time+(e.cancelled?' · cancelled':'')+'</div><div class="nm">'+esc(e.name)+'</div>'
+    + ((e.where||e.group) ? '<div class="sub">'+[e.group, e.where].filter(Boolean).map(esc).join(' · ')+'</div>' : '')+'</div></div>'
+}
+function dayHTML(ds, list){
+  var d = dt(ds)
+  return '<div class="day'+(ds===D.today?' today':'')+'" id="d-'+ds+'"><div class="dl"><div class="w">'+d.toLocaleDateString('en-US',{weekday:'short'})+'</div><div class="n">'+d.getDate()+'</div></div>'
+    + '<div class="evs">'+list.map(evHTML).join('')+'</div></div>'
+}
+function chips(){
+  var c = '<button class="chip'+(!TYPE?' on':'')+'" onclick="setType(\'\')">All</button>'
+    + (D.types||[]).map(function(t){ return '<button class="chip'+(TYPE===t.name?' on':'')+'" onclick="setType(\''+esc(t.name).replace(/'/g,"\\'")+'\')"><i style="background:'+esc(colorOf(t.color))+'"></i>'+esc(t.name)+'</button>' }).join('')
+  document.getElementById('chips').innerHTML = c
+}
+function setType(t){ TYPE = t; try{ localStorage.setItem('cal_type', t) }catch(e){} render() }
+function setView(v){ VIEW = v; try{ localStorage.setItem('cal_view', v) }catch(e){} render() }
+function goToday(){ MONTH = null; SEL = D.today; render(); if(VIEW==='list') scrollToDay(D.today) }
+function scrollToDay(ds){
+  var keys = Object.keys(byDay(evs())).sort(), k = keys.find(function(x){ return x >= ds })
+  var el = k && document.getElementById('d-'+k)
+  if(el) window.scrollTo({top: el.getBoundingClientRect().top + scrollY - (document.getElementById('hdr').offsetHeight + 46), behavior: 'smooth'})
+}
+function render(){
+  document.getElementById('v-list').classList.toggle('on', VIEW==='list')
+  document.getElementById('v-month').classList.toggle('on', VIEW==='month')
+  document.documentElement.style.setProperty('--hh', document.getElementById('hdr').offsetHeight+'px')
+  chips()
+  var map = byDay(evs()), main = document.getElementById('main')
+  if(VIEW === 'list'){
+    var keys = Object.keys(map).sort().filter(function(k){ return k >= D.today })
+    if(!keys.length){ main.innerHTML = '<div class="empty">Nothing coming up.</div>'; return }
+    var h = '', last = ''
+    keys.forEach(function(k){
+      var mo = dt(k).toLocaleDateString('en-US',{month:'long', year:'numeric'})
+      if(mo !== last){ h += '<div class="mhead">'+mo+'</div>'; last = mo }
+      h += dayHTML(k, map[k])
+    })
+    main.innerHTML = h + '<div class="foot">Updated '+esc(D.updated)+' · pull down to refresh</div>'
+    return
+  }
+  // month
+  var t = dt(D.today), m = MONTH || new Date(t.getFullYear(), t.getMonth(), 1)
+  MONTH = m
+  var start = new Date(m); start.setDate(1 - m.getDay())
+  var h = '<div style="display:flex;align-items:center;gap:8px;margin-top:8px"><button class="chip" onclick="shiftMonth(-1)">‹</button><div style="flex:1;text-align:center;font-weight:800;font-size:16px">'+m.toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</div><button class="chip" onclick="shiftMonth(1)">›</button></div>'
+  h += '<div class="grid">'+['S','M','T','W','T','F','S'].map(function(x){ return '<div class="h">'+x+'</div>' }).join('')
+  var d = new Date(start)
+  for(var i = 0; i < 42; i++){
+    var ds = iso(d), list = map[ds] || []
+    h += '<div class="cell'+(d.getMonth()!==m.getMonth()?' o':'')+(ds===D.today?' today':'')+(ds===SEL?' sel':'')+'" onclick="SEL=\''+ds+'\';render()">'+d.getDate()
+      + '<div class="dots">'+list.slice(0,6).map(function(e){ return '<i style="background:'+esc(col(e))+'"></i>' }).join('')+'</div></div>'
+    d.setDate(d.getDate()+1)
+    if(i === 34 && d.getMonth() !== m.getMonth()) break
+  }
+  h += '</div>'
+  var sel = SEL || D.today
+  h += '<div class="mhead" style="position:static">'+dt(sel).toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'})+'</div>'
+  h += (map[sel] && map[sel].length) ? dayHTML(sel, map[sel]) : '<div class="empty" style="padding:16px">Nothing scheduled.</div>'
+  main.innerHTML = h
+}
+async function shiftMonth(n){
+  MONTH = new Date(MONTH.getFullYear(), MONTH.getMonth()+n, 1); SEL = null
+  var need = iso(new Date(MONTH.getFullYear(), MONTH.getMonth()+1, 7))
+  var first = iso(new Date(MONTH.getFullYear(), MONTH.getMonth(), 1))
+  if(need > D.to || first < D.from) await load(first < D.from ? first : D.from, need > D.to ? need : D.to)
+  render()
+}
+async function load(from, to){
+  var q = from ? '?from='+from+'&to='+to : ''
+  try{
+    var r = await (await fetch('/api/public/calendar/'+encodeURIComponent(TOKEN)+q)).json()
+    if(r.error){ document.getElementById('main').innerHTML = '<div class="empty">'+esc(r.error)+'</div>'; return }
+    D = r
+  }catch(e){ if(!D) document.getElementById('main').innerHTML = '<div class="empty">Couldn\'t load the calendar. Check your connection.</div>' }
+}
+// refresh when they come back to the tab / app
+document.addEventListener('visibilitychange', function(){ if(!document.hidden && D) load(D.from, D.to).then(render) })
+load().then(function(){ if(D) render() })
+</script>
+</body>
+</html>

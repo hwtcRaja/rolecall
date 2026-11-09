@@ -769,6 +769,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button id="ev-view-day" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('day')">Day</button>
  <button id="ev-view-list" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('list')">List</button>
  </div>
+<button class="btn btn-secondary btn-sm" onclick="openCalendarShare()" title="A view-only calendar for phones, no login needed">Phone calendar link</button>
 <select class="filter-select" id="ev-filter-type" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Types</option></select>
  <select class="filter-select" id="ev-filter-category" onchange="renderEventsPage()" style="font-size:13px">
  <option value="">All Categories</option>
@@ -21716,6 +21717,19 @@ function calNav(dir){
  renderEventsPage()
 }
 
+// ── View-only phone calendar link (no login) ──
+async function openCalendarShare(rotate){
+  if(rotate && !confirm('Make a new link? The current link will stop working for everyone who bookmarked it.')) return
+  var r = await api('/api/calendar-share', rotate ? 'POST' : 'GET')
+  if(r.error){ toast(r.error,'error'); return }
+  showAdHocModal('cal-share','Phone calendar link',
+    '<div style="font-size:13px;color:var(--text-muted);line-height:1.55;margin-bottom:10px">A view-only calendar made for phones: upcoming events by day, or a month view, with filters by event type. No login needed, so it can be bookmarked or added to the home screen. It shows each event\'s name, time, place and show or program only (no volunteer names, notes or contact details).</div>'
+    + '<div style="display:flex;gap:8px"><input readonly value="'+escHtml(r.url)+'" style="flex:1;font-size:13px" onclick="this.select()"/>'
+    + '<button class="btn btn-primary btn-sm" onclick="navigator.clipboard.writeText(\''+escHtml(r.url)+'\').then(function(){toast(\'Link copied\',\'success\')})">Copy</button>'
+    + '<a class="btn btn-secondary btn-sm" href="'+escHtml(r.url)+'" target="_blank">Open</a></div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:10px">Anyone with this link can see the calendar. If it gets passed around too widely, <a href="#" onclick="openCalendarShare(true);return false">make a new link</a> (the old one stops working).</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px"><strong>Add to home screen:</strong> open the link on your phone, then Share → Add to Home Screen (iPhone) or ⋮ → Add to Home screen (Android).</div>', 560)
+}
 function renderCalendar(events){
  const label=new Date(calYear,calMonth,1).toLocaleDateString('en-US',{month:'long',year:'numeric'})
  document.getElementById('cal-month-label').textContent=label

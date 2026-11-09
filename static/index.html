@@ -470,7 +470,6 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('volunteers',this)"><span class="nav-icon" id="ni-volunteers"></span>Volunteers<span class="nav-badge" id="vol-interest-badge" style="display:none">0</span></div>
         <div class="nav-item" onclick="navTo('hours',this)"><span class="nav-icon" id="ni-hours"></span>Time Tracking</div>
         <div class="nav-item" onclick="navTo('waivers',this)"><span class="nav-icon" id="ni-waivers"></span>Waivers<span class="nav-badge" id="waiver-badge" style="display:none">0</span></div>
-        <div class="nav-item" onclick="navTo('oncall',this)"><span class="nav-icon" id="ni-oncall"></span>On-Call Schedule</div>
         <div class="nav-item" onclick="navTo('hours-store',this)"><span class="nav-icon" id="ni-hours-store"></span>Hours Store</div>
         <div class="nav-item" onclick="navTo('foh-training',this)"><span class="nav-icon" id="ni-foh-training"></span>FOH Training</div>
         <div class="nav-section">Communications</div>
@@ -479,6 +478,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
         <div class="nav-item" onclick="navTo('email-log',this)"><span class="nav-icon" id="ni-email-log"></span>Email Log</div>
         <div class="nav-item" onclick="navTo('email-templates-page',this)"><span class="nav-icon" id="ni-email-templates-page"></span>Email Templates</div>
         <div class="nav-item" onclick="navTo('surveys',this)"><span class="nav-icon" id="ni-surveys"></span>Surveys</div>
+        <div class="nav-item" onclick="navTo('oncall',this)"><span class="nav-icon" id="ni-oncall"></span>On-Call Schedule</div>
         <div class="nav-section">Calendar &amp; Events</div>
         <div class="nav-item" onclick="navTo('events',this)"><span class="nav-icon" id="ni-events"></span>Events &amp; Calendar</div>
         <div class="nav-item" onclick="navTo('event-logs',this)"><span class="nav-icon" id="ni-event-logs"></span>Event Logs</div>
@@ -2373,6 +2373,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:6px;cursor:pointer"><input type="checkbox" id="slack-tickets-enabled" style="width:auto" checked/> Send ticket alerts</label>
      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="slack-tickets-names" style="width:auto" checked/> Include the buyer's name (otherwise it just says "Someone")</label>
      <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="slack-countdown" style="width:auto" checked/> Countdown alerts: post 10 minutes and 5 minutes before a pre-sale or public sale opens, and when it opens</label>
+     <label style="display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:14px;cursor:pointer"><input type="checkbox" id="slack-final" style="width:auto" checked/> Final report: after a show's last performance, post its totals (tickets, attendance, concessions and other Square sales at the shows).</label>
      <div style="border-top:1px solid var(--border);padding-top:12px;margin-bottom:14px">
       <div style="font-weight:600;font-size:13.5px;margin-bottom:4px">Daily report</div>
       <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;line-height:1.6">A morning summary in the same channel: yesterday's sales, totals and goal progress per show, how full each upcoming date is, a sales chart, and a button to open Ticket Sales.</div>
@@ -3194,6 +3195,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
    <div style="font-size:13px;color:#1e3a8a">Outside these hours, callers hear your after-hours message. Gaps in the schedule (shown in red) mean calls fall through to your fallback number. Leave a shift's Person Name blank (or check "Leave this shift Open") to post it for members to sign up for.</div>
   </div>
   <div id="oncall-signup-requests"></div>
+  <div id="oncall-closures" style="margin-bottom:16px"></div>
   <div id="oncall-now" style="margin-bottom:16px"></div>
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
    <button class="btn btn-secondary btn-sm" onclick="oncallNav(-1)">← Prev</button>
@@ -12216,7 +12218,9 @@ function renderMonthView(){
     var bg=isToday?'rgba(13,61,77,0.06)':hasGap&&shifts.length?'#fffbeb':hasGap?'#fef2f2':''
     html+='<td style="border:1px solid var(--border);vertical-align:top;padding:5px;min-height:72px;background:'+bg+';cursor:pointer" onclick="openOncallModalForDate(\''+ds+'\')">'
     html+='<div style="font-size:13px;font-weight:'+(isToday?800:500)+';color:'+(isToday?'var(--teal)':'inherit')+';margin-bottom:3px">'+day+'</div>'
-    if(!shifts.length){html+='<div style="font-size:9px;color:#fca5a5;font-style:italic">no coverage</div>'}
+    var _cl = oncallClosedOn(ds)
+    if(_cl){html+='<div style="font-size:10px;font-weight:700;padding:1px 4px;border-radius:3px;background:#334155;color:#fff;margin-bottom:2px">Closed'+(_cl.label?' · '+escHtml(_cl.label):'')+'</div>'}
+    if(!shifts.length){ if(!_cl) html+='<div style="font-size:9px;color:#fca5a5;font-style:italic">no coverage</div>'}
     else{shifts.forEach(function(s){var c=oncallShiftColor(s),lbl=oncallShiftLabel(s);html+='<div style="font-size:10px;font-weight:700;padding:1px 4px;border-radius:3px;background:'+c+'20;color:'+c+';border-left:2px solid '+c+(s.person_name?'':';border-left-style:dashed')+';margin:1px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="event.stopPropagation();openOncallModal(\''+s.id+'\')">'+lbl+'</div>'});if(hasGap)html+='<div style="font-size:9px;color:#f59e0b;font-style:italic">partial gap</div>'}
     html+='</td>'
    }
@@ -12242,14 +12246,62 @@ async function initMaskedCallback(toNumber){
 
 var _oncallPendingSignupShiftIds = new Set()
 
+var _oncallClosures = []
 async function loadOncallPage(){
  const res=await api('/api/oncall')
  _oncallList=Array.isArray(res)?res:[]
+ const cl = await api('/api/oncall/closures'); _oncallClosures = Array.isArray(cl) ? cl : []
+ renderOncallClosures()
  await loadOncallSignupRequests()
  setOncallView('week')
  loadCallLog()
 }
 
+// ── Closures (holidays): callers hear a custom greeting and can leave a voicemail ──
+function oncallClosedOn(ds){ return _oncallClosures.find(function(c){ return c.start_date <= ds && c.end_date >= ds }) }
+function renderOncallClosures(){
+  var el = document.getElementById('oncall-closures'); if(!el) return
+  var fmt = function(d){ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) }
+  el.innerHTML = '<div class="card" style="padding:14px 16px">'
+    + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><strong style="flex:1">Closed days (holidays)</strong><button class="btn btn-secondary btn-sm" onclick="openOncallClosureModal()">+ Add closed days</button></div>'
+    + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">On closed days, callers hear your message and can leave a voicemail (posted to Slack), any time of day. They end on their own. Open Sunday–Saturday weeks are created automatically for the next 180 days, so board members can just sign up.</div>'
+    + (_oncallClosures.length ? _oncallClosures.map(function(c){
+        return '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border);font-size:13px"><div style="flex:1"><strong>'+(c.label?escHtml(c.label)+' · ':'')+escHtml(fmt(c.start_date))+(c.end_date!==c.start_date?' – '+escHtml(fmt(c.end_date)):'')+'</strong>'
+          + '<div style="color:var(--text-muted);font-style:italic">"'+escHtml(c.greeting)+'"</div></div>'
+          + '<button class="btn btn-secondary btn-sm" onclick="deleteOncallClosure(\''+c.id+'\')">Remove</button></div>' }).join('')
+      : '<div style="font-size:13px;color:var(--text-muted)">None coming up.</div>')
+    + '</div>'
+}
+function openOncallClosureModal(){
+  showAdHocModal('oc-closure','Add closed days',
+    '<div class="form-row"><div class="form-group"><label>First day closed</label><input type="date" id="ocl-start" onchange="ocClosureDefault()"/></div><div class="form-group"><label>Last day closed</label><input type="date" id="ocl-end" onchange="ocClosureDefault()"/></div></div>'
+    + '<div class="form-group"><label>Name (optional)</label><input id="ocl-label" placeholder="e.g. Winter break" oninput="ocClosureDefault()"/></div>'
+    + '<div class="form-group"><label>What callers hear</label><textarea id="ocl-greeting" rows="4"></textarea><div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Read aloud, then the caller can leave a voicemail.</div></div>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="saveOncallClosure()">Save</button>', 520)
+  ocClosureDefault(true)
+}
+var _oclTouched = false
+function ocClosureDefault(force){
+  var g = document.getElementById('ocl-greeting'); if(!g) return
+  if(!force && _oclTouched) return
+  var s = document.getElementById('ocl-start').value, e = document.getElementById('ocl-end').value || s
+  var f = function(d){ return d ? new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) : '' }
+  var back = e ? (function(){ var x = new Date(e+'T12:00:00'); x.setDate(x.getDate()+1); return x.toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) })() : ''
+  g.value = 'Thank you for calling Horizon West Theater Company. Our office is closed'+(document.getElementById('ocl-label').value.trim()?' for '+document.getElementById('ocl-label').value.trim():'')
+    + (s ? (s===e ? ' on '+f(s) : ' from '+f(s)+' through '+f(e)) : '') + '. Please leave a message after the tone and we will call you back'+(back?' when we return on '+back:'')+'. Thank you!'
+  g.oninput = function(){ _oclTouched = true }
+  if(force) _oclTouched = false
+}
+async function saveOncallClosure(){
+  var r = await api('/api/oncall/closures','POST',{start_date: document.getElementById('ocl-start').value, end_date: document.getElementById('ocl-end').value || document.getElementById('ocl-start').value,
+    label: document.getElementById('ocl-label').value, greeting: document.getElementById('ocl-greeting').value})
+  if(r.error){ toast(r.error,'error'); return }
+  _oncallClosures = r; closeAdHocModal('oc-closure'); renderOncallClosures(); renderOncallCalendar(); toast('Closed days saved','success')
+}
+async function deleteOncallClosure(id){
+  if(!confirm('Remove these closed days? Calls will route normally again.')) return
+  await api('/api/oncall/closures/'+id,'DELETE'); loadOncallPage()
+}
 async function loadOncallSignupRequests(){
  const el = document.getElementById('oncall-signup-requests')
  if(!el) return
@@ -38275,7 +38327,8 @@ async function loadTicketsTab(pid){
         mi('', 'Door scanner', 'Scan tickets at the door (phone or handheld scanner)', '/tickets/scan'),
         mi('', 'House Manager', 'Live check-in, seat map, door sales, volunteers', '/house'),
         mi("openProductionSales('"+pid+"')", 'Concessions &amp; sales', 'Square sales at each performance: concessions, merch, raffle'),
-        mi("openSquareItemLookup('')", 'Square item lookup', 'Which of several same-named Square items actually sold')])
+        mi("openSquareItemLookup('')", 'Square item lookup', 'Which of several same-named Square items actually sold'),
+        mi("openFinalReport('"+pid+"')", 'Final report', 'All sales for the run: tickets, attendance, concessions')])
     + menu('tk-orders-'+pid, 'Orders &amp; email', [
         mi("toggleTicketOrdersPanel('"+pid+"')", 'Orders &amp; patrons', 'Everyone who bought, refunds, resend tickets'),
         mi("openEmailTicketsModal('"+pid+"')", 'Email tickets', 'Resend the tickets email to buyers'),
@@ -38812,6 +38865,7 @@ async function loadSlackTicketSettings(){
   document.getElementById('slack-daily-time').value = d.daily_time || '09:00'
   document.getElementById('slack-daily-chart').checked = d.daily_chart !== false
   document.getElementById('slack-countdown').checked = d.countdown !== false
+  if(document.getElementById('slack-final')) document.getElementById('slack-final').checked = d.final !== false
 }
 async function sendDailyReportNow(){
   if(!(await saveSlackTicketSettings())) return
@@ -38826,7 +38880,8 @@ async function saveSlackTicketSettings(extra){
     daily: document.getElementById('slack-daily-enabled').checked,
     daily_time: document.getElementById('slack-daily-time').value || '09:00',
     daily_chart: document.getElementById('slack-daily-chart').checked,
-    countdown: document.getElementById('slack-countdown').checked
+    countdown: document.getElementById('slack-countdown').checked,
+    final: document.getElementById('slack-final').checked
   }, extra || {})
   var url = (document.getElementById('slack-tickets-webhook').value||'').trim()
   if(url && !('webhook' in body)) body.webhook = url
@@ -38923,6 +38978,38 @@ async function saveSalesCategories(pid){
   closeAdHocModal('sales-cats'); toast(cats.length ? 'Counting '+cats.length+' categor'+(cats.length===1?'y':'ies') : 'Counting everything','success')
   if(pid) openProductionSales(pid)
 }
+// ── Final report for a production (posted to Slack after closing) ──
+async function openFinalReport(pid){
+  showAdHocModal('final-rep','Final report','<div style="color:var(--text-muted);font-size:13px">Adding everything up (including Square)…</div>', 760)
+  var r = await api('/api/productions/'+pid+'/final-report')
+  if(r.error){ showAdHocModal('final-rep','Final report','<div style="color:#b91c1c">'+escHtml(r.error)+'</div>', 760); return }
+  var m = function(c){ return '$'+((c||0)/100).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}) }
+  var pct = function(a,b){ return b ? Math.round(100*a/b)+'%' : '—' }
+  var card = function(k,v,sub){ return '<div class="card" style="padding:10px 14px"><div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase">'+k+'</div><div style="font-size:20px;font-weight:800">'+v+'</div>'+(sub?'<div style="font-size:12px;color:var(--text-muted)">'+sub+'</div>':'')+'</div>' }
+  var h = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:14px">'
+    + card('Tickets', m(r.tickets_cents), r.tickets.toLocaleString()+' sold · '+pct(r.tickets,r.capacity)+' full')
+    + card('Donations', m(r.donation_cents), 'added at checkout')
+    + card('Show-night sales', m(r.sales_cents), 'concessions, merch… (Square)')
+    + card('Grand total', m(r.grand_total_cents), r.checked_in.toLocaleString()+' came ('+pct(r.checked_in,r.tickets)+' of sold)') + '</div>'
+  if(r.by_type.length) h += '<div style="font-size:13px;margin-bottom:6px"><strong>By ticket type:</strong> '+r.by_type.map(function(x){ return escHtml(x.name)+' '+x.tickets+' ('+m(x.cents)+')' }).join(' · ')+'</div>'
+  if(r.by_channel.length) h += '<div style="font-size:13px;margin-bottom:6px"><strong>How they were sold:</strong> '+r.by_channel.map(function(x){ return escHtml(x.name)+' '+x.tickets }).join(' · ')+'</div>'
+  if(r.refunds) h += '<div style="font-size:13px;margin-bottom:6px;color:var(--text-muted)">'+r.refunds+' refunded order'+(r.refunds===1?'':'s')+' ('+m(r.refunds_cents)+') not included.</div>'
+  h += '<div style="font-size:13px;margin:10px 0 6px"><strong>Show-night sales:</strong> '+(r.sales_error && !r.sales_cents ? '<span style="color:#b91c1c">couldn\'t read Square: '+escHtml(r.sales_error)+'</span>'
+      : m(r.sales_cents)+' (cash '+m(r.sales_cash_cents)+', card '+m(r.sales_card_cents)+')'+(r.sales_categories.length?' · '+r.sales_categories.map(function(c){ return escHtml(c.name)+' '+m(c.cents) }).join(' · '):''))+'</div>'
+  r.cash_box_notes.forEach(function(n){ h += '<div style="font-size:12.5px;color:#b45309">⚠ '+escHtml(n)+'</div>' })
+  h += '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:10px"><thead><tr style="text-align:left;color:var(--text-muted);font-size:11px;text-transform:uppercase"><th style="padding:6px">Performance</th><th style="padding:6px">Sold</th><th style="padding:6px">Came</th><th style="padding:6px;text-align:right">Tickets</th><th style="padding:6px;text-align:right">Show-night sales</th></tr></thead><tbody>'
+    + r.performances.map(function(p){ return '<tr style="border-top:1px solid var(--border)"><td style="padding:6px">'+escHtml(tkFmtDate(p.date))+(p.time?' · '+escHtml(tkFmtTime(p.time)):'')+'</td><td style="padding:6px">'+p.sold+' / '+(p.capacity||'—')+'</td><td style="padding:6px">'+p.checked_in+'</td><td style="padding:6px;text-align:right">'+m(p.tickets_cents)+'</td><td style="padding:6px;text-align:right">'+(p.sales_cents!=null?m(p.sales_cents):'—')+'</td></tr>' }).join('')
+    + '</tbody></table>'
+  h += '<div style="display:flex;gap:8px;align-items:center;margin-top:14px"><button class="btn btn-primary btn-sm" onclick="sendFinalReport(\''+pid+'\')">Send to Slack</button>'
+    + '<span style="font-size:12px;color:var(--text-muted)">'+(r.sent_at?'Last sent '+escHtml(r.sent_at):'Posts automatically the day after the last performance.')+'</span></div>'
+  showAdHocModal('final-rep','Final report · '+escHtml(r.name), h, 760)
+}
+async function sendFinalReport(pid){
+  var r = await api('/api/productions/'+pid+'/final-report','POST',{})
+  if(r.error){ toast(r.error,'error'); return }
+  toast('Sent to Slack','success'); openFinalReport(pid)
+}
+
 async function openProductionSales(pid){
   showAdHocModal('prod-sales','Concessions & show-night sales','<div style="color:var(--text-muted);font-size:13px">Reading Square…</div>', 760)
   var rows = await api('/api/productions/'+pid+'/concessions')

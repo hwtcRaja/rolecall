@@ -3829,6 +3829,10 @@ def init_db():
         "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS days_of_week TEXT DEFAULT '[0,1,2,3,4,5,6]'",
         "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS recurrence TEXT DEFAULT 'once'",
         "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS color TEXT DEFAULT ''",
+        "ALTER TABLE on_call_schedule ADD COLUMN IF NOT EXISTS auto_week BOOLEAN DEFAULT FALSE",
+        """CREATE TABLE IF NOT EXISTS oncall_closures (
+            id TEXT PRIMARY KEY, start_date DATE NOT NULL, end_date DATE NOT NULL, greeting TEXT NOT NULL,
+            label TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_bot_token TEXT DEFAULT ''",
@@ -34019,12 +34023,21 @@ def _start_oncall_scheduler():
                 c.close()
                 if on and now_eastern().strftime('%H:%M') == at[:5]:
                     post_daily_ticket_report()
+                # final reports for shows that just closed (after the daily report time)
+                if now_eastern().strftime('%H:%M') >= at[:5] and now_eastern().minute % 10 == 0:
+                    post_due_final_reports()
             except Exception as e:
                 app.logger.warning(f'Daily ticket report error: {e}')
             try:
                 post_sale_countdown_alerts()
             except Exception as e:
                 app.logger.warning(f'Sale countdown alerts error: {e}')
+            # on-call: keep open weeks topped up and flag uncovered weeks (once a day, 10 AM)
+            try:
+                if now_eastern().strftime('%H:%M') == '10:00':
+                    oncall_coverage_alerts()
+            except Exception as e:
+                app.logger.warning(f'On-call coverage alerts error: {e}')
             try:
                 if now_eastern().minute % 15 == 3:
                     _c = get_db()
@@ -34350,6 +34363,26 @@ def twilio_voice():
         now_time = now.strftime('%H:%M')
         now_str = now.strftime('%b %d, %Y at %I:%M %p ET')
         in_hours = coverage_start <= now_time <= coverage_end
+
+        # Closed (holidays etc.): closure greeting and voicemail, any time of day
+        _cc = get_db()
+        try:
+            closure = active_oncall_closure(_cc)
+        finally:
+            _cc.close()
+        if closure:
+            ts_val = post_to_slack_calls([
+                {'type':'section','text':{'type':'mrkdwn','text':f' *Call while closed* ({closure.get("label") or "closure"})\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Status:* Closed greeting played, voicemail offered'}},
+                {'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'}]}
+            ], text=f'Call while closed from {fmt_phone(caller)}')
+            log_call(call_sid, caller, 'Closed', '', 'closed', True, ts_val or '')
+            from html import escape as _he
+            return f'''<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Say voice="Polly.Joanna">{_he(closure['greeting'])}</Say>
+  <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
+</Response>''', 200, {'Content-Type': 'text/xml'}
+
 
         if not in_hours:
             msg = after_hours_msg or f'Thank you for calling Horizon West Theater Company. Our team is available between {coverage_start} and {coverage_end}. Please leave a text message and someone will get back to you.'
@@ -35057,11 +35090,126 @@ def get_call_log():
     conn.close()
     return jsonify(rows)
 
+# ══ On-call: automatic open weeks, coverage alerts, closures ═════════════
+# Open Sunday–Saturday weeks are kept ready for the next 180 days, so board
+# members can just sign up. Weeks staff delete aren't recreated. The calls
+# Slack channel hears about uncovered weeks 14, 7, 3 and 1 days out.
+# Closures (holidays) play their own greeting and take a voicemail; they
+# end on their own.
+def _oncall_week_bounds(d):
+    import datetime as _dw
+    start = d - _dw.timedelta(days=(d.weekday() + 1) % 7)     # back to Sunday
+    return start, start + _dw.timedelta(days=6)
+
+
+def ensure_oncall_open_weeks(conn, days=180):
+    import datetime as _dw
+    es = get_email_settings() or {}
+    st = (es.get('twilio_coverage_start') or '08:00').strip()[:5]
+    en = (es.get('twilio_coverage_end') or '22:00').strip()[:5]
+    try: skipped = set(json.loads(_setting(conn, 'oncall_auto_skipped') or '[]'))
+    except Exception: skipped = set()
+    today = today_eastern()
+    wk, _ = _oncall_week_bounds(today)
+    made = 0
+    while wk <= today + _dw.timedelta(days=days):
+        we = wk + _dw.timedelta(days=6)
+        if wk.isoformat() not in skipped:
+            have = fetchone(conn, 'SELECT 1 AS x FROM on_call_schedule WHERE start_date <= %s AND end_date >= %s LIMIT 1', (we, wk))
+            if not have:
+                execute(conn, '''INSERT INTO on_call_schedule (start_date, end_date, person_name, phone, notes, start_time, end_time, days_of_week, recurrence, auto_week)
+                    VALUES (%s,%s,'','','',%s,%s,'[0,1,2,3,4,5,6]','once',TRUE)''', (wk, we, st, en))
+                made += 1
+        wk += _dw.timedelta(days=7)
+    if made:
+        conn.commit()
+    return made
+
+
+def active_oncall_closure(conn, when=None):
+    d = (when or today_eastern()).isoformat()
+    return fetchone(conn, 'SELECT * FROM oncall_closures WHERE start_date <= %s AND end_date >= %s ORDER BY start_date DESC LIMIT 1', (d, d))
+
+
+def oncall_coverage_alerts():
+    """Tell the calls Slack channel about weeks coming up with nobody on call."""
+    import datetime as _dw
+    conn = get_db()
+    try:
+        ensure_oncall_open_weeks(conn)
+        today = today_eastern()
+        for ahead in (14, 7, 3, 1):
+            wk, we = _oncall_week_bounds(today + _dw.timedelta(days=ahead))
+            if wk != today + _dw.timedelta(days=ahead):
+                continue   # only when that many days before a week starts (Sunday)
+            covered = fetchone(conn, "SELECT 1 AS x FROM on_call_schedule WHERE start_date <= %s AND end_date >= %s AND person_name <> '' LIMIT 1", (we, wk))
+            closed = fetchone(conn, 'SELECT 1 AS x FROM oncall_closures WHERE start_date <= %s AND end_date >= %s LIMIT 1', (wk, we))
+            if covered or closed:
+                continue
+            key = f'oncall_gap_alert:{wk.isoformat()}:{ahead}'
+            if _setting(conn, key):
+                continue
+            _set_setting(conn, key, '1'); conn.commit()
+            link = APP_BASE_URL.rstrip('/') + '/on-call-signup'
+            when = wk.strftime('%a %b %-d') + ' – ' + we.strftime('%a %b %-d')
+            lead = {14: 'in 2 weeks', 7: 'next week', 3: 'in 3 days', 1: 'tomorrow'}[ahead]
+            try:
+                post_to_slack_calls([
+                    {'type': 'section', 'text': {'type': 'mrkdwn', 'text': f':rotating_light: *No one is on call for {when}* (starts {lead}).\nCalls that week will go to the fallback number. Can someone take it?'}},
+                    {'type': 'actions', 'elements': [{'type': 'button', 'text': {'type': 'plain_text', 'text': 'Sign up for this week'}, 'url': link, 'action_id': 'oncall_signup'}]}
+                ], text=f'No on-call coverage for {when}')
+            except Exception as e:
+                app.logger.warning(f'on-call gap alert failed: {e}')
+    finally:
+        conn.close()
+
+
+@app.route('/api/oncall/closures', methods=['GET', 'POST'])
+def oncall_closures():
+    err = require_permission('oncall', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            d = request.json or {}
+            s_, e_ = (d.get('start_date') or '')[:10], (d.get('end_date') or d.get('start_date') or '')[:10]
+            if not s_ or e_ < s_:
+                return jsonify({'error': 'Pick a start date and an end date on or after it.'}), 400
+            msg = (d.get('greeting') or '').strip()[:1000]
+            if not msg:
+                return jsonify({'error': 'Write what callers should hear.'}), 400
+            execute(conn, '''INSERT INTO oncall_closures (id, start_date, end_date, greeting, label, created_by) VALUES (%s,%s,%s,%s,%s,%s)''',
+                    (str(uuid.uuid4()), s_, e_, msg, (d.get('label') or '').strip()[:120], session.get('name') or ''))
+            conn.commit()
+        rows = fetchall(conn, 'SELECT * FROM oncall_closures WHERE end_date >= %s ORDER BY start_date', (today_eastern().isoformat(),)) or []
+        for r in rows:
+            r['start_date'] = str(r['start_date']); r['end_date'] = str(r['end_date']); r['created_at'] = str(r.get('created_at'))[:16]
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+@app.route('/api/oncall/closures/<cid>', methods=['DELETE'])
+def oncall_closure_delete(cid):
+    err = require_permission('oncall')
+    if err: return err
+    conn = get_db()
+    try:
+        execute(conn, 'DELETE FROM oncall_closures WHERE id=%s', (cid,)); conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
+
+
 @app.route('/api/oncall', methods=['GET'])
 def get_oncall_schedule():
     err = require_auth()
     if err: return err
     conn = get_db()
+    try:
+        ensure_oncall_open_weeks(conn)
+    except Exception as e:
+        conn.rollback(); app.logger.warning(f'open weeks: {e}')
     rows = fetchall(conn, 'SELECT * FROM on_call_schedule ORDER BY start_date') or []
     conn.close()
     return jsonify(rows)
@@ -35101,7 +35249,13 @@ def delete_oncall(oid):
     err = require_permission('oncall')
     if err: return err
     conn = get_db()
+    row = fetchone(conn, 'SELECT start_date, auto_week FROM on_call_schedule WHERE id=%s', (oid,))
     execute(conn, 'DELETE FROM on_call_schedule WHERE id=%s', (oid,))
+    if row and row.get('auto_week'):
+        try: sk = set(json.loads(_setting(conn, 'oncall_auto_skipped') or '[]'))
+        except Exception: sk = set()
+        sk.add(str(row['start_date'])[:10])
+        _set_setting(conn, 'oncall_auto_skipped', json.dumps(sorted(sk)[-400:]))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -35144,6 +35298,10 @@ def public_oncall_open_shifts():
     already has a pending request, so the page can show 'Requested'
     instead of a Sign Up button without exposing who requested it."""
     conn = get_db()
+    try:
+        ensure_oncall_open_weeks(conn)
+    except Exception:
+        conn.rollback()
     today_str = today_eastern().isoformat()
     shifts = fetchall(conn, """SELECT id, start_date, end_date, start_time, end_time, days_of_week, notes
         FROM on_call_schedule
@@ -47066,6 +47224,8 @@ def slack_ticket_settings():
                 _set_setting(conn, 'slack_daily_chart', '1' if d.get('daily_chart') else '0')
             if 'countdown' in d:
                 _set_setting(conn, 'slack_countdown_enabled', '1' if d.get('countdown') else '0')
+            if 'final' in d:
+                _set_setting(conn, 'slack_final_enabled', '1' if d.get('final') else '0')
             conn.commit()
         url = _setting(conn, 'slack_ticket_webhook') or ''
         return jsonify({'configured': bool(url), 'webhook_hint': (url[:34] + '…' + url[-4:]) if url else '',
@@ -47074,7 +47234,8 @@ def slack_ticket_settings():
                         'daily': _setting(conn, 'slack_daily_enabled', '0') == '1',
                         'daily_time': _setting(conn, 'slack_daily_time', '09:00') or '09:00',
                         'daily_chart': _setting(conn, 'slack_daily_chart', '1') == '1',
-                        'countdown': _setting(conn, 'slack_countdown_enabled', '1') == '1'})
+                        'countdown': _setting(conn, 'slack_countdown_enabled', '1') == '1',
+                        'final': _setting(conn, 'slack_final_enabled', '1') == '1'})
     finally:
         conn.close()
 
@@ -47210,27 +47371,30 @@ def build_daily_ticket_report(conn):
     include_chart = _setting(conn, 'slack_daily_chart', '1') == '1'
     if not shows:
         blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': 'No shows with upcoming performances on sale right now.'}})
+    in_report = {'tickets': 0, 'tickets_cents': 0, 'donation_cents': 0}
     for s in shows:
         snap = show_sales_snapshot(conn, s['id'])
         if not snap:
             continue
         yd = next((d for d in snap['daily'] if d['date'] == yday), {'tickets': 0, 'revenue_cents': 0})
         total = snap['gross_cents'] + snap['donation_cents']
-        lines = ['*' + snap['short_name'] + '*',
-                 'Yesterday: *' + str(yd['tickets']) + '* ticket' + ('' if yd['tickets'] == 1 else 's') + ' · ' + _money(yd['revenue_cents']),
-                 'So far: *' + '{:,}'.format(snap['tickets']) + '* tickets · ' + _money(snap['gross_cents'])
-                 + (' + ' + _money(snap['donation_cents']) + ' donations' if snap['donation_cents'] else '') + ' = *' + _money(total) + '*']
+        in_report['tickets'] += snap['tickets']; in_report['tickets_cents'] += snap['gross_cents']; in_report['donation_cents'] += snap['donation_cents']
+        left = [p for p in snap['performances'] if p['date'] >= today.isoformat()]
+        lines = ['*' + snap['short_name'] + '*  _(' + str(len(left)) + ' performance' + ('' if len(left) == 1 else 's') + ' to go)_',
+                 '*Sold yesterday:* ' + str(yd['tickets']) + ' ticket' + ('' if yd['tickets'] == 1 else 's') + ' · ' + _money(yd['revenue_cents']),
+                 '*Sold so far (all performances):* ' + '{:,}'.format(snap['tickets']) + ' tickets',
+                 '    Tickets ' + _money(snap['gross_cents']) + (' + donations ' + _money(snap['donation_cents']) if snap['donation_cents'] else '')
+                 + ' = *' + _money(total) + '*']
         ch = snap.get('channels') or {}
         if (ch.get('presale') or {}).get('tickets'):
-            lines.append('Pre-sale: ' + str(ch['presale']['tickets']) + ' tickets · ' + _money(ch['presale']['revenue_cents'])
-                         + '  |  Public: ' + str(ch['public']['tickets']) + ' tickets · ' + _money(ch['public']['revenue_cents']))
+            lines.append('    of which pre-sale ' + str(ch['presale']['tickets']) + ' tickets (' + _money(ch['presale']['revenue_cents'])
+                         + '), regular sale ' + str(ch['public']['tickets']) + ' tickets (' + _money(ch['public']['revenue_cents']) + ')')
         if snap.get('goal_cents'):
             frac = total / float(snap['goal_cents'])
-            lines.append('Goal: `' + _text_bar(frac) + '` ' + str(int(round(frac * 100))) + '% of ' + _money(snap['goal_cents']))
+            lines.append('*Money goal:* `' + _text_bar(frac) + '` ' + str(int(round(frac * 100))) + '% of the ' + _money(snap['goal_cents'])
+                         + ' goal (' + _money(total) + ' raised)')
         perf_lines = []
-        for p in snap['performances']:
-            if p['date'] < today.isoformat():
-                continue
+        for p in left:
             try:
                 lab = _dt.date.fromisoformat(p['date']).strftime('%a %-m/%-d')
             except Exception:
@@ -47241,11 +47405,13 @@ def build_daily_ticket_report(conn):
                 lab += ' ' + str((h % 12) or 12) + (':' + m if m != '00' else '') + ('p' if h >= 12 else 'a')
             if p['capacity']:
                 frac = p['sold'] / float(p['capacity'])
-                perf_lines.append('`' + lab.ljust(15) + ' ' + _text_bar(frac, 10) + '` ' + str(p['sold']) + '/' + str(p['capacity'])
-                                  + ' (' + str(int(round(frac * 100))) + '%)' + (' · pre-sale' if p['status'] == 'presale' else ''))
+                perf_lines.append('`' + lab.ljust(15) + ' ' + _text_bar(frac, 10) + '` ' + str(p['sold']) + ' of ' + str(p['capacity'])
+                                  + ' seats (' + str(int(round(frac * 100))) + '% full)' + (' · pre-sale' if p['status'] == 'presale' else ''))
             else:
                 perf_lines.append('`' + lab.ljust(15) + '` ' + str(p['sold']) + ' sold')
-        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': '\n'.join(lines + ([''] + perf_lines if perf_lines else []))}})
+        if perf_lines:
+            lines += ['', '*Seats filled, per upcoming performance:*'] + perf_lines
+        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': '\n'.join(lines)}})
         recent = snap['daily'][-14:]
         if include_chart and recent and any(d['tickets'] for d in recent):
             cfg = {'type': 'bar', 'data': {'labels': [_dt.date.fromisoformat(d['date']).strftime('%-m/%-d') for d in recent],
@@ -47256,12 +47422,172 @@ def build_daily_ticket_report(conn):
             url = 'https://quickchart.io/chart?w=600&h=260&bkg=white&v=4&c=' + _up.quote(json.dumps(cfg, separators=(',', ':')))
             blocks.append({'type': 'image', 'image_url': url, 'alt_text': snap['short_name'] + ' daily ticket sales'})
         blocks.append({'type': 'divider'})
-    g, n, dn = ticket_sale_totals(conn)
-    blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*All shows:* ' + '{:,}'.format(n) + ' tickets · '
-                   + _money(g) + (' + ' + _money(dn) + ' donations' if dn else '') + ' = *' + _money(g + dn) + '*'}})
+    if len(shows) > 1:
+        tot = in_report['tickets_cents'] + in_report['donation_cents']
+        blocks.append({'type': 'section', 'text': {'type': 'mrkdwn', 'text': '*All shows above combined:* ' + '{:,}'.format(in_report['tickets']) + ' tickets · tickets '
+                       + _money(in_report['tickets_cents']) + (' + donations ' + _money(in_report['donation_cents']) if in_report['donation_cents'] else '')
+                       + ' = *' + _money(tot) + '*'}})
+    blocks.append({'type': 'context', 'elements': [{'type': 'mrkdwn', 'text': 'Shows appear here while they have performances still to come. '
+                   'After the last performance a final report is posted, including concessions.'}]})
     blocks.append({'type': 'actions', 'elements': [{'type': 'button', 'text': {'type': 'plain_text', 'text': 'Open Ticket Sales'},
                    'url': APP_BASE_URL.rstrip('/') + '/#marquee/boxoffice'}]})
     return {'text': 'Daily Ticket Report', 'blocks': blocks}
+
+
+# ══ Final show report (after the last performance) ════════════════════════
+CHANNEL_LABELS = {'public': 'Online, regular sale', 'presale': 'Online, pre-sale', 'door': 'At the door', 'comp': 'Comps',
+                  'staff': 'Staff booked', 'team_comp': 'Team comps', 'test': 'Test orders'}
+
+
+def final_show_report(conn, pid, with_sales=True):
+    import datetime as _dtf
+    prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+    if not prod:
+        return None
+    perfs = fetchall(conn, '''SELECT pf.*, sm.capacity AS seat_map_capacity FROM performances pf LEFT JOIN seat_maps sm ON sm.id=pf.seat_map_id
+        WHERE pf.production_id=%s AND COALESCE(pf.status,'draft') NOT IN ('draft','cancelled') ORDER BY pf.performance_date, pf.performance_time''', (pid,)) or []
+    tix = fetchall(conn, '''SELECT t.performance_id, t.price_cents, t.checked_in_at, COALESCE(tt.name,'Ticket') AS type_name, COALESCE(tt.is_rush,FALSE) AS is_rush,
+            COALESCE(o.sale_channel,'public') AS channel
+        FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id JOIN performances pf ON pf.id=t.performance_id
+        LEFT JOIN ticket_types tt ON tt.id=t.ticket_type_id
+        WHERE pf.production_id=%s AND o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test' ''', (pid,)) or []
+    refunds = fetchone(conn, '''SELECT COUNT(*) AS n, COALESCE(SUM(o.total_cents),0) AS c FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        WHERE pf.production_id=%s AND o.status='refunded' ''', (pid,)) or {}
+    order_totals = fetchone(conn, '''SELECT COALESCE(SUM(o.service_fee_cents),0) AS fees FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        WHERE pf.production_id=%s AND o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test' ''', (pid,)) or {}
+    _, don_by_show, _ = ticket_checkout_donations(conn)
+    donations = int(don_by_show.get(pid, 0) or 0)
+    by_type, by_chan = {}, {}
+    for t in tix:
+        k = t['type_name'] + (' (rush)' if t['is_rush'] and 'rush' not in t['type_name'].lower() else '')
+        a = by_type.setdefault(k, {'name': k, 'tickets': 0, 'cents': 0}); a['tickets'] += 1; a['cents'] += int(t['price_cents'] or 0)
+        c = 'comp' if not int(t['price_cents'] or 0) and t['channel'] in ('public', 'presale', 'door') else t['channel']
+        b = by_chan.setdefault(c, {'name': CHANNEL_LABELS.get(c, c.replace('_', ' ').title()), 'tickets': 0, 'cents': 0}); b['tickets'] += 1; b['cents'] += int(t['price_cents'] or 0)
+    perf_rows, sales_total, sales_cats, sales_cash, sales_card, box_notes, sales_err = [], 0, {}, 0, 0, [], ''
+    for pf in perfs:
+        pt = [t for t in tix if t['performance_id'] == pf['id']]
+        cap = (pf.get('seat_map_capacity') if pf.get('reserved_seating') else pf.get('ga_capacity')) or pf.get('seat_map_capacity') or pf.get('ga_capacity') or 0
+        row = {'date': str(pf['performance_date'])[:10], 'time': pf.get('performance_time') or '', 'sold': len(pt), 'capacity': int(cap or 0),
+               'checked_in': sum(1 for t in pt if t['checked_in_at']), 'tickets_cents': sum(int(t['price_cents'] or 0) for t in pt)}
+        if with_sales and SQUARE_ACCESS_TOKEN:
+            try:
+                rep = concession_report(conn, pf)
+                row['sales_cents'] = rep['net_cents']
+                sales_total += rep['net_cents']; sales_cash += rep['cash_cents']; sales_card += rep['card_cents']
+                for cg in rep['categories']:
+                    sales_cats[cg['name']] = sales_cats.get(cg['name'], 0) + cg['total_cents']
+                if rep['cash_box'].get('difference_cents'):
+                    box_notes.append(f'{row["date"]}: cash box {"over" if rep["cash_box"]["difference_cents"] > 0 else "short"} {_money(abs(rep["cash_box"]["difference_cents"]))}')
+                sales_err = sales_err or rep.get('catalog_error') or ''
+            except Exception as e:
+                sales_err = str(e)[:160]
+        perf_rows.append(row)
+    fees_cents = int(order_totals.get('fees') or 0)
+    tickets_cents = sum(int(t['price_cents'] or 0) for t in tix) + fees_cents
+    sold = len(tix); cap_total = sum(r['capacity'] for r in perf_rows); here = sum(r['checked_in'] for r in perf_rows)
+    return {'id': pid, 'name': prod.get('share_name') or prod['name'],
+            'first': perf_rows[0]['date'] if perf_rows else '', 'last': perf_rows[-1]['date'] if perf_rows else '',
+            'performances': perf_rows, 'tickets': sold, 'capacity': cap_total, 'checked_in': here,
+            'tickets_cents': tickets_cents, 'fees_cents': fees_cents, 'donation_cents': donations,
+            'refunds': int(refunds.get('n') or 0), 'refunds_cents': int(refunds.get('c') or 0),
+            'by_type': sorted(by_type.values(), key=lambda x: -x['tickets']), 'by_channel': sorted(by_chan.values(), key=lambda x: -x['tickets']),
+            'sales_cents': sales_total, 'sales_cash_cents': sales_cash, 'sales_card_cents': sales_card,
+            'sales_categories': [{'name': k, 'cents': v} for k, v in sorted(sales_cats.items(), key=lambda kv: -kv[1])],
+            'sales_error': sales_err, 'cash_box_notes': box_notes, 'goal_cents': prod.get('sales_goal_cents'),
+            'grand_total_cents': tickets_cents + donations + sales_total}
+
+
+def final_report_slack(r):
+    import datetime as _dtf
+    def d(x):
+        try: return _dtf.date.fromisoformat(x).strftime('%b %-d')
+        except Exception: return x
+    pct = lambda a, b: (str(int(round(100.0 * a / b))) + '%') if b else '—'
+    lines = [f'*Run:* {d(r["first"])} – {d(r["last"])} · {len(r["performances"])} performance' + ('' if len(r['performances']) == 1 else 's'),
+             '', '*Tickets*',
+             f'Sold: *{r["tickets"]:,}* of {r["capacity"]:,} seats ({pct(r["tickets"], r["capacity"])} full) · checked in {r["checked_in"]:,} ({pct(r["checked_in"], r["tickets"])} of sold)',
+             f'Ticket sales: *{_money(r["tickets_cents"])}*' + (f' (incl. {_money(r["fees_cents"])} service fees)' if r.get('fees_cents') else '') + (f' · donations at checkout: *{_money(r["donation_cents"])}*' if r['donation_cents'] else '')
+             + (f' · {r["refunds"]} refunded order' + ('' if r['refunds'] == 1 else 's') + f' ({_money(r["refunds_cents"])}, not included)' if r['refunds'] else '')]
+    if r['by_type']:
+        lines.append('By ticket type: ' + ' · '.join(f'{x["name"]} {x["tickets"]} ({_money(x["cents"])})' for x in r['by_type']))
+    if r['by_channel']:
+        lines.append('How they were sold: ' + ' · '.join(f'{x["name"]} {x["tickets"]}' for x in r['by_channel']))
+    lines += ['', '*Concessions & show-night sales* (Square)']
+    if r['sales_error'] and not r['sales_cents']:
+        lines.append('_Couldn\'t read Square: ' + r['sales_error'] + '_')
+    else:
+        lines.append(f'Total: *{_money(r["sales_cents"])}* (cash {_money(r["sales_cash_cents"])}, card {_money(r["sales_card_cents"])})')
+        if r['sales_categories']:
+            lines.append(' · '.join(f'{c["name"]} {_money(c["cents"])}' for c in r['sales_categories']))
+        for n in r['cash_box_notes']:
+            lines.append(':warning: ' + n)
+    lines += ['', '*By performance*']
+    for p in r['performances']:
+        lab = d(p['date']) + (' ' + _fmt_time12(p['time']) if p['time'] else '')
+        lines.append(f'`{lab.ljust(16)}` {p["sold"]}/{p["capacity"] or "—"} sold · {p["checked_in"]} came · tickets {_money(p["tickets_cents"])}'
+                     + (f' · sales {_money(p["sales_cents"])}' if p.get('sales_cents') else ''))
+    lines += ['', f'*Grand total: {_money(r["grand_total_cents"])}*  (tickets {_money(r["tickets_cents"])} + donations {_money(r["donation_cents"])} + show-night sales {_money(r["sales_cents"])})']
+    if r.get('goal_cents'):
+        lines.append(f'Money goal: {pct(r["tickets_cents"] + r["donation_cents"], r["goal_cents"])} of {_money(r["goal_cents"])} (tickets + donations)')
+    return {'text': f'Final report: {r["name"]}', 'blocks': [
+        {'type': 'header', 'text': {'type': 'plain_text', 'text': '🎬 Final report · ' + r['name'][:120]}},
+        {'type': 'section', 'text': {'type': 'mrkdwn', 'text': '\n'.join(lines)[:2900]}}]}
+
+
+def post_due_final_reports():
+    """Once a show's last performance has passed, post its final report to
+    the ticket Slack channel (once). Only shows that closed in the last two
+    weeks, so turning this on doesn't post a pile of old shows."""
+    import datetime as _dtf
+    conn = get_db()
+    try:
+        url = (_setting(conn, 'slack_ticket_webhook') or '').strip()
+        if not url or _setting(conn, 'slack_final_enabled', '1') != '1':
+            return
+        today = today_eastern()
+        rows = fetchall(conn, '''SELECT pr.id, MAX(pf.performance_date) AS last FROM productions pr JOIN performances pf ON pf.production_id=pr.id
+            WHERE COALESCE(pf.status,'draft') NOT IN ('draft','cancelled')
+            GROUP BY pr.id HAVING MAX(pf.performance_date) < %s AND MAX(pf.performance_date) >= %s''',
+            (today.isoformat(), (today - _dtf.timedelta(days=14)).isoformat())) or []
+        for r in rows:
+            key = 'final_report_sent:' + r['id']
+            if _setting(conn, key):
+                continue
+            rep = final_show_report(conn, r['id'])
+            if not rep or not rep['tickets']:
+                continue
+            _set_setting(conn, key, now_eastern().strftime('%Y-%m-%d %H:%M')); conn.commit()
+            try:
+                requests.post(url, json=final_report_slack(rep), timeout=20)
+            except Exception as e:
+                app.logger.warning(f'Final report Slack post failed: {e}')
+    finally:
+        conn.close()
+
+
+@app.route('/api/productions/<pid>/final-report', methods=['GET', 'POST'])
+def production_final_report(pid):
+    """GET: the final report (works any time, even mid-run). POST: send it to Slack now."""
+    err = _require_ticketing()
+    if err: return err
+    conn = get_db()
+    try:
+        rep = final_show_report(conn, pid)
+        if not rep:
+            return jsonify({'error': 'Production not found'}), 404
+        if request.method == 'POST':
+            url = (_setting(conn, 'slack_ticket_webhook') or '').strip()
+            if not url:
+                return jsonify({'error': 'Set up the ticket Slack channel in Settings first.'}), 400
+            r = requests.post(url, json=final_report_slack(rep), timeout=20)
+            if r.status_code >= 300:
+                return jsonify({'error': 'Slack said: ' + (r.text or str(r.status_code))[:200]}), 400
+            _set_setting(conn, 'final_report_sent:' + pid, now_eastern().strftime('%Y-%m-%d %H:%M')); conn.commit()
+            return jsonify({'ok': True})
+        rep['sent_at'] = _setting(conn, 'final_report_sent:' + pid) or ''
+        return jsonify(rep)
+    finally:
+        conn.close()
 
 
 def post_daily_ticket_report(force=False):
@@ -48945,54 +49271,68 @@ def _square_pos_orders(start_utc, end_utc):
     return out
 
 
-def _square_categories_for(variation_ids):
-    """variation id -> (item name, category name).
+_CATALOG_INDEX = {'at': None, 'vars': {}, 'error': ''}
 
-    Square only returns objects one step away: retrieving a variation
-    brings back its item, but not the item's category. So: variations ->
-    items, then look up the categories those items point to."""
-    res = {}
-    ids = [v for v in set(variation_ids) if v]
-    if not ids:
-        return res
-    def _batch(object_ids, related):
-        out_objs, out_rel = [], []
-        for i in range(0, len(object_ids), 900):
-            r = requests.post(f'{SQUARE_API_BASE}/v2/catalog/batch-retrieve',
-                              json={'object_ids': object_ids[i:i + 900], 'include_related_objects': related},
-                              headers=square_headers(), timeout=25)
-            data = r.json() if r.status_code == 200 else {}
-            out_objs += data.get('objects') or []
-            out_rel += data.get('related_objects') or []
-        return out_objs, out_rel
-    objs, rel = _batch(ids, True)
-    items = {o['id']: o for o in rel + objs if o.get('type') == 'ITEM'}
-    cats = {o['id']: (o.get('category_data') or {}).get('name') for o in rel + objs if o.get('type') == 'CATEGORY'}
 
-    def _cat_ids(idata):
-        # newer items list categories (and a "reporting" one); older ones have category_id
-        out = []
-        if (idata.get('reporting_category') or {}).get('id'):
-            out.append(idata['reporting_category']['id'])
-        out += [c.get('id') for c in (idata.get('categories') or []) if c.get('id')]
-        if idata.get('category_id'):
-            out.append(idata['category_id'])
-        return out
-
-    need = sorted({cid for it in items.values() for cid in _cat_ids(it.get('item_data') or {}) if cid not in cats})
-    if need:
-        cobjs, _ = _batch(need, False)
-        for o in cobjs:
+def _square_catalog_index(force=False):
+    """Every item variation in the Square catalog -> (item name, category
+    name), built from the full catalog list (items + categories) and kept
+    for 10 minutes. Reading the whole catalog is more reliable than
+    following "related objects", which Square doesn't always include."""
+    import datetime as _dtx
+    now = _dtx.datetime.now()
+    if not force and _CATALOG_INDEX['at'] and (now - _CATALOG_INDEX['at']).total_seconds() < 600:
+        return _CATALOG_INDEX
+    cats, items, cursor, err = {}, [], None, ''
+    for _ in range(50):
+        url = f'{SQUARE_API_BASE}/v2/catalog/list?types=ITEM,CATEGORY' + (f'&cursor={cursor}' if cursor else '')
+        try:
+            r = requests.get(url, headers=square_headers(), timeout=25)
+            data = r.json()
+        except Exception as e:
+            err = f'Could not reach Square: {e}'; break
+        if r.status_code != 200:
+            errs = (data.get('errors') or [{}])
+            err = 'Square catalog: ' + (errs[0].get('detail') or errs[0].get('code') or str(r.status_code))
+            if r.status_code in (401, 403):
+                err += ' (the Square access token needs permission to read items: ITEMS_READ)'
+            break
+        for o in data.get('objects') or []:
             if o.get('type') == 'CATEGORY':
-                cats[o['id']] = (o.get('category_data') or {}).get('name')
-    for o in objs:
-        if o.get('type') != 'ITEM_VARIATION':
-            continue
-        it = items.get((o.get('item_variation_data') or {}).get('item_id')) or {}
+                cats[o['id']] = (o.get('category_data') or {}).get('name') or ''
+            elif o.get('type') == 'ITEM':
+                items.append(o)
+        cursor = data.get('cursor')
+        if not cursor:
+            break
+    vmap = {}
+    for it in items:
         idata = it.get('item_data') or {}
-        name = next((cats[c] for c in _cat_ids(idata) if cats.get(c)), '')
-        res[o['id']] = (idata.get('name') or '', name)
-    return res
+        ids = []
+        if (idata.get('reporting_category') or {}).get('id'):
+            ids.append(idata['reporting_category']['id'])
+        ids += [c.get('id') for c in (idata.get('categories') or []) if c.get('id')]
+        if idata.get('category_id'):
+            ids.append(idata['category_id'])
+        cname = next((cats[c] for c in ids if cats.get(c)), '')
+        for v in idata.get('variations') or []:
+            vmap[v['id']] = (idata.get('name') or '', cname)
+        vmap['item:' + it['id']] = (idata.get('name') or '', cname)
+    if vmap or not err:
+        _CATALOG_INDEX.update({'at': now, 'vars': vmap, 'error': err})
+    else:
+        _CATALOG_INDEX['error'] = err
+    return _CATALOG_INDEX
+
+
+def _square_categories_for(variation_ids):
+    """variation id -> (item name, category name)."""
+    idx = _square_catalog_index()
+    vm = idx['vars']
+    if any(v and v not in vm for v in variation_ids):
+        # something new was added in Square since we last looked
+        vm = _square_catalog_index(force=True)['vars']
+    return {v: vm[v] for v in set(variation_ids) if v in vm}
 
 
 def _sales_window(perf):
@@ -49091,7 +49431,7 @@ def concession_report(conn, perf, start_local=None, end_local=None):
     if box.get('starting_cash_cents') is not None:
         expected = int(box['starting_cash_cents']) + cash + int(box.get('unrung_cash_cents') or 0)
     return {'window': {'start': w_start.strftime('%Y-%m-%dT%H:%M'), 'end': w_end.strftime('%Y-%m-%dT%H:%M')},
-            'categories_filter': sorted(allowed),
+            'categories_filter': sorted(allowed), 'catalog_error': _CATALOG_INDEX.get('error') or '',
             'transactions': counted, 'total_cents': total, 'refunds_cents': refunds, 'net_cents': total - refunds,
             'avg_cents': int(total / counted) if counted else 0, 'cash_cents': cash, 'card_cents': card, 'other_cents': other,
             'categories': cat_list,
@@ -49177,6 +49517,10 @@ def square_item_usage():
         cursor = data.get('cursor')
         if not cursor:
             break
+    _idx = _square_catalog_index()['vars']
+    for it in items:
+        if not it['category']:
+            it['category'] = (_idx.get('item:' + it['id']) or ('', ''))[1]
     by_var = {v['id']: it for it in items for v in it['variations']}
     # 2) orders in the date range (local days), tallied by the variation sold
     tz = ZoneInfo('America/New_York')

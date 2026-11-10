@@ -21399,8 +21399,15 @@ def partner_letter_html(req, partner, settings, dates, equipment, portal_url='',
         + eq_html
 
         + heading('4. Before you leave')
-        + bullets(['Return chairs and tables to where you found them.', 'Take your belongings and trash with you.',
-                   'Set the thermostat back and turn off the lights.', 'Turn passage mode off and check that the door is locked.'])
+        + bullets(['Return chairs and tables to where you found them.', 'Take your belongings with you.',
+                   'Take out any trash that could leave an odor, such as food (see below).',
+                   'Set the thermostat back to 75&deg;F or higher and turn off the lights.', 'Turn passage mode off and check that the door is locked.'])
+        + '<div class="lbl" style="margin-top:10px">Trash and dumpsters</div>'
+        + '<p>There are two dumpsters you are welcome to use, for everyday trash and for larger items:</p>'
+        + bullets(['Behind the studio, to the left as you go out the back door of Studio B.', 'In front, to the right of the front door.'])
+        + '<p style="margin-top:6px">Please take out any trash that could leave an unpleasant odor, especially food. We are not a 9-to-5 office and do not have regular '
+          'custodial service, so the studio can sit empty for long stretches between groups, and anything left behind can make the space '
+          'unpleasant for the next group.</p>'
 
         + heading('5. Safety and questions')
         + bullets([f'<b>Emergencies:</b> call 911 first, then ' + (f'{h(cname)}' + (f' at {h(cphone)}' if cphone else '') + ' or ' if cname else '') + f'HWTC at {phone}.',

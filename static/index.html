@@ -33458,7 +33458,36 @@ function renderRentalPaymentButtons(r){
     }
   }
   if(hasAnyPayments && !hasInstallments) html += ' <button class="btn btn-secondary btn-sm" onclick="openRentalPaymentsListModal(\''+r.agreement_id+'\')" style="font-size:11px">View All Invoices</button>'
+  if(r.partnership_category !== 'item_rental') html += ' <button class="btn btn-secondary btn-sm" onclick="openPartnerWelcomeLetter(\''+r.id+'\')" style="font-size:11px">Welcome letter</button>'
   return html
+}
+// ── Artistic Partnership welcome letter (door code, who to call, where things are, their dates) ──
+async function openPartnerWelcomeLetter(rid){
+  var r = await api('/api/rental/requests/'+rid+'/welcome-letter')
+  if(r.error){ toast(r.error,'error'); return }
+  showAdHocModal('pw-letter','Welcome letter · '+escHtml(r.partner),
+    '<div style="font-size:13px;color:var(--text-muted);line-height:1.55;margin-bottom:10px">A PDF in the same style as the ELIC letter, for outside groups: their door code, who to call, '
+    + 'a note that someone meets them on the first day, where the restroom and thermostat are, using chairs and tables (and any equipment in their agreement), and their '
+    + r.dates+' upcoming date'+(r.dates===1?'':'s')+'.</div>'
+    + '<div class="form-row"><div class="form-group"><label>Front door code</label><input id="pw-door" value="'+escHtml(r.door_code)+'" placeholder="e.g. 4821" inputmode="numeric"/></div>'
+    + '<div class="form-group"><label>Their HWTC contact</label><input id="pw-cname" value="'+escHtml(r.contact_name)+'" placeholder="Name"/></div>'
+    + '<div class="form-group"><label>Contact phone</label><input id="pw-cphone" value="'+escHtml(r.contact_phone)+'"/></div></div>'
+    + '<div class="form-group"><label>Where the restroom is <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted)">(same for every letter)</span></label><input id="pw-rest" value="'+escHtml(r.restroom)+'"/></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">'
+    + '<button class="btn btn-secondary" onclick="savePartnerLetter(\''+rid+'\',\'preview\')">Save &amp; preview PDF</button>'
+    + '<button class="btn btn-primary" onclick="savePartnerLetter(\''+rid+'\',\'email\')"'+(r.email?'':' disabled')+'>Save &amp; email to '+escHtml(r.contact||r.email||'partner')+'</button></div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:8px">'+(r.email?'Sends to '+escHtml(r.email)+' with the PDF attached.':'This partner has no email on file.')
+    + (r.sent_at?' Last sent '+escHtml(r.sent_at)+'.':'')+'</div>', 620)
+}
+async function savePartnerLetter(rid, then){
+  var g = function(id){ return document.getElementById(id).value }
+  var r = await api('/api/rental/requests/'+rid+'/welcome-letter','PUT',{door_code: g('pw-door'), contact_name: g('pw-cname'), contact_phone: g('pw-cphone'), restroom: g('pw-rest')})
+  if(r.error){ toast(r.error,'error'); return }
+  if(then === 'preview'){ window.open('/api/rental/requests/'+rid+'/welcome-letter.pdf', '_blank'); return }
+  if(!confirm('Email the welcome letter to '+(r.email||'the partner')+'?')) return
+  var e = await api('/api/rental/requests/'+rid+'/welcome-letter/email','POST',{})
+  if(e.error){ toast(e.error,'error'); return }
+  toast('Sent to '+e.to,'success'); closeAdHocModal('pw-letter')
 }
 
 function openDepositInvoiceModal(agreementId){

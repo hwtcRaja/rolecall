@@ -33466,13 +33466,15 @@ async function openPartnerWelcomeLetter(rid){
   var r = await api('/api/rental/requests/'+rid+'/welcome-letter')
   if(r.error){ toast(r.error,'error'); return }
   showAdHocModal('pw-letter','Welcome letter · '+escHtml(r.partner),
-    '<div style="font-size:13px;color:var(--text-muted);line-height:1.55;margin-bottom:10px">A PDF in the same style as the ELIC letter, for outside groups: their door code, who to call, '
-    + 'a note that someone meets them on the first day, where the restroom and thermostat are, using chairs and tables (and any equipment in their agreement), and their '
-    + r.dates+' upcoming date'+(r.dates===1?'':'s')+'.</div>'
+    '<div style="font-size:13px;color:var(--text-muted);line-height:1.55;margin-bottom:10px">A welcome letter and studio guide for outside groups: their door code and HWTC contact, '
+    + 'the first-day meeting, where things are, chairs, tables and equipment, their partner portal (invoices and reporting issues), their '
+    + r.dates+' upcoming date'+(r.dates===1?'':'s')+', and a copy of their signed agreement at the end.</div>'
     + '<div class="form-row"><div class="form-group"><label>Front door code</label><input id="pw-door" value="'+escHtml(r.door_code)+'" placeholder="e.g. 4821" inputmode="numeric"/></div>'
     + '<div class="form-group"><label>Their HWTC contact</label><input id="pw-cname" value="'+escHtml(r.contact_name)+'" placeholder="Name"/></div>'
     + '<div class="form-group"><label>Contact phone</label><input id="pw-cphone" value="'+escHtml(r.contact_phone)+'"/></div></div>'
-    + '<div class="form-group"><label>Where the restroom is <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted)">(same for every letter)</span></label><input id="pw-rest" value="'+escHtml(r.restroom)+'"/></div>'
+    + '<div class="form-group"><label>Anything else to include? <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--text-muted)">optional</span></label>'
+    + '<textarea id="pw-extra" rows="4" placeholder="e.g. Please use the side door on Saturdays. Studio B has a recital on Dec 12, so you\'ll be in Studio A that week.">'+escHtml(r.extra||'')+'</textarea>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Shows as an &ldquo;Additional information&rdquo; section in the letter. Leave blank to skip it.</div></div>'
     + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">'
     + '<button class="btn btn-secondary" onclick="savePartnerLetter(\''+rid+'\',\'preview\')">Save &amp; preview PDF</button>'
     + '<button class="btn btn-primary" onclick="savePartnerLetter(\''+rid+'\',\'email\')"'+(r.email?'':' disabled')+'>Save &amp; email to '+escHtml(r.contact||r.email||'partner')+'</button></div>'
@@ -33481,7 +33483,7 @@ async function openPartnerWelcomeLetter(rid){
 }
 async function savePartnerLetter(rid, then){
   var g = function(id){ return document.getElementById(id).value }
-  var r = await api('/api/rental/requests/'+rid+'/welcome-letter','PUT',{door_code: g('pw-door'), contact_name: g('pw-cname'), contact_phone: g('pw-cphone'), restroom: g('pw-rest')})
+  var r = await api('/api/rental/requests/'+rid+'/welcome-letter','PUT',{door_code: g('pw-door'), contact_name: g('pw-cname'), contact_phone: g('pw-cphone'), extra: g('pw-extra')})
   if(r.error){ toast(r.error,'error'); return }
   if(then === 'preview'){ window.open('/api/rental/requests/'+rid+'/welcome-letter.pdf', '_blank'); return }
   if(!confirm('Email the welcome letter to '+(r.email||'the partner')+'?')) return

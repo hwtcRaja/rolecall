@@ -3249,6 +3249,7 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS hwtc_contact_name TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS hwtc_contact_phone TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS welcome_sent_at TIMESTAMP",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS welcome_extra TEXT DEFAULT ''",
         # rush seats held for a buyer without telling them which ones (revealed after checkout)
         "ALTER TABLE seat_holds ADD COLUMN IF NOT EXISTS rush_ref TEXT",
         """CREATE TABLE IF NOT EXISTS performance_cash_box (
@@ -21282,7 +21283,7 @@ def _partner_letter_settings(conn):
     return s
 
 
-def partner_letter_html(req, partner, settings, dates, equipment):
+def partner_letter_html(req, partner, settings, dates, equipment, portal_url='', has_agreement=False):
     """A two-part letter: a short, signed welcome letter on page one with
     an "at a glance" box, then a studio guide (getting in, around the
     building, equipment, leaving, safety) and the rental schedule."""
@@ -21296,6 +21297,7 @@ def partner_letter_html(req, partner, settings, dates, equipment):
     door = (req.get('door_code') or '').strip()
     cname = (req.get('hwtc_contact_name') or settings.get('partner_letter_contact_name') or '').strip()
     cphone = (req.get('hwtc_contact_phone') or settings.get('partner_letter_contact_phone') or '').strip()
+    extra = (req.get('welcome_extra') or '').strip()
     logo_band = _packet_long_logo()
     logo_ratio = _PK_LOGO_CACHE.get('ratio') or 2
     logo_w = 230 if logo_ratio >= 3 else 120
@@ -21345,9 +21347,12 @@ def partner_letter_html(req, partner, settings, dates, equipment):
         'so you are set up for success. On later dates there may not be an HWTC team member on site, especially for recurring rentals. '
         f'That is expected, and we are always a phone call away at <b>{phone}</b>.</p>'
         '<p>The pages that follow are your guide to the studio: how to get in and lock up, where things are, what you are welcome to use, '
-        'and your rental schedule. Please share them with anyone from your group who will open or close the space.</p>'
-        '<p>Thank you for choosing HWTC. We look forward to working with you.</p>'
-        '<p class="sig">Warm regards,<br/><br/><b>Horizon West Theater Company</b><br/>Studio Partnerships'
+        'your partner portal, and your rental schedule, followed by a copy of your signed agreement. '
+        'Please share them with anyone from your group who will open or close the space.</p>'
+        f'<p>Most of all, thank you. Partnerships like ours are what keep the studio full of art and our community connected, '
+        f'and we are truly grateful to have {h(org)} as part of the HWTC family. We value you as a member of our community and '
+        'can\'t wait to see what you create here.</p>'
+        '<p class="sig">With gratitude,<br/><br/><strong>Horizon West Theater Company</strong><br/>Studio Partnerships'
         + (f'<br/>{h(cname)}' + (f' &middot; {h(cphone)}' if cphone else '') if cname else '') + '</p>'
     )
 
@@ -21403,7 +21408,17 @@ def partner_letter_html(req, partner, settings, dates, equipment):
                    '<b>Working with children:</b> keep two adults in the room or within sight at all times.',
                    f'<b>Running late, a date change, or something broken:</b> call or text {phone} as early as you can.'])
 
-        + heading('6. Your rental schedule')
+        + heading('6. Your partner portal')
+        + '<p>Your partner portal is the easiest way to stay in touch with us. Bookmark it:</p>'
+        + (f'<table class="note"><tr><td><a href="{h(portal_url)}">{h(portal_url)}</a></td></tr></table>' if portal_url else '')
+        + bullets(['View and pay your invoices online.', 'See your agreement and your rental dates.',
+                   'Send us a message or report an issue, such as something broken, missing or not working.'])
+        + heading('7. Your agreement')
+        + ('<p>A copy of your signed agreement is included at the end of this letter. It covers your dates, fees, the spaces you have booked '
+           'and any equipment included. You can also find it any time in your partner portal.</p>' if has_agreement else
+           '<p>Your agreement is available in your partner portal.</p>')
+        + ((heading('8. Additional information') + '<div class="extra">' + message_text_html(extra) + '</div>') if extra else '')
+        + heading(('9' if extra else '8') + '. Your rental schedule')
         + (('<table class="sched"><tr><th>Date</th><th>Time</th></tr>'
             + ''.join(f'<tr><td>{h(_d(o.get("occurrence_date"), True))}</td><td>{h(_fmt_time12(o.get("start_time")))}'
                       + (f' &ndash; {h(_fmt_time12(o.get("end_time")))}' if o.get('end_time') else '') + '</td></tr>' for o in dates[:30])
@@ -21429,7 +21444,8 @@ def partner_letter_html(req, partner, settings, dates, equipment):
         f'.sideh {{ font-size: 8pt; font-weight: bold; letter-spacing: 1px; color: {teal}; margin-bottom: 4px; text-transform: uppercase; }}'
         f'table.glance {{ width: 100%; }} td.gk {{ font-size: 7pt; color: {muted}; text-transform: uppercase; letter-spacing: 1px; padding: 8px 0 1px 0; }}'
         f'td.gv {{ font-size: 10pt; padding: 0 0 7px 0; border-bottom: 1px solid {line}; }}'
-        f'.big {{ font-size: 18pt; font-weight: bold; color: {deep}; letter-spacing: 3px; }}'
+        f'.big {{ font-size: 18pt; color: {deep}; letter-spacing: 3px; }}' 'strong { font-weight: bold; }'
+        f'.extra {{ font-size: 10pt; }}' 'a { color: ' + teal + '; }'
         f'.sidenote {{ font-size: 8.5pt; color: {muted}; margin-top: 10px; }}'
         f'.ghead {{ font-size: 18pt; font-weight: bold; color: {deep}; margin-bottom: 6px; }}'
         f'.h2 {{ font-size: 12.5pt; font-weight: bold; color: {deep}; margin-top: 16px; }}'
@@ -21441,13 +21457,47 @@ def partner_letter_html(req, partner, settings, dates, equipment):
         'td.st { padding-left: 10px; padding-top: 3px; } td.si { width: 150px; text-align: right; }'
         f'table.note {{ width: 100%; margin: 4px 0 4px 0; }} table.note td {{ background-color: {soft}; border-left: 3px solid {teal}; padding: 8px 12px; font-size: 9.5pt; }}'
         f'table.three {{ width: 100%; }} table.three td {{ width: 33%; vertical-align: top; padding: 8px 10px; background-color: {soft}; font-size: 9.5pt; border-top: 2px solid {teal}; }}'
-        f'.lbl {{ font-weight: bold; color: {deep}; margin-bottom: 2px; }}'
+        f'.lbl {{ font-size: 7.5pt; color: {muted}; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 2px; }}'
         f'table.sched {{ width: 100%; }} table.sched th {{ text-align: left; color: {muted}; font-size: 8pt; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid {deep}; padding: 4px 6px; }}'
         f'table.sched td {{ padding: 5px 6px; border-bottom: 1px solid {line}; }}'
         f'table.foot {{ width: 100%; border-top: 1px solid {line}; }} table.foot td {{ padding-top: 5px; font-size: 7.5pt; color: {muted}; }}'
         'td.pg { text-align: right; width: 80px; }'
     )
+    page1 = page1.replace('<b>', '').replace('</b>', '')
+    guide = guide.replace('<b>', '').replace('</b>', '')
     return f'<html><head><meta charset="utf-8"><style>{css}</style></head><body>{footer}{page1}{guide}</body></html>'
+
+
+def _partner_letter_pdf_b64(conn, req, partner, dates, eq):
+    """The letter, with the signed agreement appended after it."""
+    import base64, io
+    st = _partner_letter_settings(conn)
+    portal = APP_BASE_URL.rstrip('/') + '/partner/' + ensure_partner_portal_token(conn, partner['id']) if partner.get('id') else ''
+    agr = fetchone(conn, 'SELECT * FROM rental_agreements WHERE request_id=%s ORDER BY created_at DESC LIMIT 1', (req['id'],))
+    agr_b64 = None
+    if agr and agr.get('contract_html'):
+        try:
+            if agr.get('partner_signed_at'):
+                agr_b64 = _generate_contract_pdf(agr['contract_html'], agr.get('partner_signed_name') or '',
+                                                 str(agr['partner_signed_at'])[:19].replace('T', ' at '))
+            else:
+                agr_b64 = _html_to_pdf_b64(agr['contract_html'])
+        except Exception as e:
+            app.logger.warning(f'agreement PDF for welcome letter failed: {e}')
+    letter_b64 = _html_to_pdf_b64(partner_letter_html(req, partner, st, dates, eq, portal, bool(agr_b64)))
+    if not letter_b64 or not agr_b64:
+        return letter_b64
+    try:
+        from pypdf import PdfReader, PdfWriter
+        w = PdfWriter()
+        for b in (letter_b64, agr_b64):
+            for pg in PdfReader(io.BytesIO(base64.b64decode(b))).pages:
+                w.add_page(pg)
+        out = io.BytesIO(); w.write(out)
+        return base64.b64encode(out.getvalue()).decode()
+    except Exception as e:
+        app.logger.warning(f'merging agreement into welcome letter failed: {e}')
+        return letter_b64
 
 
 def _partner_letter_data(conn, rid):
@@ -21470,8 +21520,9 @@ def partner_welcome_letter_info(rid):
     try:
         if request.method == 'PUT':
             d = request.json or {}
-            execute(conn, 'UPDATE rental_requests SET door_code=%s, hwtc_contact_name=%s, hwtc_contact_phone=%s WHERE id=%s',
-                    ((d.get('door_code') or '').strip()[:20], (d.get('contact_name') or '').strip()[:120], (d.get('contact_phone') or '').strip()[:40], rid))
+            execute(conn, 'UPDATE rental_requests SET door_code=%s, hwtc_contact_name=%s, hwtc_contact_phone=%s, welcome_extra=%s WHERE id=%s',
+                    ((d.get('door_code') or '').strip()[:20], (d.get('contact_name') or '').strip()[:120], (d.get('contact_phone') or '').strip()[:40],
+                     (d.get('extra') or '').strip()[:3000], rid))
             if 'restroom' in d:
                 _set_setting(conn, 'partner_letter_restroom', (d.get('restroom') or '').strip()[:300])
             conn.commit()
@@ -21482,7 +21533,7 @@ def partner_welcome_letter_info(rid):
         st = _partner_letter_settings(conn)
         return jsonify({'door_code': req.get('door_code') or '', 'contact_name': req.get('hwtc_contact_name') or st['partner_letter_contact_name'],
                         'contact_phone': req.get('hwtc_contact_phone') or st['partner_letter_contact_phone'] or st['elic_packet_phone'],
-                        'restroom': st['partner_letter_restroom'], 'partner': partner.get('name') or '', 'email': partner.get('contact_email') or '',
+                        'extra': req.get('welcome_extra') or '', 'partner': partner.get('name') or '', 'email': partner.get('contact_email') or '',
                         'contact': partner.get('contact_name') or '', 'dates': len(dates),
                         'sent_at': str(req.get('welcome_sent_at'))[:16] if req.get('welcome_sent_at') else ''})
     finally:
@@ -21500,10 +21551,9 @@ def partner_welcome_letter_pdf(rid):
         if not data:
             return jsonify({'error': 'Not found'}), 404
         req, partner, dates, eq = data
-        st = _partner_letter_settings(conn)
+        b64 = _partner_letter_pdf_b64(conn, req, partner, dates, eq)
     finally:
         conn.close()
-    b64 = _html_to_pdf_b64(partner_letter_html(req, partner, st, dates, eq))
     if not b64:
         return jsonify({'error': 'Could not build the PDF'}), 500
     fname = 'HWTC-Welcome-Letter-' + re.sub(r'[^A-Za-z0-9]+', '-', partner.get('name') or 'Partner').strip('-') + '.pdf'
@@ -21526,14 +21576,14 @@ def partner_welcome_letter_email(rid):
         if not to:
             return jsonify({'error': 'This partner has no email address.'}), 400
         st = _partner_letter_settings(conn)
-        b64 = _html_to_pdf_b64(partner_letter_html(req, partner, st, dates, eq))
+        b64 = _partner_letter_pdf_b64(conn, req, partner, dates, eq)
         if not b64:
             return jsonify({'error': 'Could not build the PDF'}), 500
         first = (partner.get('contact_name') or '').split(' ')[0] or 'there'
-        body = (f'<p>Hi {_h(first)},</p><p>Welcome to the HWTC Studio! Your welcome letter is attached: getting in with your door code, '
-                'where things are, what you can use, who to call, and your rental dates.</p>'
+        body = (f'<p>Hi {_h(first)},</p><p>Welcome to the HWTC Studio, and thank you for partnering with us. Your welcome letter is attached: '
+                'getting in with your door code, where things are, what you can use, your partner portal, your rental dates, and a copy of your agreement.</p>'
                 '<p>Someone from HWTC will meet you on your first day to get you set up.</p>'
-                f'<p>Questions? Call or text us at <b>{_h(st["elic_packet_phone"])}</b>.</p>')
+                f'<p>Questions? Call or text us at {_h(st["elic_packet_phone"])}.</p>')
         res = send_email([to], 'Welcome to the HWTC Studio', build_hwtc_email_html('Welcome to the HWTC Studio', body),
                          source='partner_welcome_letter', attachments=[{'filename': 'HWTC-Welcome-Letter.pdf', 'content_b64': b64}])
         ok = res[0] if isinstance(res, tuple) else bool(res)

@@ -3245,6 +3245,10 @@ def init_db():
         "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS presale_price_cents INTEGER",
         "ALTER TABLE performances ADD COLUMN IF NOT EXISTS rush_off BOOLEAN DEFAULT FALSE",
         "ALTER TABLE production_rush ADD COLUMN IF NOT EXISTS disclaimer TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS door_code TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS hwtc_contact_name TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS hwtc_contact_phone TEXT DEFAULT ''",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS welcome_sent_at TIMESTAMP",
         # rush seats held for a buyer without telling them which ones (revealed after checkout)
         "ALTER TABLE seat_holds ADD COLUMN IF NOT EXISTS rush_ref TEXT",
         """CREATE TABLE IF NOT EXISTS performance_cash_box (
@@ -21048,7 +21052,7 @@ def elic_packet_html(elic, settings, events):
         return f'<table class="tip {kind}"><tr><td><div class="tipt">{title}</div>{body}</td></tr></table>'
 
     def li(items):
-        return '<table class="bl">' + ''.join(f'<tr><td class="dot">&#9679;</td><td>{i}</td></tr>' for i in items) + '</table>'
+        return '<table class="bl">' + ''.join(f'<tr><td class="dot">&#8226;</td><td>{i}</td></tr>' for i in items) + '</table>'
 
     tiles = [('Your ELIC PIN', f'<div class="code">{h(str(elic.get("pin") or ""))}</div><div class="tsm">Opens &amp; closes events at the kiosk</div>')]
     if door:
@@ -21258,6 +21262,286 @@ def elic_welcome_packet_email(eid):
                      source='elic_welcome_packet', attachments=[{'filename': 'ELIC-Welcome-Letter.pdf', 'content_b64': b64}])
     ok = res[0] if isinstance(res, tuple) else bool(res)
     return jsonify({'ok': True, 'to': elic['volunteer_email']}) if ok else (jsonify({'error': 'The email didn\'t send.'}), 400)
+
+
+# ── Artistic Partnership welcome letter (PDF, per partnership) ────────────
+# Same look and building info as the ELIC letter, written for outside
+# groups: they don't open or close events; they get a door code, know who
+# to call, where things are, what they can use, and their rental dates.
+PARTNER_LETTER_DEFAULTS = {
+    'partner_letter_restroom': 'The restroom is off Studio B, next to the wall with the thermostat.',
+    'partner_letter_contact_name': '',
+    'partner_letter_contact_phone': '',
+}
+
+
+def _partner_letter_settings(conn):
+    s = _elic_packet_settings(conn)
+    for k, v in PARTNER_LETTER_DEFAULTS.items():
+        s[k] = _setting(conn, k) or v
+    return s
+
+
+def partner_letter_html(req, partner, settings, dates, equipment):
+    """A two-part letter: a short, signed welcome letter on page one with
+    an "at a glance" box, then a studio guide (getting in, around the
+    building, equipment, leaving, safety) and the rental schedule."""
+    h = _h
+    import datetime as _dtp
+    org = partner.get('name') or 'your group'
+    contact = (partner.get('contact_name') or '').strip()
+    first = contact.split(' ')[0] if contact else ''
+    phone = h(settings['elic_packet_phone'])
+    addr_lines = [x for x in settings['elic_packet_address'].splitlines() if x.strip()]
+    door = (req.get('door_code') or '').strip()
+    cname = (req.get('hwtc_contact_name') or settings.get('partner_letter_contact_name') or '').strip()
+    cphone = (req.get('hwtc_contact_phone') or settings.get('partner_letter_contact_phone') or '').strip()
+    logo_band = _packet_long_logo()
+    logo_ratio = _PK_LOGO_CACHE.get('ratio') or 2
+    logo_w = 230 if logo_ratio >= 3 else 120
+    today = today_eastern()
+    date_txt = today.strftime('%B ') + str(today.day) + today.strftime(', %Y')
+
+    def _d(v, long=False):
+        try:
+            x = _dtp.date.fromisoformat(str(v)[:10])
+            return x.strftime('%A, %B ' if long else '%a, %b ') + str(x.day)
+        except Exception:
+            return str(v or '')[:10]
+
+    def heading(title):
+        return f'<div class="h2">{title}</div><div class="rule"></div>'
+
+    def bullets(items):
+        return '<table class="bl">' + ''.join(f'<tr><td class="b">&#8226;</td><td>{i}</td></tr>' for i in items) + '</table>'
+
+    def steps(items, width=140):
+        rows = ''
+        for i, st in enumerate(items):
+            text, img = st[0], st[1]
+            src = _packet_img(img) if img else ''
+            rows += (f'<tr><td class="n"><table class="nb"><tr><td>{i + 1}</td></tr></table></td><td class="st">{text}</td>'
+                     + (f'<td class="si"><img src="{src}" width="{width}"/></td>' if src else '<td class="si"></td>') + '</tr>')
+        return '<table class="steps">' + rows + '</table>'
+
+    first_date = dates[0] if dates else None
+
+    # ── page 1: the letter ──
+    glance = [
+        ('Front door code', f'<span class="big">{h(door)}</span>' if door else 'Sent before your first day'),
+        ('Your HWTC contact', (h(cname) + (f'<br/>{h(cphone)}' if cphone else '')) if (cname or cphone) else f'HWTC office, {phone}'),
+        ('HWTC phone (call or text)', f'<b>{phone}</b>'),
+        ('Studio address', '<br/>'.join(h(x) for x in addr_lines)),
+        ('First rental', (h(_d(first_date.get('occurrence_date'), True)) + (', ' + h(_fmt_time12(first_date.get('start_time'))) if first_date.get('start_time') else '')) if first_date else 'See your agreement'),
+    ]
+    glance_html = '<table class="glance">' + ''.join(f'<tr><td class="gk">{k}</td></tr><tr><td class="gv">{v}</td></tr>' for k, v in glance) + '</table>'
+
+    letter = (
+        f'<p class="date">{date_txt}</p>'
+        f'<p>Dear {h(first) if first else h(org)},</p>'
+        f'<p>Welcome to the Horizon West Theater Company studio. We are glad to have <b>{h(org)}</b> as an artistic partner, '
+        'and we want your time here to go smoothly from the first day.</p>'
+        '<p><b>Someone from HWTC will meet you at your first rental</b> to walk you through the space, the door and anything else you need, '
+        'so you are set up for success. On later dates there may not be an HWTC team member on site, especially for recurring rentals. '
+        f'That is expected, and we are always a phone call away at <b>{phone}</b>.</p>'
+        '<p>The pages that follow are your guide to the studio: how to get in and lock up, where things are, what you are welcome to use, '
+        'and your rental schedule. Please share them with anyone from your group who will open or close the space.</p>'
+        '<p>Thank you for choosing HWTC. We look forward to working with you.</p>'
+        '<p class="sig">Warm regards,<br/><br/><b>Horizon West Theater Company</b><br/>Studio Partnerships'
+        + (f'<br/>{h(cname)}' + (f' &middot; {h(cphone)}' if cphone else '') if cname else '') + '</p>'
+    )
+
+    page1 = (
+        '<table class="band"><tr>'
+        + (f'<td class="bl1"><img src="{logo_band}" width="{logo_w}"/></td>' if logo_band else '<td></td>')
+        + f'<td class="br1"><div class="k">ARTISTIC PARTNERSHIP</div><div class="t">Welcome Letter</div><div class="f">{h(org)}</div></td></tr></table>'
+        '<div class="accent"></div>'
+        '<table class="two"><tr>'
+        f'<td class="letter">{letter}</td>'
+        f'<td class="side"><div class="sideh">At a glance</div>{glance_html}'
+        '<div class="sidenote">Emergencies: call <b>911</b> first, then your HWTC contact.</div></td>'
+        '</tr></table>'
+    )
+
+    # ── page 2+: studio guide ──
+    eq_items = [e for e in (equipment or []) if isinstance(e, dict) and (e.get('allowed') or e.get('included') or e.get('checked'))]
+    eq_html = (('<p>Included in your agreement:</p>' + bullets([h(e.get('name') or '') + (f' &times; {h(str(e.get("quantity")))}' if e.get('quantity') else '')
+               + (f' <span class="muted">({h(e.get("notes"))})</span>' if e.get('notes') else '') for e in eq_items])) if eq_items else '')
+
+    guide = (
+        '<pdf:nextpage/>'
+        '<div class="ghead">Studio Guide <span class="muted">&middot; ' + h(org) + '</span></div>'
+        + heading('1. Getting in and locking up')
+        + ('<p>Enter with your front door code, <b>' + h(door) + '</b>, on the keypad. ' if door else '<p>Enter with your front door code on the keypad. ')
+        + 'To keep the door unlocked while your group arrives, turn on <b>passage mode</b> from the iPad at the front desk (the spot to tap is circled in red):</p>'
+        + steps([('Open the <b>Inox</b> app on the iPad and tap the <b>gear icon</b>.', 'step2-gear.jpg'),
+                 ('Tap the lock, <b>ISK-B300</b>.', 'step3-lock.jpg'),
+                 ('Scroll to <b>Passage Mode</b> and turn it on. The door beeps.', 'step45-passage.jpg'),
+                 ('Tap <b>Confirm</b>. The door beeps again and stays unlocked.', 'step6-confirm.jpg')])
+        + '<table class="note"><tr><td><b>Locking up:</b> repeat the steps and turn <b>Passage Mode off</b>, then pull the door from outside to make sure it is locked. '
+          f'If the app will not connect, please do not prop the door and leave; call or text <b>{phone}</b>.</td></tr></table>'
+
+        + heading('2. Around the studio')
+        + '<table class="three"><tr>'
+          f'<td><div class="lbl">Restroom</div>{h(settings["partner_letter_restroom"])}</td>'
+          '<td><div class="lbl">Thermostat</div>In <b>Studio B</b>, on the wall closest to the restroom. Please keep it at <b>72&ndash;74&deg;F</b>.</td>'
+          '<td><div class="lbl">Fire extinguisher</div>In the <b>lobby</b>.</td>'
+          '</tr></table>'
+
+        + heading('3. Chairs, tables and equipment')
+        + '<p>In most cases you are welcome to use the <b>general chairs and tables</b> in the studio. '
+          'For anything else, such as sound, lighting or props, please <b>check your agreement</b> and use only the equipment it includes.</p>'
+        + eq_html
+
+        + heading('4. Before you leave')
+        + bullets(['Return chairs and tables to where you found them.', 'Take your belongings and trash with you.',
+                   'Set the thermostat back and turn off the lights.', 'Turn passage mode off and check that the door is locked.'])
+
+        + heading('5. Safety and questions')
+        + bullets([f'<b>Emergencies:</b> call 911 first, then ' + (f'{h(cname)}' + (f' at {h(cphone)}' if cphone else '') + ' or ' if cname else '') + f'HWTC at {phone}.',
+                   f'<b>Injuries or incidents:</b> care for the person first, then let us know the same day at {phone}.',
+                   '<b>Working with children:</b> keep two adults in the room or within sight at all times.',
+                   f'<b>Running late, a date change, or something broken:</b> call or text {phone} as early as you can.'])
+
+        + heading('6. Your rental schedule')
+        + (('<table class="sched"><tr><th>Date</th><th>Time</th></tr>'
+            + ''.join(f'<tr><td>{h(_d(o.get("occurrence_date"), True))}</td><td>{h(_fmt_time12(o.get("start_time")))}'
+                      + (f' &ndash; {h(_fmt_time12(o.get("end_time")))}' if o.get('end_time') else '') + '</td></tr>' for o in dates[:30])
+            + '</table>' + ('<p class="muted">Showing your next 30 dates.</p>' if len(dates) > 30 else ''))
+           if dates else '<p>Your dates are listed in your agreement. We will let you know if anything changes.</p>')
+    )
+    footer = ('<div id="footer"><table class="foot"><tr><td>Horizon West Theater Company &middot; ' + phone + ' &middot; '
+              + h(', '.join(addr_lines[1:] or addr_lines)) + '</td><td class="pg">Page <pdf:pagenumber/> of <pdf:pagecount/></td></tr></table></div>')
+    deep, teal, gold, ink, muted, soft, line = '#0f5566', '#16728b', '#c9a227', '#222b30', '#6b7780', '#f3f7f8', '#d9e2e6'   # deep = the logo's background colour
+    css = (
+        '@page { size: letter; margin: 0.6in 0.7in 0.8in 0.7in; @frame footer { -pdf-frame-content: footer; bottom: 0.32in; margin-left: 0.7in; margin-right: 0.7in; height: 0.35in; } }'
+        f'body {{ font-family: Helvetica; font-size: 10pt; color: {ink}; line-height: 1.5; }}'
+        f'p {{ margin: 0 0 8px 0; }} .muted {{ color: {muted}; }}'
+        f'table.band {{ width: 100%; background-color: {deep}; }} td.bl1 {{ padding: 16px 18px; vertical-align: middle; }}'
+        'td.br1 { padding: 16px 24px 16px 10px; text-align: right; vertical-align: middle; }'
+        f'.k {{ color: {gold}; font-size: 8pt; font-weight: bold; }}'
+        '.t { color: #ffffff; font-size: 22pt; font-weight: bold; }'
+        '.f { color: #d6ecf1; font-size: 10pt; }'
+        f'.accent {{ height: 3px; background-color: {gold}; margin-bottom: 18px; }}'
+        'table.two { width: 100%; } td.letter { width: 63%; vertical-align: top; padding-right: 18px; font-size: 10.5pt; line-height: 1.6; }'
+        f'td.side {{ width: 37%; vertical-align: top; background-color: {soft}; padding: 14px 14px; border-top: 3px solid {teal}; }}'
+        f'.date {{ color: {muted}; margin-bottom: 14px; }} .sig {{ margin-top: 14px; }}'
+        f'.sideh {{ font-size: 8pt; font-weight: bold; letter-spacing: 1px; color: {teal}; margin-bottom: 4px; text-transform: uppercase; }}'
+        f'table.glance {{ width: 100%; }} td.gk {{ font-size: 7pt; color: {muted}; text-transform: uppercase; letter-spacing: 1px; padding: 8px 0 1px 0; }}'
+        f'td.gv {{ font-size: 10pt; padding: 0 0 7px 0; border-bottom: 1px solid {line}; }}'
+        f'.big {{ font-size: 18pt; font-weight: bold; color: {deep}; letter-spacing: 3px; }}'
+        f'.sidenote {{ font-size: 8.5pt; color: {muted}; margin-top: 10px; }}'
+        f'.ghead {{ font-size: 18pt; font-weight: bold; color: {deep}; margin-bottom: 6px; }}'
+        f'.h2 {{ font-size: 12.5pt; font-weight: bold; color: {deep}; margin-top: 16px; }}'
+        f'.rule {{ height: 1px; background-color: {gold}; margin: 3px 0 8px 0; }}'
+        'table.bl td { padding: 2px 4px; vertical-align: top; } td.b { width: 12px; color: ' + teal + '; }'
+        'table.steps { width: 100%; } table.steps td { vertical-align: top; padding: 4px 4px 8px 4px; }'
+        'td.n { width: 20px; padding: 2px 0 0 0; }'
+        f'table.nb {{ width: 18px; }} table.nb td {{ background-color: {teal}; color: #fff; text-align: center; font-weight: bold; font-size: 9pt; padding: 1px 0; }}'
+        'td.st { padding-left: 10px; padding-top: 3px; } td.si { width: 150px; text-align: right; }'
+        f'table.note {{ width: 100%; margin: 4px 0 4px 0; }} table.note td {{ background-color: {soft}; border-left: 3px solid {teal}; padding: 8px 12px; font-size: 9.5pt; }}'
+        f'table.three {{ width: 100%; }} table.three td {{ width: 33%; vertical-align: top; padding: 8px 10px; background-color: {soft}; font-size: 9.5pt; border-top: 2px solid {teal}; }}'
+        f'.lbl {{ font-weight: bold; color: {deep}; margin-bottom: 2px; }}'
+        f'table.sched {{ width: 100%; }} table.sched th {{ text-align: left; color: {muted}; font-size: 8pt; text-transform: uppercase; letter-spacing: 1px; border-bottom: 1px solid {deep}; padding: 4px 6px; }}'
+        f'table.sched td {{ padding: 5px 6px; border-bottom: 1px solid {line}; }}'
+        f'table.foot {{ width: 100%; border-top: 1px solid {line}; }} table.foot td {{ padding-top: 5px; font-size: 7.5pt; color: {muted}; }}'
+        'td.pg { text-align: right; width: 80px; }'
+    )
+    return f'<html><head><meta charset="utf-8"><style>{css}</style></head><body>{footer}{page1}{guide}</body></html>'
+
+
+def _partner_letter_data(conn, rid):
+    req = fetchone(conn, 'SELECT * FROM rental_requests WHERE id=%s', (rid,))
+    if not req:
+        return None
+    partner = fetchone(conn, 'SELECT * FROM rental_partners WHERE id=%s', (req.get('partner_id'),)) or {}
+    dates = fetchall(conn, '''SELECT occurrence_date, start_time, end_time FROM rental_occurrences WHERE request_id=%s AND occurrence_date >= %s
+        ORDER BY occurrence_date, start_time''', (rid, today_eastern().isoformat())) or []
+    try: equipment = json.loads(req.get('equipment_selections') or '[]')
+    except Exception: equipment = []
+    return req, partner, dates, equipment
+
+
+@app.route('/api/rental/requests/<rid>/welcome-letter', methods=['GET', 'PUT'])
+def partner_welcome_letter_info(rid):
+    err = require_permission('rentals', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            d = request.json or {}
+            execute(conn, 'UPDATE rental_requests SET door_code=%s, hwtc_contact_name=%s, hwtc_contact_phone=%s WHERE id=%s',
+                    ((d.get('door_code') or '').strip()[:20], (d.get('contact_name') or '').strip()[:120], (d.get('contact_phone') or '').strip()[:40], rid))
+            if 'restroom' in d:
+                _set_setting(conn, 'partner_letter_restroom', (d.get('restroom') or '').strip()[:300])
+            conn.commit()
+        data = _partner_letter_data(conn, rid)
+        if not data:
+            return jsonify({'error': 'Not found'}), 404
+        req, partner, dates, _ = data
+        st = _partner_letter_settings(conn)
+        return jsonify({'door_code': req.get('door_code') or '', 'contact_name': req.get('hwtc_contact_name') or st['partner_letter_contact_name'],
+                        'contact_phone': req.get('hwtc_contact_phone') or st['partner_letter_contact_phone'] or st['elic_packet_phone'],
+                        'restroom': st['partner_letter_restroom'], 'partner': partner.get('name') or '', 'email': partner.get('contact_email') or '',
+                        'contact': partner.get('contact_name') or '', 'dates': len(dates),
+                        'sent_at': str(req.get('welcome_sent_at'))[:16] if req.get('welcome_sent_at') else ''})
+    finally:
+        conn.close()
+
+
+@app.route('/api/rental/requests/<rid>/welcome-letter.pdf')
+def partner_welcome_letter_pdf(rid):
+    err = require_permission('rentals', 'view')
+    if err: return err
+    import base64
+    conn = get_db()
+    try:
+        data = _partner_letter_data(conn, rid)
+        if not data:
+            return jsonify({'error': 'Not found'}), 404
+        req, partner, dates, eq = data
+        st = _partner_letter_settings(conn)
+    finally:
+        conn.close()
+    b64 = _html_to_pdf_b64(partner_letter_html(req, partner, st, dates, eq))
+    if not b64:
+        return jsonify({'error': 'Could not build the PDF'}), 500
+    fname = 'HWTC-Welcome-Letter-' + re.sub(r'[^A-Za-z0-9]+', '-', partner.get('name') or 'Partner').strip('-') + '.pdf'
+    resp = app.response_class(base64.b64decode(b64), mimetype='application/pdf')
+    resp.headers['Content-Disposition'] = ('attachment' if request.args.get('download') else 'inline') + f'; filename="{fname}"'
+    return resp
+
+
+@app.route('/api/rental/requests/<rid>/welcome-letter/email', methods=['POST'])
+def partner_welcome_letter_email(rid):
+    err = require_permission('rentals')
+    if err: return err
+    conn = get_db()
+    try:
+        data = _partner_letter_data(conn, rid)
+        if not data:
+            return jsonify({'error': 'Not found'}), 404
+        req, partner, dates, eq = data
+        to = ((request.get_json(silent=True) or {}).get('to') or partner.get('contact_email') or '').strip()
+        if not to:
+            return jsonify({'error': 'This partner has no email address.'}), 400
+        st = _partner_letter_settings(conn)
+        b64 = _html_to_pdf_b64(partner_letter_html(req, partner, st, dates, eq))
+        if not b64:
+            return jsonify({'error': 'Could not build the PDF'}), 500
+        first = (partner.get('contact_name') or '').split(' ')[0] or 'there'
+        body = (f'<p>Hi {_h(first)},</p><p>Welcome to the HWTC Studio! Your welcome letter is attached: getting in with your door code, '
+                'where things are, what you can use, who to call, and your rental dates.</p>'
+                '<p>Someone from HWTC will meet you on your first day to get you set up.</p>'
+                f'<p>Questions? Call or text us at <b>{_h(st["elic_packet_phone"])}</b>.</p>')
+        res = send_email([to], 'Welcome to the HWTC Studio', build_hwtc_email_html('Welcome to the HWTC Studio', body),
+                         source='partner_welcome_letter', attachments=[{'filename': 'HWTC-Welcome-Letter.pdf', 'content_b64': b64}])
+        ok = res[0] if isinstance(res, tuple) else bool(res)
+        if ok:
+            execute(conn, 'UPDATE rental_requests SET welcome_sent_at=NOW() WHERE id=%s', (rid,)); conn.commit()
+        return jsonify({'ok': True, 'to': to}) if ok else (jsonify({'error': 'The email didn\'t send.'}), 400)
+    finally:
+        conn.close()
 
 
 @app.route('/api/elic-packet-settings', methods=['GET', 'PUT'])

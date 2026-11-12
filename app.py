@@ -3259,6 +3259,7 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS hwtc_contact_phone TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS welcome_sent_at TIMESTAMP",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS welcome_extra TEXT DEFAULT ''",
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS lesson_confirm_sent_at TIMESTAMP",
         # rush seats held for a buyer without telling them which ones (revealed after checkout)
         "ALTER TABLE seat_holds ADD COLUMN IF NOT EXISTS rush_ref TEXT",
         """CREATE TABLE IF NOT EXISTS performance_cash_box (
@@ -26737,6 +26738,308 @@ def _backfill_custom_field_values():
     conn.close()
     return checked, updated
 
+# ══ Lessons: instructor tools for booked, recurring students ═════════════
+# For booking-style programs (private lessons, e.g. voice). An instructor
+# (for their own programs) or staff can: see every booking by day or by
+# student, move a lesson to another slot or a new date/time, cancel a
+# lesson, repeat a student's lesson weekly, and email a student their
+# schedule. Students get an email with the date and time whenever a lesson
+# is booked, moved or cancelled.
+def _lesson_programs(conn):
+    """Booking programs this user may manage: all for staff with programs
+    access; otherwise the ones they teach."""
+    if not require_permission('youth', 'edit'):
+        return fetchall(conn, "SELECT id, name, instructor_id FROM youth_programs WHERE COALESCE(booking_mode,FALSE)=TRUE AND COALESCE(status,'') <> 'archived' ORDER BY name") or []
+    me = fetchone(conn, 'SELECT email FROM users WHERE id=%s', (session.get('user_id'),)) or {}
+    em = (me.get('email') or '').strip().lower()
+    if not em:
+        return []
+    return fetchall(conn, '''SELECT DISTINCT yp.id, yp.name, yp.instructor_id FROM youth_programs yp
+        LEFT JOIN volunteers v ON v.id=yp.instructor_id LEFT JOIN program_co_instructors pci ON pci.program_id=yp.id
+        LEFT JOIN volunteers v2 ON v2.id=pci.volunteer_id
+        WHERE COALESCE(yp.booking_mode,FALSE)=TRUE AND (LOWER(v.email)=%s OR LOWER(v2.email)=%s) ORDER BY yp.name''', (em, em)) or []
+
+
+def _lesson_student(r):
+    return (f"{r.get('child_first_name') or ''} {r.get('child_last_name') or ''}".strip() or r.get('guardian_name') or 'Student')
+
+
+def _lesson_when(sess):
+    import datetime as _dl
+    try:
+        d = _dl.date.fromisoformat(str(sess.get('start_date'))[:10])
+        txt = d.strftime('%A, %B ') + str(d.day)
+    except Exception:
+        txt = str(sess.get('start_date') or '')
+    if sess.get('start_time'):
+        txt += ' at ' + _fmt_time12(sess['start_time']) + (('–' + _fmt_time12(sess['end_time'])) if sess.get('end_time') else '')
+    return txt
+
+
+def _lesson_email(conn, reg, prog, subject, lead, sessions, note=''):
+    to = (reg.get('guardian_email') or '').strip()
+    if not to:
+        return False
+    first = (reg.get('guardian_name') or '').split(' ')[0] or 'there'
+    teacher = (fetchone(conn, 'SELECT name FROM volunteers WHERE id=%s', (prog.get('instructor_id'),)) or {}).get('name') if prog.get('instructor_id') else ''
+    rows = ''.join(f'<tr><td style="padding:8px 12px;border-bottom:1px solid #e5e7eb"><strong>{_h(_lesson_when(s))}</strong>'
+                   + (f'<div style="color:#6b7280;font-size:13px">{_h(s["location"])}</div>' if s.get('location') else '') + '</td></tr>' for s in sessions)
+    html = (f'<p>Hi {_h(first)},</p><p>{lead}</p>'
+            + (f'<table style="border-collapse:collapse;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;margin:12px 0;min-width:280px">{rows}</table>' if rows else '')
+            + (f'<div style="background:#f8fafc;border-left:3px solid #145466;padding:10px 14px;margin:12px 0">{message_text_html(note)}</div>' if note else '')
+            + f'<p style="color:#6b7280;font-size:13px">{_h(prog.get("name") or "")}{(" with " + _h(teacher)) if teacher else ""} · '
+              'Horizon West Theater Company. Questions or need to change something? Just reply to this email.</p>')
+    try:
+        res = send_email([to], subject, build_hwtc_email_html(subject, html), source='lesson_email')
+        return bool(res[0] if isinstance(res, tuple) else res)
+    except Exception as e:
+        app.logger.warning(f'lesson email failed: {e}')
+        return False
+
+
+def send_lesson_booked_email(conn, reg_id):
+    """'Your lesson is booked' with every date and time, once per booking."""
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
+    if not reg or reg.get('lesson_confirm_sent_at'):
+        return
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg['program_id'],)) or {}
+    if not prog.get('booking_mode'):
+        return
+    try: sids = [x for x in json.loads(reg.get('session_ids') or '[]') if x]
+    except Exception: sids = []
+    sess = fetchall(conn, 'SELECT * FROM program_sessions WHERE id = ANY(%s) ORDER BY start_date, start_time', (sids,)) or [] if sids else []
+    if not sess:
+        return
+    n = len(sess)
+    ok = _lesson_email(conn, reg, prog, (f'Your lesson is booked: {_lesson_when(sess[0])}' if n == 1 else f'Your {n} lessons are booked'),
+                       f'You\'re all set! Here {"is your lesson" if n == 1 else "are your " + str(n) + " lessons"} for {_h(_lesson_student(reg))}:', sess)
+    if ok:
+        execute(conn, 'UPDATE program_registrations SET lesson_confirm_sent_at=NOW() WHERE id=%s', (reg_id,)); conn.commit()
+
+
+def _lesson_bookings(conn, prog_ids, frm, to):
+    return fetchall(conn, '''SELECT pr.id, pr.program_id, pr.status, pr.guardian_name, pr.guardian_email, pr.guardian_phone,
+            pr.child_first_name, pr.child_last_name, pr.notes, pr.balance_due, ps.id AS session_id, ps.start_date, ps.start_time,
+            ps.end_time, ps.location, ps.name AS slot_name, yp.name AS program_name
+        FROM program_registrations pr JOIN youth_programs yp ON yp.id=pr.program_id
+        JOIN program_sessions ps ON ps.program_id=pr.program_id AND pr.session_ids LIKE '%%"' || ps.id || '"%%'
+        WHERE pr.program_id = ANY(%s) AND pr.status NOT IN ('cancelled','waitlisted','pending_payment','abandoned')
+          AND ps.start_date BETWEEN %s AND %s
+        ORDER BY ps.start_date, ps.start_time''', (prog_ids, frm, to)) or []
+
+
+@app.route('/api/lessons', methods=['GET'])
+def lessons_overview():
+    err = require_auth()
+    if err: return err
+    import datetime as _dl
+    conn = get_db()
+    try:
+        progs = _lesson_programs(conn)
+        if request.args.get('program_id'):
+            progs = [p for p in progs if p['id'] == request.args['program_id']]
+        if not progs:
+            return jsonify({'programs': [], 'bookings': [], 'open_slots': []})
+        ids = [p['id'] for p in progs]
+        today = today_eastern()
+        frm = (request.args.get('from') or (today - _dl.timedelta(days=14)).isoformat())[:10]
+        to = (request.args.get('to') or (today + _dl.timedelta(days=120)).isoformat())[:10]
+        rows = _lesson_bookings(conn, ids, frm, to)
+        for r in rows:
+            r['student'] = _lesson_student(r)
+        open_slots = fetchall(conn, '''SELECT ps.id, ps.program_id, ps.start_date, ps.start_time, ps.end_time, ps.location
+            FROM program_sessions ps WHERE ps.program_id = ANY(%s) AND ps.start_date >= %s AND COALESCE(ps.status,'open') <> 'closed'
+              AND NOT EXISTS (SELECT 1 FROM program_registrations pr WHERE pr.program_id=ps.program_id AND pr.session_ids LIKE '%%"' || ps.id || '"%%'
+                              AND pr.status NOT IN ('cancelled','waitlisted','abandoned'))
+            ORDER BY ps.start_date, ps.start_time LIMIT 400''', (ids, today.isoformat())) or []
+        return jsonify({'programs': progs, 'bookings': rows, 'open_slots': open_slots, 'today': today.isoformat()})
+    finally:
+        conn.close()
+
+
+def _lesson_reg_for_user(conn, reg_id):
+    reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
+    if not reg:
+        return None, None, (jsonify({'error': 'Booking not found'}), 404)
+    if reg['program_id'] not in {p['id'] for p in _lesson_programs(conn)}:
+        return None, None, (jsonify({'error': 'You can only manage lessons in your own programs.'}), 403)
+    prog = fetchone(conn, 'SELECT * FROM youth_programs WHERE id=%s', (reg['program_id'],)) or {}
+    return reg, prog, None
+
+
+def _lesson_slot(conn, prog, d):
+    """An existing open slot, or a new one at a date/time the instructor types in."""
+    if d.get('to_session_id'):
+        s = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s AND program_id=%s', (d['to_session_id'], prog['id']))
+        if not s:
+            raise ValueError('That time slot isn\'t part of this program.')
+        return s
+    date_, st, en = (d.get('date') or '')[:10], (d.get('start_time') or '')[:5], (d.get('end_time') or '')[:5]
+    if not date_ or not st:
+        raise ValueError('Pick an open slot, or enter a date and start time.')
+    ex = fetchone(conn, 'SELECT * FROM program_sessions WHERE program_id=%s AND start_date=%s AND start_time=%s LIMIT 1', (prog['id'], date_, st))
+    if ex:
+        return ex
+    sid = str(uuid.uuid4())
+    import datetime as _dl
+    try: dow = _dl.date.fromisoformat(date_).strftime('%A')
+    except Exception: dow = ''
+    execute(conn, '''INSERT INTO program_sessions (id, program_id, name, day_of_week, start_time, end_time, start_date, end_date, location, capacity, status)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,1,'open')''', (sid, prog['id'], f'{dow} {_fmt_time12(st)}'.strip(), dow, st, en, date_, date_,
+        (d.get('location') or '').strip()[:120]))
+    return fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s', (sid,))
+
+
+def _slot_taken(conn, prog_id, sid, except_reg=None):
+    return fetchone(conn, '''SELECT id FROM program_registrations WHERE program_id=%s AND session_ids LIKE %s
+        AND status NOT IN ('cancelled','waitlisted','abandoned') AND id <> COALESCE(%s,'') LIMIT 1''', (prog_id, '%"' + sid + '"%', except_reg))
+
+
+@app.route('/api/lessons/<reg_id>/move', methods=['POST'])
+def lesson_move(reg_id):
+    """Reschedule one booked lesson (one slot) to another slot or a new date/time."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        reg, prog, bad = _lesson_reg_for_user(conn, reg_id)
+        if bad: return bad
+        try: sids = [x for x in json.loads(reg.get('session_ids') or '[]') if x]
+        except Exception: sids = []
+        frm_sid = d.get('from_session_id') or (sids[0] if len(sids) == 1 else None)
+        if frm_sid not in sids:
+            return jsonify({'error': 'Pick which lesson to move.'}), 400
+        try:
+            slot = _lesson_slot(conn, prog, d)
+        except ValueError as e:
+            return jsonify({'error': str(e)}), 400
+        if slot['id'] in sids:
+            return jsonify({'error': 'They\'re already booked at that time.'}), 400
+        if _slot_taken(conn, prog['id'], slot['id']) and not d.get('double_book'):
+            return jsonify({'error': 'Someone is already booked at that time. Book them anyway?', 'taken': True}), 409
+        old = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s', (frm_sid,)) or {}
+        new_ids = [slot['id'] if x == frm_sid else x for x in sids]
+        stamp = f'Moved by {session.get("name") or "staff"}: {_lesson_when(old)} → {_lesson_when(slot)}'
+        execute(conn, '''UPDATE program_registrations SET session_ids=%s, notes=TRIM(COALESCE(notes,'') || E'\\n' || %s), updated_at=NOW() WHERE id=%s''',
+                (json.dumps(new_ids), stamp, reg_id))
+        conn.commit()
+        try: ensure_session_events(conn, prog['id'])
+        except Exception: conn.rollback()
+        emailed = False
+        if d.get('notify', True):
+            emailed = _lesson_email(conn, reg, prog, f'Your lesson has moved to {_lesson_when(slot)}',
+                                    f'Your lesson for {_h(_lesson_student(reg))} on <s>{_h(_lesson_when(old))}</s> has moved to:', [slot], (d.get('note') or '').strip())
+        return jsonify({'ok': True, 'emailed': emailed, 'new_session_id': slot['id']})
+    finally:
+        conn.close()
+
+
+@app.route('/api/lessons/<reg_id>/cancel', methods=['POST'])
+def lesson_cancel(reg_id):
+    """Cancel one lesson. A booking covering several dates loses just that date."""
+    err = require_auth()
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        reg, prog, bad = _lesson_reg_for_user(conn, reg_id)
+        if bad: return bad
+        try: sids = [x for x in json.loads(reg.get('session_ids') or '[]') if x]
+        except Exception: sids = []
+        sid = d.get('session_id') or (sids[0] if len(sids) == 1 else None)
+        if sid not in sids:
+            return jsonify({'error': 'Pick which lesson to cancel.'}), 400
+        sess = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s', (sid,)) or {}
+        note = (d.get('note') or '').strip()
+        stamp = f'Lesson cancelled by {session.get("name") or "staff"}: {_lesson_when(sess)}' + (f' ({note})' if note else '')
+        if len(sids) > 1:
+            execute(conn, '''UPDATE program_registrations SET session_ids=%s, notes=TRIM(COALESCE(notes,'') || E'\\n' || %s), updated_at=NOW() WHERE id=%s''',
+                    (json.dumps([x for x in sids if x != sid]), stamp, reg_id))
+        else:
+            execute(conn, '''UPDATE program_registrations SET status='cancelled', notes=TRIM(COALESCE(notes,'') || E'\\n' || %s), updated_at=NOW() WHERE id=%s''',
+                    (stamp, reg_id))
+        conn.commit()
+        emailed = False
+        if d.get('notify', True):
+            emailed = _lesson_email(conn, reg, prog, f'Lesson cancelled: {_lesson_when(sess)}',
+                                    f'Your lesson for {_h(_lesson_student(reg))} on {_h(_lesson_when(sess))} has been cancelled.', [], note)
+        return jsonify({'ok': True, 'emailed': emailed})
+    finally:
+        conn.close()
+
+
+@app.route('/api/lessons/<reg_id>/repeat', methods=['POST'])
+def lesson_repeat(reg_id):
+    """Book the same student at the same weekday and time for the next N weeks."""
+    err = require_auth()
+    if err: return err
+    import datetime as _dl
+    d = request.json or {}
+    try: weeks = max(1, min(26, int(d.get('weeks') or 4)))
+    except Exception: weeks = 4
+    conn = get_db()
+    try:
+        reg, prog, bad = _lesson_reg_for_user(conn, reg_id)
+        if bad: return bad
+        try: sids = [x for x in json.loads(reg.get('session_ids') or '[]') if x]
+        except Exception: sids = []
+        base = fetchone(conn, 'SELECT * FROM program_sessions WHERE id=%s', (d.get('session_id') or (sids[-1] if sids else ''),))
+        if not base or not base.get('start_date'):
+            return jsonify({'error': 'Pick the lesson to repeat.'}), 400
+        made, skipped, slots = 0, [], []
+        start = _dl.date.fromisoformat(str(base['start_date'])[:10])
+        for i in range(1, weeks + 1):
+            day = start + _dl.timedelta(weeks=i)
+            slot = _lesson_slot(conn, prog, {'date': day.isoformat(), 'start_time': base.get('start_time'), 'end_time': base.get('end_time'), 'location': base.get('location')})
+            mine = fetchone(conn, '''SELECT id FROM program_registrations WHERE program_id=%s AND session_ids LIKE %s AND LOWER(guardian_email)=LOWER(%s)
+                AND status NOT IN ('cancelled','waitlisted','abandoned') LIMIT 1''', (prog['id'], '%"' + slot['id'] + '"%', reg.get('guardian_email') or ''))
+            if mine:
+                continue
+            if _slot_taken(conn, prog['id'], slot['id']):
+                skipped.append(_lesson_when(slot)); continue
+            nid = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO program_registrations (id, program_id, guardian_name, guardian_email, guardian_phone, child_first_name, child_last_name,
+                    child_dob, status, session_ids, notes, balance_due, registration_group_id)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'confirmed',%s,%s,%s,%s)''',
+                (nid, prog['id'], reg.get('guardian_name'), reg.get('guardian_email'), reg.get('guardian_phone'), reg.get('child_first_name'),
+                 reg.get('child_last_name'), reg.get('child_dob'), json.dumps([slot['id']]),
+                 f'Weekly lesson added by {session.get("name") or "staff"}', 0,
+                 reg.get('registration_group_id') or reg_id))
+            made += 1; slots.append(slot)
+        conn.commit()
+        try: ensure_session_events(conn, prog['id'])
+        except Exception: conn.rollback()
+        emailed = False
+        if slots and d.get('notify', True):
+            emailed = _lesson_email(conn, reg, prog, f'Your upcoming lessons for {prog.get("name") or "lessons"}',
+                                    f'We\'ve booked {len(slots)} more lesson{"" if len(slots) == 1 else "s"} for {_h(_lesson_student(reg))}:', slots)
+        return jsonify({'ok': True, 'booked': made, 'skipped': skipped, 'emailed': emailed})
+    finally:
+        conn.close()
+
+
+@app.route('/api/lessons/<reg_id>/email-schedule', methods=['POST'])
+def lesson_email_schedule(reg_id):
+    """Email a student (family) all of their upcoming lessons in this program."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        reg, prog, bad = _lesson_reg_for_user(conn, reg_id)
+        if bad: return bad
+        rows = [r for r in _lesson_bookings(conn, [prog['id']], today_eastern().isoformat(), '2999-12-31')
+                if (r.get('guardian_email') or '').lower() == (reg.get('guardian_email') or '').lower() and _lesson_student(r) == _lesson_student(reg)]
+        if not rows:
+            return jsonify({'error': 'They have no upcoming lessons.'}), 400
+        sess = [{'start_date': r['start_date'], 'start_time': r['start_time'], 'end_time': r['end_time'], 'location': r['location']} for r in rows]
+        ok = _lesson_email(conn, reg, prog, f'Your upcoming lessons for {prog.get("name") or "lessons"}',
+                           f'Here are {_h(_lesson_student(reg))}\'s upcoming lessons:', sess, ((request.get_json(silent=True) or {}).get('note') or '').strip())
+        return jsonify({'ok': ok, 'lessons': len(rows)}) if ok else (jsonify({'error': 'The email didn\'t send.'}), 400)
+    finally:
+        conn.close()
+
+
 @app.route('/api/instructor/dashboard', methods=['GET'])
 def instructor_dashboard():
     """Everything an instructor needs in one call: which programs they
@@ -27727,6 +28030,13 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
     # who books several slots at once gets one registration per slot, so each
     # date can be managed, moved or cancelled on its own. Done after the
     # confirmation/welcome emails so they still get one email listing all.
+    try:
+        if prog and prog.get('booking_mode'):
+            send_lesson_booked_email(conn, reg_id)
+    except Exception as e:
+        app.logger.warning(f'Lesson confirmation email failed for {reg_id}: {e}')
+        try: conn.rollback()
+        except Exception: pass
     try:
         if prog and prog.get('booking_mode') and prog.get('sessions_enabled'):
             split_registration_by_session(conn, reg_id)

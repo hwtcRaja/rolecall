@@ -14525,6 +14525,22 @@ def get_donor_detail(did):
         WHERE bc.donor_id=%s ORDER BY bc.created_at DESC''', (did,)) or []
     for bc in donor['benefit_codes']:
         bc['description'] = describe_benefit_code(bc)
+        # what each redemption was for: the show and order, or the class
+        uses = fetchall(conn, '''SELECT r.created_at, r.tickets, r.discount_cents, r.ticket_order_id, r.registration_id,
+                o.guardian_name AS buyer, o.guardian_email AS buyer_email, o.status AS order_status, o.view_token,
+                pf.performance_date, pf.performance_time, pr.name AS show_name,
+                (SELECT string_agg(t.seat_label, ', ' ORDER BY t.seat_label) FROM tickets t WHERE t.ticket_order_id=o.id) AS seats,
+                yp.name AS program_name, TRIM(COALESCE(g.child_first_name,'') || ' ' || COALESCE(g.child_last_name,'')) AS participant,
+                g.guardian_name AS reg_guardian, g.status AS reg_status
+            FROM benefit_code_redemptions r
+            LEFT JOIN ticket_orders o ON o.id=r.ticket_order_id
+            LEFT JOIN performances pf ON pf.id=o.performance_id LEFT JOIN productions pr ON pr.id=pf.production_id
+            LEFT JOIN program_registrations g ON g.id=r.registration_id LEFT JOIN youth_programs yp ON yp.id=g.program_id
+            WHERE r.code_id=%s ORDER BY r.created_at DESC''', (bc['id'],)) or []
+        for u in uses:
+            u['created_at'] = str(u['created_at'])[:16]
+            if u.get('performance_date'): u['performance_date'] = str(u['performance_date'])[:10]
+        bc['uses'] = uses
 
     # Campaign-specific benefits  -  for each campaign this donor has donated to,
     # show which benefits they've earned based on their total to that campaign

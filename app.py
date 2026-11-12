@@ -1281,6 +1281,7 @@ def init_db():
         # end up on both waitlists at once — e.g. waitlisted for performer
         # but flat-out not selected for audience, or vice versa.
         "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS performer_waitlist_position INTEGER",
+        "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS added_by TEXT",
         "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS audience_waitlist_position INTEGER",
         # A promoted waitlister needs their own fresh (usually much shorter)
         # deadline — the event's original confirm_deadline has often already
@@ -3083,6 +3084,8 @@ def init_db():
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS promo_code_id TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS public_sale_at TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_key TEXT",
+        # 'private': only the pre-sale link can buy early; 'public': the normal ticket link sells during the pre-sale too
+        "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_mode TEXT DEFAULT 'private'",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS share_name TEXT",
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS presale_opens_at TEXT",
         # Which door an order came through: 'presale' (the private link) or
@@ -9115,6 +9118,80 @@ def _send_sad_confirmation_email(entry, ev, promoted_from_waitlist=False):
         f'<p style="color:rgba(255,255,255,0.45);font-size:13px">Once you confirm, you\'ll get a QR code to show at the door — hang onto that link, you can pull it back up any time before the event.</p>'
     )
     send_email([entry['volunteer_email']], subject, build_sad_email_html(subject, body))
+
+@app.route('/api/sad/events/<eid>/add-entry', methods=['POST'])
+def sad_add_entry(eid):
+    """Staff add someone after the lottery closes (a late request, a guest,
+    a fill-in). Either straight to confirmed (they get their QR code by
+    email) or selected (they get the usual confirm-by email). An existing
+    entry for the same person is updated instead of duplicated."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    cat = 'performer' if d.get('category') == 'performer' else 'audience'
+    mode = 'selected' if d.get('mode') == 'selected' else 'confirmed'
+    conn = get_db()
+    try:
+        ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+        if not ev:
+            return jsonify({'error': 'Not found'}), 404
+        vid = d.get('volunteer_id')
+        if not vid:
+            name, email = (d.get('name') or '').strip(), (d.get('email') or '').strip().lower()
+            if not name or '@' not in email:
+                return jsonify({'error': 'Pick a volunteer, or enter a name and email.'}), 400
+            v = fetchone(conn, 'SELECT id FROM volunteers WHERE LOWER(TRIM(email))=%s LIMIT 1', (email,))
+            if v:
+                vid = v['id']
+            else:
+                vid = str(uuid.uuid4())
+                execute(conn, "INSERT INTO volunteers (id, name, email, phone, status) VALUES (%s,%s,%s,%s,'active')",
+                        (vid, name[:200], email[:200], (d.get('phone') or '').strip()[:40]))
+        token = secrets.token_urlsafe(16)
+        code = secrets.token_hex(4).upper() if mode == 'confirmed' else None
+        status = 'confirmed' if mode == 'confirmed' else ('selected_performer' if cat == 'performer' else 'selected_audience')
+        ex = fetchone(conn, 'SELECT id, status FROM sad_entries WHERE sad_event_id=%s AND volunteer_id=%s', (eid, vid))
+        if ex and ex['status'] in ('confirmed', 'checked_in'):
+            return jsonify({'error': 'They\'re already confirmed for this night.'}), 400
+        if ex:
+            execute(conn, '''UPDATE sad_entries SET status=%s, selected_category=%s, wants_performer=%s, wants_audience=TRUE, selected_at=NOW(),
+                confirm_token=%s, confirmed_at=%s, checkin_code=%s, performer_waitlist_position=NULL, audience_waitlist_position=NULL WHERE id=%s''',
+                (status, cat, cat == 'performer', token, datetime.now() if code else None, code, ex['id']))
+            entry_id = ex['id']
+        else:
+            entry_id = str(uuid.uuid4())
+            execute(conn, '''INSERT INTO sad_entries (id, sad_event_id, volunteer_id, wants_performer, wants_audience, status, selected_category,
+                selected_at, confirm_token, confirmed_at, checkin_code) VALUES (%s,%s,%s,%s,TRUE,%s,%s,NOW(),%s,%s,%s)''',
+                (entry_id, eid, vid, cat == 'performer', status, cat, token, datetime.now() if code else None, code))
+        try: execute(conn, 'UPDATE sad_entries SET added_by=%s WHERE id=%s', (session.get('name') or 'Staff', entry_id))
+        except Exception: conn.rollback()
+        conn.commit()
+        entry = _sad_entry_with_volunteer(conn, 'e.id=%s', (entry_id,))[0]
+        emailed = False
+        if d.get('notify', True) and entry.get('volunteer_email'):
+            try:
+                if mode == 'selected':
+                    _send_sad_confirmation_email(entry, ev)
+                else:
+                    first = (entry.get('volunteer_name') or '').split(' ')[0] or 'there'
+                    ev_dt = parse_db_datetime(ev['event_date'])
+                    when = ev_dt.strftime('%A, %B %-d') if ev_dt else str(ev['event_date'])
+                    url = f'https://rolecall.hwtco.org/studio-after-dark/confirm/{token}'
+                    subj = f"You're in for Studio After Dark on {when}!"
+                    body = (f'<p>Hi {_h(first)}, you\'ve been added to <strong>Studio After Dark</strong> on <strong>{_h(when)}</strong> '
+                            f'as a <strong>{"Performer" if cat == "performer" else "Audience member"}</strong>. Your spot is confirmed.</p>'
+                            + ('<p>Performer order is picked live, at random, during the event, so stick around all night!</p>' if cat == 'performer' else '')
+                            + f'<p style="text-align:center;margin:28px 0"><a href="{url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;'
+                              'color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">Get my QR code</a></p>'
+                            + '<p style="color:rgba(255,255,255,0.6);font-size:13px">Show the QR code at the door. Can\'t make it after all? Use the same link to let us know.</p>')
+                    send_email([entry['volunteer_email']], subj, build_sad_email_html(subj, body))
+                emailed = True
+            except Exception as e:
+                app.logger.warning(f'SAD manual add email failed: {e}')
+        return jsonify({'ok': True, 'entry_id': entry_id, 'status': status, 'emailed': emailed, 'name': entry.get('volunteer_name')})
+    finally:
+        conn.close()
+
 
 @app.route('/api/sad/events/<eid>/entries', methods=['GET'])
 def get_sad_entries(eid):
@@ -44660,17 +44737,19 @@ def update_ticketing_settings(pid):
     if 'kbyg_enabled' in d:
         execute(conn, 'UPDATE productions SET kbyg_enabled=%s, kbyg_hours_before=%s, kbyg_text=%s WHERE id=%s',
                 (bool(d.get('kbyg_enabled')), kbyg_hours, (d.get('kbyg_text') or '')[:3000], pid))
+    if d.get('presale_mode') in ('private', 'public'):
+        execute(conn, 'UPDATE productions SET presale_mode=%s WHERE id=%s', (d['presale_mode'], pid))
     if d.get('presale') == 'new':
         execute(conn, 'UPDATE productions SET presale_key=%s WHERE id=%s', (secrets.token_urlsafe(9), pid))
     elif d.get('presale') == 'off':
         execute(conn, 'UPDATE productions SET presale_key=NULL WHERE id=%s', (pid,))
     conn.commit()
-    saved = fetchone(conn, 'SELECT public_sale_at, presale_key, slug, presale_opens_at FROM productions WHERE id=%s', (pid,)) or {}
+    saved = fetchone(conn, 'SELECT public_sale_at, presale_key, presale_mode, slug, presale_opens_at FROM productions WHERE id=%s', (pid,)) or {}
     conn.close()
     return jsonify({'ok': True, 'max_tickets_per_performance': limit,
         'charge_service_fee': charge_fee, 'service_fee_percent': fee_percent, 'service_fee_flat_cents': fee_flat_cents,
         'default_donation_cents': default_donation,
-        'public_sale_at': saved.get('public_sale_at'), 'presale_key': saved.get('presale_key'), 'slug': saved.get('slug'),
+        'public_sale_at': saved.get('public_sale_at'), 'presale_key': saved.get('presale_key'), 'presale_mode': saved.get('presale_mode') or 'private', 'slug': saved.get('slug'),
         'share_name': share_name, 'presale_opens_at': saved.get('presale_opens_at'), 'companion_release_days': companion_days,
         'kbyg_enabled': bool(d.get('kbyg_enabled', True)), 'kbyg_hours_before': kbyg_hours, 'kbyg_text': (d.get('kbyg_text') or '')[:3000]})
 
@@ -45818,7 +45897,7 @@ def production_sale_state(prod, presale_key=''):
             'seconds_until_public': None, 'presale_opens_at': prod.get('presale_opens_at') or None,
             'seconds_until_presale': None, 'presale_link': False}
     key = (presale_key or '').strip()
-    key_ok = bool(prod.get('presale_key') and key and hmac.compare_digest(key, prod['presale_key']))
+    key_ok = presale_key_ok(prod, key)
     if not opens or now >= opens:
         # public sale is open (or has no set time): the pre-sale window only
         # matters for Pre-Sale performances, handled by the caller
@@ -45840,6 +45919,8 @@ def production_sale_state(prod, presale_key=''):
 
 
 def presale_key_ok(prod, key):
+    if prod.get('presale_key') and (prod.get('presale_mode') or 'private') == 'public':
+        return True          # public pre-sale: the normal ticket link works
     return bool(prod.get('presale_key') and key and hmac.compare_digest(str(key).strip(), prod['presale_key']))
 
 
@@ -45863,7 +45944,7 @@ def sale_channel_for(conn, performance_id, keys, preview=False):
     link); otherwise 'public'."""
     if preview:
         return 'test'
-    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pr.presale_opens_at, pf.status AS perf_status
+    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pr.presale_mode, pr.presale_opens_at, pf.status AS perf_status
         FROM performances pf JOIN productions pr ON pr.id=pf.production_id WHERE pf.id=%s''', (performance_id,))
     if not p:
         return 'public'
@@ -45914,7 +45995,7 @@ def presale_block_for_performance(conn, performance_id, keys, preview=False):
     if preview:
         return None
     open_presale_performances_if_due(conn)
-    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pr.presale_opens_at, pf.status AS perf_status FROM performances pf
+    p = fetchone(conn, '''SELECT pr.id, pr.public_sale_at, pr.presale_key, pr.presale_mode, pr.presale_opens_at, pf.status AS perf_status FROM performances pf
         JOIN productions pr ON pr.id=pf.production_id WHERE pf.id=%s''', (performance_id,))
     if not p:
         return None
@@ -45944,13 +46025,14 @@ def public_production_performances(slug):
     conn = get_db()
     prod = fetchone(conn, '''SELECT id, name, description, image_url, portal_color, portal_logo_url, ticket_logo_url,
         max_tickets_per_performance, default_donation_cents, charge_service_fee, service_fee_percent, service_fee_flat_cents,
-        venue AS venue_text, public_sale_at, presale_key, presale_opens_at FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
+        venue AS venue_text, public_sale_at, presale_key, presale_mode, presale_opens_at FROM productions WHERE slug=%s OR id=%s''', (slug, slug))
     if not prod:
         conn.close(); return jsonify({'error': 'Production not found'}), 404
     open_presale_performances_if_due(conn, prod['id'])
     key = request.args.get('presale') or ''
     has_key = presale_key_ok(prod, key)
     allowed, sale = production_sale_state(prod, key)
+    sale['presale_public'] = bool(prod.get('presale_key') and (prod.get('presale_mode') or 'private') == 'public')
     prod.pop('presale_key', None)
     preview = staff_ticket_preview(request.args.get('preview'))
     if preview:
@@ -48351,7 +48433,7 @@ def post_sale_countdown_alerts():
         if not url or _setting(conn, 'slack_countdown_enabled', '1') != '1':
             return
         now = now_eastern()
-        rows = fetchall(conn, '''SELECT id, name, share_name, slug, public_sale_at, presale_opens_at, presale_key
+        rows = fetchall(conn, '''SELECT id, name, share_name, slug, public_sale_at, presale_opens_at, presale_key, presale_mode
             FROM productions WHERE COALESCE(public_sale_at,'') <> '' OR COALESCE(presale_opens_at,'') <> '' ''') or []
         for p in rows:
             show = p.get('share_name') or p['name']
@@ -48368,8 +48450,9 @@ def post_sale_countdown_alerts():
                 elif 0 < secs <= 300:
                     mark, text = '5', ':hourglass_flowing_sand: *' + show + '* ' + label + ' opens in *5 minutes* (' + clock + ').'
                 elif -900 < secs <= 0:
-                    mark, text = 'open', (':tada: *' + show + '* ' + label + ' is *OPEN!*'
-                                          + ('' if kind == 'presale' else '\n<' + link + '|' + link.replace('https://', '') + '>')
+                    _pub = kind != 'presale' or (p.get('presale_mode') or 'private') == 'public'
+                    mark, text = 'open', (':tada: *' + show + '* ' + ('public ' if kind == 'presale' and _pub else '') + label + ' is *OPEN!*'
+                                          + ('\n<' + link + '|' + link.replace('https://', '') + '>' if _pub else '')
                                           + '\nOrders will show up here as they come in.')
                 else:
                     continue
@@ -51185,12 +51268,14 @@ def presale_invites(pid):
     mode = d.get('mode') or 'preview'
     conn = get_db()
     try:
-        prod = fetchone(conn, 'SELECT id, name, slug, presale_key, presale_opens_at, public_sale_at FROM productions WHERE id=%s', (pid,))
+        prod = fetchone(conn, 'SELECT id, name, slug, presale_key, presale_mode, presale_opens_at, public_sale_at FROM productions WHERE id=%s', (pid,))
         if not prod:
             return jsonify({'error': 'Show not found'}), 404
         if not prod.get('presale_key'):
             return jsonify({'error': 'Create the pre-sale link first (Ticketing Settings → Private pre-sale link).'}), 400
-        link = APP_BASE_URL.rstrip('/') + '/tickets/' + (prod.get('slug') or prod['id']) + '?presale=' + prod['presale_key']
+        link = APP_BASE_URL.rstrip('/') + '/tickets/' + (prod.get('slug') or prod['id'])
+        if (prod.get('presale_mode') or 'private') != 'public':
+            link += '?presale=' + prod['presale_key']      # private pre-sale: the unique link
         subject = (d.get('subject') or '').strip()[:150] or ('Pre-sale tickets for ' + prod['name'])
         message = (d.get('message') or '').strip()[:3000]
         if mode == 'test':

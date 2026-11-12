@@ -3103,6 +3103,12 @@ def init_db():
             created_at TIMESTAMP DEFAULT NOW(),
             UNIQUE(production_id, member_id))""",
         "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS team_comp_code_id TEXT",
+        """CREATE TABLE IF NOT EXISTS team_comp_ticket_codes (
+            id TEXT PRIMARY KEY, code TEXT NOT NULL UNIQUE,
+            production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
+            member_id TEXT NOT NULL REFERENCES production_members(id) ON DELETE CASCADE,
+            status TEXT DEFAULT 'active', created_at TIMESTAMP DEFAULT NOW())""",
+        "ALTER TABLE production_members ADD COLUMN IF NOT EXISTS comp_emailed_at TIMESTAMP",
         # Playbill ad sales: per-show products (ad sizes, well wishes, cast
         # grams), orders paid through Square, and uploaded artwork.
         "ALTER TABLE productions ADD COLUMN IF NOT EXISTS playbill_open BOOLEAN DEFAULT FALSE",
@@ -21404,7 +21410,7 @@ def partner_letter_html(req, partner, settings, dates, equipment, portal_url='',
                    'Set the thermostat back to 75&deg;F or higher and turn off the lights.', 'Turn passage mode off and check that the door is locked.'])
         + '<div class="lbl" style="margin-top:10px">Trash and dumpsters</div>'
         + '<p>There are two dumpsters you are welcome to use, for everyday trash and for larger items:</p>'
-        + bullets(['Behind the studio, to the left as you go out the back door of Studio B.', 'In front, to the right of the front door.'])
+        + bullets(['Behind the studio, to the right as you go out the back door of Studio B.', 'In front, to the right of the front door.'])
         + '<p style="margin-top:6px">Please take out any trash that could leave an unpleasant odor, especially food. We are not a 9-to-5 office and do not have regular '
           'custodial service, so the studio can sit empty for long stretches between groups, and anything left behind can make the space '
           'unpleasant for the next group.</p>'
@@ -47305,7 +47311,18 @@ def lookup_team_comp_code(conn, code):
         JOIN production_members pm ON pm.id=t.member_id JOIN volunteers v ON v.id=pm.volunteer_id
         WHERE UPPER(t.code)=%s''', (code,))
     if not c:
-        return None, None
+        t = fetchone(conn, '''SELECT t.*, pr.name AS production_name, pr.share_name FROM team_comp_ticket_codes t
+            JOIN productions pr ON pr.id=t.production_id WHERE UPPER(t.code)=%s''', (code,))
+        if not t:
+            return None, None
+        if t['status'] != 'active':
+            return None, 'That comp code has been turned off.'
+        if team_comp_used(conn, 'tk:' + t['id']) > 0:
+            return None, 'That comp code has already been used.'
+        show = t.get('share_name') or t.get('production_name')
+        return {'id': 'tk:' + t['id'], 'code': t['code'], 'source': 'team', 'kind': 'comp_per_show',
+                'production_id': t['production_id'], 'restrict_to_production': True, 'comp_remaining': 1,
+                'label': 'Comp ticket for ' + show + ' (1 ticket)'}, None
     if c['status'] != 'active':
         return None, 'That comp code has been turned off.'
     allowed = team_comp_allowance(c, c)
@@ -47316,6 +47333,105 @@ def lookup_team_comp_code(conn, code):
     return {'id': c['id'], 'code': c['code'], 'source': 'team', 'kind': 'comp_per_show',
             'production_id': c['production_id'], 'restrict_to_production': True, 'comp_remaining': left,
             'label': 'Production team comps for ' + show + ' (' + str(left) + ' left)'}, None
+
+
+# ── Single-use team comp codes (one free ticket each) + emailing them ──
+def _member_ticket_codes(conn, pid, mid):
+    rows = fetchall(conn, "SELECT * FROM team_comp_ticket_codes WHERE production_id=%s AND member_id=%s ORDER BY created_at, code", (pid, mid)) or []
+    for r in rows:
+        r['used'] = team_comp_used(conn, 'tk:' + r['id']) > 0
+    return rows
+
+
+def sync_member_ticket_codes(conn, pid, mid, allowed):
+    """Make sure a team member has exactly `allowed` usable single-use codes:
+    add codes if they're short; switch off unused extras if their number went down."""
+    rows = _member_ticket_codes(conn, pid, mid)
+    active = [r for r in rows if r['status'] == 'active']
+    usable = [r for r in active if not r['used']]
+    used_n = sum(1 for r in rows if r['used'])
+    need = max(0, allowed - used_n) - len(usable)
+    for _ in range(max(0, need)):
+        for _t in range(10):
+            code = 'HWTC-COMP-' + ''.join(secrets.choice(_CODE_ALPHABET) for _ in range(6))
+            if not fetchone(conn, 'SELECT 1 AS x FROM team_comp_ticket_codes WHERE code=%s UNION SELECT 1 FROM team_comp_codes WHERE code=%s', (code, code)):
+                break
+        execute(conn, 'INSERT INTO team_comp_ticket_codes (id, code, production_id, member_id) VALUES (%s,%s,%s,%s)', (str(uuid.uuid4()), code, pid, mid))
+    if need < 0:
+        for r in usable[need:]:
+            execute(conn, "UPDATE team_comp_ticket_codes SET status='off' WHERE id=%s", (r['id'],))
+    conn.commit()
+
+
+TEAM_COMP_EMAIL_DEFAULT = ('Thank you for being part of {show}! As a thank-you to our cast and crew, you have {n} complimentary '
+                           'ticket{s} for the show. Use the code{s} below at checkout to get your free ticket{s}.')
+
+
+@app.route('/api/productions/<pid>/team-comps/email', methods=['POST'])
+def email_team_comp_codes(pid):
+    """Email team members their single-use comp codes (creating any that are missing)."""
+    err = require_permission('marquee', 'edit')
+    if err: return err
+    d = request.json or {}
+    ids = d.get('member_ids') or []
+    test_to = (d.get('test_email') or '').strip()
+    intro = (d.get('message') or '').strip()
+    if not ids:
+        return jsonify({'error': 'Pick who to email.'}), 400
+    conn = get_db()
+    try:
+        prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
+        if not prod:
+            return jsonify({'error': 'Show not found'}), 404
+        show = prod.get('share_name') or prod['name']
+        link = APP_BASE_URL.rstrip('/') + '/tickets/' + (prod.get('slug') or pid)
+        sent, skipped = 0, []
+        for mid in ids:
+            m = fetchone(conn, '''SELECT pm.*, v.name, v.email FROM production_members pm JOIN volunteers v ON v.id=pm.volunteer_id
+                WHERE pm.id=%s AND pm.production_id=%s''', (mid, pid))
+            if not m:
+                continue
+            allowed = team_comp_allowance(prod, m)
+            if allowed <= 0:
+                skipped.append(f'{m["name"]} (no comps)'); continue
+            to = test_to or (m.get('email') or '').strip()
+            if not to:
+                skipped.append(f'{m["name"]} (no email)'); continue
+            if not test_to:
+                sync_member_ticket_codes(conn, pid, mid, allowed)
+            codes = [r for r in _member_ticket_codes(conn, pid, mid) if r['status'] == 'active' and not r['used']]
+            if not codes:
+                if test_to:
+                    codes = [{'code': 'HWTC-COMP-SAMPLE'}] * allowed
+                else:
+                    skipped.append(f'{m["name"]} (all comps used)'); continue
+            n = len(codes); s_ = '' if n == 1 else 's'
+            first = (m['name'] or '').split(' ')[0] or 'there'
+            msg = (intro or TEAM_COMP_EMAIL_DEFAULT).replace('{show}', show).replace('{n}', str(n)).replace('{s}', s_).replace('{name}', first)
+            code_rows = ''.join(f'<tr><td style="padding:8px 14px;font-family:monospace;font-size:17px;font-weight:700;letter-spacing:1px;'
+                                f'border-bottom:1px solid #e5e7eb">{_h(c["code"])}</td><td style="padding:8px 14px;color:#6b7280;font-size:13px;'
+                                f'border-bottom:1px solid #e5e7eb">1 free ticket</td></tr>' for c in codes)
+            html = (f'<p>Hi {_h(first)},</p><p>{message_text_html(msg)}</p>'
+                    f'<table style="border-collapse:collapse;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;margin:14px 0">{code_rows}</table>'
+                    '<p><strong>How to use them</strong></p><ul style="padding-left:20px;margin:0 0 14px">'
+                    f'<li>Go to <a href="{link}">{_h(link.replace("https://", ""))}</a> and pick your performance and seats.</li>'
+                    '<li>At checkout, enter a code in the <em>Promo or donor code</em> box and tap Apply. Each code covers one ticket.</li>'
+                    '<li>Use them yourself or share them with family and friends.</li>'
+                    '<li>Each code can be used only once, and only for this show.</li></ul>'
+                    '<p>Thank you for everything you put into this production!</p>')
+            res = send_email([to], ('[Test] ' if test_to else '') + f'Your comp tickets for {show}', build_hwtc_email_html(f'Your comp tickets for {show}', html),
+                             source='team_comp_codes')
+            if (res[0] if isinstance(res, tuple) else res):
+                sent += 1
+                if not test_to:
+                    execute(conn, 'UPDATE production_members SET comp_emailed_at=NOW() WHERE id=%s', (mid,)); conn.commit()
+            else:
+                skipped.append(f'{m["name"]} (email failed)')
+            if test_to:
+                break
+        return jsonify({'ok': True, 'sent': sent, 'skipped': skipped})
+    finally:
+        conn.close()
 
 
 @app.route('/api/productions/<pid>/team-comps', methods=['GET', 'PUT'])
@@ -47344,7 +47460,7 @@ def production_team_comps(pid):
                 execute(conn, 'UPDATE production_members SET comp_override=%s WHERE id=%s AND production_id=%s', (v, mid, pid))
             conn.commit()
             prod = fetchone(conn, 'SELECT id, name, slug, team_comp_default, team_comp_departments FROM productions WHERE id=%s', (pid,))
-        members = fetchall(conn, '''SELECT pm.id, pm.role, pm.department, pm.comp_override, v.name, v.email,
+        members = fetchall(conn, '''SELECT pm.id, pm.role, pm.department, pm.comp_override, pm.comp_emailed_at, v.name, v.email,
                 t.id AS code_id, t.code, t.status AS code_status
             FROM production_members pm JOIN volunteers v ON v.id=pm.volunteer_id
             LEFT JOIN team_comp_codes t ON t.member_id=pm.id AND t.production_id=pm.production_id
@@ -47354,7 +47470,11 @@ def production_team_comps(pid):
         for m in members:
             allowed = team_comp_allowance(prod, m)
             used = team_comp_used(conn, m['code_id']) if m.get('code_id') else 0
+            tks = _member_ticket_codes(conn, pid, m['id'])
+            used += sum(1 for t in tks if t['used'])
             out.append({'member_id': m['id'], 'name': m['name'], 'email': m.get('email') or '', 'role': m.get('role') or '',
+                        'tickets': [{'code': t['code'], 'used': t['used']} for t in tks if t['status'] == 'active' or t['used']],
+                        'emailed_at': str(m['comp_emailed_at'])[:16] if m.get('comp_emailed_at') else '',
                         'department': m.get('department') or '', 'override': m.get('comp_override'),
                         'allowed': allowed, 'used': used, 'remaining': max(0, allowed - used),
                         'code': m.get('code') if m.get('code_status') == 'active' else '', 'code_id': m.get('code_id')})
@@ -47376,19 +47496,16 @@ def create_team_comp_codes(pid):
         return jsonify({'error': 'Pick who should get a code.'}), 400
     conn = get_db()
     try:
+        # one single-use code per comp, so each can be handed to a different person
         made = 0
+        prod = fetchone(conn, 'SELECT * FROM productions WHERE id=%s', (pid,))
         for mid in ids:
-            m = fetchone(conn, 'SELECT id FROM production_members WHERE id=%s AND production_id=%s', (mid, pid))
-            if not m or fetchone(conn, 'SELECT 1 AS x FROM team_comp_codes WHERE member_id=%s AND production_id=%s', (mid, pid)):
+            m = fetchone(conn, 'SELECT * FROM production_members WHERE id=%s AND production_id=%s', (mid, pid))
+            if not m:
                 continue
-            for _ in range(10):
-                code = 'HWTC-TEAM-' + ''.join(secrets.choice(_CODE_ALPHABET) for _ in range(6))
-                if not fetchone(conn, 'SELECT 1 AS x FROM team_comp_codes WHERE code=%s', (code,)):
-                    break
-            execute(conn, 'INSERT INTO team_comp_codes (id, code, production_id, member_id) VALUES (%s,%s,%s,%s)',
-                    (str(uuid.uuid4()), code, pid, mid))
-            made += 1
-        conn.commit()
+            before = len([r for r in _member_ticket_codes(conn, pid, mid) if r['status'] == 'active'])
+            sync_member_ticket_codes(conn, pid, mid, team_comp_allowance(prod, m))
+            made += max(0, len([r for r in _member_ticket_codes(conn, pid, mid) if r['status'] == 'active']) - before)
         return jsonify({'ok': True, 'created': made})
     finally:
         conn.close()

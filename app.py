@@ -34538,6 +34538,13 @@ def _start_oncall_scheduler():
                 post_sale_countdown_alerts()
             except Exception as e:
                 app.logger.warning(f'Sale countdown alerts error: {e}')
+            # performances whose date has passed close themselves
+            try:
+                _cc = get_db()
+                try: close_past_performances(_cc)
+                finally: _cc.close()
+            except Exception as e:
+                app.logger.warning(f'Closing past performances error: {e}')
             # on-call: keep open weeks topped up and flag uncovered weeks (once a day, 10 AM)
             try:
                 if now_eastern().strftime('%H:%M') == '10:00':
@@ -45940,6 +45947,17 @@ def presale_key_ok(prod, key):
     return bool(prod.get('presale_key') and key and hmac.compare_digest(str(key).strip(), prod['presale_key']))
 
 
+def close_past_performances(conn):
+    """Performances whose date has passed switch to Closed on their own
+    (the day after the show), so nobody has to close sales by hand and
+    finished shows drop out of reports. Returns how many were closed."""
+    rows = fetchall(conn, '''UPDATE performances SET status='closed', updated_at=NOW()
+        WHERE status IN ('presale','on_sale','sold_out') AND performance_date < %s RETURNING id''', (today_eastern().isoformat(),)) or []
+    if rows:
+        conn.commit()
+    return len(rows)
+
+
 def open_presale_performances_if_due(conn, production_id=None):
     """Performances marked Pre-Sale switch to On Sale by themselves once
     their show's Public on-sale time has passed."""
@@ -45952,6 +45970,10 @@ def open_presale_performances_if_due(conn, production_id=None):
         q += ' AND pr.id=%s'; params.append(production_id)
     execute(conn, q, tuple(params))
     conn.commit()
+    try:
+        close_past_performances(conn)
+    except Exception as e:
+        conn.rollback(); app.logger.warning(f'closing past performances failed: {e}')
 
 
 def sale_channel_for(conn, performance_id, keys, preview=False):
@@ -48191,6 +48213,7 @@ def build_daily_ticket_report(conn):
     import datetime as _dt, urllib.parse as _up
     today = today_eastern()
     yday = (today - _dt.timedelta(days=1)).isoformat()
+    close_past_performances(conn)
     shows = fetchall(conn, '''SELECT DISTINCT pr.id FROM productions pr JOIN performances pf ON pf.production_id=pr.id
         WHERE pf.performance_date >= %s AND pf.status IN ('presale','on_sale','sold_out')''', (today.isoformat(),)) or []
     blocks = [{'type': 'header', 'text': {'type': 'plain_text', 'text': '🎭 Daily Ticket Report · ' + today.strftime('%a, %b %-d')}}]

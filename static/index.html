@@ -24186,6 +24186,39 @@ async function openSadEventDetail(eid){
  renderSadDetail()
 }
 
+// ── Add someone by hand after the lottery closes ──
+function openSadAddPerson(eid){
+  var vols = Array.isArray(volunteers) ? volunteers : []
+  showAdHocModal('sad-add','Add a person to this Studio After Dark',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">For late requests, guests or fill-ins. They skip the lottery and go straight in.</div>'
+    + '<div class="form-group"><label>Volunteer</label><input id="sad-add-q" list="sad-add-list" placeholder="Start typing a name or email" oninput="sadAddPick()" autocomplete="off"/>'
+    + '<datalist id="sad-add-list">'+vols.filter(function(v){ return v.email }).map(function(v){ return '<option value="'+escHtml(v.name)+' <'+escHtml(v.email)+'>">' }).join('')+'</datalist>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Not a volunteer yet? Type their name and email below instead.</div></div>'
+    + '<div class="form-row"><div class="form-group"><label>Name</label><input id="sad-add-name"/></div><div class="form-group"><label>Email</label><input id="sad-add-email" type="email"/></div></div>'
+    + '<div class="form-group"><label>As</label><div style="display:flex;gap:16px"><label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="radio" name="sad-add-cat" value="audience" checked style="width:auto"/> Audience</label>'
+    + '<label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="radio" name="sad-add-cat" value="performer" style="width:auto"/> Performer</label></div></div>'
+    + '<div class="form-group"><label>Status</label><div style="display:flex;flex-direction:column;gap:6px">'
+    + '<label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="radio" name="sad-add-mode" value="confirmed" checked style="width:auto"/> Confirmed: they\'re in, and get their QR code by email</label>'
+    + '<label style="display:flex;gap:6px;align-items:center;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="radio" name="sad-add-mode" value="selected" style="width:auto"/> Selected: they still need to confirm (same email as lottery winners)</label></div></div>'
+    + '<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:12px;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" id="sad-add-notify" checked style="width:auto"/> Email them now</label>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="saveSadAddPerson(\''+eid+'\')">Add</button>', 520)
+}
+function sadAddPick(){
+  var q = document.getElementById('sad-add-q').value, m = q.match(/^(.*) <([^>]+)>$/)
+  if(m){ document.getElementById('sad-add-name').value = m[1]; document.getElementById('sad-add-email').value = m[2] }
+}
+async function saveSadAddPerson(eid){
+  var g = function(id){ return document.getElementById(id) }
+  var body = {name: g('sad-add-name').value.trim(), email: g('sad-add-email').value.trim(),
+    category: (document.querySelector('input[name=sad-add-cat]:checked')||{}).value, mode: (document.querySelector('input[name=sad-add-mode]:checked')||{}).value,
+    notify: g('sad-add-notify').checked}
+  if(!body.name || !body.email){ toast('Enter a name and email (or pick a volunteer)','error'); return }
+  var r = await api('/api/sad/events/'+eid+'/add-entry','POST', body)
+  if(r.error){ toast(r.error,'error'); return }
+  closeAdHocModal('sad-add')
+  toast(r.name+' added'+(r.emailed?' and emailed':''),'success')
+  openSadEventDetail(eid)
+}
 function sadPhaseActionsHtml(ev){
  const origin = window.location.origin
  const entryLink = `${origin}/studio-after-dark`
@@ -24214,6 +24247,8 @@ function sadPhaseActionsHtml(ev){
  } else if(ev.lottery_status==='completed'){
  phaseHtml = `<div style="color:var(--text-muted);font-size:13px">This occurrence is complete.</div>`
  }
+ if(['closed','drawn','confirmations_sent','checkin_open'].indexOf(ev.lottery_status) >= 0)
+   phaseHtml += ` <button class="btn btn-secondary" onclick="openSadAddPerson('${ev.id}')">+ Add a person</button>`
  phaseHtml += `<button onclick="deleteSadEventFromDetail('${ev.id}')" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:12.5px;color:var(--red-600,#dc2626);text-decoration:underline">Delete Occurrence</button>`
  return phaseHtml
 }
@@ -38848,7 +38883,8 @@ async function openTicketingSettings(pid){
   var feePct = prod && prod.service_fee_percent != null ? prod.service_fee_percent : 3.0
   var feeFlat = prod && prod.service_fee_flat_cents != null ? prod.service_fee_flat_cents : 30
   var donDefault = prod ? (parseInt(prod.default_donation_cents, 10) || 0) : 0
-  var presaleUrl = (prod && prod.presale_key && prod.slug) ? window.location.origin+'/tickets/'+prod.slug+'?presale='+prod.presale_key : ''
+  var presalePublic = !!(prod && prod.presale_mode === 'public')
+  var presaleUrl = (prod && prod.presale_key && prod.slug) ? window.location.origin+'/tickets/'+prod.slug+(presalePublic ? '' : '?presale='+prod.presale_key) : ''
   showAdHocModal('ticketing-settings-modal', 'Ticketing Settings',
     '<div class="form-group"><label>Max Tickets Per Performance (per buyer)</label>'
     + '<input type="number" id="tk-max-per-perf" min="1" step="1" value="'+escHtml(String(current))+'" placeholder="No limit"/>'
@@ -38883,7 +38919,11 @@ async function openTicketingSettings(pid){
     + '<div class="form-group"><label>Public on-sale</label>'
     + '<input type="datetime-local" id="tk-public-sale" value="'+escHtml((prod&&prod.public_sale_at)||'')+'"/>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Before this time the ticket page shows a countdown and nobody can buy, except through the pre-sale link below. Leave blank to sell as soon as performances are on sale. Eastern time.</div></div>'
-    + '<div class="form-group"><label>Private pre-sale link</label>'
+    + '<div class="form-group"><label>Pre-sale</label>'
+    + (presaleUrl ? '<div style="display:flex;gap:16px;margin-bottom:8px;font-size:13px">'
+        + '<label style="display:flex;gap:6px;align-items:flex-start;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer;margin:0"><input type="radio" name="tk-presale-mode" value="private" '+(presalePublic?'':'checked')+' onchange="saveTicketingSettings(\''+pid+'\',\'mode\')" style="width:auto;margin-top:3px"/><span><strong>Private</strong><br/><span style="color:var(--text-muted);font-size:12px">Only people with the unique link can buy early</span></span></label>'
+        + '<label style="display:flex;gap:6px;align-items:flex-start;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer;margin:0"><input type="radio" name="tk-presale-mode" value="public" '+(presalePublic?'checked':'')+' onchange="saveTicketingSettings(\''+pid+'\',\'mode\')" style="width:auto;margin-top:3px"/><span><strong>Public</strong><br/><span style="color:var(--text-muted);font-size:12px">Anyone can buy early on the normal ticket link</span></span></label></div>'
+        + '<div style="font-size:12px;font-weight:600;margin-bottom:4px">'+(presalePublic?'Pre-sale link (your normal ticket link)':'Private pre-sale link')+'</div>' : '')
     + (presaleUrl
         ? '<div style="display:flex;gap:6px;align-items:center"><input readonly value="'+escHtml(presaleUrl)+'" style="font-size:12px" onclick="this.select()"/>'
           + '<button type="button" class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(\''+presaleUrl+'\');toast(\'Pre-sale link copied\',\'success\')">Copy</button></div>'
@@ -38893,7 +38933,10 @@ async function openTicketingSettings(pid){
         : '<button type="button" class="btn btn-secondary btn-sm" onclick="saveTicketingSettings(\''+pid+'\',\'new\')">Create pre-sale link</button>')
     + '<div style="display:flex;align-items:center;gap:8px;margin-top:10px"><label style="margin:0;font-size:12px;font-weight:600;white-space:nowrap">Pre-sale opens</label>'
     + '<input type="datetime-local" id="tk-presale-opens" value="'+escHtml((prod&&prod.presale_opens_at)||'')+'" style="width:auto"/></div>'
-    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">Anyone with this link can buy before the public on-sale time (cast families, donors, members). Share it privately. If you set a pre-sale open time, the link shows its own countdown until then, so you can send it out early. After the public on-sale time it works like the normal page.</div>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:5px">'+(presalePublic
+        ? 'Public pre-sale: anyone on your normal ticket page can buy during the pre-sale (at pre-sale prices, if you set them), before the public on-sale time. Share the normal link anywhere.'
+        : 'Private pre-sale: only people with this unique link can buy before the public on-sale time (cast families, donors, members). Share it privately.')
+    + ' If you set a pre-sale open time, buyers see a countdown until then.</div>'
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;line-height:1.6"><strong>Performance statuses:</strong> <span style="color:#6d28d9;font-weight:700">Pre-Sale</span> performances can only be bought through this link, and switch to On Sale by themselves at the Public on-sale time. <span style="color:#047857;font-weight:700">On Sale</span> performances are open to everyone (after the on-sale time, if one is set).</div></div>'
     + '<button class="btn btn-primary" style="width:100%" onclick="saveTicketingSettings(\''+pid+'\')">Save</button>')
 }
@@ -39483,7 +39526,8 @@ async function saveTicketingSettings(pid, presaleAction){
     share_name: document.getElementById('tk-share-name')?.value || '',
     presale_opens_at: document.getElementById('tk-presale-opens')?.value || '',
     companion_release_days: document.getElementById('tk-companion-days')?.value ?? '',
-    presale: presaleAction || ''
+    presale: (presaleAction === 'mode' ? '' : presaleAction) || '',
+    presale_mode: (document.querySelector('input[name=tk-presale-mode]:checked')||{}).value || undefined
   })
   if(res.error){ toast(res.error,'error'); return }
   var prod = allProductions.find(function(p){ return p.id===pid })
@@ -39498,10 +39542,11 @@ async function saveTicketingSettings(pid, presaleAction){
     prod.presale_opens_at = res.presale_opens_at || ''
     if(res.companion_release_days != null) prod.companion_release_days = res.companion_release_days
     prod.presale_key = res.presale_key || ''
+    prod.presale_mode = res.presale_mode || 'private'
   }
   if(presaleAction){
     // stay in the dialog so the new link can be copied right away
-    toast(presaleAction==='new' ? 'Pre-sale link ready' : 'Pre-sale turned off', 'success')
+    toast(presaleAction==='new' ? 'Pre-sale link ready' : presaleAction==='mode' ? (prod && prod.presale_mode==='public' ? 'Public pre-sale: the normal ticket link sells early' : 'Private pre-sale: only the unique link sells early') : 'Pre-sale turned off', 'success')
     openTicketingSettings(pid)
     return
   }

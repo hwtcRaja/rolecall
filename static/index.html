@@ -26444,6 +26444,134 @@ async function openInstructorRegistrationDetail(pid, rid){
  openEditRegistrationModal(pid, rid, regs, '/api/programs/'+pid+'/registrations/'+rid)
 }
 
+// ══ Lessons manager: booked students for lesson programs (voice etc.) ══
+var _LM = {data: null, view: 'week', prog: '', weekStart: null, q: ''}
+function _lmD(d){ var m = String(d).split('-'); return new Date(+m[0], +m[1]-1, +m[2]) }
+function _lmISO(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') }
+function _lmT(t){ if(!t) return ''; var p=t.split(':'), h=+p[0], m=p[1]; return ((h%12)||12)+(m&&m!=='00'?':'+m:'')+(h>=12?'pm':'am') }
+async function openLessonManager(programId){
+  _LM.prog = programId || ''
+  if(!_LM.weekStart){ var t = new Date(); t.setDate(t.getDate() - t.getDay()); _LM.weekStart = _lmISO(t) }
+  showAdHocModal('lessons','Lessons','<div style="color:var(--text-muted)">Loading…</div>', 980)
+  await lmLoad(); lmRender()
+}
+async function lmLoad(){
+  var d = await api('/api/lessons'+(_LM.prog?'?program_id='+encodeURIComponent(_LM.prog):''))
+  _LM.data = d && !d.error ? d : {programs:[], bookings:[], open_slots:[]}
+  _LM.data.bookings.sort(function(a,b){ return (a.start_date+(a.start_time||'')).localeCompare(b.start_date+(b.start_time||'')) })
+}
+function lmRender(){
+  var d = _LM.data, B = d.bookings || []
+  if(!d.programs.length){ showAdHocModal('lessons','Lessons','<div style="color:var(--text-muted)">No lesson programs here yet. A program shows up once it uses Booking Mode (one student per time slot).</div>', 560); return }
+  var head = '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">'
+    + (d.programs.length > 1 ? '<select onchange="_LM.prog=this.value;lmLoad().then(lmRender)" style="width:auto;padding:6px 8px"><option value="">All lesson programs</option>'
+        + d.programs.map(function(p){ return '<option value="'+p.id+'"'+(_LM.prog===p.id?' selected':'')+'>'+escHtml(p.name)+'</option>' }).join('')+'</select>' : '<strong>'+escHtml(d.programs[0].name)+'</strong>')
+    + '<span style="flex:1"></span>'
+    + ['week','students','list'].map(function(v){ return '<button class="btn btn-sm '+(_LM.view===v?'btn-primary':'btn-secondary')+'" onclick="_LM.view=\''+v+'\';lmRender()">'+({week:'Week',students:'Students',list:'Upcoming'})[v]+'</button>' }).join('')
+    + '</div>'
+  var body = _LM.view === 'week' ? lmWeek(B) : _LM.view === 'students' ? lmStudents(B) : lmList(B)
+  showAdHocModal('lessons','Lessons', head + body, 980)
+}
+function lmChip(b){
+  return '<div onclick="lmOpen(\''+b.id+'\',\''+b.session_id+'\')" style="cursor:pointer;border-radius:8px;padding:5px 7px;margin-bottom:4px;font-size:12px;line-height:1.3;'
+    + (b.start_date < (_LM.data.today||'') ? 'background:#f1f5f9;color:#64748b' : 'background:#e0f2fe;color:#0c4a6e')+'">'
+    + '<div style="font-weight:800">'+_lmT(b.start_time)+(b.end_time?'–'+_lmT(b.end_time):'')+'</div><div>'+escHtml(b.student)+'</div></div>'
+}
+function lmWeek(B){
+  var ws = _lmD(_LM.weekStart), days = []
+  for(var i=0;i<7;i++){ var x = new Date(ws); x.setDate(ws.getDate()+i); days.push(_lmISO(x)) }
+  var we = days[6]
+  var h = '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><button class="btn btn-secondary btn-sm" onclick="lmShiftWeek(-7)">‹</button>'
+    + '<strong style="flex:1;text-align:center">'+_lmD(days[0]).toLocaleDateString('en-US',{month:'short',day:'numeric'})+' – '+_lmD(we).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})+'</strong>'
+    + '<button class="btn btn-secondary btn-sm" onclick="lmShiftWeek(7)">›</button><button class="btn btn-secondary btn-sm" onclick="_LM.weekStart=null;openLessonManager(_LM.prog)">This week</button></div>'
+  h += '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:6px">' + days.map(function(ds){
+      var list = B.filter(function(b){ return b.start_date === ds }), dd = _lmD(ds), today = ds === _LM.data.today
+      return '<div style="border:1.5px solid '+(today?'var(--teal)':'var(--border)')+';border-radius:10px;padding:6px;min-height:120px;background:var(--surface)">'
+        + '<div style="font-size:11px;font-weight:800;color:var(--text-muted);text-transform:uppercase">'+dd.toLocaleDateString('en-US',{weekday:'short'})+' <span style="color:var(--text)">'+dd.getDate()+'</span></div>'
+        + list.map(lmChip).join('') + '</div>' }).join('') + '</div>'
+  var n = B.filter(function(b){ return b.start_date >= days[0] && b.start_date <= we }).length
+  return h + '<div style="font-size:12px;color:var(--text-muted);margin-top:8px">'+n+' lesson'+(n===1?'':'s')+' this week · tap a lesson to move, cancel, repeat weekly or email</div>'
+}
+function lmShiftWeek(n){ var d = _lmD(_LM.weekStart); d.setDate(d.getDate()+n); _LM.weekStart = _lmISO(d); lmRender() }
+function lmStudents(B){
+  var by = {}
+  B.forEach(function(b){ var k = (b.guardian_email||'').toLowerCase()+'|'+b.student; (by[k] = by[k] || {student:b.student, email:b.guardian_email, phone:b.guardian_phone, program:b.program_name, rows:[]}).rows.push(b) })
+  var keys = Object.keys(by).sort(function(a,b){ return by[a].student.localeCompare(by[b].student) })
+  if(!keys.length) return '<div style="color:var(--text-muted)">No booked students.</div>'
+  return '<input placeholder="Find a student" style="width:100%;margin-bottom:10px;box-sizing:border-box" oninput="_LM.q=this.value.toLowerCase();document.querySelectorAll(\'.lm-st\').forEach(function(e){e.style.display=e.dataset.k.indexOf(_LM.q)>=0?\'\':\'none\'})"/>'
+    + keys.map(function(k){
+      var s = by[k], up = s.rows.filter(function(b){ return b.start_date >= _LM.data.today }), past = s.rows.length - up.length
+      var next = up[0]
+      return '<div class="card lm-st" data-k="'+escHtml(k)+'" style="padding:10px 12px;margin-bottom:8px">'
+        + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:200px"><strong>'+escHtml(s.student)+'</strong>'
+        + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(s.program)+' · '+(s.email?'<a href="mailto:'+escHtml(s.email)+'">'+escHtml(s.email)+'</a>':'no email')+(s.phone?' · <a href="tel:'+escHtml(s.phone)+'">'+escHtml(s.phone)+'</a>':'')+'</div></div>'
+        + '<div style="font-size:12.5px;text-align:right">'+up.length+' upcoming'+(past?' · '+past+' recent':'')+(next?'<div style="color:var(--text-muted)">next '+_lmD(next.start_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' '+_lmT(next.start_time)+'</div>':'')+'</div>'
+        + (next ? '<button class="btn btn-secondary btn-sm" onclick="lmEmailSchedule(\''+next.id+'\')">Email schedule</button>' : '') + '</div>'
+        + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">' + up.slice(0,12).map(function(b){
+            return '<span onclick="lmOpen(\''+b.id+'\',\''+b.session_id+'\')" style="cursor:pointer;font-size:12px;background:#e0f2fe;color:#0c4a6e;border-radius:999px;padding:3px 10px">'
+              + _lmD(b.start_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+_lmT(b.start_time)+'</span>' }).join('')
+        + (up.length > 12 ? '<span style="font-size:12px;color:var(--text-muted)">+'+(up.length-12)+' more</span>' : '') + '</div></div>'
+    }).join('')
+}
+function lmList(B){
+  var up = B.filter(function(b){ return b.start_date >= _LM.data.today })
+  if(!up.length) return '<div style="color:var(--text-muted)">No upcoming lessons.</div>'
+  var last = '', h = ''
+  up.forEach(function(b){
+    if(b.start_date !== last){ h += '<div style="font-weight:800;margin:12px 0 4px">'+_lmD(b.start_date).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})+'</div>'; last = b.start_date }
+    h += '<div onclick="lmOpen(\''+b.id+'\',\''+b.session_id+'\')" style="cursor:pointer;display:flex;gap:10px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:4px;font-size:13px">'
+      + '<span style="width:120px;font-weight:700">'+_lmT(b.start_time)+(b.end_time?'–'+_lmT(b.end_time):'')+'</span><span style="flex:1">'+escHtml(b.student)+'</span><span style="color:var(--text-muted)">'+escHtml(b.location||'')+'</span></div>'
+  })
+  return h
+}
+function lmOpen(regId, sessionId){
+  var b = (_LM.data.bookings||[]).find(function(x){ return x.id===regId && x.session_id===sessionId }); if(!b) return
+  var slots = (_LM.data.open_slots||[]).filter(function(s){ return s.program_id === b.program_id && s.id !== b.session_id }).slice(0, 150)
+  showAdHocModal('lesson-one', escHtml(b.student)+' · '+_lmD(b.start_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' '+_lmT(b.start_time),
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">'+escHtml(b.program_name)+' · '+escHtml(b.guardian_name||'')+(b.guardian_email?' · '+escHtml(b.guardian_email):'')+(b.guardian_phone?' · '+escHtml(b.guardian_phone):'')+'</div>'
+    + '<div class="card" style="padding:12px 14px;margin-bottom:10px"><div style="font-weight:800;margin-bottom:6px">Move this lesson</div>'
+    + (slots.length ? '<select id="lm-slot" style="margin-bottom:6px"><option value="">Pick an open time…</option>'+slots.map(function(s){ return '<option value="'+s.id+'">'+_lmD(s.start_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' '+_lmT(s.start_time)+(s.end_time?'–'+_lmT(s.end_time):'')+'</option>' }).join('')+'</select>' : '')
+    + '<div style="font-size:12px;color:var(--text-muted);margin:2px 0 4px">'+(slots.length?'or a new time:':'Enter the new time:')+'</div>'
+    + '<div style="display:flex;gap:6px;flex-wrap:wrap"><input type="date" id="lm-date" style="width:auto"/><input type="time" id="lm-start" value="'+escHtml(b.start_time||'')+'" style="width:auto"/>–<input type="time" id="lm-end" value="'+escHtml(b.end_time||'')+'" style="width:auto"/></div>'
+    + '<button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="lmMove(\''+b.id+'\',\''+b.session_id+'\')">Move lesson</button></div>'
+    + '<div class="card" style="padding:12px 14px;margin-bottom:10px"><div style="font-weight:800;margin-bottom:6px">Repeat weekly</div>'
+    + '<div style="font-size:13px">Book '+escHtml(b.student)+' every '+_lmD(b.start_date).toLocaleDateString('en-US',{weekday:'long'})+' at '+_lmT(b.start_time)+' for the next '
+    + '<input type="number" id="lm-weeks" min="1" max="26" value="4" style="width:60px;padding:3px 6px"/> weeks</div>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Weeks where that time is already taken are skipped and listed. Collect payment for added lessons the usual way.</div>'
+    + '<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="lmRepeat(\''+b.id+'\',\''+b.session_id+'\')">Book weekly</button></div>'
+    + '<div class="card" style="padding:12px 14px;margin-bottom:10px"><div style="font-weight:800;margin-bottom:6px">Cancel this lesson</div>'
+    + '<button class="btn btn-secondary btn-sm" style="color:#991b1b" onclick="lmCancel(\''+b.id+'\',\''+b.session_id+'\')">Cancel lesson</button></div>'
+    + '<div class="form-group"><label>Note to include in the email (optional)</label><textarea id="lm-note" rows="2" placeholder="e.g. I\'m out sick this week. Sorry!"></textarea></div>'
+    + '<label style="display:flex;gap:6px;align-items:center;font-size:13px;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" id="lm-notify" checked style="width:auto"/> Email the family about the change (with the date and time)</label>', 560)
+}
+function _lmNote(){ return {note: (document.getElementById('lm-note')||{}).value || '', notify: !!(document.getElementById('lm-notify')||{}).checked} }
+async function lmAfter(r, msg){
+  if(r.error){ toast(r.error,'error'); return false }
+  closeAdHocModal('lesson-one'); toast(msg + (r.emailed ? ' · family emailed' : ''),'success'); await lmLoad(); lmRender(); return true
+}
+async function lmMove(regId, sid, force){
+  var body = Object.assign(_lmNote(), {from_session_id: sid, to_session_id: (document.getElementById('lm-slot')||{}).value || '',
+    date: document.getElementById('lm-date').value, start_time: document.getElementById('lm-start').value, end_time: document.getElementById('lm-end').value, double_book: !!force})
+  if(!body.to_session_id && !body.date){ toast('Pick an open time or a new date','error'); return }
+  var r = await api('/api/lessons/'+regId+'/move','POST', body)
+  if(r.taken){ if(confirm(r.error)) return lmMove(regId, sid, true); return }
+  lmAfter(r, 'Lesson moved')
+}
+async function lmCancel(regId, sid){
+  if(!confirm('Cancel this lesson?')) return
+  lmAfter(await api('/api/lessons/'+regId+'/cancel','POST', Object.assign(_lmNote(), {session_id: sid})), 'Lesson cancelled')
+}
+async function lmRepeat(regId, sid){
+  var r = await api('/api/lessons/'+regId+'/repeat','POST', Object.assign(_lmNote(), {session_id: sid, weeks: document.getElementById('lm-weeks').value}))
+  if(!r.error && r.skipped && r.skipped.length) alert('Skipped (already taken):\n'+r.skipped.join('\n'))
+  lmAfter(r, 'Booked '+(r.booked||0)+' more')
+}
+async function lmEmailSchedule(regId){
+  var r = await api('/api/lessons/'+regId+'/email-schedule','POST',{})
+  if(r.error){ toast(r.error,'error'); return }
+  toast('Emailed their '+r.lessons+' upcoming lesson'+(r.lessons===1?'':'s'),'success')
+}
+
 async function loadInstructorDashboard(){
  var body = document.getElementById('instructor-dashboard-body')
  if(!body) return
@@ -26469,7 +26597,11 @@ async function loadInstructorDashboard(){
  var upcoming = schedule.filter(function(s){ return s.start_date >= todayStr })
  var todayCount = schedule.filter(function(s){ return s.start_date === todayStr }).length
 
- var programsHTML = '<div class="card" style="padding:20px;margin-bottom:20px">'
+ var hasLessons = programs.some(function(p){ return p.booking_mode })
+ var programsHTML = (hasLessons ? '<div class="card" style="padding:14px 18px;margin-bottom:16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap">'
+     + '<div style="flex:1;min-width:220px"><div style="font-weight:800">Your lessons</div><div style="font-size:12.5px;color:var(--text-muted)">See your students by week or by student, move or cancel a lesson, book weekly, and email families their schedule.</div></div>'
+     + '<button class="btn btn-primary" onclick="openLessonManager()">Open lessons</button></div>' : '')
+   + '<div class="card" style="padding:20px;margin-bottom:20px">'
    + '<div style="font-size:14px;font-weight:700;margin-bottom:14px">Your Programs</div>'
    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px">'
    + programs.map(function(p){
@@ -26733,6 +26865,7 @@ async function openProgramDetail(programId){
  </div>
  ${isAdmin?`<div style="margin-top:12px;display:flex;flex-direction:column;gap:6px">
  <button class="btn btn-primary btn-sm" onclick="openEnrollProgramModal('${p.id}','${p.name.replace(/'/g,"\'")}')">+ Enroll Participant</button>
+ ${p.booking_mode?`<button class="btn btn-secondary btn-sm" onclick="openLessonManager('${p.id}')">Manage lessons</button>`:''}
 <a href="/api/youth-programs/${p.id}/roster-export" download class="btn btn-secondary btn-sm">Export Roster</a>
  <button class="btn btn-secondary btn-sm" onclick="openEventModalForParent(null,'${p.id}')">+ Add Event</button>
  </div>`:''}

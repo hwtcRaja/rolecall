@@ -31623,6 +31623,10 @@ def generate_program_sessions(pid):
             slot_end_limit = _dt.datetime.combine(cur, ct)
             while slot_start + slot_td <= slot_end_limit:
                 s_end = slot_start + slot_td
+                if d.get('skip_existing') and fetchone(conn, 'SELECT 1 AS x FROM program_sessions WHERE program_id=%s AND start_date=%s AND start_time=%s',
+                                                       (pid, cur.isoformat(), slot_start.strftime('%H:%M'))):
+                    slot_start = s_end + gap_td
+                    continue
                 label = f'{cur.strftime("%A, %B %-d")} · {slot_start.strftime("%-I:%M %p")} – {s_end.strftime("%-I:%M %p")}'
                 execute(conn, '''INSERT INTO program_sessions
                     (id, program_id, name, day_of_week, start_time, end_time,

@@ -48035,9 +48035,6 @@ def notify_ticket_sale(conn, cart_id):
             totals.append('*' + nm + '* so far: ' + '{:,}'.format(n) + ' tickets · ' + _money(g) + ' tickets'
                           + (' + ' + _money(dn) + ' donations' if dn else '') + ' = *' + _money(g + dn) + '*'
                           + ((' · ' + str(int(round((g + dn) * 100.0 / goal))) + '% of ' + _money(goal) + ' goal') if goal else ''))
-        g, n, dn = ticket_sale_totals(conn)
-        totals.append('All shows: ' + '{:,}'.format(n) + ' tickets · ' + _money(g) + (' + ' + _money(dn) + ' donations' if dn else '')
-                      + ' = *' + _money(g + dn) + '*')
         text = (head + '\n' + '\n'.join(lines) + '\n' + money + '\n\n' + '\n'.join(totals)
                 + '\n<' + APP_BASE_URL.rstrip('/') + '/#marquee/boxoffice|View ticket sales →>')
         _post_slack(url, {'text': text})

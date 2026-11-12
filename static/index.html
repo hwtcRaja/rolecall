@@ -16904,9 +16904,28 @@ function renderDonorBenefitCodes(donor){
   + codes.map(c=>'<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px">'
     + '<span style="font-family:monospace;font-weight:700;cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(\''+c.code+'\');toast(\'Copied\',\'success\')">'+escHtml(c.code)+'</span>'
     + '<span style="flex:1;color:var(--text-muted)">'+escHtml(c.description||c.benefit_name)+(c.production_name?' · '+escHtml(c.production_name):'')+'</span>'
-    + '<span style="font-size:11px;font-weight:700;color:'+(c.status==='active'?'#166534':'#64748b')+'">'+(c.status==='active'?(c.redemptions?'Redeemed '+c.redemptions+'×':'Active'):'Off')+'</span>'
+    + (c.redemptions
+        ? '<a href="#" onclick="var x=document.getElementById(\'bcu-'+c.id+'\');x.style.display=x.style.display===\'none\'?\'\':\'none\';return false" style="font-size:11px;font-weight:700;color:'+(c.status==='active'?'#166534':'#64748b')+'" title="Show what it was used for">Redeemed '+c.redemptions+'× ▾</a>'
+          + (c.status!=='active'?'<span style="font-size:11px;color:#64748b"> · off</span>':'')
+        : '<span style="font-size:11px;font-weight:700;color:'+(c.status==='active'?'#166534':'#64748b')+'">'+(c.status==='active'?'Active':'Off')+'</span>')
     + (c.status==='active'?'<button class="btn btn-secondary btn-sm" style="font-size:10.5px" onclick="voidBenefitCode(\''+c.id+'\',\''+donor.id+'\')">Turn off</button>':'')
-    + '</div>').join('') + '</div>'
+    + '</div>'
+    + ((c.uses||[]).length ? '<div id="bcu-'+c.id+'" style="display:none;margin:2px 0 8px 14px;border-left:2px solid var(--border);padding-left:10px">'
+        + c.uses.map(function(u){
+            var when = u.created_at ? new Date(u.created_at.replace(' ','T')).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) : ''
+            if(u.program_name || u.registration_id) return '<div style="font-size:12px;padding:4px 0">'+escHtml(when)+' · <strong>'+escHtml(u.program_name||'Program registration')+'</strong>'
+              + (u.participant?' · '+escHtml(u.participant):'')+(u.discount_cents?' · '+tkMoney(u.discount_cents)+' off':'')+(u.reg_status&&u.reg_status!=='confirmed'?' <span style="color:var(--text-muted)">('+escHtml(u.reg_status)+')</span>':'')+'</div>'
+            return '<div style="font-size:12px;padding:4px 0">'+escHtml(when)+' · <strong>'+escHtml(u.show_name||'Tickets')+'</strong>'
+              + (u.performance_date?' · '+escHtml(tkFmtDate(u.performance_date))+(u.performance_time?' '+escHtml(tkFmtTime(u.performance_time)):''):'')
+              + (u.tickets?' · '+u.tickets+' ticket'+(u.tickets===1?'':'s'):'')+(u.seats?' ('+escHtml(u.seats)+')':'')
+              + (u.discount_cents?' · '+tkMoney(u.discount_cents)+' off':'')
+              + (u.buyer?'<div style="color:var(--text-muted)">Ordered by '+escHtml(u.buyer)+(u.buyer_email?' &lt;'+escHtml(u.buyer_email)+'&gt;':'')
+                  +(u.order_status&&u.order_status!=='completed'?' · '+escHtml(u.order_status):'')
+                  +(u.view_token?' · <a href="/t/'+encodeURIComponent(u.view_token)+'" target="_blank">their tickets</a>':'')
+                  +(u.ticket_order_id?' · <a href="#" onclick="openTicketOrderDetail(\''+u.ticket_order_id+'\');return false">order</a>':'')+'</div>':'')
+              + '</div>'
+          }).join('') + '</div>' : '')
+  ).join('') + '</div>'
 }
 function renderDonorEligibilityBanner(donor){
  const st = donor.benefit_status || {}

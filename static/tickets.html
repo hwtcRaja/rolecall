@@ -446,7 +446,13 @@ function presaleBannerHTML(){
   var sale = lastSale || {}
   if(!sale.presale) return ''
   var d = Math.ceil((sale.seconds_until_public||0)/86400)
-  return '<div class="card" style="background:var(--teal-light);border-color:var(--teal);padding:12px 16px;font-size:13.5px"><strong>Pre-sale access.</strong> You\'re getting tickets before the public'+(sale.seconds_until_public?', which opens '+(d<=1?'within a day':'in '+d+' days'):'')+'. Please don\'t share this link.</div>'
+  var opens = sale.public_sale_at ? new Date(String(sale.public_sale_at).replace(' ','T')) : null
+  var when = opens && !isNaN(opens) ? opens.toLocaleDateString('en-US',{weekday:'long', month:'long', day:'numeric'}) : (sale.seconds_until_public ? (d<=1 ? 'within a day' : 'in '+d+' days') : '')
+  var box = function(inner){ return '<div class="card" style="background:var(--teal-light);border-color:var(--teal);padding:12px 16px;font-size:13.5px">'+inner+'</div>' }
+  if(sale.presale_public)
+    // public pre-sale: everyone on the normal link can buy early
+    return box('<strong>Pre-sale is open!</strong> Get your tickets now, before general sales begin'+(when ? (opens && !isNaN(opens) ? ' on '+when : ' '+when) : '')+'.')
+  return box('<strong>Pre-sale access.</strong> You\'re getting tickets before the public'+(when ? ', which opens '+(opens && !isNaN(opens) ? 'on '+when : when) : '')+'. Please don\'t share this link.')
 }
 
 async function goBackToPerformances(){

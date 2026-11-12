@@ -38509,7 +38509,7 @@ async function openTeamComps(pid){
   var depts = d.all_departments || []
   var chosen = d.departments || []
   var body =
-    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6">Give each production team member a set number of free tickets for this show. Each person gets a personal code they enter in the <strong>Promo or donor code</strong> box at checkout; it draws down as they use it, and changes you make here apply to codes already sent.</div>'
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6">Give each production team member a set number of free tickets for this show. Each person gets single-use codes (one per comp ticket) they can use themselves or share, entered in the <strong>Promo or donor code</strong> box at checkout; it draws down as they use it, and changes you make here apply to codes already sent.</div>'
     + '<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;padding:12px 14px;background:var(--bg);border-radius:var(--radius);margin-bottom:14px">'
     + '<div class="form-group" style="margin:0"><label>Comps per person</label><input type="number" id="tc-default" min="0" value="'+(d.default||0)+'" style="width:90px"/></div>'
     + (depts.length ? '<div class="form-group" style="margin:0;flex:1;min-width:240px"><label>Who gets them</label><div style="display:flex;gap:10px;flex-wrap:wrap;font-size:13px">'
@@ -38518,20 +38518,24 @@ async function openTeamComps(pid){
     + '<button class="btn btn-primary btn-sm" onclick="saveTeamComps()">Save</button></div>'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">'
     + '<span style="font-size:12.5px;color:var(--text-muted)"><strong>'+(d.total_used||0)+'</strong> of <strong>'+(d.total_allowed||0)+'</strong> team comps claimed</span><span style="flex:1"></span>'
-    + '<button class="btn btn-primary btn-sm" id="tc-create-btn" onclick="createTeamCompCodes()" disabled>Create codes for selected (0)</button>'
+    + '<button class="btn btn-secondary btn-sm" id="tc-create-btn" onclick="createTeamCompCodes()" disabled>Create codes for selected (0)</button>'
+    + '<button class="btn btn-primary btn-sm" id="tc-email-btn" onclick="openTeamCompEmail()" disabled>Email codes to selected (0)</button>'
     + '<button class="btn btn-secondary btn-sm" onclick="downloadTeamCompsCsv()">Download CSV</button></div>'
     + '<div style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:var(--radius)"><table style="width:100%;border-collapse:collapse;font-size:12.5px">'
     + '<thead><tr style="background:var(--bg);text-align:left;position:sticky;top:0"><th style="padding:8px;width:28px"><input type="checkbox" onchange="document.querySelectorAll(\'.tc-sel\').forEach(function(b){b.checked=this.checked}.bind(this));tcSelChanged()" style="width:auto"/></th>'
     + '<th style="padding:8px">Team member</th><th style="padding:8px">Comps</th><th style="padding:8px">Used</th><th style="padding:8px">Code</th></tr></thead><tbody>'
     + (d.members||[]).map(function(m){
         return '<tr style="border-top:1px solid var(--border)">'
-          + '<td style="padding:8px">'+(!m.code && m.allowed>0 ? '<input type="checkbox" class="tc-sel" value="'+m.member_id+'" onchange="tcSelChanged()" style="width:auto"/>' : '')+'</td>'
+          + '<td style="padding:8px">'+(m.allowed>0 ? '<input type="checkbox" class="tc-sel" value="'+m.member_id+'" onchange="tcSelChanged()" style="width:auto"/>' : '')+'</td>'
           + '<td style="padding:8px"><div style="font-weight:600">'+escHtml(m.name)+'</div><div style="font-size:11px;color:var(--text-muted)">'+escHtml([m.role, m.department].filter(Boolean).join(' · '))+'</div></td>'
           + '<td style="padding:8px"><input type="number" min="0" class="tc-ovr" data-mid="'+m.member_id+'" value="'+(m.override!=null?m.override:'')+'" placeholder="'+m.allowed+'" title="Leave blank to use the default" style="width:64px;padding:3px 6px;font-size:12px"/></td>'
           + '<td style="padding:8px">'+m.used+' / '+m.allowed+(m.allowed && m.remaining===0?' <span style="font-size:10.5px;color:#b91c1c;font-weight:700">all used</span>':'')+'</td>'
-          + '<td style="padding:8px;font-family:monospace">'+(m.code
-              ? '<span style="cursor:pointer" title="Click to copy" onclick="navigator.clipboard.writeText(\''+m.code+'\');toast(\'Copied\',\'success\')">'+escHtml(m.code)+'</span> <a href="#" style="font-family:inherit;font-size:11px;color:var(--text-muted)" onclick="removeTeamCompCode(\''+m.code_id+'\');return false">remove</a>'
-              : (m.allowed>0 ? '<button class="btn btn-secondary btn-sm" style="font-size:11px" onclick="createTeamCompCodes([\''+m.member_id+'\'])">Create code</button>' : '<span style="color:var(--text-hint);font-family:inherit">no comps</span>'))+'</td>'
+          + '<td style="padding:8px;font-family:monospace;font-size:11.5px;line-height:1.7">'
+          +   ((m.tickets||[]).length ? m.tickets.map(function(t){ return '<span title="'+(t.used?'Used':'Click to copy')+'" style="cursor:pointer;margin-right:8px;'+(t.used?'text-decoration:line-through;color:var(--text-hint)':'')+'" onclick="navigator.clipboard.writeText(\''+t.code+'\');toast(\'Copied\',\'success\')">'+escHtml(t.code)+'</span>' }).join('')
+                : m.code ? escHtml(m.code)+' <span style="font-family:inherit;color:var(--text-muted)">(one code for all '+m.allowed+')</span>'
+                : (m.allowed>0 ? '<button class="btn btn-secondary btn-sm" style="font-size:11px;font-family:inherit" onclick="createTeamCompCodes([\''+m.member_id+'\'])">Create codes</button>' : '<span style="color:var(--text-hint);font-family:inherit">No comps</span>'))
+          +   (m.emailed_at ? '<div style="font-family:inherit;font-size:11px;color:#166534">Emailed '+escHtml(m.emailed_at.slice(0,10))+'</div>' : '')
+          + '</td>'
           + '</tr>'
       }).join('')
     + '</tbody></table></div>'
@@ -38540,8 +38544,39 @@ async function openTeamComps(pid){
   showAdHocModal('team-comps-modal', 'Production Team Comps', body, 820)
 }
 function tcSelChanged(){
-  var n = document.querySelectorAll('.tc-sel:checked').length, b = document.getElementById('tc-create-btn')
+  var n = document.querySelectorAll('.tc-sel:checked').length, b = document.getElementById('tc-create-btn'), e = document.getElementById('tc-email-btn')
   if(b){ b.disabled = !n; b.textContent = 'Create codes for selected ('+n+')' }
+  if(e){ e.disabled = !n; e.textContent = 'Email codes to selected ('+n+')' }
+}
+// ── Email team members their comp codes ──
+function openTeamCompEmail(){
+  var ids = Array.from(document.querySelectorAll('.tc-sel:checked')).map(function(b){ return b.value })
+  if(!ids.length) return
+  window._tcEmailIds = ids
+  var d = window._tcData || {}, noEmail = (d.members||[]).filter(function(m){ return ids.indexOf(m.member_id)>=0 && !m.email }).map(function(m){ return m.name })
+  var again = (d.members||[]).filter(function(m){ return ids.indexOf(m.member_id)>=0 && m.emailed_at }).length
+  showAdHocModal('tc-email','Email comp codes',
+    '<div style="font-size:13px;color:var(--text-muted);line-height:1.55;margin-bottom:10px">Each person gets their own codes, one per comp ticket. Any missing codes are created when you send. '
+    + 'The email explains that each code is good for one ticket to this show, can be used once, and can be shared with family and friends.</div>'
+    + '<div class="form-group"><label>Message</label><textarea id="tc-msg" rows="4">Thank you for being part of {show}! As a thank-you to our cast and crew, you have {n} complimentary ticket{s} for the show. Use the code{s} below at checkout to get your free ticket{s}.</textarea>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">{show}, {n} (how many codes) and {name} (first name) fill in for each person. The codes and how-to-use steps are added below your message.</div></div>'
+    + (noEmail.length ? '<div style="font-size:12.5px;color:#b45309;margin-bottom:8px">No email on file (skipped): '+noEmail.map(escHtml).join(', ')+'</div>' : '')
+    + (again ? '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">'+again+' of these were already emailed; they\'ll get their current unused codes again.</div>' : '')
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="tc-test" type="email" value="'+escHtml((currentUser&&currentUser.email)||'')+'" style="width:220px"/>'
+    + '<button class="btn btn-secondary btn-sm" onclick="sendTeamCompEmail(true)">Send me a test</button><span style="flex:1"></span>'
+    + '<button class="btn btn-primary" onclick="sendTeamCompEmail(false)">Email '+ids.length+' '+(ids.length===1?'person':'people')+'</button></div>', 600)
+}
+async function sendTeamCompEmail(test){
+  var body = {member_ids: window._tcEmailIds, message: document.getElementById('tc-msg').value}
+  if(test) body.test_email = document.getElementById('tc-test').value.trim()
+  else if(!confirm('Email comp codes to '+window._tcEmailIds.length+' '+(window._tcEmailIds.length===1?'person':'people')+'?')) return
+  var r = await api('/api/productions/'+_tcPid+'/team-comps/email','POST', body)
+  if(r.error){ toast(r.error,'error'); return }
+  if(test){ toast('Test sent','success'); return }
+  closeAdHocModal('tc-email')
+  toast('Emailed '+r.sent+(r.skipped.length?' · skipped '+r.skipped.length:''),'success')
+  if(r.skipped.length) alert('Skipped:\n'+r.skipped.join('\n'))
+  openTeamComps(_tcPid)
 }
 async function saveTeamComps(){
   var overrides = {}
@@ -38567,8 +38602,9 @@ async function removeTeamCompCode(cid){
 function downloadTeamCompsCsv(){
   var d = window._tcData || {}, esc = function(v){ v = String(v==null?'':v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v }
   var link = d.slug ? window.location.origin+'/tickets/'+d.slug : ''
-  var rows = [['Name','Email','Role','Department','Comps','Used','Left','Code','Ticket link']].concat((d.members||[]).map(function(m){
-    return [m.name, m.email, m.role, m.department, m.allowed, m.used, m.remaining, m.code, link] }))
+  var rows = [['Name','Email','Role','Department','Comps','Used','Left','Codes','Ticket link']].concat((d.members||[]).map(function(m){
+    var codes = (m.tickets||[]).map(function(t){ return t.code+(t.used?' (used)':'') }).join(' ') || m.code
+    return [m.name, m.email, m.role, m.department, m.allowed, m.used, m.remaining, codes, link] }))
   var blob = new Blob([rows.map(function(r){ return r.map(esc).join(',') }).join('\n')], {type:'text/csv'})
   var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'team-comps.csv'; a.click()
 }

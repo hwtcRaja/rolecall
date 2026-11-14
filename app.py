@@ -9039,16 +9039,25 @@ def sad_reopen_lottery(eid):
         spots = ' and '.join(x for x in ((f'{perf_left} performer spot{"" if perf_left == 1 else "s"}' if perf_left else ''),
                                           (f'{aud_left} audience spot{"" if aud_left == 1 else "s"}' if aud_left else '')) if x) or 'a few spots'
 
+        # "tonight" / "tomorrow night" / "Thursday night", for urgency
+        try:
+            _days = (ev_dt.date() - now_eastern().date()).days if ev_dt else None
+        except Exception:
+            _days = None
+        night = 'tonight' if _days == 0 else 'tomorrow night' if _days == 1 else (f'this {ev_dt.strftime("%A")}' if _days is not None and 1 < _days < 7 else f'on {when}')
+        close_txt = (cl.strftime('%-I:%M %p') + (' today' if cl.date() == now_eastern().date() else ' ' + cl.strftime('%A'))) if cl else cl_txt
+
         def send(v, to):
             first = (v.get('name') or '').split(' ')[0] or 'there'
-            subj = f'Extra spots for Studio After Dark on {when}!'
-            body = (f'<p>Hi {_h(first)}, missed out on Studio After Dark? Good news: we still have <strong>spots open</strong> '
-                    f'for <strong>{_h(when)}</strong>.</p>'
-                    f'<p>The lottery is open again until <strong>{_h(cl_txt)}</strong>. Enter for a chance at one of the extra spots '
-                    '(if you entered before and weren\'t picked, you can enter again).</p>'
+            subj = f'Studio After Dark is {night} and we still have spots, sign up now!'
+            body = (f'<p>Hi {_h(first)}!</p>'
+                    f'<p><strong>Studio After Dark is happening {_h(night)}</strong>, and we\'re still filling spots! '
+                    'If you missed the first lottery, now\'s your chance to get in, to perform or to watch.</p>'
+                    f'<p><strong>Sign up now.</strong> Entries close at <strong>{_h(close_txt)}</strong>.</p>'
                     + (f'<p>{message_text_html(note)}</p>' if note else '')
                     + '<p style="text-align:center;margin:28px 0"><a href="https://rolecall.hwtco.org/studio-after-dark/enter" style="background:linear-gradient(90deg,#ec4899,#f472b6);'
-                      'background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">Enter the lottery</a></p>')
+                      'background-color:#ec4899;color:#fff;padding:16px 38px;border-radius:8px;text-decoration:none;font-weight:800;font-size:17px;display:inline-block">Sign up now</a></p>'
+                    f'<p style="color:rgba(255,255,255,0.6);font-size:13px;text-align:center">See you {_h(night)}!</p>')
             send_email([to], ('[Test] ' if mode == 'test' else '') + subj, build_sad_email_html(subj, body))
 
         if mode == 'test':

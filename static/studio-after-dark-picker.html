@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="robots" content="noindex,nofollow"/>
+<title>Studio After Dark · Who's Next?</title>
+<link href="https://fonts.googleapis.com/css2?family=Monoton&family=DM+Sans:wght@500;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{--bg:#0a0612;--pink:#ff2bd6;--pink2:#ff7ae9;--violet:#8b5cf6;--cyan:#22d3ee;--ink:#f5ecff;--muted:#a59bbd}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:'DM Sans',system-ui,sans-serif;overflow:hidden}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;
+  background:radial-gradient(60% 50% at 50% 35%,rgba(255,43,214,.16),transparent 70%),radial-gradient(40% 40% at 15% 90%,rgba(139,92,246,.18),transparent 70%),radial-gradient(40% 40% at 85% 85%,rgba(34,211,238,.12),transparent 70%)}
+.stage{position:relative;height:100%;display:grid;grid-template-columns:1fr 300px;gap:0}
+.main{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 30px;text-align:center;position:relative}
+.logo{font-family:Monoton,cursive;font-size:clamp(28px,4.2vw,58px);letter-spacing:4px;color:#fff;
+  text-shadow:0 0 6px #fff,0 0 14px var(--pink),0 0 28px var(--pink),0 0 48px var(--pink);animation:flicker 6s infinite}
+@keyframes flicker{0%,19%,21%,23%,62%,64%,100%{opacity:1}20%,22%,63%{opacity:.55}}
+.sub{font-weight:800;letter-spacing:6px;text-transform:uppercase;color:var(--cyan);font-size:clamp(12px,1.3vw,17px);margin-top:8px;text-shadow:0 0 10px rgba(34,211,238,.7)}
+.reelbox{margin:5vh auto 2vh;width:min(900px,92%);height:clamp(110px,17vh,180px);border-radius:26px;position:relative;overflow:hidden;
+  border:3px solid var(--pink);box-shadow:0 0 18px var(--pink),inset 0 0 26px rgba(255,43,214,.35);background:rgba(20,8,34,.85)}
+.reelbox::before,.reelbox::after{content:"";position:absolute;left:0;right:0;height:30%;z-index:2;pointer-events:none}
+.reelbox::before{top:0;background:linear-gradient(var(--bg),transparent)}
+.reelbox::after{bottom:0;background:linear-gradient(transparent,var(--bg))}
+.reel{position:absolute;left:0;right:0;top:0;will-change:transform}
+.reel div{height:clamp(110px,17vh,180px);display:flex;align-items:center;justify-content:center;font-weight:800;
+  font-size:clamp(34px,6vw,78px);white-space:nowrap;padding:0 20px;color:#fff;text-shadow:0 0 12px rgba(255,122,233,.8)}
+.reelbox.win{animation:pulse 1s ease-in-out 3}
+@keyframes pulse{50%{box-shadow:0 0 50px var(--pink),0 0 90px var(--pink2),inset 0 0 40px rgba(255,43,214,.6)}}
+.status{min-height:30px;font-size:clamp(15px,1.7vw,22px);color:var(--muted);font-weight:700}
+.status b{color:#fff}
+.btns{display:flex;gap:14px;margin-top:3vh;flex-wrap:wrap;justify-content:center}
+button{font-family:inherit;border:none;cursor:pointer;border-radius:999px;font-weight:800}
+.go{font-size:clamp(20px,2.4vw,30px);padding:18px 46px;color:#fff;letter-spacing:2px;text-transform:uppercase;
+  background:linear-gradient(90deg,var(--pink),var(--violet));box-shadow:0 0 18px var(--pink),0 0 36px rgba(139,92,246,.6);transition:transform .1s}
+.go:hover{transform:scale(1.04)} .go:active{transform:scale(.97)} .go:disabled{opacity:.4;cursor:default;transform:none}
+.ghost{font-size:15px;padding:12px 22px;color:var(--ink);background:rgba(255,255,255,.08);border:1.5px solid rgba(255,255,255,.18)}
+.ghost:hover{background:rgba(255,255,255,.14)}
+.hint{position:absolute;bottom:14px;left:0;right:0;font-size:12px;color:#6f6587}
+aside{border-left:1px solid rgba(255,255,255,.08);background:rgba(10,4,20,.6);padding:20px 18px;overflow:auto}
+aside h3{margin:0 0 4px;font-size:13px;letter-spacing:3px;text-transform:uppercase;color:var(--cyan)}
+.count{font-size:13px;color:var(--muted);margin-bottom:12px}
+.row{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:12px;margin-bottom:6px;background:rgba(255,255,255,.04)}
+.row .n{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;
+  background:rgba(255,43,214,.18);color:var(--pink2);flex-shrink:0}
+.row .nm{flex:1;font-weight:700;font-size:15px}
+.row.now{background:rgba(255,43,214,.16);box-shadow:0 0 0 1.5px var(--pink)}
+.row .back{font-size:11px;padding:4px 8px;color:var(--muted);background:transparent;border:1px solid rgba(255,255,255,.15)}
+.empty{color:#6f6587;font-size:14px}
+.err{max-width:520px;margin:auto;background:rgba(255,255,255,.06);border-radius:16px;padding:22px;color:var(--ink)}
+canvas#fx{position:fixed;inset:0;pointer-events:none;z-index:5}
+@media(max-width:820px){.stage{grid-template-columns:1fr}aside{display:none}}
+</style>
+</head>
+<body>
+<canvas id="fx"></canvas>
+<div class="stage">
+  <div class="main">
+    <div class="logo">AFTER DARK</div>
+    <div class="sub">Who's up next?</div>
+    <div class="reelbox" id="box"><div class="reel" id="reel"><div>✦ ✦ ✦</div></div></div>
+    <div class="status" id="status">Loading…</div>
+    <div class="btns">
+      <button class="go" id="go" onclick="spin()">Pick next</button>
+      <button class="ghost" onclick="toggleSound()" id="snd">🔊 Sound on</button>
+      <button class="ghost" onclick="fullscreen()">⛶ Full screen</button>
+    </div>
+    <div class="hint">Space or Enter to pick · only people checked in tonight as performers · nobody is picked twice</div>
+  </div>
+  <aside>
+    <h3>Tonight's order</h3>
+    <div class="count" id="count"></div>
+    <div id="order"></div>
+    <div style="margin-top:18px"><button class="ghost" style="width:100%" onclick="resetNight()">Start the order over</button></div>
+  </aside>
+</div>
+<script>
+var EV = null, ST = null, SPINNING = false, SOUND = true
+try{ SOUND = localStorage.getItem('sad_picker_sound') !== '0' }catch(e){}
+function esc(x){ return String(x==null?'':x).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') }
+async function api(url, method){
+  var r = await fetch(url, {method: method||'GET', headers:{'Content-Type':'application/json'}, credentials:'same-origin', body: method==='POST'?'{}':undefined})
+  if(r.status === 401 || r.status === 403) return {authError: true}
+  try{ return await r.json() }catch(e){ return {error: 'Something went wrong'} }
+}
+function setStatus(h){ document.getElementById('status').innerHTML = h }
+async function load(){
+  EV = await api('/api/sad/events/current-active')
+  if(EV.authError){ document.querySelector('.main').innerHTML = '<div class="err">Log in to RoleCall in this browser first, then reload this page.</div>'; return }
+  if(EV.error){ setStatus(esc(EV.error)); return }
+  await refresh()
+}
+async function refresh(){
+  ST = await api('/api/sad/events/'+EV.id+'/performer-status')
+  if(ST.error){ setStatus(esc(ST.error)); return }
+  var called = ST.called || []
+  document.getElementById('count').textContent = called.length+' of '+ST.total+' called · '+ST.waiting_count+' waiting'
+  document.getElementById('order').innerHTML = called.length ? called.map(function(c, i){
+      return '<div class="row'+(i===called.length-1?' now':'')+'"><div class="n">'+(i+1)+'</div><div class="nm">'+esc(c.volunteer_name)+'</div>'
+        + '<button class="back" title="Not ready? Put them back in the pool" onclick="putBack(\''+c.id+'\',\''+esc(c.volunteer_name).replace(/'/g,'')+'\')">put back</button></div>' }).join('')
+    : '<div class="empty">Nobody yet. Hit <b>Pick next</b>!</div>'
+  if(!SPINNING){
+    if(!ST.total) setStatus('No performers are checked in yet.')
+    else if(!ST.waiting_count) setStatus('🎉 <b>Everyone has performed!</b> What a night.')
+    else setStatus('<b>'+ST.waiting_count+'</b> performer'+(ST.waiting_count===1?'':'s')+' waiting in the pool')
+    document.getElementById('go').disabled = !ST.waiting_count
+  }
+}
+// ── the spin ──
+function shuffle(a){ for(var i=a.length-1;i>0;i--){ var j=Math.floor(Math.random()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t } return a }
+async function spin(){
+  if(SPINNING || !EV || !ST || !ST.waiting_count) return
+  SPINNING = true; document.getElementById('go').disabled = true
+  setStatus('Drumroll please…')
+  var pick = await api('/api/sad/events/'+EV.id+'/pick-performer','POST')
+  if(!pick.ok){ SPINNING = false; setStatus(esc(pick.message || pick.error || 'Could not pick')); refresh(); return }
+  var pool = (ST.waiting||[]).map(function(w){ return w.volunteer_name })
+  if(pool.length < 2) pool = pool.concat(['✦','★','✦'])
+  var names = []
+  for(var k=0;k<6;k++) names = names.concat(shuffle(pool.slice()))
+  names = names.slice(0, 34); names.push(pick.volunteer_name)
+  var reel = document.getElementById('reel'), box = document.getElementById('box')
+  box.classList.remove('win')
+  reel.style.transition = 'none'; reel.style.transform = 'translateY(0)'
+  reel.innerHTML = names.map(function(n){ return '<div>'+esc(n)+'</div>' }).join('')
+  var h = reel.firstChild.getBoundingClientRect().height
+  void reel.offsetHeight
+  var dur = 4200
+  reel.style.transition = 'transform '+dur+'ms cubic-bezier(.12,.72,.08,1)'
+  reel.style.transform = 'translateY(-'+(h*(names.length-1))+'px)'
+  drumroll(dur)
+  setTimeout(function(){
+    box.classList.add('win'); ta_da(); confetti()
+    setStatus('🎤 Up next: <b style="color:#ff7ae9;font-size:1.25em">'+esc(pick.volunteer_name)+'</b>')
+    SPINNING = false; refresh().then(function(){ setStatus('🎤 Up next: <b style="color:#ff7ae9;font-size:1.25em">'+esc(pick.volunteer_name)+'</b> · '+pick.remaining+' still waiting'); document.getElementById('go').disabled = !pick.remaining })
+  }, dur + 80)
+}
+async function putBack(id, name){
+  if(!confirm('Put '+name+' back in the pool? They can be picked again later.')) return
+  await api('/api/sad/events/'+EV.id+'/unpick/'+id,'POST'); refresh()
+}
+async function resetNight(){
+  if(!confirm('Start the order over? Everyone checked in goes back into the pool.')) return
+  await api('/api/sad/events/'+EV.id+'/reset-performer-calls','POST')
+  document.getElementById('reel').innerHTML = '<div>✦ ✦ ✦</div>'; document.getElementById('reel').style.transform = 'translateY(0)'
+  refresh()
+}
+// ── sound (made in the browser, no files) ──
+var AC = null
+function ac(){ if(!AC){ try{ AC = new (window.AudioContext||window.webkitAudioContext)() }catch(e){} } return AC }
+function tick(t, f, d, v){ var a = ac(); if(!a) return; var o = a.createOscillator(), g = a.createGain(); o.type = 'triangle'; o.frequency.value = f
+  g.gain.setValueAtTime(v||.12, t); g.gain.exponentialRampToValueAtTime(.0001, t+(d||.06)); o.connect(g); g.connect(a.destination); o.start(t); o.stop(t+(d||.06)+.02) }
+function drumroll(ms){
+  if(!SOUND || !ac()) return
+  var a = ac(), t0 = a.currentTime, t = 0, gap = .035
+  while(t < ms/1000 - .1){ tick(t0+t, 140+Math.random()*30, .05, .09); t += gap; gap *= 1.035 }
+}
+function ta_da(){
+  if(!SOUND || !ac()) return
+  var a = ac(), t = a.currentTime + .02
+  ;[[523,0],[659,.12],[784,.24],[1047,.36]].forEach(function(n){ tick(t+n[1], n[0], .5, .16) })
+}
+function toggleSound(){ SOUND = !SOUND; try{ localStorage.setItem('sad_picker_sound', SOUND?'1':'0') }catch(e){}
+  document.getElementById('snd').textContent = SOUND ? '🔊 Sound on' : '🔇 Sound off' }
+document.getElementById('snd').textContent = SOUND ? '🔊 Sound on' : '🔇 Sound off'
+function fullscreen(){ var d = document.documentElement; (d.requestFullscreen||d.webkitRequestFullscreen||function(){}).call(d) }
+// ── neon confetti ──
+function confetti(){
+  var c = document.getElementById('fx'), x = c.getContext('2d'); c.width = innerWidth; c.height = innerHeight
+  var cols = ['#ff2bd6','#ff7ae9','#8b5cf6','#22d3ee','#fde047','#ffffff'], P = []
+  for(var i=0;i<180;i++) P.push({x: c.width/2 + (Math.random()-.5)*200, y: c.height*.42, vx:(Math.random()-.5)*16, vy: -Math.random()*14-4,
+    r: 3+Math.random()*5, c: cols[i%cols.length], a: 1, s: Math.random()*6.28, w: (Math.random()-.5)*.3})
+  var start = performance.now()
+  ;(function frame(now){
+    x.clearRect(0,0,c.width,c.height)
+    P.forEach(function(p){ p.vy += .32; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.s += p.w; p.a = Math.max(0, 1-(now-start)/3200)
+      x.save(); x.globalAlpha = p.a; x.translate(p.x,p.y); x.rotate(p.s); x.shadowBlur = 12; x.shadowColor = p.c; x.fillStyle = p.c; x.fillRect(-p.r,-p.r/2,p.r*2,p.r); x.restore() })
+    if(now - start < 3300) requestAnimationFrame(frame); else x.clearRect(0,0,c.width,c.height)
+  })(start)
+}
+document.addEventListener('keydown', function(e){ if((e.code==='Space'||e.key==='Enter') && e.target.tagName!=='BUTTON'){ e.preventDefault(); spin() } })
+setInterval(function(){ if(!SPINNING && EV && !EV.error) refresh() }, 15000)   // people checking in at the door join the pool
+load()
+</script>
+</body>
+</html>

@@ -24268,6 +24268,8 @@ function sadPhaseActionsHtml(ev){
  }
  if(['closed','drawn','confirmations_sent','checkin_open'].indexOf(ev.lottery_status) >= 0)
    phaseHtml += ` <button class="btn btn-secondary" onclick="openSadAddPerson('${ev.id}')">+ Add a person</button>`
+ if(['drawn','confirmations_sent'].indexOf(ev.lottery_status) >= 0)
+   phaseHtml += ` <button class="btn btn-secondary" onclick="sadReopen('${ev.id}')">Re-open for extra spots</button>`
  if(['confirmations_sent','checkin_open'].indexOf(ev.lottery_status) >= 0){
    var _waiting = (_sadCurrentEntries||[]).filter(function(x){ return x.status==='selected_performer'||x.status==='selected_audience' }).length
    var _dl = ev.confirm_deadline ? new Date(String(ev.confirm_deadline).replace(' ','T')) : null
@@ -24408,6 +24410,31 @@ async function sadSendConfirmations(eid){
  openSadEventDetail(eid)
 }
 
+async function sadReopen(eid){
+  var p = await api('/api/sad/events/'+eid+'/reopen','POST',{mode:'preview'})
+  if(p.error){ toast(p.error,'error'); return }
+  var t = new Date(); t.setDate(t.getDate()+1); t.setHours(12,0,0,0)
+  var def = t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0')+'T12:00'
+  showAdHocModal('sad-reopen','Re-open the lottery for extra spots',
+    '<div style="font-size:14px;margin-bottom:8px">Spots still open: <strong>'+p.performer_left+' performer</strong> · <strong>'+p.audience_left+' audience</strong></div>'
+    + '<div style="font-size:12.5px;color:var(--text-muted);line-height:1.5;margin-bottom:12px">Anyone can enter, including people who weren\'t picked or declined. People already in (selected, confirmed or checked in) keep their spots. '
+    + 'When entries close, <strong>Run draw</strong> fills only the open spots, and <strong>Send confirmations</strong> emails only the new winners.</div>'
+    + '<div class="form-group"><label>Extra entries close</label><input type="datetime-local" id="sad-ro-close" value="'+def+'"/></div>'
+    + '<div class="form-group"><label>Add a note (optional)</label><textarea id="sad-ro-note" rows="2"></textarea></div>'
+    + '<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:12px;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" id="sad-ro-notify" checked style="width:auto"/> Email "we still have extra spots" to '+p.recipients+' volunteers who aren\'t already in</label>'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="sad-ro-test" type="email" value="'+escHtml((currentUser&&currentUser.email)||'')+'" style="width:220px"/>'
+    + '<button class="btn btn-secondary btn-sm" onclick="sadReopenSend(\''+eid+'\',\'test\')">Send me a test</button><span style="flex:1"></span>'
+    + '<button class="btn btn-primary" onclick="sadReopenSend(\''+eid+'\',\'go\')">Re-open</button></div>', 560)
+}
+async function sadReopenSend(eid, mode){
+  var body = {mode: mode, closes_at: document.getElementById('sad-ro-close').value, note: document.getElementById('sad-ro-note').value, notify: document.getElementById('sad-ro-notify').checked}
+  if(mode==='test') body.email = document.getElementById('sad-ro-test').value.trim()
+  else if(!confirm('Re-open the lottery'+(body.notify?' and email everyone who isn\'t already in':'')+'?')) return
+  var r = await api('/api/sad/events/'+eid+'/reopen','POST', body)
+  if(r.error){ toast(r.error,'error'); return }
+  if(mode==='test'){ toast('Test sent','success'); return }
+  closeAdHocModal('sad-reopen'); toast('Lottery re-opened'+(r.sent?' · emailed '+r.sent:''),'success'); openSadEventDetail(eid)
+}
 async function sadStaffConfirm(eid, entryId, name){
   if(!confirm('Confirm '+name+' and email them their QR code?')) return
   var r = await api('/api/sad/events/'+eid+'/entries/'+entryId+'/confirm','POST',{notify: true})

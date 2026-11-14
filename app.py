@@ -1282,6 +1282,11 @@ def init_db():
         # but flat-out not selected for audience, or vice versa.
         "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS performer_waitlist_position INTEGER",
         "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS added_by TEXT",
+        "ALTER TABLE studio_after_dark_events ADD COLUMN IF NOT EXISTS reopened_at TIMESTAMP",
+        "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS confirm_email_sent_at TIMESTAMP",
+        """UPDATE sad_entries e SET confirm_email_sent_at=ev.confirmations_sent_at FROM studio_after_dark_events ev
+           WHERE e.sad_event_id=ev.id AND e.confirm_email_sent_at IS NULL AND ev.confirmations_sent_at IS NOT NULL
+             AND e.selected_at IS NOT NULL AND e.selected_at <= ev.confirmations_sent_at""",
         "ALTER TABLE sad_entries ADD COLUMN IF NOT EXISTS audience_waitlist_position INTEGER",
         # A promoted waitlister needs their own fresh (usually much shorter)
         # deadline — the event's original confirm_deadline has often already
@@ -8988,6 +8993,86 @@ def complete_sad_event(eid):
     conn.close()
     return jsonify({'ok': True})
 
+def sad_spots_left(conn, ev):
+    """Open performer / audience spots: slots minus everyone holding one
+    (selected and waiting to confirm, confirmed, or checked in)."""
+    c = fetchone(conn, """SELECT
+            COUNT(*) FILTER (WHERE selected_category='performer' AND status IN ('selected_performer','confirmed','checked_in')) AS perf,
+            COUNT(*) FILTER (WHERE selected_category='audience' AND status IN ('selected_audience','confirmed','checked_in')) AS aud
+        FROM sad_entries WHERE sad_event_id=%s""", (ev['id'],)) or {}
+    return (max(0, int(ev.get('performer_slots') or 0) - int(c.get('perf') or 0)),
+            max(0, int(ev.get('audience_slots') or 0) - int(c.get('aud') or 0)))
+
+
+@app.route('/api/sad/events/<eid>/reopen', methods=['POST'])
+def sad_reopen_lottery(eid):
+    """Re-open the lottery for the spots still free after the draw, and
+    (optionally) email everyone who isn't already in: "we still have extra
+    spots". New and not-selected people can enter; the next draw only
+    fills the open spots."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    mode = d.get('mode') or 'preview'
+    conn = get_db()
+    try:
+        ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+        if not ev:
+            return jsonify({'error': 'Not found'}), 404
+        perf_left, aud_left = sad_spots_left(conn, ev)
+        blk = suppressed_email_keys(conn)
+        people = [v for v in (fetchall(conn, """SELECT v.id, v.name, v.email FROM volunteers v
+            WHERE v.status='active' AND COALESCE(v.email,'') <> ''
+              AND NOT EXISTS (SELECT 1 FROM sad_entries e WHERE e.sad_event_id=%s AND e.volunteer_id=v.id
+                              AND e.status IN ('selected_performer','selected_audience','confirmed','checked_in'))""", (eid,)) or [])
+                  if ticket_email_key(v['email']) not in blk]
+        if mode == 'preview':
+            return jsonify({'performer_left': perf_left, 'audience_left': aud_left, 'recipients': len(people), 'status': ev['lottery_status']})
+        closes = (d.get('closes_at') or '').strip()
+        if not closes:
+            return jsonify({'error': 'Pick when the extra entries close.'}), 400
+        note = (d.get('note') or '').strip()[:1500]
+        ev_dt = parse_db_datetime(ev['event_date'])
+        when = ev_dt.strftime('%A, %B %-d') if ev_dt else str(ev['event_date'])
+        cl = parse_db_datetime(closes)
+        cl_txt = cl.strftime('%A, %B %-d at %-I:%M %p') if cl else closes
+        spots = ' and '.join(x for x in ((f'{perf_left} performer spot{"" if perf_left == 1 else "s"}' if perf_left else ''),
+                                          (f'{aud_left} audience spot{"" if aud_left == 1 else "s"}' if aud_left else '')) if x) or 'a few spots'
+
+        def send(v, to):
+            first = (v.get('name') or '').split(' ')[0] or 'there'
+            subj = f'Extra spots for Studio After Dark on {when}!'
+            body = (f'<p>Hi {_h(first)}, missed out on Studio After Dark? Good news: we still have <strong>spots open</strong> '
+                    f'for <strong>{_h(when)}</strong>.</p>'
+                    f'<p>The lottery is open again until <strong>{_h(cl_txt)}</strong>. Enter for a chance at one of the extra spots '
+                    '(if you entered before and weren\'t picked, you can enter again).</p>'
+                    + (f'<p>{message_text_html(note)}</p>' if note else '')
+                    + '<p style="text-align:center;margin:28px 0"><a href="https://rolecall.hwtco.org/studio-after-dark/enter" style="background:linear-gradient(90deg,#ec4899,#f472b6);'
+                      'background-color:#ec4899;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">Enter the lottery</a></p>')
+            send_email([to], ('[Test] ' if mode == 'test' else '') + subj, build_sad_email_html(subj, body))
+
+        if mode == 'test':
+            to = (d.get('email') or '').strip()
+            if not to:
+                return jsonify({'error': 'Enter an email for the test'}), 400
+            send({'name': session.get('name') or ''}, to)
+            return jsonify({'ok': True})
+        execute(conn, """UPDATE studio_after_dark_events SET lottery_status='open', lottery_closes_at=%s, scheduled_draw_at=NULL WHERE id=%s""", (closes, eid))
+        try: execute(conn, 'UPDATE studio_after_dark_events SET reopened_at=NOW() WHERE id=%s', (eid,))
+        except Exception: conn.rollback()
+        conn.commit()
+        sent = 0
+        if d.get('notify', True):
+            for v in people:
+                try:
+                    send(v, v['email']); sent += 1
+                except Exception as e:
+                    app.logger.warning(f'SAD reopen email failed for {v.get("email")}: {e}')
+        return jsonify({'ok': True, 'sent': sent, 'performer_left': perf_left, 'audience_left': aud_left})
+    finally:
+        conn.close()
+
+
 @app.route('/api/sad/events/<eid>/run-draw', methods=['POST'])
 def run_sad_draw(eid):
     """The actual lottery draw. Performers are drawn first from anyone who
@@ -9012,11 +9097,12 @@ def run_sad_draw(eid):
         conn.close()
         return jsonify({'error': 'Not found'}), 404
 
+    perf_open, aud_open = sad_spots_left(conn, ev)     # = all slots on the first draw
     performer_candidates = fetchall(conn, """SELECT id FROM sad_entries
         WHERE sad_event_id=%s AND wants_performer=TRUE AND status='entered'""", (eid,)) or []
     random.shuffle(performer_candidates)
-    performer_winners = performer_candidates[:ev['performer_slots']]
-    performer_waitlist = performer_candidates[ev['performer_slots']:ev['performer_slots']+ev['performer_waitlist_size']]
+    performer_winners = performer_candidates[:perf_open]
+    performer_waitlist = performer_candidates[perf_open:perf_open+ev['performer_waitlist_size']]
     for w in performer_winners:
         token = secrets.token_urlsafe(16)
         execute(conn, "UPDATE sad_entries SET status='selected_performer', selected_category='performer', selected_at=NOW(), confirm_token=%s WHERE id=%s",
@@ -9027,8 +9113,8 @@ def run_sad_draw(eid):
     audience_candidates = fetchall(conn, """SELECT id FROM sad_entries
         WHERE sad_event_id=%s AND wants_audience=TRUE AND status='entered'""", (eid,)) or []
     random.shuffle(audience_candidates)
-    audience_winners = audience_candidates[:ev['audience_slots']]
-    audience_waitlist = audience_candidates[ev['audience_slots']:ev['audience_slots']+ev['audience_waitlist_size']]
+    audience_winners = audience_candidates[:aud_open]
+    audience_waitlist = audience_candidates[aud_open:aud_open+ev['audience_waitlist_size']]
     for w in audience_winners:
         token = secrets.token_urlsafe(16)
         execute(conn, "UPDATE sad_entries SET status='selected_audience', selected_category='audience', selected_at=NOW(), confirm_token=%s WHERE id=%s",
@@ -9060,15 +9146,16 @@ def send_sad_confirmations(eid):
         (deadline, eid))
     conn.commit()
     ev['confirm_deadline'] = deadline  # ev was fetched before the UPDATE above — keep it in sync rather than re-querying
-    entries = _sad_entry_with_volunteer(conn, "e.sad_event_id=%s AND e.status IN ('selected_performer','selected_audience')", (eid,))
-    conn.close()
+    entries = _sad_entry_with_volunteer(conn, "e.sad_event_id=%s AND e.status IN ('selected_performer','selected_audience') AND e.confirm_email_sent_at IS NULL", (eid,))
     sent = 0
     for entry in entries:
         try:
             _send_sad_confirmation_email(entry, ev)
+            execute(conn, 'UPDATE sad_entries SET confirm_email_sent_at=NOW() WHERE id=%s', (entry['id'],)); conn.commit()
             sent += 1
         except Exception as e:
             app.logger.warning(f'SAD confirmation email failed for {entry.get("id")}: {e}')
+    conn.close()
     return jsonify({'ok': True, 'sent': sent})
 
 @app.route('/api/sad/events/<eid>/resend/<entry_id>', methods=['POST'])
@@ -9305,6 +9392,7 @@ def sad_add_entry(eid):
             try:
                 if mode == 'selected':
                     _send_sad_confirmation_email(entry, ev)
+                    execute(conn, 'UPDATE sad_entries SET confirm_email_sent_at=NOW() WHERE id=%s', (entry_id,)); conn.commit()
                 else:
                     first = (entry.get('volunteer_name') or '').split(' ')[0] or 'there'
                     ev_dt = parse_db_datetime(ev['event_date'])
@@ -9390,13 +9478,13 @@ def sad_pick_performer(eid):
     if not candidates:
         conn.close()
         return jsonify({'ok': False, 'message': 'Everyone checked in has already performed!'})
-    pick = random.choice(candidates)
+    pick = random.SystemRandom().choice(candidates)
     execute(conn, "UPDATE sad_entries SET performer_called_at=NOW() WHERE id=%s", (pick['id'],))
     conn.commit()
     remaining = fetchone(conn, """SELECT COUNT(*) AS n FROM sad_entries
         WHERE sad_event_id=%s AND wants_performer=TRUE AND status='checked_in' AND performer_called_at IS NULL""", (eid,))
     conn.close()
-    return jsonify({'ok': True, 'volunteer_name': pick['volunteer_name'], 'remaining': remaining['n']})
+    return jsonify({'ok': True, 'id': pick['id'], 'volunteer_name': pick['volunteer_name'], 'remaining': remaining['n']})
 
 @app.route('/api/sad/events/<eid>/reset-performer-calls', methods=['POST'])
 def sad_reset_performer_calls(eid):
@@ -9415,14 +9503,30 @@ def sad_performer_status(eid):
     err = require_permission('studio_after_dark', 'view')
     if err: return err
     conn = get_db()
-    rows = fetchall(conn, """SELECT v.name AS volunteer_name, e.performer_called_at FROM sad_entries e
+    rows = fetchall(conn, """SELECT e.id, v.name AS volunteer_name, e.performer_called_at FROM sad_entries e
         JOIN volunteers v ON v.id=e.volunteer_id
         WHERE e.sad_event_id=%s AND e.wants_performer=TRUE AND e.status='checked_in'
         ORDER BY e.performer_called_at IS NULL DESC, e.performer_called_at ASC""", (eid,)) or []
     conn.close()
-    called = [r for r in rows if r['performer_called_at']]
+    called = sorted([r for r in rows if r['performer_called_at']], key=lambda r: str(r['performer_called_at']))
     waiting = [r for r in rows if not r['performer_called_at']]
-    return jsonify({'called': called, 'waiting_count': len(waiting), 'total': len(rows)})
+    # waiting names let the picker spin through real names (staff-only page)
+    return jsonify({'called': called, 'waiting_count': len(waiting), 'total': len(rows),
+                    'waiting': [{'id': r['id'], 'volunteer_name': r['volunteer_name']} for r in waiting]})
+
+
+@app.route('/api/sad/events/<eid>/unpick/<entry_id>', methods=['POST'])
+def sad_unpick_performer(eid, entry_id):
+    """Put someone back in the pool (not ready yet, stepped out, etc.)."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        execute(conn, 'UPDATE sad_entries SET performer_called_at=NULL WHERE id=%s AND sad_event_id=%s', (entry_id, eid))
+        conn.commit()
+        return jsonify({'ok': True})
+    finally:
+        conn.close()
 
 def sad_auto_open_due_lotteries(conn=None):
     """Flip any Studio After Dark occurrence from not_open to open once its
@@ -9807,10 +9911,21 @@ def sad_enter_lottery():
     if not ev:
         conn.close()
         return jsonify({'error': 'The lottery is not currently open'}), 400
-    existing = fetchone(conn, 'SELECT id FROM sad_entries WHERE sad_event_id=%s AND volunteer_id=%s', (ev['id'], volunteer['id']))
+    existing = fetchone(conn, 'SELECT id, status FROM sad_entries WHERE sad_event_id=%s AND volunteer_id=%s', (ev['id'], volunteer['id']))
+    if existing and existing['status'] in ('not_selected', 'declined') and ev.get('reopened_at'):
+        execute(conn, '''UPDATE sad_entries SET status='entered', wants_performer=%s, wants_audience=%s, confirm_token=NULL, confirm_email_sent_at=NULL,
+            selected_category=NULL, performer_waitlist_position=NULL, audience_waitlist_position=NULL WHERE id=%s''', (wants_performer, wants_audience, existing['id']))
+        conn.commit()
+        existing = None
+        _reentered = True
+    else:
+        _reentered = False
     if existing:
         conn.close()
         return jsonify({'error': "You've already entered this lottery"}), 400
+    if _reentered:
+        conn.close()
+        return jsonify({'ok': True})
     eid = str(uuid.uuid4())
     execute(conn, """INSERT INTO sad_entries (id, sad_event_id, volunteer_id, wants_performer, wants_audience)
         VALUES (%s,%s,%s,%s,%s)""", (eid, ev['id'], volunteer['id'], wants_performer, wants_audience))
@@ -9949,6 +10064,10 @@ def _promote_next_sad_waitlister(conn, sad_event_id, category):
     promoted['entry_confirm_deadline'] = new_deadline
     promoted['selected_category'] = category
     _send_sad_confirmation_email(promoted, ev, promoted_from_waitlist=True)
+    try:
+        execute(conn, 'UPDATE sad_entries SET confirm_email_sent_at=NOW() WHERE id=%s', (promoted['id'],)); conn.commit()
+    except Exception:
+        pass
 
 
 def _public_queue_snapshot(conn, context_type, context_id):
@@ -37395,7 +37514,13 @@ def sad_scanner_page():
 
 @app.route('/studio-after-dark/performer-picker')
 def sad_performer_picker_page():
-    """Staff-only live random performer draw, run during the event itself."""
+    """Staff-only live random performer draw, run during the event itself:
+    the neon "Who's next?" picker (put it on the TV/projector)."""
+    return send_from_directory('static', 'studio-after-dark-picker.html')
+
+
+@app.route('/studio-after-dark/performer-picker-classic')
+def sad_performer_picker_classic_page():
     return send_from_directory('static', 'studio-after-dark-performer-picker.html')
 
 @app.route('/api/public/audition-settings-by-slug/<slug>')

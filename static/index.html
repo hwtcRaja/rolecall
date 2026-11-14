@@ -24268,6 +24268,12 @@ function sadPhaseActionsHtml(ev){
  }
  if(['closed','drawn','confirmations_sent','checkin_open'].indexOf(ev.lottery_status) >= 0)
    phaseHtml += ` <button class="btn btn-secondary" onclick="openSadAddPerson('${ev.id}')">+ Add a person</button>`
+ if(['confirmations_sent','checkin_open'].indexOf(ev.lottery_status) >= 0){
+   var _waiting = (_sadCurrentEntries||[]).filter(function(x){ return x.status==='selected_performer'||x.status==='selected_audience' }).length
+   var _dl = ev.confirm_deadline ? new Date(String(ev.confirm_deadline).replace(' ','T')) : null
+   phaseHtml += ` <button class="btn btn-secondary" onclick="sadChangeDeadline('${ev.id}','${escHtml(String(ev.confirm_deadline||''))}')">Deadline: ${_dl && !isNaN(_dl) ? _dl.toLocaleString('en-US',{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}) : 'not set'} · change</button>`
+   if(_waiting) phaseHtml += ` <button class="btn btn-secondary" onclick="sadRemindUnconfirmed('${ev.id}')">Remind ${_waiting} not confirmed</button>`
+ }
  phaseHtml += `<button onclick="deleteSadEventFromDetail('${ev.id}')" style="margin-left:auto;background:none;border:none;cursor:pointer;font-size:12.5px;color:var(--red-600,#dc2626);text-decoration:underline">Delete Occurrence</button>`
  return phaseHtml
 }
@@ -24336,6 +24342,7 @@ function renderSadDetail(){
  <span style="font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;background:${ebg};color:${ecol};white-space:nowrap">${SAD_ENTRY_STATUS_LABELS[e.status]||e.status}</span>
  ${waitlistBadges}
  ${canResend?`<button class="btn btn-secondary btn-sm" onclick="sadResendConfirmation('${ev.id}','${e.id}')">Resend</button>`:''}
+ ${(e.status==='selected_performer'||e.status==='selected_audience')?`<button class="btn btn-primary btn-sm" onclick="sadStaffConfirm('${ev.id}','${e.id}','${escHtml(e.volunteer_name||'').replace(/['"]/g,'')}')">Confirm</button>`:''}
  </div>
  </div>`
  }).join('')
@@ -24401,6 +24408,50 @@ async function sadSendConfirmations(eid){
  openSadEventDetail(eid)
 }
 
+async function sadStaffConfirm(eid, entryId, name){
+  if(!confirm('Confirm '+name+' and email them their QR code?')) return
+  var r = await api('/api/sad/events/'+eid+'/entries/'+entryId+'/confirm','POST',{notify: true})
+  if(r.error){ toast(r.error,'error'); return }
+  toast(name+' confirmed'+(r.emailed?' · QR code emailed':''),'success'); openSadEventDetail(eid)
+}
+function sadChangeDeadline(eid, current){
+  var v = current ? sadToDatetimeLocal(current) : ''
+  showAdHocModal('sad-dl','Change the confirm-by deadline',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">Everyone still waiting to confirm gets the new deadline, including waitlisters who were given a shorter one. Their links work until then.</div>'
+    + '<div class="form-group"><label>Confirm by</label><input type="datetime-local" id="sad-dl-input" value="'+escHtml(v)+'"/></div>'
+    + '<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:12px;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" id="sad-dl-remind" checked style="width:auto"/> Email a reminder with the new deadline to everyone who hasn\'t confirmed</label>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="sadSaveDeadline(\''+eid+'\')">Save</button>', 480)
+}
+async function sadSaveDeadline(eid){
+  var v = document.getElementById('sad-dl-input').value, remind = document.getElementById('sad-dl-remind').checked
+  if(!v){ toast('Pick a date and time','error'); return }
+  var r = await api('/api/sad/events/'+eid+'/deadline','POST',{confirm_deadline: v})
+  if(r.error){ toast(r.error,'error'); return }
+  var msg = 'Deadline updated'
+  if(remind && r.waiting){ var s = await api('/api/sad/events/'+eid+'/remind-unconfirmed','POST',{mode:'send'}); if(!s.error) msg += ' · reminded '+s.sent }
+  closeAdHocModal('sad-dl'); toast(msg,'success'); openSadEventDetail(eid)
+}
+async function sadRemindUnconfirmed(eid){
+  var p = await api('/api/sad/events/'+eid+'/remind-unconfirmed','POST',{mode:'preview'})
+  if(p.error){ toast(p.error,'error'); return }
+  var dl = p.deadline ? new Date(String(p.deadline).replace(' ','T')) : null
+  showAdHocModal('sad-rem','Remind people who haven\'t confirmed',
+    '<div style="font-size:13px;margin-bottom:8px"><strong>'+p.waiting+'</strong> '+(p.waiting===1?'person hasn\'t':'people haven\'t')+' confirmed: '+p.names.map(escHtml).join(', ')+'</div>'
+    + '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">They\'ll get "Reminder: confirm your Studio After Dark spot by '+(dl&&!isNaN(dl)?dl.toLocaleString('en-US',{weekday:'long',month:'long',day:'numeric',hour:'numeric',minute:'2-digit'}):'the deadline')+'" with a Confirm my spot button (and a way to say they can\'t make it).'
+    + (p.last_sent?' Last reminder: '+escHtml(p.last_sent)+'.':'')+'</div>'
+    + '<div class="form-group"><label>Add a note (optional)</label><textarea id="sad-rem-note" rows="2"></textarea></div>'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><input id="sad-rem-test" type="email" value="'+escHtml((currentUser&&currentUser.email)||'')+'" style="width:220px"/>'
+    + '<button class="btn btn-secondary btn-sm" onclick="sadRemindSend(\''+eid+'\',\'test\')">Send me a test</button><span style="flex:1"></span>'
+    + '<button class="btn btn-primary" onclick="sadRemindSend(\''+eid+'\',\'send\')">Remind '+p.waiting+'</button></div>', 560)
+}
+async function sadRemindSend(eid, mode){
+  var body = {mode: mode, note: document.getElementById('sad-rem-note').value}
+  if(mode==='test') body.email = document.getElementById('sad-rem-test').value.trim()
+  var r = await api('/api/sad/events/'+eid+'/remind-unconfirmed','POST', body)
+  if(r.error){ toast(r.error,'error'); return }
+  if(mode==='test'){ toast('Test sent','success'); return }
+  closeAdHocModal('sad-rem'); toast('Reminded '+r.sent,'success'); openSadEventDetail(eid)
+}
 async function sadResendConfirmation(eid, entryId){
  const res = await api(`/api/sad/events/${eid}/resend/${entryId}`,'POST',{})
  if(res.error){ toast(res.error,'error'); return }

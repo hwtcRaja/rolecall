@@ -9120,6 +9120,138 @@ def _send_sad_confirmation_email(entry, ev, promoted_from_waitlist=False):
     )
     send_email([entry['volunteer_email']], subject, build_sad_email_html(subject, body))
 
+def _send_sad_confirmed_email(entry, ev):
+    """'You're in' with the QR link, for people confirmed by staff."""
+    cat = 'performer' if entry.get('selected_category') == 'performer' else 'audience'
+    first = (entry.get('volunteer_name') or '').split(' ')[0] or 'there'
+    ev_dt = parse_db_datetime(ev['event_date'])
+    when = ev_dt.strftime('%A, %B %-d') if ev_dt else str(ev['event_date'])
+    url = f'https://rolecall.hwtco.org/studio-after-dark/confirm/{entry["confirm_token"]}'
+    subj = f"You're in for Studio After Dark on {when}!"
+    body = (f'<p>Hi {_h(first)}, you\'re confirmed for <strong>Studio After Dark</strong> on <strong>{_h(when)}</strong> '
+            f'as a <strong>{"Performer" if cat == "performer" else "Audience member"}</strong>.</p>'
+            + ('<p>Performer order is picked live, at random, during the event, so stick around all night!</p>' if cat == 'performer' else '')
+            + f'<p style="text-align:center;margin:28px 0"><a href="{url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;'
+              'color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">Get my QR code</a></p>'
+            + '<p style="color:rgba(255,255,255,0.6);font-size:13px">Show the QR code at the door. Can\'t make it after all? Use the same link to let us know.</p>')
+    send_email([entry['volunteer_email']], subj, build_sad_email_html(subj, body))
+
+
+@app.route('/api/sad/events/<eid>/entries/<entry_id>/confirm', methods=['POST'])
+def sad_staff_confirm(eid, entry_id):
+    """Staff confirm someone who was selected (e.g. they texted instead of clicking the link)."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    conn = get_db()
+    try:
+        rows = _sad_entry_with_volunteer(conn, 'e.id=%s AND e.sad_event_id=%s', (entry_id, eid))
+        if not rows:
+            return jsonify({'error': 'Not found'}), 404
+        e = rows[0]
+        if e['status'] in ('confirmed', 'checked_in'):
+            return jsonify({'error': 'Already confirmed.'}), 400
+        if e['status'] not in ('selected_performer', 'selected_audience', 'waitlisted', 'not_selected', 'declined'):
+            return jsonify({'error': 'Only people who were selected (or on the list) can be confirmed.'}), 400
+        cat = e.get('selected_category') or ('performer' if e['status'] == 'selected_performer' or (e['status'] != 'selected_audience' and e.get('wants_performer')) else 'audience')
+        code = secrets.token_hex(4).upper()
+        token = e.get('confirm_token') or secrets.token_urlsafe(16)
+        execute(conn, '''UPDATE sad_entries SET status='confirmed', confirmed_at=NOW(), checkin_code=%s, confirm_token=%s, selected_category=%s,
+            selected_at=COALESCE(selected_at, NOW()), performer_waitlist_position=NULL, audience_waitlist_position=NULL WHERE id=%s''',
+            (code, token, cat, entry_id))
+        try: execute(conn, 'UPDATE sad_entries SET added_by=COALESCE(added_by,%s) WHERE id=%s', ('Confirmed by ' + (session.get('name') or 'staff'), entry_id))
+        except Exception: conn.rollback()
+        conn.commit()
+        emailed = False
+        if d.get('notify', True) and e.get('volunteer_email'):
+            ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+            try:
+                e.update({'confirm_token': token, 'selected_category': cat}); _send_sad_confirmed_email(e, ev); emailed = True
+            except Exception as ex:
+                app.logger.warning(f'SAD staff-confirm email failed: {ex}')
+        return jsonify({'ok': True, 'emailed': emailed})
+    finally:
+        conn.close()
+
+
+@app.route('/api/sad/events/<eid>/deadline', methods=['POST'])
+def sad_change_deadline(eid):
+    """Move the confirm-by deadline. Everyone still waiting to confirm gets the
+    new one (including waitlisters who had their own shorter deadline)."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    dl = (d.get('confirm_deadline') or '').strip()
+    if not dl:
+        return jsonify({'error': 'Pick the new deadline.'}), 400
+    conn = get_db()
+    try:
+        execute(conn, 'UPDATE studio_after_dark_events SET confirm_deadline=%s WHERE id=%s', (dl, eid))
+        execute(conn, "UPDATE sad_entries SET entry_confirm_deadline=NULL WHERE sad_event_id=%s AND status IN ('selected_performer','selected_audience')", (eid,))
+        conn.commit()
+        n = (fetchone(conn, "SELECT COUNT(*) AS n FROM sad_entries WHERE sad_event_id=%s AND status IN ('selected_performer','selected_audience')", (eid,)) or {}).get('n', 0)
+        return jsonify({'ok': True, 'waiting': n})
+    finally:
+        conn.close()
+
+
+@app.route('/api/sad/events/<eid>/remind-unconfirmed', methods=['POST'])
+def sad_remind_unconfirmed(eid):
+    """Remind everyone selected who hasn't confirmed yet: confirm by X."""
+    err = require_permission('studio_after_dark', 'edit')
+    if err: return err
+    d = request.json or {}
+    mode = d.get('mode') or 'preview'
+    note = (d.get('note') or '').strip()[:1500]
+    conn = get_db()
+    try:
+        ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (eid,))
+        if not ev:
+            return jsonify({'error': 'Not found'}), 404
+        people = _sad_entry_with_volunteer(conn, "e.sad_event_id=%s AND e.status IN ('selected_performer','selected_audience')", (eid,)) or []
+        last = _setting(conn, 'sad_unconfirmed_reminder:' + eid) or ''
+        if mode == 'preview':
+            return jsonify({'waiting': len(people), 'names': [p['volunteer_name'] for p in people], 'deadline': str(ev.get('confirm_deadline') or ''), 'last_sent': last})
+        ev_dt = parse_db_datetime(ev['event_date'])
+        when = ev_dt.strftime('%A, %B %-d') if ev_dt else str(ev['event_date'])
+
+        def send(p, to):
+            dl = parse_db_datetime(p.get('entry_confirm_deadline') or ev.get('confirm_deadline'))
+            dl_txt = dl.strftime('%A, %B %-d at %-I:%M %p') if dl else 'as soon as you can'
+            first = (p.get('volunteer_name') or '').split(' ')[0] or 'there'
+            cat = 'Performer' if p.get('selected_category') == 'performer' else 'Audience'
+            url = f'https://rolecall.hwtco.org/studio-after-dark/confirm/{p["confirm_token"]}'
+            subj = f'Reminder: confirm your Studio After Dark spot by {dl_txt}'
+            body = (f'<p>Hi {_h(first)}, you were picked as a <strong>{cat}</strong> for <strong>Studio After Dark</strong> on <strong>{_h(when)}</strong>, '
+                    'but we haven\'t heard back yet.</p>'
+                    f'<p>Please confirm by <strong>{_h(dl_txt)}</strong>, or your spot may go to the next person on the waitlist.</p>'
+                    + (f'<p>{message_text_html(note)}</p>' if note else '')
+                    + f'<p style="text-align:center;margin:28px 0"><a href="{url}" style="background:linear-gradient(90deg,#ec4899,#f472b6);background-color:#ec4899;'
+                      'color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;display:inline-block">Confirm my spot</a></p>'
+                    + '<p style="color:rgba(255,255,255,0.6);font-size:13px">Can\'t make it? Use the same button to let us know, so someone else can have your spot.</p>')
+            send_email([to], ('[Test] ' if mode == 'test' else '') + subj, build_sad_email_html(subj, body))
+
+        if mode == 'test':
+            to = (d.get('email') or '').strip()
+            if not to or not people:
+                return jsonify({'error': 'Enter an email (and there must be someone waiting).'}), 400
+            send(people[0], to)
+            return jsonify({'ok': True})
+        sent = 0
+        for p in people:
+            if not p.get('volunteer_email') or not p.get('confirm_token'):
+                continue
+            try:
+                send(p, p['volunteer_email']); sent += 1
+            except Exception as e:
+                app.logger.warning(f'SAD unconfirmed reminder failed: {e}')
+        _set_setting(conn, 'sad_unconfirmed_reminder:' + eid, f'{now_eastern().strftime("%b %-d at %-I:%M %p")} to {sent} by {session.get("name") or "staff"}')
+        conn.commit()
+        return jsonify({'ok': True, 'sent': sent})
+    finally:
+        conn.close()
+
+
 @app.route('/api/sad/events/<eid>/add-entry', methods=['POST'])
 def sad_add_entry(eid):
     """Staff add someone after the lottery closes (a late request, a guest,

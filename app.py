@@ -9844,7 +9844,7 @@ def sad_confirm_lookup(token):
     deadline = entry.get('entry_confirm_deadline') or ev.get('confirm_deadline')
     expired = False
     if deadline and entry['status'] in ('selected_performer', 'selected_audience'):
-        expired = datetime.now() > parse_db_datetime(deadline)
+        expired = now_eastern() > parse_db_datetime(deadline)
     return jsonify({
         'volunteer_name': entry['volunteer_name'],
         'category': 'Performer' if entry['selected_category']=='performer' else 'Audience',
@@ -9885,7 +9885,7 @@ def sad_confirm_submit(token):
         return jsonify({'ok': True, 'checkin_code': entry['checkin_code']})
     ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (entry['sad_event_id'],))
     deadline = entry.get('entry_confirm_deadline') or ev.get('confirm_deadline')
-    if deadline and datetime.now() > parse_db_datetime(deadline):
+    if deadline and now_eastern() > parse_db_datetime(deadline):
         conn.close()
         return jsonify({'error': 'The confirmation deadline has passed'}), 400
     code = secrets.token_hex(4).upper()
@@ -9925,7 +9925,7 @@ def _promote_next_sad_waitlister(conn, sad_event_id, category):
         return
     ev = fetchone(conn, 'SELECT * FROM studio_after_dark_events WHERE id=%s', (sad_event_id,))
     event_end = _sad_event_end_datetime(ev) if ev else None
-    if event_end and datetime.now() >= event_end:
+    if event_end and now_eastern() >= event_end:
         # The event's already over — there's no one left to promote into,
         # so don't send someone a "confirm by tomorrow" email for a show
         # that already happened.
@@ -9938,7 +9938,7 @@ def _promote_next_sad_waitlister(conn, sad_event_id, category):
     # already passed by the time a decline opens a waitlist spot. Capped at
     # the event's own end time so a last-minute decline never hands out a
     # deadline that lands after the show is over.
-    new_deadline = datetime.now() + timedelta(hours=24)
+    new_deadline = now_eastern() + timedelta(hours=24)
     if event_end and new_deadline > event_end:
         new_deadline = event_end
     execute(conn, f"""UPDATE sad_entries SET status=%s, selected_category=%s, selected_at=NOW(),

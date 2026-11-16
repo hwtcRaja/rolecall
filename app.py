@@ -3264,6 +3264,9 @@ def init_db():
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS hwtc_contact_phone TEXT DEFAULT ''",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS welcome_sent_at TIMESTAMP",
         "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS welcome_extra TEXT DEFAULT ''",
+        # item rentals: a straight rental fee, or lent as a donation (no fee)
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS pricing_mode TEXT DEFAULT 'rental'",
+        "ALTER TABLE rental_requests ADD COLUMN IF NOT EXISTS suggested_donation_cents INTEGER",
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS lesson_confirm_sent_at TIMESTAMP",
         # rush seats held for a buyer without telling them which ones (revealed after checkout)
         "ALTER TABLE seat_holds ADD COLUMN IF NOT EXISTS rush_ref TEXT",
@@ -37751,6 +37754,21 @@ def get_rental_requests():
     conn.close()
     return jsonify(requests_data)
 
+def _save_rental_pricing(conn, rid, d):
+    """Item rentals: 'rental' (a fee) or 'donation' (lent at no charge,
+    optionally with a suggested donation)."""
+    if 'pricing_mode' not in d:
+        return
+    mode = 'donation' if d.get('pricing_mode') == 'donation' else 'rental'
+    sug = d.get('suggested_donation_cents')
+    try: sug = int(sug) if sug not in (None, '') else None
+    except Exception: sug = None
+    execute(conn, 'UPDATE rental_requests SET pricing_mode=%s, suggested_donation_cents=%s WHERE id=%s',
+            (mode, sug if mode == 'donation' else None, rid))
+    if mode == 'donation':
+        execute(conn, 'UPDATE rental_requests SET total_amount=0, rate_amount=0 WHERE id=%s', (rid,))
+
+
 @app.route('/api/rental/requests', methods=['POST'])
 def create_rental_request():
     err = require_permission('rentals')
@@ -37789,6 +37807,7 @@ def create_rental_request():
          (d.get('notes') or '').strip(),
          (d.get('partnership_category') or 'open_partnership').strip(),
          (d.get('revenue_split_notes') or '').strip()))
+    _save_rental_pricing(conn, rid, d)
     # Nothing is added to the calendar yet — occurrences are only generated
     # once this request is fully approved (see approve_rental_request).
     conn.commit()
@@ -38186,6 +38205,7 @@ def update_rental_request(rid):
         execute(conn, 'DELETE FROM rental_occurrences WHERE request_id=%s', (rid,))
         _generate_rental_occurrences(conn, rid, d)
         _sync_rental_events_for_request(conn, rid)
+    _save_rental_pricing(conn, rid, d)
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
@@ -38892,6 +38912,9 @@ def rental_request_items(rid):
             d = request.json or {}
             added, problems = _add_items_to_request(conn, rid, d.get('items') or [], req['start_date'], req.get('end_date') or req['start_date'],
                                                     session.get('name') or 'Staff', bool(d.get('over_ok')))
+            if (d.get('wish') or '').strip():
+                _p = fetchone(conn, 'SELECT name FROM rental_partners WHERE id=%s', (req.get('partner_id'),)) or {}
+                _save_wish(conn, rid, _p.get('name') or '', d['wish'])
             if problems and not d.get('over_ok') and not added:
                 conn.rollback()
                 return jsonify({'error': '; '.join(problems) + '. Add anyway?', 'over': True}), 409
@@ -39361,12 +39384,16 @@ def _render_clause_template(template, context):
         out = out.replace('{' + key + '}', str(val))
     return out
 
-def _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False):
+def _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit=False, req=None):
     """Computes the placeholder values ({total_str}, {deposit}, {event_label},
     etc.) substituted into clause templates from the library — shared by the
     live UI preview and the actual contract generator so they can never
     diverge."""
     total_str = f'${total_cents/100:.2f}' if total_cents else 'the agreed amount'
+    if req and req.get('pricing_mode') == 'donation':
+        sug = int(req.get('suggested_donation_cents') or 0)
+        total_str = ('no rental fee; HWTC is lending them as a donation'
+                     + (f' (a suggested donation of ${sug/100:.2f} to HWTC is appreciated but not required)' if sug else ''))
     return {
         'total_str': total_str,
         'deposit': deposit if deposit else 'as agreed',
@@ -39744,7 +39771,7 @@ def get_rental_default_terms(rid):
     has_exhibit = billing_frequency == 'monthly'
     total_cents = int(req.get('total_amount') or 0)
     partner_name = 'the Partner Organization'
-    context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit)
+    context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, has_exhibit, req)
     terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
     conn.close()
     return jsonify({'terms_html': terms_html})
@@ -39935,7 +39962,7 @@ def _build_rental_contract_html(conn, req, custom_terms='', poc_name='', poc_ema
     if custom_terms.strip():
         terms_html = custom_terms
     else:
-        context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan))
+        context = _build_rental_clause_context(category, deposit, revenue_split_notes, billing_frequency, total_cents, partner_name, bool(installments_plan), req)
         terms_html = _render_rental_contract_terms(conn, category, billing_frequency, context)
 
     if additional_terms.strip():

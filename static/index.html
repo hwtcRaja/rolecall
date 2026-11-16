@@ -33613,7 +33613,7 @@ function renderRentalsPage(){
          <div style="font-size:12px;color:var(--text-muted);display:flex;gap:12px;flex-wrap:wrap">
           <span>${r.partnership_category==='item_rental'?'Pickup '+(r.start_date||'')+' → return '+(r.end_date||r.start_date||''):(r.start_date||'')+(r.end_date&&r.end_date!==r.start_date?' – '+r.end_date:'')}</span>
           ${r.start_time?`<span>${r.start_time}${r.end_time?' – '+r.end_time:''}</span>`:''}
-          <span>${rate}</span>
+          ${r.partnership_category==='item_rental'?(r.pricing_mode==='donation'?'<span style="font-weight:700;color:#7c3aed">Donation (no fee)'+(r.suggested_donation_cents?' · suggested '+_money(r.suggested_donation_cents):'')+'</span>':''):`<span>${rate}</span>`}
           ${r.total_amount?`<span style="font-weight:700;color:#145466">Total: ${total}</span>`:''}
           ${r.recurring?`<span style="background:#ede9fe;color:#6d28d9;padding:1px 6px;border-radius:10px;font-weight:600">Recurring · ${r.recurrence_pattern||''}</span>`:''}
           ${r.desired_frequency?`<span style="background:#e0f2fe;color:#075985;padding:1px 6px;border-radius:10px;font-weight:600">Wants: ${escHtml(r.desired_frequency)}</span>`:''}
@@ -34973,6 +34973,106 @@ async function deletePartnerFile(pid, fid){
   else toast((res&&res.error)||'Could not delete file','error')
 }
 
+// ── Item rentals in the partnership request form ──
+// For "Costume, Prop & Equipment Rental": pickup/return dates, what they want
+// to rent (from inventory, plus anything we don't have), what it's for, and
+// a rental fee or a donation.
+var _rmInv = null, _rmItems = []
+function _rmIsItem(){ return ((document.querySelector('input[name="rm-category"]:checked')||{}).value) === 'item_rental' }
+function _rmShow(id, on, viaParent){ var el = document.getElementById(id); if(!el) return; if(viaParent) el = el.parentElement; if(el) el.style.display = on ? '' : 'none' }
+function rmApplyCategoryLayout(){
+  var item = _rmIsItem()
+  ;['rm-space','rm-date-mode','rm-start-time','rm-end-time'].forEach(function(id){ _rmShow(id, !item, true) })
+  var ampm = document.getElementById('rm-ampm-note'); if(ampm) ampm.style.display = item ? 'none' : ''
+  var rate = document.getElementById('rm-rate-grid'); if(rate) rate.style.display = item ? 'none' : 'grid'
+  var chk = document.getElementById('rm-preview-results'); if(chk && chk.parentElement) chk.parentElement.style.display = item ? 'none' : ''
+  var sec = document.getElementById('rm-item-section'); if(sec) sec.style.display = item ? '' : 'none'
+  var sl = document.querySelector('#rm-start-date-wrap label'), el = document.querySelector('#rm-end-date-wrap label')
+  if(sl) sl.textContent = item ? 'Pickup date' : 'Start Date'
+  if(el) el.textContent = item ? 'Return date' : 'End Date (if multi-day)'
+  var pl = document.getElementById('rm-purpose-label'), pp = document.getElementById('rm-purpose')
+  if(pl) pl.textContent = item ? 'What is it for?' : 'Purpose / Notes'
+  if(pp) pp.placeholder = item ? 'e.g. Winter Garden High\'s spring musical, Into the Woods. Performances April 10 to 12.' : 'What will the space be used for? Any special requirements?'
+  var t = document.getElementById('rm-title'); if(t) t.placeholder = item ? 'e.g. WGHS Into the Woods: costumes' : 'e.g. Saturday Dance Classes'
+  if(item){
+    var dm = document.getElementById('rm-date-mode'); if(dm && dm.value !== 'range'){ dm.value = 'range'; toggleRentalDateMode() }
+    _rmShow('rm-start-date-wrap', true); _rmShow('rm-end-date-wrap', true)
+    if(!_rmInv) rmLoadInventory()
+    rmRenderItems()
+  }
+}
+async function rmLoadInventory(){
+  var r = await api('/api/inventory'); _rmInv = Array.isArray(r) ? r : []
+  rmSearchItems()
+}
+function _rmDays(){
+  var a = (document.getElementById('rm-start-date')||{}).value, b = (document.getElementById('rm-end-date')||{}).value || a
+  if(!a) return 1
+  return Math.max(1, Math.round((new Date(b+'T12:00') - new Date(a+'T12:00'))/86400000) + 1)
+}
+function _rmUnits(it){ var d = _rmDays(); return it.rate_unit === 'day' ? d : it.rate_unit === 'week' ? Math.ceil(d/7) : 1 }
+function rmSearchItems(){
+  var box = document.getElementById('rm-item-results'); if(!box) return
+  var q = ((document.getElementById('rm-item-q')||{}).value||'').toLowerCase().trim()
+  if(!_rmInv){ box.innerHTML = '<div style="font-size:12px;color:var(--text-muted)">Loading inventory…</div>'; return }
+  var list = _rmInv.filter(function(it){ return (it.status||'active') !== 'retired' && (!q || (it.name+' '+(it.category||'')+' '+(it.tags||'')+' '+(it.show_name||'')).toLowerCase().indexOf(q) >= 0) }).slice(0, q ? 30 : 12)
+  box.innerHTML = list.length ? list.map(function(it){
+      var price = it.pricing === 'quote' ? 'quote' : (it.rate_cents ? _money(it.rate_cents)+' '+(INV_UNIT[it.rate_unit]||'') : 'no price')
+      return '<div onclick="rmAddItem(\''+it.id+'\')" style="display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;cursor:pointer;font-size:13px" onmouseover="this.style.background=\'var(--bg)\'" onmouseout="this.style.background=\'\'">'
+        + '<span style="font-size:10.5px;font-weight:800;text-transform:uppercase;color:var(--text-muted);width:70px">'+escHtml(INV_CAT[it.category]||it.category||'')+'</span>'
+        + '<span style="flex:1">'+escHtml(it.name)+'</span><span style="color:var(--text-muted);font-size:12px">'+escHtml(price)+'</span><span style="color:var(--teal);font-weight:800">+</span></div>' }).join('')
+    : '<div style="font-size:12px;color:var(--text-muted)">Nothing matches. Add it under "Anything we don\'t have" below.</div>'
+}
+function rmAddItem(id){
+  var it = (_rmInv||[]).find(function(x){ return x.id === id }); if(!it) return
+  var ex = _rmItems.find(function(x){ return x.id === id })
+  if(ex) ex.qty++; else _rmItems.push({id: id, name: it.name, qty: 1, rate_cents: it.pricing === 'quote' ? 0 : (it.rate_cents||0), rate_unit: it.rate_unit, quote: it.pricing === 'quote'})
+  rmRenderItems()
+}
+function rmItemQty(i, v){ _rmItems[i].qty = Math.max(1, parseInt(v)||1); rmRenderItems() }
+function rmRemoveItem(i){ _rmItems.splice(i,1); rmRenderItems() }
+function rmItemsTotal(){ return _rmItems.reduce(function(t,x){ return t + (x.rate_cents||0) * x.qty * _rmUnits(x) }, 0) }
+function rmRenderItems(){
+  var el = document.getElementById('rm-item-list'); if(!el) return
+  el.innerHTML = _rmItems.length ? _rmItems.map(function(x, i){
+      var line = x.quote ? 'quote' : _money((x.rate_cents||0) * x.qty * _rmUnits(x))
+      return '<div style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">'
+        + '<input type="number" min="1" value="'+x.qty+'" onchange="rmItemQty('+i+',this.value)" style="width:56px;padding:4px 6px"/>'
+        + '<span style="flex:1">'+escHtml(x.name)+'</span><span style="color:var(--text-muted);font-size:12px">'+line+'</span>'
+        + '<a href="#" onclick="rmRemoveItem('+i+');return false" style="color:#b91c1c;font-size:12px">remove</a></div>' }).join('')
+      + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">Item prices for '+_rmDays()+' day'+(_rmDays()===1?'':'s')+': <strong>'+_money(rmItemsTotal())+'</strong>'+(_rmItems.some(function(x){ return x.quote })?' plus items priced by quote':'')+'</div>'
+    : '<div style="font-size:12.5px;color:var(--text-muted)">No items added yet. Search above and tap an item to add it.</div>'
+}
+function rmPricingMode(){
+  var m = (document.querySelector('input[name="rm-pricing"]:checked')||{}).value || 'rental'
+  _rmShow('rm-fee-wrap', m === 'rental'); _rmShow('rm-donation-wrap', m === 'donation')
+}
+function rmUseItemPrices(){ var t = document.getElementById('rm-item-total'); if(t) t.value = (rmItemsTotal()/100).toFixed(2) }
+function rmItemSectionHtml(req){
+  var mode = (req||{}).pricing_mode || 'rental'
+  var lbl = 'font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px'
+  var inp = 'width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box'
+  return '<div id="rm-item-section" style="display:none;margin-bottom:14px">'
+    + '<label style="'+lbl+'">What do they want to rent?</label>'
+    + ((req||{}).id ? '<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">Items already on this rental stay as they are; manage them with <strong>Items · check out / in</strong>. Anything you add here is added to them.</div>' : '')
+    + '<input id="rm-item-q" placeholder="Search costumes, props and equipment" oninput="rmSearchItems()" style="'+inp+'"/>'
+    + '<div id="rm-item-results" style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;margin:6px 0;padding:4px"></div>'
+    + '<div id="rm-item-list" style="margin-bottom:8px"></div>'
+    + '<label style="'+lbl+'">Anything we don\'t have? <span style="font-weight:400;text-transform:none">(optional)</span></label>'
+    + '<textarea id="rm-item-wish" rows="2" placeholder="e.g. 12 black choir robes, a fog machine" style="'+inp+';resize:none"></textarea>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin:3px 0 12px">Goes on the inventory wish list so you can follow up.</div>'
+    + '<label style="'+lbl+'">Pricing</label>'
+    + '<div style="display:flex;flex-direction:column;gap:8px">'
+    + '<label style="display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--border-md);border-radius:var(--radius);padding:10px 12px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500"><input type="radio" name="rm-pricing" value="rental" '+(mode!=='donation'?'checked':'')+' onchange="rmPricingMode()" style="margin-top:3px;width:auto"/>'
+    +   '<div><div style="font-weight:700;font-size:13px">Rental fee</div><div style="font-size:11.5px;color:var(--text-muted)">They pay a set price for the items.</div>'
+    +   '<div id="rm-fee-wrap" style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">$ <input type="number" id="rm-item-total" min="0" step="0.01" value="'+((req||{}).total_amount?((req.total_amount/100).toFixed(2)):'')+'" placeholder="0.00" style="width:120px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius)"/>'
+    +   '<button type="button" class="btn btn-secondary btn-sm" onclick="rmUseItemPrices()">Use item prices</button></div></div></label>'
+    + '<label style="display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--border-md);border-radius:var(--radius);padding:10px 12px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500"><input type="radio" name="rm-pricing" value="donation" '+(mode==='donation'?'checked':'')+' onchange="rmPricingMode()" style="margin-top:3px;width:auto"/>'
+    +   '<div><div style="font-weight:700;font-size:13px">Donation (no rental fee)</div><div style="font-size:11.5px;color:var(--text-muted)">HWTC lends the items at no charge, e.g. for a school or another nonprofit. The agreement says so. Care, return and loss/damage terms still apply.</div>'
+    +   '<div id="rm-donation-wrap" style="margin-top:8px;font-size:12.5px">Suggested donation (optional): $ <input type="number" id="rm-sug-don" min="0" step="0.01" value="'+((req||{}).suggested_donation_cents?((req.suggested_donation_cents/100).toFixed(2)):'')+'" placeholder="none" style="width:110px;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius)"/></div></div></label>'
+    + '</div></div>'
+}
+
 function openNewRentalModal(rid){
   const req = rid ? _rentalData.requests.find(r=>r.id===rid) : {}
   const overlay = document.createElement('div')
@@ -35037,7 +35137,7 @@ function openNewRentalModal(rid){
     <input type="time" id="rm-start-time" value="${escHtml((req||{}).start_time||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">End Time</label>
     <input type="time" id="rm-end-time" value="${escHtml((req||{}).end_time||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
-    <div style="grid-column:1/-1;font-size:11px;color:var(--text-muted);margin-top:-6px">Evening event? Double-check it says PM — some browsers don't show AM/PM clearly. If unsure, type the 24-hour version (e.g. <b>17:30</b> for 5:30 PM).</div>
+    <div id="rm-ampm-note" style="grid-column:1/-1;font-size:11px;color:var(--text-muted);margin-top:-6px">Evening event? Double-check it says PM — some browsers don't show AM/PM clearly. If unsure, type the 24-hour version (e.g. <b>17:30</b> for 5:30 PM).</div>
     <div id="rm-specific-dates-section" style="grid-column:1/-1;display:none">
      <label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Dates</label>
      <div style="display:flex;gap:8px;margin-bottom:8px">
@@ -35065,7 +35165,8 @@ function openNewRentalModal(rid){
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Recurrence End Date</label>
     <input type="date" id="rm-recur-end" value="${escHtml((req||{}).recurrence_end_date||'')}" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
    </div>
-   <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
+   ${rmItemSectionHtml(req)}
+   <div id="rm-rate-grid" style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px">
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Rate Type</label>
     <select id="rm-rate-type" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px">
     ${rateTypes.map(r=>`<option value="${r.v}" ${((req||{}).rate_type||(rid?'':'hourly'))===r.v?'selected':''}>${r.l}</option>`).join('')}
@@ -35075,7 +35176,7 @@ function openNewRentalModal(rid){
     <div><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Total ($)</label>
     <input type="number" id="rm-total" value="${(req||{}).total_amount?((req.total_amount/100).toFixed(2)):''}" min="0" step="0.01" placeholder="0.00" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/></div>
    </div>
-   <div style="margin-bottom:16px"><label style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Purpose / Notes</label>
+   <div style="margin-bottom:16px"><label id="rm-purpose-label" style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);display:block;margin-bottom:4px">Purpose / Notes</label>
    <textarea id="rm-purpose" rows="3" placeholder="What will the space be used for? Any special requirements?" style="width:100%;padding:9px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;resize:none;box-sizing:border-box">${escHtml((req||{}).purpose||'')}</textarea></div>
    <div style="border-top:1px solid var(--border);padding-top:14px;margin-bottom:14px">
     <button type="button" class="btn btn-secondary btn-sm" onclick="previewRentalAvailability('${rid||''}')"> Check Availability</button>
@@ -35094,13 +35195,17 @@ function openNewRentalModal(rid){
   </div>`
   overlay.addEventListener('click',function(e){ if(e.target===overlay) overlay.remove() })
   document.body.appendChild(overlay)
+  _rmItems = []
   toggleRentalDateMode()
   renderRmSpecificDatesList()
+  rmApplyCategoryLayout(); rmPricingMode()
+  ;['rm-start-date','rm-end-date'].forEach(function(id){ var e = document.getElementById(id); if(e) e.addEventListener('change', rmRenderItems) })
 }
 
 function openEditRentalModal(rid){ openNewRentalModal(rid) }
 
 function toggleRentalCategoryFields(radioEl){
+  setTimeout(rmApplyCategoryLayout, 0)
   const wrap = document.getElementById('rm-revenue-split-wrap')
   if(wrap) wrap.style.display = (radioEl && radioEl.value==='ticketed_enrollment') ? '' : 'none'
   // Re-highlight the selected option card
@@ -35138,6 +35243,19 @@ async function saveRentalRequest(rid){
     partnership_category:(document.querySelector('input[name="rm-category"]:checked')||{}).value||'open_partnership',
     revenue_split_notes:(document.getElementById('rm-revenue-split')||{}).value||'',
   }
+  if(payload.partnership_category === 'item_rental'){
+    var pm = (document.querySelector('input[name="rm-pricing"]:checked')||{}).value || 'rental'
+    payload.space_id = null; payload.date_mode = 'range'; payload.recurring = false; payload.start_time = ''; payload.end_time = ''
+    payload.specific_dates = []; payload.rate_type = 'flat'; payload.rate_amount = 0
+    payload.pricing_mode = pm
+    payload.total_amount = pm === 'donation' ? 0 : Math.round(parseFloat((document.getElementById('rm-item-total')||{}).value||0)*100)
+    var sd = parseFloat((document.getElementById('rm-sug-don')||{}).value||'')
+    payload.suggested_donation_cents = pm === 'donation' && sd > 0 ? Math.round(sd*100) : null
+    if(!payload.start_date){ toast('Pick the pickup date','error'); return }
+    if(!payload.end_date) payload.end_date = payload.start_date
+    if(payload.end_date < payload.start_date){ toast('The return date is before the pickup date','error'); return }
+    if(!rid && !_rmItems.length && !((document.getElementById('rm-item-wish')||{}).value||'').trim()){ toast('Add what they want to rent','error'); return }
+  }
   if(!payload.title){ toast('Title is required','error'); return }
   if(dateMode==='specific' && !payload.specific_dates.length){ toast('Add at least one date','error'); return }
   if(dateMode!=='specific' && !payload.start_date){ toast('Start date is required','error'); return }
@@ -35149,6 +35267,16 @@ async function saveRentalRequest(rid){
     res = await api('/api/rental/requests/'+rid+'/correct-signed','POST',payload)
   } else {
     res = rid ? await api('/api/rental/requests/'+rid,'PUT',payload) : await api('/api/rental/requests','POST',payload)
+  }
+  if(res&&res.ok && payload.partnership_category === 'item_rental' && !isSignedCorrection){
+    var wish = ((document.getElementById('rm-item-wish')||{}).value||'').trim()
+    if(_rmItems.length || wish){
+      var reqId = rid || res.id
+      var body = {items: _rmItems.map(function(x){ return {item_id: x.id, quantity: x.qty} }), wish: wish}
+      var ir = await api('/api/rental/requests/'+reqId+'/items','POST', body)
+      if(ir && ir.over){ if(confirm(ir.error)){ body.over_ok = true; body.wish = ''; ir = await api('/api/rental/requests/'+reqId+'/items','POST', body) } }
+      if(ir && ir.error && !ir.over) toast(ir.error,'error')
+    }
   }
   if(res&&res.ok){
     toast(isSignedCorrection?'Contract corrected — signature retained, nothing needs to be re-sent':(rid?'Request updated':'Request created — board president/VP notified for approval'),'success')

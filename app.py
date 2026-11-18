@@ -5476,6 +5476,58 @@ def calendar_share_data(token):
         conn.close()
 
 
+@app.route('/api/events/signups/export', methods=['GET'])
+def export_event_signups():
+    """Who signed up for what: one row per person per event (and role),
+    with contact info. ?from=&to= (event dates), ?event_id= for one event,
+    ?type= event type, ?status=all|active (default active = not declined/cancelled)."""
+    err = require_permission('events', 'view')
+    if err: return err
+    import csv, io
+    a = request.args
+    where, params = ["COALESCE(e.event_date,'') <> ''"], []
+    if a.get('event_id'):
+        where.append('e.id=%s'); params.append(a['event_id'])
+    else:
+        if a.get('from'): where.append('e.event_date >= %s'); params.append(a['from'][:10])
+        if a.get('to'): where.append('e.event_date <= %s'); params.append(a['to'][:10])
+    if a.get('type'):
+        where.append('e.event_type_id=%s'); params.append(a['type'])
+    if (a.get('status') or 'active') != 'all':
+        where.append("COALESCE(r.status,'') NOT IN ('declined','cancelled','not_attending','removed')")
+    conn = get_db()
+    try:
+        rows = fetchall(conn, f'''SELECT e.name AS event, e.event_date, e.start_time, e.end_time, e.location, et.name AS event_type,
+                COALESCE(p.name, pg.name, '') AS show_or_program,
+                COALESCE(NULLIF(r.role_name,''), er.name, '') AS role, er.block_time, er.block_time_end,
+                COALESCE(v.name, r.volunteer_name, '') AS name, COALESCE(NULLIF(v.email,''), r.volunteer_email, '') AS email,
+                COALESCE(v.phone, '') AS phone, r.status, r.party_members, r.notes, r.created_at
+            FROM event_rsvps r JOIN events e ON e.id=r.event_id
+            LEFT JOIN volunteers v ON v.id=r.volunteer_id LEFT JOIN event_roles er ON er.id=r.role_id
+            LEFT JOIN event_types et ON et.id=e.event_type_id LEFT JOIN productions p ON p.id=e.production_id
+            LEFT JOIN youth_programs pg ON pg.id=e.program_id
+            WHERE {' AND '.join(where)}
+            ORDER BY e.event_date, e.start_time NULLS FIRST, e.name, er.sort_order NULLS LAST, role, name''', tuple(params)) or []
+    finally:
+        conn.close()
+    from flask import Response
+    status_label = {'interested': 'Signed up', 'confirmed': 'Confirmed', 'declined': 'Declined', 'waitlisted': 'Waitlist'}
+    t12 = lambda t: _fmt_time12(t) if t else ''
+    buf = io.StringIO(); w = csv.writer(buf)
+    w.writerow(['Event', 'Date', 'Event time', 'Location', 'Type', 'Show / program', 'Role', 'Shift time', 'Name', 'Email', 'Phone',
+                'Status', 'Party size', 'Party members', 'Notes', 'Signed up'])
+    for r in rows:
+        party = [x.strip() for x in (r.get('party_members') or '').replace('\n', ',').split(',') if x.strip()]
+        w.writerow([r['event'], r['event_date'], (t12(r['start_time']) + (' – ' + t12(r['end_time']) if r.get('end_time') else '')).strip(' –'),
+                    r.get('location') or '', r.get('event_type') or '', r.get('show_or_program') or '', r.get('role') or '',
+                    (t12(r.get('block_time')) + (' – ' + t12(r['block_time_end']) if r.get('block_time_end') else '')).strip(' –'),
+                    r['name'], r['email'], r['phone'], status_label.get(r.get('status') or '', (r.get('status') or '').replace('_', ' ').title()),
+                    1 + len(party), ', '.join(party), r.get('notes') or '', str(r.get('created_at') or '')[:16]])
+    fname = 'event-signups' + (('-' + re.sub(r'[^A-Za-z0-9]+', '-', rows[0]['event']).strip('-')[:40]) if a.get('event_id') and rows else
+                               ('-' + (a.get('from') or '')[:10] + ('_to_' + (a.get('to') or '')[:10] if a.get('to') else '') if a.get('from') else '')) + '.csv'
+    return Response('\ufeff' + buf.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{fname}"'})
+
+
 @app.route('/api/events', methods=['POST'])
 def create_event():
     d = request.json or {}

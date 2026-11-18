@@ -422,6 +422,57 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 .rp-menu button strong,.rp-menu a strong{display:block;font-size:13.5px;color:var(--text)}
 .rp-menu button span,.rp-menu a span{display:block;font-size:12px;color:var(--text-muted);margin-top:1px}
 .rp-menu a:hover{background:var(--bg)}
+
+/* ── Inbox on phones: one screen at a time, big targets ── */
+.ibx-back,.ibx-who,.ibx-mquick,.ibx-mtabs,.ibx-side-toggle{display:none}
+@media (max-width: 760px){
+  #page-inbox .page-actions button:not(#inbox-refresh-btn){display:none}
+  #page-inbox .page-header{flex-wrap:wrap;gap:8px}
+  .ibx-layout{display:block !important}
+  .ibx-sidebar{display:none !important;width:auto !important;border-right:0 !important;padding:0 0 12px !important}
+  body.ibx-side-open .ibx-sidebar{display:block !important}
+  .ibx-side-toggle{display:inline-flex;margin:0 0 10px;padding:8px 14px;border-radius:999px;border:1.5px solid var(--border-md);background:var(--surface);font:inherit;font-size:13px;font-weight:700;color:var(--text-muted)}
+  .ibx-tools{gap:8px !important}
+  .ibx-tools > input{flex:1 1 100% !important;min-width:0 !important;font-size:15px !important;padding:10px 12px !important}
+  .ibx-tools > select{flex:1 1 40% !important;min-width:0 !important;font-size:14px !important;padding:9px 10px !important}
+  .ibx-tools > button[onclick^="toggleInboxGroupByPerson"]{display:none !important}
+  .ibx-tools > button[onclick^="openInboxComposeModal"]{flex:0 0 auto !important;padding:9px 12px !important;font-size:14px !important}
+  .ibx-tabs{flex-wrap:nowrap !important;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;scrollbar-width:none}
+  .ibx-tabs::-webkit-scrollbar{display:none}
+  .ibx-tabs button{flex-shrink:0;padding:9px 16px !important;font-size:13.5px !important}
+  .ibx-row{padding:14px 12px !important;gap:10px !important}
+  .ibx-row .ibx-check,.ibx-selall{display:none !important}
+  .ibx-quick span{font-size:13px !important;padding:4px 2px}
+  /* conversation: full screen */
+  #inbox-thread-overlay{padding:0 !important;align-items:stretch !important}
+  .ibx-box{max-width:none !important;height:100vh !important;height:100dvh !important;border-radius:0 !important}
+  .ibx-head{padding:10px 12px 8px !important;padding-top:calc(10px + env(safe-area-inset-top,0px)) !important}
+  .ibx-x{display:none}
+  .ibx-back{display:inline-block;flex-shrink:0;border:0;background:none;color:var(--teal-dark);font:inherit;font-size:16px;font-weight:800;padding:4px 6px 4px 0;cursor:pointer}
+  .ibx-subject{font-size:15px !important;line-height:1.3}
+  .ibx-who{display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-top:2px}
+  .ibx-mquick{display:flex;gap:6px;margin-top:8px;overflow-x:auto}
+  .ibx-mquick button{flex-shrink:0;border:1.5px solid var(--border-md);background:var(--surface);border-radius:999px;padding:7px 14px;font:inherit;font-size:13px;font-weight:700;color:var(--teal-dark)}
+  .ibx-mtabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0}
+  .ibx-mtabs button{flex:1;border:0;background:none;font:inherit;font-size:13.5px;font-weight:700;color:var(--text-muted);padding:11px 4px;border-bottom:3px solid transparent}
+  .ibx-mtabs button.on{color:var(--teal-dark);border-bottom-color:var(--teal-dark)}
+  .ibx-body{flex-direction:column}
+  .ibx-sidep{display:none !important;width:auto !important;border-left:0 !important;flex:1;padding:14px 12px calc(14px + env(safe-area-inset-bottom,0px)) !important}
+  #inbox-thread-overlay[data-tab=notes] .ibx-main,#inbox-thread-overlay[data-tab=info] .ibx-main{display:none !important}
+  #inbox-thread-overlay[data-tab=notes] .ibx-sidep,#inbox-thread-overlay[data-tab=info] .ibx-sidep{display:flex !important}
+  #inbox-thread-overlay[data-tab=notes] .ibx-sidep > div:not(.ibx-notes){display:none !important}
+  #inbox-thread-overlay[data-tab=info] .ibx-sidep > .ibx-notes{display:none !important}
+  .ibx-notes #inbox-comments-feed{max-height:none !important;min-height:120px}
+  .ibx-notes textarea{font-size:15px !important;min-height:84px}
+  .ibx-notes .btn{width:100%;padding:11px !important;font-size:14px !important}
+  .ibx-sidep select,.ibx-sidep button{font-size:14px !important}
+  .ibx-msgs{padding:12px !important}
+  .ibx-msgs img{max-width:100% !important;height:auto !important}
+  .ibx-msgs table{max-width:100% !important}
+  .ibx-compose{padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px)) !important}
+  .ibx-compose #inbox-reply-body{font-size:15px !important;min-height:44px !important;max-height:30vh !important}
+  .ibx-compose #inbox-reply-send-btn{padding:10px 18px !important;font-size:14px !important}
+}
 </style>
  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
 </head>
@@ -9396,7 +9447,7 @@ async function renderInboxThreadList(){
 
  // Left rail — mirrors Gmail's own Labels list, so filtering by a label
  // works the same way it does there: click it, see just that label.
- var labelsSidebar = '<div style="width:200px;flex-shrink:0;padding-right:16px;border-right:1px solid var(--border)">'
+ var labelsSidebar = '<div class="ibx-sidebar" style="width:200px;flex-shrink:0;padding-right:16px;border-right:1px solid var(--border)">'
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Team · open &amp; pending</div>'
    + '<div id="inbox-team-list" style="display:flex;flex-direction:column;gap:2px;margin-bottom:18px"><div style="font-size:12px;color:var(--text-muted);padding:6px 0">Loading…</div></div>'
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">Labels</div>'
@@ -9404,7 +9455,7 @@ async function renderInboxThreadList(){
    + '<div style="font-size:12px;color:var(--text-muted);padding:6px 0">Loading…</div>'
    + '</div></div>'
 
- var html = '<div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">'
+ var html = '<div class="ibx-tools" style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center">'
    + '<input type="text" id="inbox-search-input" value="'+escHtml(_inboxFilter.q)+'" placeholder=" Search name, email, subject, or message…" oninput="onInboxSearchInput()" style="flex:1;min-width:220px;padding:8px 12px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px;box-sizing:border-box"/>'
    + '<select id="inbox-assigned-filter-select" onchange="setInboxFilter(\'assigned\',this.value)" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;color:var(--text-muted)">'
    + '<option value="all"'+(_inboxFilter.assigned==='all'?' selected':'')+'>Everyone</option>'
@@ -9418,7 +9469,7 @@ async function renderInboxThreadList(){
    + '<button class="btn btn-sm '+(_inboxGroupByPerson?'btn-primary':'btn-secondary')+'" onclick="toggleInboxGroupByPerson()" title="Show conversations in sections by who they\'re assigned to">'+(_inboxGroupByPerson?'✓ ':'')+'Group by person</button>'
    + '<button class="btn btn-primary btn-sm" onclick="openInboxComposeModal()">✎ New Message</button>'
    + '</div>'
-   + '<div style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">'
+   + '<div class="ibx-tabs" style="display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap">'
    + comboTabs.map(function(f){
        var active = _inboxFilter.status===f.status && _inboxFilter.assigned===f.assigned
        return '<button onclick="setInboxComboView(\''+f.status+'\',\''+f.assigned+'\')" style="padding:6px 14px;border-radius:20px;font-size:12px;font-weight:700;border:1.5px solid '+(active?'#145466':'var(--border)')+';background:'+(active?'#145466':'var(--surface)')+';color:'+(active?'#fff':'var(--text-muted)')+';cursor:pointer">'+f.l+'</button>'
@@ -9431,7 +9482,7 @@ async function renderInboxThreadList(){
    + '</div>'
 
  var allVisibleSelected = _inboxThreads.length>0 && _inboxThreads.every(function(t){ return _inboxSelectedIds.has(t.id) })
- html += '<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
+ html += '<div class="ibx-selall" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">'
    + '<label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-muted);cursor:pointer">'
    + '<input type="checkbox" '+(allVisibleSelected?'checked':'')+' onchange="toggleInboxSelectAllVisible(this.checked)" style="width:15px;height:15px;cursor:pointer"/>'
    + 'Select all'+(_inboxThreads.length?' ('+_inboxThreads.length+')':'')
@@ -9463,7 +9514,7 @@ async function renderInboxThreadList(){
    var _rowHTML = function(t){
      var statusMeta = {open:{c:'#166534',bg:'#dcfce7'}, pending:{c:'#92400e',bg:'#fef3c7'}, closed:{c:'#6b7280',bg:'#f3f4f6'}, spam:{c:'#991b1b',bg:'#fee2e2'}}[t.status] || {c:'#6b7280',bg:'#f3f4f6'}
      var preview = (t.last_body_text||'').replace(/\s+/g,' ').trim().slice(0,110)
-     var quickActions = '<div style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">'
+     var quickActions = '<div class="ibx-quick" style="margin-top:6px;display:flex;gap:6px;justify-content:flex-end">'
        + ((t.status==='open'||t.status==='pending') ?
            '<span onclick="event.stopPropagation();quickSetInboxStatus(\''+t.id+'\',\'closed\')" style="font-size:10.5px;color:var(--text-muted);cursor:pointer;text-decoration:underline">Close</span>'
            + '<span onclick="event.stopPropagation();quickSetInboxStatus(\''+t.id+'\',\'spam\')" style="font-size:10.5px;color:#991b1b;cursor:pointer;text-decoration:underline">Spam</span>'
@@ -9471,8 +9522,8 @@ async function renderInboxThreadList(){
        + '<span onclick="event.stopPropagation();quickDeleteInboxThread(\''+t.id+'\')" style="font-size:10.5px;color:#991b1b;cursor:pointer;text-decoration:underline">Delete</span>'
        + '</div>'
      var selected = _inboxSelectedIds.has(t.id)
-     return '<div class="card" style="padding:14px 16px;margin-bottom:8px;cursor:pointer;display:flex;gap:10px;align-items:flex-start;'+(selected?'background:#f0fdfa;border-color:#5eead4;':'')+(t.unread?'border-left:3px solid #145466':'')+'" onclick="openInboxThread(\''+t.id+'\')">'
-       + '<input type="checkbox" '+(selected?'checked':'')+' onclick="event.stopPropagation();toggleInboxSelect(\''+t.id+'\',this.checked)" style="width:15px;height:15px;margin-top:3px;flex-shrink:0;cursor:pointer"/>'
+     return '<div class="card ibx-row" style="padding:14px 16px;margin-bottom:8px;cursor:pointer;display:flex;gap:10px;align-items:flex-start;'+(selected?'background:#f0fdfa;border-color:#5eead4;':'')+(t.unread?'border-left:3px solid #145466':'')+'" onclick="openInboxThread(\''+t.id+'\')">'
+       + '<input class="ibx-check" type="checkbox" '+(selected?'checked':'')+' onclick="event.stopPropagation();toggleInboxSelect(\''+t.id+'\',this.checked)" style="width:15px;height:15px;margin-top:3px;flex-shrink:0;cursor:pointer"/>'
        + inboxPersonBadge(t)
        + '<div style="flex:1;min-width:0">'
        + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
@@ -9506,8 +9557,10 @@ async function renderInboxThreadList(){
      html += _inboxThreads.map(_rowHTML).join('')
    }
  }
- document.getElementById('inbox-content').innerHTML = '<div style="display:flex;gap:20px;align-items:flex-start">'
-   + labelsSidebar + '<div style="flex:1;min-width:0">' + html + '</div></div>'
+ document.getElementById('inbox-content').innerHTML = '<div class="ibx-layout" style="display:flex;gap:20px;align-items:flex-start">'
+   + labelsSidebar + '<div style="flex:1;min-width:0">'
+   + '<button class="ibx-side-toggle" onclick="document.body.classList.toggle(\'ibx-side-open\')">Team &amp; labels ▾</button>'
+   + html + '</div></div>'
  loadInboxTeamList()
  api('/api/inbox/tags').then(function(tags){
    var list = document.getElementById('inbox-labels-list')
@@ -9670,6 +9723,14 @@ function tidyInboxQuotes(root){
  })
 }
 
+
+// Inbox conversation on phones: switch between Conversation / Team notes / Details
+function ibxTab(t){
+  var o = document.getElementById('inbox-thread-overlay'); if(!o) return
+  o.dataset.tab = t
+  o.querySelectorAll('.ibx-mtabs button').forEach(function(b){ b.classList.toggle('on', b.dataset.t === t) })
+  if(t === 'notes'){ var f = document.getElementById('inbox-comments-feed'); if(f) f.scrollTop = f.scrollHeight }
+}
 async function openInboxThread(tid){
  var t = await api('/api/inbox/threads/'+tid)
  if(!t || t.error){ toast((t&&t.error)||'Could not load conversation','error'); return }
@@ -9740,7 +9801,7 @@ async function openInboxThread(tid){
        + '<div class="inbox-comment-body" style="font-size:12.5px;white-space:pre-wrap;line-height:1.4">'+highlightInboxMentions(escHtml(c.body||''))+'</div></div>'
    }).join('') : '<div style="font-size:11.5px;color:var(--text-muted);padding:6px 0">No comments yet — leave a note for your team.</div>'
 
- var sidebarHtml = '<div style="width:340px;flex-shrink:0;border-left:1px solid var(--border);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:16px">'
+ var sidebarHtml = '<div class="ibx-sidep" style="width:340px;flex-shrink:0;border-left:1px solid var(--border);padding:16px;overflow-y:auto;display:flex;flex-direction:column;gap:16px">'
    + '<div>'
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Overview</div>'
    + '<div style="font-size:13.5px;font-weight:700;color:var(--teal-dark)">'+escHtml(t.participant_name||'Unknown')+'</div>'
@@ -9776,7 +9837,7 @@ async function openInboxThread(tid){
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px"> Attachments'+(allAttachments.length?' ('+allAttachments.length+')':'')+'</div>'
    + '<div style="max-height:160px;overflow-y:auto">'+attachmentsHtml+'</div>'
    + '</div>'
-   + '<div>'
+   + '<div class="ibx-notes">'
    + '<div style="font-size:10.5px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px">Discussion</div>'
    + '<div id="inbox-comments-feed" style="max-height:220px;overflow-y:auto;margin-bottom:8px;border:1px solid var(--border);border-radius:8px;padding:8px">'+commentsHtml+'</div>'
    + '<div style="position:relative">'
@@ -9791,16 +9852,28 @@ async function openInboxThread(tid){
    + '</div>'
    + '</div>'
 
- overlay.innerHTML = '<div style="background:var(--surface);border-radius:14px;width:100%;max-width:1320px;height:88vh;display:flex;flex-direction:column;padding:0;overflow:hidden">'
-   + '<div style="padding:18px 24px 12px;border-bottom:1px solid var(--border);flex-shrink:0">'
-   + '<div style="display:flex;justify-content:space-between;align-items:flex-start">'
-   + '<div style="font-size:17px;font-weight:800;color:var(--teal-dark)">'+escHtml(t.subject||'(no subject)')+'</div>'
-   + '<button onclick="document.getElementById(\'inbox-thread-overlay\').remove()" style="background:none;border:none;font-size:20px;color:var(--text-muted);cursor:pointer;line-height:1">×</button>'
+ var _nNotes = (t.comments||[]).length
+ overlay.dataset.tab = 'conv'
+ overlay.innerHTML = '<div class="ibx-box" style="background:var(--surface);border-radius:14px;width:100%;max-width:1320px;height:88vh;display:flex;flex-direction:column;padding:0;overflow:hidden">'
+   + '<div class="ibx-head" style="padding:18px 24px 12px;border-bottom:1px solid var(--border);flex-shrink:0">'
+   + '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">'
+   + '<button class="ibx-back" onclick="document.getElementById(\'inbox-thread-overlay\').remove()">‹ Inbox</button>'
+   + '<div class="ibx-subject" style="font-size:17px;font-weight:800;color:var(--teal-dark);flex:1;min-width:0">'+escHtml(t.subject||'(no subject)')
+   + '<div class="ibx-who">'+escHtml(t.participant_name||t.participant_email||'')+' · <span style="text-transform:capitalize">'+escHtml(t.status||'')+'</span>'+(t.assigned_to?' · '+escHtml(t.assigned_to):' · unassigned')+'</div></div>'
+   + '<button class="ibx-x" onclick="document.getElementById(\'inbox-thread-overlay\').remove()" style="background:none;border:none;font-size:20px;color:var(--text-muted);cursor:pointer;line-height:1">×</button>'
+   + '</div>'
+   + '<div class="ibx-mquick">'
+   + '<button onclick="assignInboxThreadToMe(\''+t.id+'\')">Assign to me</button>'
+   + ((t.status==='open'||t.status==='pending') ? '<button onclick="setInboxThreadStatus(\''+t.id+'\',\'closed\')">Close</button>' : '<button onclick="setInboxThreadStatus(\''+t.id+'\',\'open\')">Reopen</button>')
+   + '<button onclick="ibxTab(\'notes\');setTimeout(function(){var c=document.getElementById(\'inbox-comment-input\');if(c)c.focus()},50)">+ Note</button>'
    + '</div></div>'
-   + '<div style="display:flex;flex:1;min-height:0">'
-   + '<div style="flex:1;min-width:0;display:flex;flex-direction:column">'
-   + '<div style="padding:16px 24px;overflow-y:auto;flex:1">'+(messagesHtml||'<div style="color:var(--text-muted);font-size:13px">No messages.</div>')+'</div>'
-   + '<div style="padding:14px 24px;border-top:1px solid var(--border);flex-shrink:0">'
+   + '<div class="ibx-mtabs"><button data-t="conv" class="on" onclick="ibxTab(\'conv\')">Conversation</button>'
+   + '<button data-t="notes" onclick="ibxTab(\'notes\')">Team notes'+(_nNotes?' ('+_nNotes+')':'')+'</button>'
+   + '<button data-t="info" onclick="ibxTab(\'info\')">Details</button></div>'
+   + '<div class="ibx-body" style="display:flex;flex:1;min-height:0">'
+   + '<div class="ibx-main" style="flex:1;min-width:0;display:flex;flex-direction:column">'
+   + '<div class="ibx-msgs" style="padding:16px 24px;overflow-y:auto;flex:1">'+(messagesHtml||'<div style="color:var(--text-muted);font-size:13px">No messages.</div>')+'</div>'
+   + '<div class="ibx-compose" style="padding:14px 24px;border-top:1px solid var(--border);flex-shrink:0">'
    + '<div id="inbox-ccbcc-wrap" style="display:none;margin-bottom:8px;flex-direction:column;gap:6px">'
    + '<input type="text" id="inbox-reply-cc" placeholder="Cc (comma-separated)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;box-sizing:border-box"/>'
    + '<input type="text" id="inbox-reply-bcc" placeholder="Bcc (comma-separated)" style="width:100%;padding:7px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12.5px;box-sizing:border-box"/>'

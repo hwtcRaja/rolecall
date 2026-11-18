@@ -2659,6 +2659,12 @@ def init_db():
             oncall_phone TEXT DEFAULT '',
             last_message_at TIMESTAMP DEFAULT NOW(),
             created_at TIMESTAMP DEFAULT NOW())""",
+        # Who last actually replied to this customer (not just who it was
+        # forwarded to). A customer's follow-up texts stick with that person
+        # for a while, even after the on-call shift changes.
+        "ALTER TABLE sms_conversations ADD COLUMN IF NOT EXISTS last_reply_by TEXT DEFAULT ''",
+        # Slack thread for this customer's texts, so a back-and-forth stays together.
+        "ALTER TABLE sms_conversations ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
         """CREATE TABLE IF NOT EXISTS production_required_waivers (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -3865,6 +3871,10 @@ def init_db():
             label TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
+        # Every phone rung for a call (on-call, plus anyone who hit "Take this
+        # call" in Slack), as JSON [{sid, phone, name, joined}]. Lets one leg
+        # failing leave the caller on hold while someone else is still ringing.
+        "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS staff_legs TEXT DEFAULT '[]'",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_bot_token TEXT DEFAULT ''",
         "ALTER TABLE email_settings ADD COLUMN IF NOT EXISTS slack_call_channel TEXT DEFAULT ''",
     ]:
@@ -15207,9 +15217,17 @@ def set_donor_tier(did):
 # ─────────────────────────────────────────────
 
 @app.route('/callback')
-def callback_page():
-    """Simple page for initiating a masked callback from a Slack link."""
-    to_number = request.args.get('to','')
+@app.route('/callback/<digits>')
+def callback_page(digits=None):
+    """Simple page for initiating a masked callback from a Slack link.
+    Staff only: it makes the HWTC number place calls, so it has to sit
+    behind login (it used to be open to anyone who had the link)."""
+    to_number = ('+' + ''.join(ch for ch in digits if ch.isdigit())) if digits else request.args.get('to','')
+    if 'user_id' not in session:
+        from flask import redirect
+        # The login page only returns to plain paths (no query string), so
+        # send people back to the /callback/<digits> form of this page.
+        return redirect('/?next=/callback/' + ''.join(ch for ch in to_number if ch.isdigit()))
     from_number = request.args.get('from_number','') or to_number
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -35589,6 +35607,7 @@ def twilio_voice():
                 {'type':'section','text':{'type':'mrkdwn','text':
                     f' *Inbound Call*\n*From:* `{fmt_phone(caller)}`\n*Time:* {now_str}\n*Routed to:* {person_name} (`{fmt_phone(forward_to)}`)\n*Status:*  Ringing…'}},
                 {'type':'actions','elements':[
+                    {'type':'button','text':{'type':'plain_text','text':'Take this call'},'url':f'{host}/call/take/{call_sid}','action_id':'takecall','style':'primary'},
                     {'type':'button','text':{'type':'plain_text','text':' Call Back via HWTC'},'url':f'{host}/callback?to={caller}','action_id':'callback'},
                     {'type':'button','text':{'type':'plain_text','text':' View Log'},'url':f'{host}/','action_id':'viewlog'}
                 ]}
@@ -35599,7 +35618,7 @@ def twilio_voice():
 <Response>
   {say_or_play(greeting, audio_greeting)}
   <Dial action="{host}/twilio/direct-voicemail" method="POST">
-    <Conference waitUrl="{host}/twilio/hold-music?conf={conf_name}" waitMethod="POST" beep="true" startConferenceOnEnter="true" endConferenceOnExit="false" maxParticipants="2">{conf_name}</Conference>
+    <Conference waitUrl="{host}/twilio/hold-music?conf={conf_name}" waitMethod="POST" beep="true" startConferenceOnEnter="true" endConferenceOnExit="false" maxParticipants="3" statusCallback="{host}/twilio/conf-event?caller_sid={call_sid}" statusCallbackEvent="leave">{conf_name}</Conference>
   </Dial>
 </Response>'''
             # Separately call the on-call person
@@ -35627,6 +35646,12 @@ def twilio_voice():
                         timeout=10
                     )
                     app.logger.info(f'Outbound call to {forward_to} for conf {conf_name}: {resp2.status_code} {resp2.text[:200]}')
+                    try:
+                        leg_sid = (resp2.json() or {}).get('sid')
+                        if leg_sid:
+                            _add_staff_leg(call_sid, leg_sid, forward_to, person_name)
+                    except Exception as leg_err:
+                        app.logger.warning(f'Could not record on-call leg: {leg_err}')
             except Exception as e:
                 app.logger.warning(f'Outbound call to on-call failed: {e}')
         else:
@@ -35678,13 +35703,21 @@ def twilio_screen_call():
     <Say voice="Polly.Joanna">You have an incoming call for Horizon West Theater Company. Press 1 to accept.</Say>
   </Gather>
   <Say voice="Polly.Joanna">No response. Sending to voicemail.</Say>
-  <Redirect method="POST">{host}/twilio/end-conf?conf={conf_name}</Redirect>
+  <Redirect method="POST">{host}/twilio/end-conf?conf={conf_name}&amp;caller_sid={caller_sid}</Redirect>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
 @app.route('/twilio/end-conf', methods=['POST'])
 def twilio_end_conf():
     """End the waiting conference so the caller falls through to voicemail."""
     conf_name = request.args.get('conf','')
+    caller_sid = request.args.get('caller_sid','')
+    leg_sid = request.form.get('CallSid','')
+    HANGUP = ('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>', 200, {'Content-Type': 'text/xml'})
+    # Someone else picked up from Slack (or is still ringing): leave the
+    # caller where they are and just drop this person's leg.
+    if caller_sid and _live_staff_legs(caller_sid, exclude_sid=leg_sid):
+        app.logger.info(f'end-conf: other staff still live on {conf_name}, not ending')
+        return HANGUP
     app.logger.info(f'Ending conference: {conf_name}')
     try:
         ts2 = get_twilio_settings()
@@ -35706,7 +35739,7 @@ def twilio_end_conf():
                 app.logger.info(f'Ended conference {c["sid"]}')
     except Exception as e:
         app.logger.warning(f'end-conf error: {e}')
-    return '', 204
+    return HANGUP
 
 @app.route('/twilio/oncall-no-answer', methods=['POST'])
 def twilio_oncall_no_answer():
@@ -35718,6 +35751,15 @@ def twilio_oncall_no_answer():
 
     if call_status not in ('no-answer','busy','failed','canceled'):
         return '', 204
+
+    # Another phone (someone who hit "Take this call") is still ringing or
+    # already on the line, so don't send the caller to voicemail.
+    leg_sid = request.form.get('CallSid','')
+    if caller_sid:
+        others = _live_staff_legs(caller_sid, exclude_sid=leg_sid)
+        if others:
+            app.logger.info(f'oncall-no-answer: {len(others)} other leg(s) live, leaving conference up')
+            return '', 204
 
     try:
         import requests as _rq
@@ -35804,27 +35846,33 @@ def twilio_accept_call():
     conf_name = request.args.get('conf','')
     if digit == '1' and conf_name:
         # Mark the call as answered in call_logs
+        caller_sid = request.args.get('caller_sid','')
+        host = 'https://rolecall.hwtco.org'
         try:
-            caller_sid = request.args.get('caller_sid','')
             if caller_sid:
-                conn = get_db()
-                execute(conn, "UPDATE call_log SET status='answered' WHERE call_sid=%s", (caller_sid,))
-                conn.commit(); conn.close()
+                _mark_leg_answered(caller_sid, request.form.get('CallSid',''))
         except Exception as e:
             app.logger.warning(f'accept-call log update error: {e}')
+        # endConferenceOnExit is false so one person can hand the caller to
+        # another (transfer) without hanging up on them. /twilio/conf-event
+        # ends the call once the last staff member leaves.
         return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna">Connecting now.</Say>
   <Dial>
-    <Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="false">{conf_name}</Conference>
+    <Conference startConferenceOnEnter="true" endConferenceOnExit="false" beep="false" statusCallback="{host}/twilio/conf-event?caller_sid={caller_sid}" statusCallbackEvent="leave">{conf_name}</Conference>
   </Dial>
 </Response>''', 200, {'Content-Type': 'text/xml'}
     else:
-        # Declined or no response — hang up, caller stays in conf waiting until timeout
-        return '''<?xml version="1.0" encoding="UTF-8"?>
+        # Declined: hand off to end-conf, which sends the caller to voicemail
+        # unless someone else is still ringing or already on the line.
+        # (Before, the caller was left sitting on hold.)
+        caller_sid = request.args.get('caller_sid','')
+        host = 'https://rolecall.hwtco.org'
+        return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">Sending to voicemail. Goodbye.</Say>
-  <Hangup/>
+  <Say voice="Polly.Joanna">Okay. Goodbye.</Say>
+  <Redirect method="POST">{host}/twilio/end-conf?conf={conf_name}&amp;caller_sid={caller_sid}</Redirect>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
 @app.route('/twilio/amd-status', methods=['POST'])
@@ -35948,6 +35996,425 @@ def twilio_call_status():
 
 
 
+# ─────────────────────────────────────────────
+# Slack pickup / transfer / reply
+#
+# Slack buttons link to small RoleCall pages (login required). Calls work
+# because the caller already waits in a conference room: "Take this call"
+# just rings one more phone into that room. Whoever presses 1 first gets
+# the caller, and any other phones still ringing are cancelled. If someone
+# is already on the call, the new person joins and the first can hang up;
+# that's a transfer.
+# ─────────────────────────────────────────────
+_HOST = 'https://rolecall.hwtco.org'
+_LIVE_LEG = ('queued', 'initiated', 'ringing', 'in-progress')
+
+def _tw_api(method, path, data=None, params=None):
+    """Small Twilio REST wrapper. Returns parsed JSON or None."""
+    ts = get_twilio_settings()
+    if not (ts.get('account_sid') and ts.get('auth_token')):
+        return None
+    try:
+        import requests as _rq
+        r = _rq.request(method, f'https://api.twilio.com/2010-04-01/Accounts/{ts["account_sid"]}/{path}',
+            data=data, params=params, auth=(ts['account_sid'], ts['auth_token']), timeout=8)
+        return r.json()
+    except Exception as e:
+        app.logger.warning(f'Twilio API {method} {path} failed: {e}')
+        return None
+
+def _conf_name_for(caller_sid):
+    return f'hwtc-{caller_sid[-8:]}'
+
+def _get_staff_legs(caller_sid):
+    conn = get_db()
+    try:
+        row = fetchone(conn, 'SELECT staff_legs FROM call_log WHERE call_sid=%s', (caller_sid,))
+    finally:
+        conn.close()
+    try:
+        return json.loads((row or {}).get('staff_legs') or '[]')
+    except Exception:
+        return []
+
+def _save_staff_legs(conn, caller_sid, legs):
+    execute(conn, 'UPDATE call_log SET staff_legs=%s WHERE call_sid=%s', (json.dumps(legs), caller_sid))
+
+def _add_staff_leg(caller_sid, leg_sid, phone, name):
+    conn = get_db()
+    try:
+        row = fetchone(conn, 'SELECT staff_legs FROM call_log WHERE call_sid=%s FOR UPDATE', (caller_sid,))
+        try: legs = json.loads((row or {}).get('staff_legs') or '[]')
+        except Exception: legs = []
+        legs.append({'sid': leg_sid, 'phone': phone, 'name': name or fmt_phone(phone), 'joined': False})
+        _save_staff_legs(conn, caller_sid, legs)
+        conn.commit()
+    finally:
+        conn.close()
+
+def _live_staff_legs(caller_sid, exclude_sid=''):
+    """Staff phones for this call that are still ringing or connected."""
+    live = []
+    for leg in _get_staff_legs(caller_sid):
+        if not leg.get('sid') or leg['sid'] == exclude_sid:
+            continue
+        info = _tw_api('GET', f'Calls/{leg["sid"]}.json') or {}
+        if info.get('status') in _LIVE_LEG:
+            leg['status'] = info['status']
+            live.append(leg)
+    return live
+
+def _hang_up_leg(leg_sid, status):
+    # 'canceled' works for a phone that hasn't answered yet; 'completed' for one that has
+    _tw_api('POST', f'Calls/{leg_sid}.json', data={'Status': 'completed' if status == 'in-progress' else 'canceled'})
+
+def _find_live_conference(conf_name):
+    data = _tw_api('GET', 'Conferences.json', params={'FriendlyName': conf_name}) or {}
+    for c in data.get('conferences', []):
+        if c.get('status') != 'completed':
+            return c
+    return None
+
+def _end_conference(conf_name):
+    c = _find_live_conference(conf_name)
+    if c:
+        _tw_api('POST', f'Conferences/{c["sid"]}.json', data={'Status': 'completed'})
+
+def _mark_leg_answered(caller_sid, leg_sid):
+    """Someone pressed 1. Record who, stop the other phones that haven't
+    joined yet, and note it in the call's Slack thread."""
+    conn = get_db()
+    try:
+        row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s FOR UPDATE', (caller_sid,))
+        if not row:
+            conn.commit()
+            return
+        try: legs = json.loads(row.get('staff_legs') or '[]')
+        except Exception: legs = []
+        me = next((l for l in legs if l.get('sid') == leg_sid), None) or {'name': 'Someone', 'phone': ''}
+        was_answered = row.get('status') == 'answered'
+        for l in legs:
+            if l.get('sid') == leg_sid:
+                l['joined'] = True
+        _save_staff_legs(conn, caller_sid, legs)
+        execute(conn, """UPDATE call_log SET status='answered', routed_to_name=%s, routed_to_phone=%s, updated_at=NOW()
+            WHERE call_sid=%s""", (me.get('name') or '', me.get('phone') or '', caller_sid))
+        conn.commit()
+        thread_ts = row.get('slack_thread_ts') or None
+    finally:
+        conn.close()
+    # Stop any other phone still ringing (or sitting at "press 1")
+    for l in legs:
+        if l.get('sid') and l.get('sid') != leg_sid and not l.get('joined'):
+            info = _tw_api('GET', f'Calls/{l["sid"]}.json') or {}
+            if info.get('status') in _LIVE_LEG:
+                _hang_up_leg(l['sid'], info.get('status'))
+    msg = (f"*{me.get('name')}* joined the call. Whoever was on it can hang up now; the caller stays connected."
+           if was_answered else f"*Picked up* by {me.get('name')}")
+    post_to_slack_calls([{'type':'section','text':{'type':'mrkdwn','text': msg}}], text=msg, thread_ts=thread_ts)
+
+@app.route('/twilio/conf-event', methods=['POST'])
+def twilio_conf_event():
+    """Conference participant-leave events. Staff legs no longer end the
+    call when they hang up (so transfers work), so this decides when it's over:
+    the caller hung up, or the last staff member left and nobody else is ringing."""
+    if request.form.get('StatusCallbackEvent','') != 'participant-leave':
+        return '', 204
+    caller_sid = request.args.get('caller_sid','')
+    leaving = request.form.get('CallSid','')
+    conf_sid = request.form.get('ConferenceSid','')
+    if not caller_sid:
+        return '', 204
+    conf_name = request.form.get('FriendlyName','') or _conf_name_for(caller_sid)
+    try:
+        if leaving == caller_sid:
+            for l in _live_staff_legs(caller_sid):
+                _hang_up_leg(l['sid'], l.get('status'))
+            _end_conference(conf_name)
+            return '', 204
+        parts = (_tw_api('GET', f'Conferences/{conf_sid}/Participants.json') or {}).get('participants', [])
+        if any(p.get('call_sid') != caller_sid for p in parts):
+            return '', 204          # another staff member is still on the line
+        pending = [l for l in _live_staff_legs(caller_sid, exclude_sid=leaving) if not l.get('joined')]
+        if pending:
+            thread_ts = get_call_thread_ts(caller_sid)
+            names = ', '.join(l.get('name') or 'someone' for l in pending)
+            post_to_slack_calls([{'type':'section','text':{'type':'mrkdwn','text':
+                f'Caller is waiting for {names} to pick up.'}}], text=f'Caller waiting for {names}', thread_ts=thread_ts)
+            return '', 204
+        _end_conference(conf_name)
+    except Exception as e:
+        app.logger.warning(f'conf-event error: {e}')
+    return '', 204
+
+def _call_state(caller_sid):
+    conn = get_db()
+    try:
+        row = fetchone(conn, 'SELECT * FROM call_log WHERE call_sid=%s', (caller_sid,))
+    finally:
+        conn.close()
+    if not row:
+        return None
+    live_conf = _find_live_conference(_conf_name_for(caller_sid))
+    if live_conf and row.get('status') == 'answered':
+        state = 'in_progress'
+    elif live_conf:
+        state = 'ringing'
+    else:
+        state = 'ended'
+    ringing = []
+    if live_conf:
+        ringing = [l.get('name') for l in _live_staff_legs(caller_sid) if not l.get('joined')]
+    return {'state': state, 'from': row.get('from_number') or '',
+            'from_name': lookup_contact_name_by_phone(row.get('from_number') or '') or '',
+            'with': row.get('routed_to_name') or '', 'ringing': ringing,
+            'status': row.get('status') or ''}
+
+def _session_user_name():
+    try:
+        conn = get_db()
+        u = fetchone(conn, 'SELECT name FROM users WHERE id=%s', (session.get('user_id'),))
+        conn.close()
+        return (u or {}).get('name') or ''
+    except Exception:
+        return ''
+
+@app.route('/api/calls/<sid>/state')
+def api_call_state(sid):
+    err = require_auth()
+    if err: return err
+    st = _call_state(sid)
+    if not st: return jsonify({'error': 'Call not found'}), 404
+    return jsonify(st)
+
+@app.route('/api/calls/<sid>/take', methods=['POST'])
+def api_take_call(sid):
+    """Ring the given phone into a live call (pickup if it's still ringing,
+    transfer if someone's already on it)."""
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    agent = normalize_to_e164((d.get('agent') or '').strip())
+    if len(''.join(ch for ch in agent if ch.isdigit())) < 10:
+        return jsonify({'error': 'Enter the phone number to ring.'}), 400
+    st = _call_state(sid)
+    if not st: return jsonify({'error': 'Call not found'}), 404
+    if st['state'] == 'ended':
+        return jsonify({'error': 'This call has already ended.', 'ended': True}), 409
+    if any(_phone_last10(l.get('phone')) == _phone_last10(agent) for l in _live_staff_legs(sid)):
+        return jsonify({'error': 'That phone is already ringing or on this call.'}), 409
+    ts = get_twilio_settings()
+    conf = _conf_name_for(sid)
+    who = (d.get('name') or '').strip() or _session_user_name() or fmt_phone(agent)
+    resp = _tw_api('POST', 'Calls.json', data={
+        'To': agent, 'From': ts['from_phone'],
+        'Url': f'{_HOST}/twilio/screen-call?conf={conf}&caller_sid={sid}', 'Method': 'POST',
+        'Timeout': 25,
+        # Fires once when this leg finishes; the handler only acts on
+        # no-answer/busy/failed/canceled.
+        'StatusCallback': f'{_HOST}/twilio/oncall-no-answer?conf={conf}&caller_sid={sid}',
+        'StatusCallbackMethod': 'POST'})
+    if not resp or not resp.get('sid'):
+        return jsonify({'error': (resp or {}).get('message') or 'Twilio could not place the call.'}), 500
+    _add_staff_leg(sid, resp['sid'], agent, who)
+    verb = 'is taking over' if st['state'] == 'in_progress' else 'is picking up'
+    msg = f'{who} {verb} from RoleCall (ringing `{fmt_phone(agent)}`)'
+    post_to_slack_calls([{'type':'section','text':{'type':'mrkdwn','text': msg}}], text=msg,
+        thread_ts=get_call_thread_ts(sid))
+    return jsonify({'ok': True})
+
+@app.route('/api/sms/reply', methods=['POST'])
+def api_sms_reply():
+    """Text a customer back from the HWTC number. The sender's cell becomes
+    the owner of the conversation, so the customer's replies go to them."""
+    err = require_auth()
+    if err: return err
+    d = request.get_json(silent=True) or {}
+    to = normalize_to_e164((d.get('to') or '').strip())
+    agent = normalize_to_e164((d.get('agent') or '').strip())
+    body = (d.get('body') or '').strip()
+    if len(''.join(ch for ch in to if ch.isdigit())) < 10:
+        return jsonify({'error': 'Enter their full phone number.'}), 400
+    if not body: return jsonify({'error': 'Type a message first.'}), 400
+    if len(''.join(ch for ch in agent if ch.isdigit())) < 10:
+        return jsonify({'error': 'Enter your cell so their reply comes to you.'}), 400
+    ok, send_err = _send_sms(to, body)
+    if not ok:
+        return jsonify({'error': send_err or 'Text failed to send.'}), 500
+    who = _session_user_name() or fmt_phone(agent)
+    conn = get_db()
+    try:
+        prior = fetchone(conn, """SELECT slack_thread_ts FROM sms_conversations
+            WHERE RIGHT(REGEXP_REPLACE(customer_phone,'[^0-9]','','g'),10)=%s
+            AND COALESCE(slack_thread_ts,'') <> '' AND last_message_at > NOW() - INTERVAL '24 hours'
+            ORDER BY last_message_at DESC LIMIT 1""", (_phone_last10(to),))
+        thread_ts = (prior or {}).get('slack_thread_ts') or ''
+        execute(conn, """INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at, last_reply_by, slack_thread_ts)
+            VALUES (%s,%s,NOW(),%s,%s)""", (to, agent, agent, thread_ts))
+        conn.commit()
+    finally:
+        conn.close()
+    to_name = lookup_contact_name_by_phone(to)
+    to_label = f'{to_name} (`{fmt_phone(to)}`)' if to_name else f'`{fmt_phone(to)}`'
+    kind = 'Reply sent' if thread_ts else 'New text sent'
+    msg = f'*{kind}* by {who} (from RoleCall)\n*To:* {to_label}\n*Message:* {body}\n_Their replies will go to {who}._'
+    blocks = [{'type':'section','text':{'type':'mrkdwn','text': msg}}]
+    if not thread_ts:
+        blocks.append({'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'Reply'},
+            'url':f"{_HOST}/sms/reply/{''.join(ch for ch in to if ch.isdigit())}",'action_id':'smsreply'}]})
+    posted = post_to_slack_calls(blocks, text=f'{kind} by {who} to {fmt_phone(to)}', thread_ts=(thread_ts or None))
+    if posted and not thread_ts:
+        # Start the Slack thread for this conversation so their replies land under it
+        try:
+            c2 = get_db()
+            execute(c2, '''UPDATE sms_conversations SET slack_thread_ts=%s WHERE id=(
+                SELECT id FROM sms_conversations WHERE customer_phone=%s ORDER BY last_message_at DESC LIMIT 1)''', (posted, to))
+            c2.commit(); c2.close()
+        except Exception as e:
+            app.logger.warning(f'Could not save SMS Slack thread: {e}')
+    return jsonify({'ok': True, 'who': who})
+
+_STAFF_PAGE_CSS = """*{box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#f5f4f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
+.card{background:#fff;border-radius:16px;padding:32px;max-width:420px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.1);text-align:center}
+.logo{height:48px;margin-bottom:16px}h1{font-size:20px;font-weight:700;color:#0d3d4d;margin:0 0 6px}
+.sub{font-size:14px;color:#666;margin-bottom:20px;min-height:20px}
+.num{font-size:20px;font-weight:800;color:#0d3d4d;background:#eff6ff;padding:10px 16px;border-radius:8px;margin-bottom:20px}
+label{display:block;text-align:left;font-size:13px;font-weight:600;margin-bottom:6px;color:#555}
+input,textarea{width:100%;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-size:16px;margin-bottom:16px;font-family:inherit}
+textarea{min-height:110px;resize:vertical}
+button,.btn{display:block;width:100%;padding:14px;background:#0d3d4d;color:#fff;border:none;border-radius:8px;font-size:16px;font-weight:700;cursor:pointer;text-decoration:none}
+button:disabled{opacity:0.6}#status{margin-top:16px;font-size:14px;font-weight:600;color:#0d3d4d;min-height:20px}
+.note{font-size:12px;color:#888;margin-top:14px;text-align:left}"""
+
+@app.route('/call/take/<sid>')
+def take_call_page(sid):
+    sid = ''.join(ch for ch in sid if ch.isalnum())
+    if 'user_id' not in session:
+        from flask import redirect
+        return redirect('/?next=/call/take/' + sid)
+    sid_js = json.dumps(sid)
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Take this call</title><style>{_STAFF_PAGE_CSS}</style></head>
+<body><div class="card">
+<img src="/static/images/hwtc_logo_teal.png" class="logo" alt="HWTC"/>
+<h1 id="title">Take this call</h1>
+<div class="sub" id="sub">Checking the call…</div>
+<div class="num" id="who">…</div>
+<div id="form" style="display:none">
+<label for="agent">Phone to ring (yours, or whoever is taking it)</label>
+<input type="tel" id="agent" placeholder="+14075550100"/>
+<button id="go" onclick="take()">Ring this phone</button>
+<div class="note" id="howto"></div>
+</div>
+<a class="btn" id="cb" style="display:none">Call them back</a>
+<div id="status"></div>
+</div>
+<script>
+var SID = {sid_js};
+var saved = localStorage.getItem('hwtc_agent_phone');
+if(saved) document.getElementById('agent').value = saved;
+function fmt(p){{var d=(p||'').replace(/\\D/g,'').slice(-10);return d.length==10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):p}}
+async function load(){{
+  try{{
+    var r = await fetch('/api/calls/'+SID+'/state'); var d = await r.json();
+    if(d.error){{document.getElementById('sub').textContent=d.error;return}}
+    document.getElementById('who').textContent = (d.from_name? d.from_name+' · ':'') + fmt(d.from);
+    var sub = document.getElementById('sub'), form = document.getElementById('form'), cb = document.getElementById('cb');
+    var ring = d.ringing && d.ringing.length ? ' Ringing: '+d.ringing.join(', ')+'.' : '';
+    if(d.state=='ringing'){{
+      document.getElementById('title').textContent='Pick up this call';
+      sub.textContent='Caller is on hold.'+ring; form.style.display='block'; cb.style.display='none';
+      document.getElementById('howto').textContent='The phone will ring from the HWTC number. Press 1 to connect. Whoever presses 1 first gets the caller.';
+    }} else if(d.state=='in_progress'){{
+      document.getElementById('title').textContent='Transfer this call';
+      sub.textContent='On the line with '+(d.with||'someone')+'.'+ring; form.style.display='block'; cb.style.display='none';
+      document.getElementById('howto').textContent='The phone will ring from the HWTC number. Once they press 1 they join the call, and '+(d.with||'the current person')+' can hang up. Stay on until they join.';
+    }} else {{
+      document.getElementById('title').textContent='This call has ended';
+      sub.textContent = d.status=='voicemail' ? 'They left a voicemail.' : 'The call is over.';
+      form.style.display='none'; cb.style.display='block';
+      cb.href = '/callback/' + (d.from||'').replace(/\\D/g,'');
+    }}
+  }}catch(e){{document.getElementById('sub').textContent='Could not load call: '+e.message}}
+}}
+async function take(){{
+  var agent=document.getElementById('agent').value.trim();
+  if(!agent){{alert('Enter a phone number first.');return}}
+  localStorage.setItem('hwtc_agent_phone', agent);
+  var btn=document.getElementById('go'), st=document.getElementById('status');
+  btn.disabled=true; btn.textContent='Ringing…';
+  try{{
+    var r = await fetch('/api/calls/'+SID+'/take',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{agent:agent}})}});
+    var d = await r.json();
+    if(d.ok){{st.style.color='#166534';st.textContent='Ringing now. Press 1 when you answer.';btn.textContent='Ringing'}}
+    else{{st.style.color='#991b1b';st.textContent=d.error||'Something went wrong';btn.disabled=false;btn.textContent='Ring this phone'}}
+  }}catch(e){{st.textContent='Error: '+e.message;btn.disabled=false;btn.textContent='Ring this phone'}}
+  load();
+}}
+load(); setInterval(load, 4000);
+</script></body></html>""", 200, {'Content-Type': 'text/html'}
+
+@app.route('/sms/new')
+@app.route('/sms/reply/<digits>')
+def sms_reply_page(digits=''):
+    """Text someone from the HWTC number. /sms/reply/<number> is the Slack
+    Reply button; /sms/new starts a brand-new text to any number (bookmark
+    it, or pin it in the Slack channel)."""
+    digits = ''.join(ch for ch in (digits or '') if ch.isdigit())
+    if 'user_id' not in session:
+        from flask import redirect
+        return redirect('/?next=' + ('/sms/reply/' + digits if digits else '/sms/new'))
+    from html import escape as _he
+    to = normalize_to_e164(digits) if digits else ''
+    name = (lookup_contact_name_by_phone(to) or '') if to else ''
+    to_js = json.dumps(to)
+    if to:
+        to_block = f'<div class="num">{_he((name + " · " if name else "") + fmt_phone(to))}</div>'
+        title = 'Text back via HWTC'
+    else:
+        to_block = ('<label for="to">Their number</label>'
+                    '<input type="tel" id="to" placeholder="(407) 555-0100"/>')
+        title = 'New text via HWTC'
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>{title}</title><style>{_STAFF_PAGE_CSS}</style></head>
+<body><div class="card">
+<img src="/static/images/hwtc_logo_teal.png" class="logo" alt="HWTC"/>
+<h1>{title}</h1>
+<div class="sub">They'll see it from the HWTC number</div>
+{to_block}
+<label for="body">Message</label>
+<textarea id="body"></textarea>
+<label for="agent">Your cell (their replies will come to you)</label>
+<input type="tel" id="agent" placeholder="+14075550100"/>
+<button id="go" onclick="send()">Send text</button>
+<div class="note">After this, just reply from your phone to keep talking. Their texts stay with you for 24 hours after the last message.</div>
+<div id="status"></div>
+</div>
+<script>
+var TO = {to_js};
+var saved = localStorage.getItem('hwtc_agent_phone');
+if(saved) document.getElementById('agent').value = saved;
+async function send(){{
+  var body=document.getElementById('body').value.trim(), agent=document.getElementById('agent').value.trim();
+  var st=document.getElementById('status'), btn=document.getElementById('go');
+  var toEl=document.getElementById('to'); var to = toEl ? toEl.value.trim() : TO;
+  if(toEl && to.replace(/\\D/g,'').length < 10){{alert('Enter their full phone number.');return}}
+  if(!body){{alert('Type a message first.');return}}
+  if(!agent){{alert('Enter your cell first.');return}}
+  localStorage.setItem('hwtc_agent_phone', agent);
+  btn.disabled=true; btn.textContent='Sending…';
+  try{{
+    var r = await fetch('/api/sms/reply',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{to:to,agent:agent,body:body}})}});
+    var d = await r.json();
+    if(d.ok){{st.style.color='#166534';st.textContent='Sent. Their replies will come to your phone.';btn.textContent='Sent';document.getElementById('body').value=''}}
+    else{{st.style.color='#991b1b';st.textContent=d.error||'Something went wrong';btn.disabled=false;btn.textContent='Send text'}}
+  }}catch(e){{st.textContent='Error: '+e.message;btn.disabled=false;btn.textContent='Send text'}}
+}}
+</script></body></html>""", 200, {'Content-Type': 'text/html'}
+
+
 def _phone_last10(p):
     """Strip a phone number down to its last 10 digits for comparison,
     since Twilio uses E.164 (+15551234567) but numbers get stored in all
@@ -36021,7 +36488,37 @@ def twilio_sms():
     now_str = __import__('datetime').datetime.now(__import__('zoneinfo').ZoneInfo('America/New_York')).strftime('%b %d, %Y at %I:%M %p ET')
     app.logger.info(f'Twilio inbound SMS from {from_num}: {body[:80]}')
 
-    is_oncall_replying = forward_to and _phone_last10(from_num) == _phone_last10(forward_to)
+    from_last10_early = _phone_last10(from_num)
+    is_current_oncall = bool(forward_to) and from_last10_early == _phone_last10(forward_to)
+    # Someone who was forwarded a customer text recently but is no longer on
+    # call (shift ended, line rolled to the next person or the fallback) is
+    # still staff replying, not a new customer. Without this check their reply
+    # gets treated as a fresh inbound text and forwarded to whoever is on call
+    # now instead of reaching the person who texted in.
+    was_recent_oncall = False
+    if from_last10_early and not is_current_oncall:
+        _c = get_db()
+        try:
+            last_conv = fetchone(_c, '''SELECT MAX(last_message_at) AS t FROM sms_conversations
+                WHERE RIGHT(REGEXP_REPLACE(oncall_phone,'[^0-9]','','g'),10)=%s
+                AND last_message_at > NOW() - INTERVAL '7 days' ''', (from_last10_early,))
+            if last_conv and last_conv.get('t'):
+                was_recent_oncall = True
+                # If they're also crew on a call-out thread that's more recent,
+                # let the call-out relay below handle it instead.
+                newer_callout = fetchone(_c, '''SELECT 1 AS x FROM callout_relay_threads
+                    WHERE (crew_alert_phones::text LIKE %s
+                       OR RIGHT(REGEXP_REPLACE(active_crew_phone,'[^0-9]','','g'),10)=%s)
+                    AND last_message_at > (SELECT MAX(last_message_at) FROM sms_conversations
+                        WHERE RIGHT(REGEXP_REPLACE(oncall_phone,'[^0-9]','','g'),10)=%s)
+                    LIMIT 1''', (f'%{from_last10_early}%', from_last10_early, from_last10_early))
+                if newer_callout:
+                    was_recent_oncall = False
+        except Exception as e:
+            app.logger.warning(f'Recent on-call check failed: {e}')
+        finally:
+            _c.close()
+    is_oncall_replying = is_current_oncall or was_recent_oncall
     app.logger.info(f'SMS routing check — from_num={from_num} (last10={_phone_last10(from_num)}), '
                      f'forward_to={forward_to} (last10={_phone_last10(forward_to)}), '
                      f'oncall_entry={(oncall or {}).get("person_name")}, is_oncall_replying={bool(is_oncall_replying)}')
@@ -36052,7 +36549,7 @@ def twilio_sms():
                     ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
                 if not target_row:
                     execute(conn, '''INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at)
-                        VALUES (%s,%s,NOW())''', (target_phone, forward_to))
+                        VALUES (%s,%s,NOW())''', (target_phone, from_num))
                     conn.commit()
                     target_row = fetchone(conn, '''SELECT * FROM sms_conversations
                         WHERE customer_phone=%s ORDER BY last_message_at DESC LIMIT 1''', (target_phone,))
@@ -36079,13 +36576,30 @@ def twilio_sms():
             return twiml, 200, {'Content-Type': 'text/xml'}
 
         if not used_explicit_code:
+            # A bare reply goes to the most recent conversation that was
+            # forwarded to (or answered by) THIS person, so an off-shift
+            # replier and the new on-call person don't grab each other's threads.
             target_row = fetchone(conn, '''SELECT * FROM sms_conversations
                 WHERE last_message_at > NOW() - INTERVAL '4 hours'
-                ORDER BY last_message_at DESC LIMIT 1''')
+                AND RIGHT(REGEXP_REPLACE(oncall_phone,'[^0-9]','','g'),10)=%s
+                ORDER BY last_message_at DESC LIMIT 1''', (from_last10_early,))
+            if not target_row and is_current_oncall:
+                target_row = fetchone(conn, '''SELECT * FROM sms_conversations
+                    WHERE last_message_at > NOW() - INTERVAL '4 hours'
+                    ORDER BY last_message_at DESC LIMIT 1''')
 
         if not target_row:
             conn.close()
             app.logger.info('On-call reply received but no active conversation to route it to.')
+            # Tell them rather than dropping it silently, so they know to use @code.
+            try:
+                from twilio.rest import Client as _TwClient
+                client = _TwClient(ts['account_sid'], ts['auth_token'])
+                client.messages.create(
+                    body="RoleCall: Couldn't tell who that reply was for (no recent conversation). Start it with @ and the last 4 digits of their number, e.g. \"@1234 your message\".",
+                    from_=ts['from_phone'], to=from_num)
+            except Exception as e:
+                app.logger.warning(f'Failed to send "no conversation" notice: {e}')
             twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
             return twiml, 200, {'Content-Type': 'text/xml'}
 
@@ -36094,7 +36608,9 @@ def twilio_sms():
             from twilio.rest import Client as _TwClient
             client = _TwClient(ts['account_sid'], ts['auth_token'])
             client.messages.create(body=msg_body, from_=ts['from_phone'], to=customer_phone)
-            execute(conn, 'UPDATE sms_conversations SET last_message_at=NOW() WHERE id=%s', (target_row['id'],))
+            # Whoever replied now owns the thread, so their next bare reply finds it.
+            execute(conn, '''UPDATE sms_conversations SET last_message_at=NOW(), oncall_phone=%s, last_reply_by=%s
+                WHERE id=%s''', (from_num, from_num, target_row['id']))
             conn.commit()
         except Exception as e:
             app.logger.warning(f'Twilio reply-forward SMS failed: {e}')
@@ -36102,8 +36618,9 @@ def twilio_sms():
 
         post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f' *On-Call Reply Sent*\n*To:* `{fmt_phone(customer_phone)}`\n*Time:* {now_str}\n*Message:* {msg_body}'}}
-        ], text=f'On-call reply sent to {fmt_phone(customer_phone)}: {msg_body[:100]}')
+                f' *Reply Sent* by `{fmt_phone(from_num)}`\n*To:* `{fmt_phone(customer_phone)}`\n*Time:* {now_str}\n*Message:* {msg_body}'}}
+        ], text=f'Reply sent to {fmt_phone(customer_phone)}: {msg_body[:100]}',
+           thread_ts=(target_row.get('slack_thread_ts') or None))
 
         twiml = '''<?xml version="1.0" encoding="UTF-8"?><Response></Response>'''
         return twiml, 200, {'Content-Type': 'text/xml'}
@@ -36207,11 +36724,37 @@ def twilio_sms():
     sender_label = f'{contact_name} ({fmt_phone(from_num)})' if contact_name else fmt_phone(from_num)
 
     conn = get_db()
+    # Sticky routing: if someone on the team replied to this customer in the
+    # last 24 hours, their follow-up goes back to that person, even if the
+    # on-call shift has changed since. Otherwise it goes to whoever's on call.
+    STICKY_WINDOW = "INTERVAL '24 hours'"
+    stuck = None
+    try:
+        stuck = fetchone(conn, f'''SELECT last_reply_by FROM sms_conversations
+            WHERE RIGHT(REGEXP_REPLACE(customer_phone,'[^0-9]','','g'),10)=%s
+            AND COALESCE(last_reply_by,'') <> ''
+            AND last_message_at > NOW() - {STICKY_WINDOW}
+            ORDER BY last_message_at DESC LIMIT 1''', (_phone_last10(from_num),))
+    except Exception as e:
+        app.logger.warning(f'Sticky SMS lookup failed: {e}')
+    sticky_phone = (stuck or {}).get('last_reply_by') or ''
+    if sticky_phone and _phone_last10(sticky_phone) != _phone_last10(forward_to):
+        forward_to = sticky_phone
+        sched = fetchone(conn, '''SELECT person_name FROM on_call_schedule
+            WHERE RIGHT(REGEXP_REPLACE(phone,'[^0-9]','','g'),10)=%s
+            ORDER BY start_date DESC LIMIT 1''', (_phone_last10(sticky_phone),))
+        person_name = f"{(sched or {}).get('person_name') or fmt_phone(sticky_phone)} (already handling this conversation)"
     # No unique constraint on customer_phone (a customer could have multiple
     # historical threads), so just insert a fresh row per message rather than
     # upsert — "most recent by last_message_at" is what routing relies on.
-    execute(conn, '''INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at)
-        VALUES (%s,%s,NOW())''', (from_num, forward_to))
+    # Carry last_reply_by forward so the thread stays sticky.
+    prior_thread = fetchone(conn, '''SELECT slack_thread_ts FROM sms_conversations
+        WHERE RIGHT(REGEXP_REPLACE(customer_phone,'[^0-9]','','g'),10)=%s
+        AND COALESCE(slack_thread_ts,'') <> '' AND last_message_at > NOW() - INTERVAL '24 hours'
+        ORDER BY last_message_at DESC LIMIT 1''', (_phone_last10(from_num),))
+    sms_thread_ts = (prior_thread or {}).get('slack_thread_ts') or ''
+    new_conv = fetchone(conn, '''INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at, last_reply_by, slack_thread_ts)
+        VALUES (%s,%s,NOW(),%s,%s) RETURNING id''', (from_num, forward_to, sticky_phone, sms_thread_ts))
     conn.commit(); conn.close()
 
     # Forward to on-call person via Twilio SMS
@@ -36226,11 +36769,23 @@ def twilio_sms():
             )
         except Exception as e:
             app.logger.warning(f'Twilio forward SMS failed: {e}')
-    # Post to Slack
-    post_to_slack_calls([
+    # Post to Slack — follow-ups from the same person land in the same thread
+    sms_host = 'https://rolecall.hwtco.org'
+    reply_digits = ''.join(ch for ch in from_num if ch.isdigit())
+    posted_ts = post_to_slack_calls([
         {'type':'section','text':{'type':'mrkdwn','text':
-            f' *Inbound Text Message*\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}}
-    ], text=f'Text from {sender_label}: {body[:100]}')
+            f' *Inbound Text Message*\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n*Forwarded to:* {person_name} (`{fmt_phone(forward_to)}`)'}},
+        {'type':'actions','elements':[
+            {'type':'button','text':{'type':'plain_text','text':'Reply'},'url':f'{sms_host}/sms/reply/{reply_digits}','action_id':'smsreply'}
+        ]}
+    ], text=f'Text from {sender_label}: {body[:100]}', thread_ts=(sms_thread_ts or None))
+    if posted_ts and not sms_thread_ts and new_conv:
+        try:
+            _c2 = get_db()
+            execute(_c2, 'UPDATE sms_conversations SET slack_thread_ts=%s WHERE id=%s', (posted_ts, new_conv['id']))
+            _c2.commit(); _c2.close()
+        except Exception as e:
+            app.logger.warning(f'Could not save SMS Slack thread: {e}')
     # Auto-reply to sender
     auto_reply = "Thanks for texting Horizon West Theater Company! Someone from our team will get back to you shortly."
     twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
@@ -36778,6 +37333,8 @@ def decline_oncall_signup(rid):
 @app.route('/api/twilio/callback', methods=['POST'])
 def twilio_callback_bridge():
     """Initiate a masked outbound call — calls the agent first, then bridges to the target."""
+    err = require_auth()
+    if err: return err
     d = request.get_json(silent=True) or {}
     to_number = (d.get('to') or '').strip()
     agent_number = (d.get('agent') or '').strip()

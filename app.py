@@ -2665,6 +2665,24 @@ def init_db():
         "ALTER TABLE sms_conversations ADD COLUMN IF NOT EXISTS last_reply_by TEXT DEFAULT ''",
         # Slack thread for this customer's texts, so a back-and-forth stays together.
         "ALTER TABLE sms_conversations ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
+        # The texts themselves (in and out), for the /phone hub's conversation view.
+        """CREATE TABLE IF NOT EXISTS sms_messages (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            customer_phone TEXT NOT NULL,
+            direction TEXT NOT NULL,
+            body TEXT DEFAULT '',
+            staff_phone TEXT DEFAULT '',
+            staff_name TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_sms_messages_created ON sms_messages(created_at)",
+        # Calls placed from the HWTC number (Call Back / New call), for the hub's recents.
+        """CREATE TABLE IF NOT EXISTS outbound_calls (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::text,
+            call_sid TEXT DEFAULT '',
+            to_phone TEXT NOT NULL,
+            staff_phone TEXT DEFAULT '',
+            staff_name TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
         """CREATE TABLE IF NOT EXISTS production_required_waivers (
             id TEXT PRIMARY KEY,
             production_id TEXT NOT NULL REFERENCES productions(id) ON DELETE CASCADE,
@@ -15262,7 +15280,7 @@ async function startCall(){{
   var status = document.getElementById('status');
   try{{
     var r = await fetch('/api/twilio/callback', {{method:'POST', headers:{{'Content-Type':'application/json'}},
-      body: JSON.stringify({{to: to, agent: agent}})
+      body: JSON.stringify({{to: to, agent: agent, name: (window.agentName ? agentName() : '')}})
     }});
     var d = await r.json();
     if(d.ok){{
@@ -36242,6 +36260,7 @@ def api_sms_reply():
     if not ok:
         return jsonify({'error': send_err or 'Text failed to send.'}), 500
     who = (d.get('name') or '').strip() or _session_user_name() or fmt_phone(agent)
+    _log_sms(to, 'out', body, agent, who)
     conn = get_db()
     try:
         prior = fetchone(conn, """SELECT slack_thread_ts FROM sms_conversations
@@ -36334,6 +36353,410 @@ def _staff_picker(label):
   window.agentName=function(){return sel.value&&sel.value!=='other'?sel.options[sel.selectedIndex].text:''};
 })();
 </script>""")
+
+# ─────────────────────────────────────────────
+# Phone hub (/phone): a small mobile page to pin in Slack. New call, new
+# text, live calls, and recent calls and texts in one place. Uses the same
+# APIs as the Slack link pages (callback bridge, /api/sms/reply,
+# /api/calls/<sid>/take).
+# ─────────────────────────────────────────────
+def _log_sms(customer_phone, direction, body, staff_phone='', staff_name=''):
+    """Keep the text itself so the hub can show conversation history.
+    direction: 'in' (customer -> HWTC) or 'out' (HWTC -> customer)."""
+    try:
+        conn = get_db()
+        execute(conn, """INSERT INTO sms_messages (customer_phone, direction, body, staff_phone, staff_name)
+            VALUES (%s,%s,%s,%s,%s)""", (customer_phone, direction, body or '', staff_phone or '', staff_name or ''))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'_log_sms error: {e}')
+
+_K10 = "RIGHT(REGEXP_REPLACE({col},'[^0-9]','','g'),10)"
+
+@app.route('/api/phone/recents')
+def api_phone_recents():
+    err = require_auth()
+    if err: return err
+    staff = {_phone_last10(p['phone']): p['name'] for p in _staff_phone_list()}
+    names = {}
+    def contact(p):
+        k = _phone_last10(p)
+        if k not in names:
+            names[k] = staff.get(k) or lookup_contact_name_by_phone(p) or ''
+        return names[k]
+    def staff_name(phone, fallback=''):
+        return fallback or staff.get(_phone_last10(phone)) or (fmt_phone(phone) if phone else '')
+    conn = get_db()
+    try:
+        calls = fetchall(conn, """SELECT call_sid, from_number, routed_to_name, status, notes,
+                EXTRACT(EPOCH FROM (NOW()-created_at))::int AS ago
+            FROM call_log WHERE created_at > NOW() - INTERVAL '14 days'
+            ORDER BY created_at DESC LIMIT 40""") or []
+        convs = fetchall(conn, f"""SELECT DISTINCT ON ({_K10.format(col='customer_phone')})
+                customer_phone, last_reply_by, EXTRACT(EPOCH FROM (NOW()-last_message_at))::int AS ago
+            FROM sms_conversations WHERE last_message_at > NOW() - INTERVAL '30 days'
+            ORDER BY {_K10.format(col='customer_phone')}, last_message_at DESC""") or []
+        lastmsgs = fetchall(conn, f"""SELECT DISTINCT ON ({_K10.format(col='customer_phone')})
+                {_K10.format(col='customer_phone')} AS k, direction, body, staff_name, staff_phone
+            FROM sms_messages WHERE created_at > NOW() - INTERVAL '30 days'
+            ORDER BY {_K10.format(col='customer_phone')}, created_at DESC""") or []
+        outs = fetchall(conn, """SELECT to_phone, staff_name, staff_phone,
+                EXTRACT(EPOCH FROM (NOW()-created_at))::int AS ago
+            FROM outbound_calls WHERE created_at > NOW() - INTERVAL '14 days'
+            ORDER BY created_at DESC LIMIT 30""") or []
+    finally:
+        conn.close()
+    last_by_k = {m['k']: m for m in lastmsgs}
+
+    items, live = [], []
+    for c in calls:
+        phone = c.get('from_number') or ''
+        it = {'type': 'call', 'sid': c.get('call_sid'), 'phone': phone, 'name': contact(phone),
+              'status': c.get('status') or '', 'handled_by': c.get('routed_to_name') or '',
+              'ago': int(c.get('ago') or 0), 'live': False, 'vm_url': ''}
+        if it['status'] == 'voicemail' and (c.get('notes') or '').startswith('http'):
+            it['vm_url'] = f"/twilio/voicemail-play?url={c['notes']}.mp3"
+        # Only very recent ringing/answered calls can still be live; check those with Twilio
+        if it['status'] in ('ringing', 'answered') and it['ago'] < 3600 and it['sid']:
+            st = _call_state(it['sid'])
+            if st and st['state'] != 'ended':
+                it['live'] = True
+                live.append({'sid': it['sid'], 'phone': phone, 'name': it['name'], 'state': st['state'],
+                             'with': st.get('with') or '', 'ringing': st.get('ringing') or []})
+        items.append(it)
+    for c in convs:
+        phone = c.get('customer_phone') or ''
+        m = last_by_k.get(_phone_last10(phone)) or {}
+        owner = c.get('last_reply_by') or ''
+        items.append({'type': 'text', 'phone': phone, 'name': contact(phone), 'ago': int(c.get('ago') or 0),
+                      'last_dir': m.get('direction') or '', 'last_body': m.get('body') or '',
+                      'last_by': staff_name(m.get('staff_phone') or '', m.get('staff_name') or '') if m.get('direction') == 'out' else '',
+                      'owner': staff_name(owner) if owner else ''})
+    for o in outs:
+        phone = o.get('to_phone') or ''
+        items.append({'type': 'out', 'phone': phone, 'name': contact(phone), 'ago': int(o.get('ago') or 0),
+                      'by': staff_name(o.get('staff_phone') or '', o.get('staff_name') or '')})
+    items.sort(key=lambda x: x['ago'])
+    oncall = get_oncall_now()
+    return jsonify({'items': items[:80], 'live': live,
+                    'oncall': {'name': oncall.get('person_name'), 'phone': oncall.get('phone')} if oncall else None})
+
+@app.route('/api/phone/thread/<digits>')
+def api_phone_thread(digits):
+    err = require_auth()
+    if err: return err
+    k = _phone_last10(digits)
+    staff = {_phone_last10(p['phone']): p['name'] for p in _staff_phone_list()}
+    conn = get_db()
+    try:
+        rows = fetchall(conn, f"""SELECT direction, body, staff_name, staff_phone,
+                EXTRACT(EPOCH FROM (NOW()-created_at))::int AS ago
+            FROM sms_messages WHERE {_K10.format(col='customer_phone')}=%s
+            ORDER BY created_at DESC LIMIT 60""", (k,)) or []
+        conv = fetchone(conn, f"""SELECT last_reply_by FROM sms_conversations
+            WHERE {_K10.format(col='customer_phone')}=%s AND last_message_at > NOW() - INTERVAL '24 hours'
+            AND COALESCE(last_reply_by,'') <> '' ORDER BY last_message_at DESC LIMIT 1""", (k,))
+    finally:
+        conn.close()
+    msgs = [{'dir': r['direction'], 'body': r['body'], 'ago': int(r.get('ago') or 0),
+             'by': (r.get('staff_name') or staff.get(_phone_last10(r.get('staff_phone') or '')) or
+                    (fmt_phone(r['staff_phone']) if r.get('staff_phone') else '')) if r['direction'] == 'out' else ''}
+            for r in reversed(rows)]
+    owner = (conv or {}).get('last_reply_by') or ''
+    phone = normalize_to_e164(digits)
+    return jsonify({'phone': phone, 'name': staff.get(k) or lookup_contact_name_by_phone(phone) or '',
+                    'owner': (staff.get(_phone_last10(owner)) or fmt_phone(owner)) if owner else '',
+                    'messages': msgs})
+
+@app.route('/api/phone/contacts')
+def api_phone_contacts():
+    """Name search for the New call / New text box."""
+    err = require_auth()
+    if err: return err
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    like = f'%{q}%'
+    out, seen = [], set()
+    def add(name, phone, kind):
+        k = _phone_last10(phone or '')
+        if name and len(k) == 10 and k not in seen:
+            seen.add(k); out.append({'name': name, 'phone': normalize_to_e164(phone), 'kind': kind})
+    for p in _staff_phone_list():
+        if q.lower() in (p['name'] or '').lower():
+            add(p['name'], p['phone'], 'Team')
+    conn = get_db()
+    try:
+        for r in fetchall(conn, """SELECT name, phone FROM volunteers WHERE name ILIKE %s
+                AND COALESCE(phone,'') <> '' ORDER BY name LIMIT 8""", (like,)) or []:
+            add(r['name'], r['phone'], 'Volunteer')
+        for r in fetchall(conn, """SELECT DISTINCT guardian_name AS name, guardian_phone AS phone FROM program_registrations
+                WHERE guardian_name ILIKE %s AND COALESCE(guardian_phone,'') <> '' LIMIT 6""", (like,)) or []:
+            add(r['name'], r['phone'], 'Parent/guardian')
+        for r in fetchall(conn, """SELECT COALESCE(NULLIF(contact_name,''), name) AS name, contact_phone AS phone FROM rental_partners
+                WHERE (contact_name ILIKE %s OR name ILIKE %s) AND COALESCE(contact_phone,'') <> '' LIMIT 4""", (like, like)) or []:
+            add(r['name'], r['phone'], 'Rental partner')
+    except Exception as e:
+        app.logger.warning(f'contact search error: {e}')
+    finally:
+        conn.close()
+    return jsonify(out[:10])
+
+_PHONE_HUB_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d3d4d">
+<link rel="apple-touch-icon" href="/static/images/hwtc_logo_teal.png">
+<title>HWTC Phone</title>
+<style>
+:root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--soft:#eef4f6;--red:#b42318;--green:#166534;--in:#fff;--out:#0d3d4d;--out-ink:#fff;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--soft:#1f2a2f;--red:#f97066;--green:#6ce9a6;--in:#252c30;--out:#2b6676;--out-ink:#fff;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+body{padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+.wrap{max-width:560px;margin:0 auto;padding:14px 14px 40px}
+header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px}
+.title{font-size:22px;font-weight:800;color:var(--brand)}
+.sub{font-size:13px;color:var(--muted);margin-top:2px}
+.iconbtn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;width:40px;height:40px;font-size:18px}
+.me{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 12px 0;margin-bottom:12px}
+.me label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+#agent-pick,#agent,.field{width:100%;padding:12px;border:1.5px solid var(--line)!important;border-radius:10px;font-size:16px;margin-bottom:12px;font-family:inherit;background:var(--card)!important;color:var(--ink)!important}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+button{font-family:inherit}
+.big{padding:16px;border:none;border-radius:14px;background:var(--brand);color:var(--brand-ink);font-size:17px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:8px}
+.big svg{width:20px;height:20px;fill:currentColor}
+.primary{padding:12px 16px;border:none;border-radius:10px;background:var(--brand);color:var(--brand-ink);font-size:15px;font-weight:700}
+.secondary{padding:12px 16px;border:1.5px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);font-size:15px;font-weight:600}
+.live{display:flex;align-items:center;justify-content:space-between;gap:10px;background:var(--soft);border:2px solid var(--brand);border-radius:14px;padding:12px;margin-bottom:10px}
+.live-tag{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--brand)}
+.live-who{font-weight:700;margin-top:2px}.live-st{font-size:13px;color:var(--muted)}
+.tabs{display:flex;gap:6px;margin-bottom:8px}
+.tabs button{flex:1;padding:9px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-size:14px;font-weight:600}
+.tabs button.on{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+.list{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.row{display:flex;align-items:center;gap:12px;padding:12px;border-bottom:1px solid var(--line);cursor:pointer}
+.row:last-child{border-bottom:none}
+.ic{flex:none;width:36px;height:36px;border-radius:50%;background:var(--soft);color:var(--brand);display:flex;align-items:center;justify-content:center}
+.ic svg{width:18px;height:18px;fill:currentColor}
+.ic.bad{color:var(--red)}.ic.ok{color:var(--green)}
+.body{flex:1;min-width:0}
+.name{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snip{font-size:13px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.snip.bad{color:var(--red)}
+.time{flex:none;font-size:12px;color:var(--muted)}
+.empty{padding:24px;text-align:center;color:var(--muted)}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.sheet[hidden]{display:none}
+.panel{background:var(--bg);width:100%;max-width:560px;max-height:92vh;border-radius:18px 18px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0));display:flex;flex-direction:column}
+.panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px}
+.panel-title{font-size:19px;font-weight:800}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap}.btnrow>*{flex:1}
+.msgs{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;padding:4px 0 10px;min-height:120px}
+.bub{max-width:82%;padding:9px 12px;border-radius:16px;font-size:15px;line-height:1.35;white-space:pre-wrap;word-wrap:break-word}
+.bub.in{align-self:flex-start;background:var(--in);border:1px solid var(--line)}
+.bub.out{align-self:flex-end;background:var(--out);color:var(--out-ink)}
+.meta{font-size:11px;color:var(--muted);margin:-2px 4px 2px}.meta.out{align-self:flex-end}
+.compose{display:flex;gap:8px;align-items:flex-end}
+.compose textarea.field{flex:1;margin:0;min-height:48px;height:48px;max-height:140px;resize:none}
+textarea.field{min-height:96px;resize:vertical}
+.sugg{background:var(--card);border:1px solid var(--line);border-radius:10px;margin:-6px 0 12px;overflow:hidden}
+.sugg div{padding:10px 12px;border-bottom:1px solid var(--line);cursor:pointer}.sugg div:last-child{border-bottom:none}
+.sugg small{color:var(--muted)}
+.note{font-size:13px;color:var(--muted);margin:8px 0 0}
+#toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:999px;font-size:14px;font-weight:600;z-index:30;max-width:90%;text-align:center}
+#toast[hidden]{display:none}
+</style></head>
+<body><div class="wrap">
+<header>
+  <div><div class="title">HWTC Phone</div><div class="sub" id="oncall">Loading…</div></div>
+  <button class="iconbtn" onclick="load()" aria-label="Refresh">&#8635;</button>
+</header>
+<div class="me">__PICKER__</div>
+<div id="live"></div>
+<div class="actions">
+  <button class="big" onclick="openNew('call')"><svg viewBox="0 0 24 24"><path d="M6.6 10.8a15 15 0 006.6 6.6l2.2-2.2a1 1 0 011-.25c1.1.37 2.3.57 3.6.57a1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.45.57 3.6a1 1 0 01-.25 1z"/></svg>New call</button>
+  <button class="big" onclick="openNew('text')"><svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 012 2v11a2 2 0 01-2 2H8l-5 4V5a2 2 0 012-2z"/></svg>New text</button>
+</div>
+<div class="tabs"><button data-f="all" class="on">All</button><button data-f="call">Calls</button><button data-f="text">Texts</button></div>
+<div class="list" id="list"><div class="empty">Loading…</div></div>
+</div>
+<div class="sheet" id="sheet" hidden><div class="panel" id="panel"></div></div>
+<div id="toast" hidden></div>
+<script>
+var DATA=null, FILTER='all', ROWS=[], THREAD=null, threadTimer=null;
+var SVG_PHONE='<svg viewBox="0 0 24 24"><path d="M6.6 10.8a15 15 0 006.6 6.6l2.2-2.2a1 1 0 011-.25c1.1.37 2.3.57 3.6.57a1 1 0 011 1V20a1 1 0 01-1 1A17 17 0 013 4a1 1 0 011-1h3.5a1 1 0 011 1c0 1.25.2 2.45.57 3.6a1 1 0 01-.25 1z"/></svg>';
+var SVG_TEXT='<svg viewBox="0 0 24 24"><path d="M4 3h16a2 2 0 012 2v11a2 2 0 01-2 2H8l-5 4V5a2 2 0 012-2z"/></svg>';
+var SVG_OUT='<svg viewBox="0 0 24 24"><path d="M9 5v2h6.6L4 18.6 5.4 20 17 8.4V15h2V5z"/></svg>';
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function digits(p){return (p||'').replace(/\D/g,'')}
+function fmt(p){var d=digits(p).slice(-10);return d.length==10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):(p||'')}
+function ago(s){if(s<60)return 'now';if(s<3600)return Math.floor(s/60)+'m';if(s<86400)return Math.floor(s/3600)+'h';return Math.floor(s/86400)+'d'}
+function toast(t){var el=$('toast');el.textContent=t;el.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(function(){el.hidden=true},3500)}
+function me(){return {agent:($('agent').value||'').trim(),name:(window.agentName?agentName():'')}}
+function needMe(){var m=me();if(digits(m.agent).length<10){alert('Pick who you are at the top first.');closeSheet();$('agent-pick').focus();return null}
+  try{localStorage.setItem('hwtc_agent_phone',m.agent)}catch(e){}return m}
+async function api(url,body){
+  var opts=body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{};
+  var r=await fetch(url,opts);
+  if(r.status==401){location.href='/?next=/phone';return {}}
+  try{return await r.json()}catch(e){return {error:'Unexpected response ('+r.status+')'}}
+}
+document.addEventListener('change',function(e){if(e.target.id=='agent-pick'||e.target.id=='agent'){var a=$('agent').value;if(digits(a).length>=10){try{localStorage.setItem('hwtc_agent_phone',a)}catch(x){}}}});
+
+async function load(){
+  var d=await api('/api/phone/recents');
+  if(!d||!d.items){if(d&&d.error)$('list').innerHTML='<div class="empty">'+esc(d.error)+'</div>';return}
+  DATA=d;
+  $('oncall').textContent=d.oncall?('On call now: '+d.oncall.name):'Nobody on call right now';
+  renderLive();renderList();
+}
+function renderLive(){
+  var h='';
+  (DATA.live||[]).forEach(function(c){
+    var who=c.name?esc(c.name)+' · '+fmt(c.phone):fmt(c.phone);
+    var inprog=c.state=='in_progress';
+    var st=inprog?'On the line with '+esc(c.with||'someone'):('Ringing'+(c.ringing&&c.ringing.length?' '+esc(c.ringing.join(', ')):''));
+    h+='<div class="live"><div><div class="live-tag">'+(inprog?'Live call':'Incoming call')+'</div><div class="live-who">'+who+'</div><div class="live-st">'+st+'</div></div>'
+      +'<button class="primary" onclick="takeCall(\''+esc(c.sid)+'\')">'+(inprog?'Take over':'Pick up')+'</button></div>';
+  });
+  $('live').innerHTML=h;
+}
+var CALL_LABEL={answered:'Answered',missed:'Missed',voicemail:'Voicemail',after_hours:'After hours',closed:'While closed',no_coverage:'Missed (no coverage)',ringing:'Ringing',failed:'Failed'};
+var BAD={missed:1,voicemail:1,after_hours:1,closed:1,no_coverage:1,failed:1};
+function rowHTML(it,i){
+  var title=it.name?esc(it.name):esc(fmt(it.phone)), sub='', ic=SVG_PHONE, icc='', subc='';
+  if(it.type=='call'){
+    sub=CALL_LABEL[it.status]||it.status||'Call';
+    if(it.status=='answered'&&it.handled_by)sub+=' by '+it.handled_by;
+    sub=esc(sub);
+    if(BAD[it.status]){icc='bad';subc='bad'}else if(it.status=='answered'){icc='ok'}
+    if(it.live){sub='Live now';icc='ok';subc=''}
+  }else if(it.type=='out'){
+    ic=SVG_OUT;sub=esc('Outgoing'+(it.by?' · '+it.by:''));
+  }else{
+    ic=SVG_TEXT;
+    sub=it.last_body?((it.last_dir=='out'?esc((it.last_by||'HWTC')+': '):'')+esc(it.last_body)):'Text conversation';
+    if(it.owner)sub=esc('With '+it.owner+' · ')+sub;
+  }
+  return '<div class="row" onclick="openItem('+i+')"><div class="ic '+icc+'">'+ic+'</div><div class="body"><div class="name">'+title+'</div><div class="snip '+subc+'">'+sub+'</div></div><div class="time">'+ago(it.ago)+'</div></div>';
+}
+function renderList(){
+  ROWS=(DATA.items||[]).filter(function(it){return FILTER=='all'||(FILTER=='call'?(it.type=='call'||it.type=='out'):it.type=='text')});
+  $('list').innerHTML=ROWS.length?ROWS.map(rowHTML).join(''):'<div class="empty">Nothing here yet.</div>';
+}
+document.querySelectorAll('.tabs button').forEach(function(b){b.onclick=function(){
+  document.querySelectorAll('.tabs button').forEach(function(x){x.classList.remove('on')});b.classList.add('on');FILTER=b.dataset.f;if(DATA)renderList()}});
+
+function openSheet(html){$('panel').innerHTML=html;$('sheet').hidden=false}
+function closeSheet(){$('sheet').hidden=true;THREAD=null;clearInterval(threadTimer)}
+$('sheet').addEventListener('click',function(e){if(e.target.id=='sheet')closeSheet()});
+function head(title,sub){return '<div class="panel-head"><div><div class="panel-title">'+title+'</div>'+(sub?'<div class="sub">'+sub+'</div>':'')+'</div><button class="iconbtn" onclick="closeSheet()" aria-label="Close">&#10005;</button></div>'}
+
+function openItem(i){
+  var it=ROWS[i]; if(!it)return;
+  if(it.type=='text'){openThread(it.phone);return}
+  var title=it.name?esc(it.name):esc(fmt(it.phone));
+  var sub=it.name?esc(fmt(it.phone)):'';
+  var detail=it.type=='out'?'Outgoing call'+(it.by?' by '+esc(it.by):''):esc(CALL_LABEL[it.status]||it.status||'Call')+(it.status=='answered'&&it.handled_by?' by '+esc(it.handled_by):'');
+  var h=head(title,sub)+'<p class="sub" style="margin:0 0 14px">'+detail+' · '+ago(it.ago)+(it.ago>=60?' ago':'')+'</p><div class="btnrow">';
+  if(it.live)h+='<button class="primary" onclick="takeCall(\''+esc(it.sid)+'\')">Take this call</button>';
+  h+='<button class="'+(it.live?'secondary':'primary')+'" onclick="callNumber(\''+esc(it.phone)+'\')">Call back</button>';
+  h+='<button class="secondary" onclick="openThread(\''+esc(it.phone)+'\')">Text</button></div>';
+  if(it.vm_url)h+='<p class="note"><a href="'+esc(it.vm_url)+'" target="_blank" style="color:var(--brand);font-weight:700">Play voicemail</a></p>';
+  openSheet(h);
+}
+
+async function callNumber(phone){
+  var m=needMe();if(!m)return;
+  toast('Ringing your phone…');
+  var d=await api('/api/twilio/callback',{to:phone,agent:m.agent,name:m.name});
+  if(d.ok){closeSheet();toast('Answer your phone to be connected. They\u2019ll see the HWTC number.');setTimeout(load,2000)}
+  else alert(d.error||'Call failed');
+}
+async function takeCall(sid){
+  var m=needMe();if(!m)return;
+  var d=await api('/api/calls/'+encodeURIComponent(sid)+'/take',{agent:m.agent,name:m.name});
+  if(d.ok){closeSheet();toast('Ringing your phone. Press 1 to connect.');setTimeout(load,2000)}
+  else alert(d.error||'Could not ring you');
+}
+
+async function openThread(phone){
+  THREAD=phone;
+  openSheet(head(esc(fmt(phone)),'')+'<div class="msgs" id="msgs"><div class="empty">Loading…</div></div>'
+    +'<div class="compose"><textarea class="field" id="reply" placeholder="Text message" rows="1"></textarea><button class="primary" id="sendbtn" onclick="sendReply()">Send</button></div>'
+    +'<p class="note" id="thread-note"></p>');
+  await loadThread();
+  clearInterval(threadTimer);threadTimer=setInterval(function(){if(THREAD)loadThread()},8000);
+}
+async function loadThread(){
+  if(!THREAD)return;
+  var phone=THREAD, d=await api('/api/phone/thread/'+digits(phone));
+  if(THREAD!==phone||!$('msgs'))return;
+  var t=document.querySelector('.panel-title'), s=document.querySelector('.panel-head .sub');
+  if(d.name){t.textContent=d.name;if(!s){s=document.createElement('div');s.className='sub';t.parentNode.appendChild(s)}s.textContent=fmt(phone)}
+  var h='';
+  (d.messages||[]).forEach(function(m){
+    h+='<div class="bub '+(m.dir=='out'?'out':'in')+'">'+esc(m.body)+'</div><div class="meta '+(m.dir=='out'?'out':'')+'">'+(m.dir=='out'&&m.by?esc(m.by)+' · ':'')+ago(m.ago)+'</div>';
+  });
+  var box=$('msgs'), atBottom=box.scrollHeight-box.scrollTop-box.clientHeight<40;
+  box.innerHTML=h||'<div class="empty">No messages saved yet. Texts show up here from now on.</div>';
+  if(atBottom||!box.dataset.loaded){box.scrollTop=box.scrollHeight;box.dataset.loaded=1}
+  $('thread-note').textContent=d.owner?('Their replies go to '+d.owner+'. Sending a reply here makes it go to you.'):'Sending a reply makes their texts come to you.';
+}
+async function sendReply(){
+  var m=needMe();if(!m)return;
+  var body=$('reply').value.trim();if(!body)return;
+  var btn=$('sendbtn');btn.disabled=true;
+  var d=await api('/api/sms/reply',{to:THREAD,agent:m.agent,name:m.name,body:body});
+  btn.disabled=false;
+  if(d.ok){$('reply').value='';loadThread();load()}else alert(d.error||'Text failed to send');
+}
+
+var suggTimer=null;
+function openNew(kind){
+  var isText=kind=='text';
+  openSheet(head(isText?'New text':'New call','From the HWTC number')
+    +'<input class="field" id="to" type="text" inputmode="search" autocomplete="off" placeholder="Name or phone number">'
+    +'<div id="sugg"></div>'
+    +(isText?'<textarea class="field" id="newbody" placeholder="Message"></textarea>':'')
+    +'<button class="primary" style="width:100%" id="newgo">'+(isText?'Send text':'Ring me, then connect')+'</button>'
+    +(isText?'':'<p class="note">Your phone rings first. When you answer, it dials them and they see the HWTC number.</p>'));
+  var to=$('to');to.focus();
+  to.addEventListener('input',function(){to.dataset.phone='';clearTimeout(suggTimer);suggTimer=setTimeout(suggest,250)});
+  $('newgo').onclick=function(){isText?sendNew():callNew()};
+}
+async function suggest(){
+  var q=$('to').value.trim(), box=$('sugg');
+  if(q.length<2||/^[\d\s()+\-.]+$/.test(q)){box.innerHTML='';return}
+  var list=await api('/api/phone/contacts?q='+encodeURIComponent(q));
+  if(!Array.isArray(list)||!list.length){box.innerHTML='';return}
+  box.innerHTML='<div class="sugg">'+list.map(function(c,i){return '<div data-i="'+i+'">'+esc(c.name)+' <small>· '+esc(c.kind)+' · '+esc(fmt(c.phone))+'</small></div>'}).join('')+'</div>';
+  box.querySelectorAll('[data-i]').forEach(function(el){el.onclick=function(){var c=list[+el.dataset.i];$('to').value=c.name+' · '+fmt(c.phone);$('to').dataset.phone=c.phone;box.innerHTML='';var b=$('newbody');(b||$('newgo')).focus()}});
+}
+function pickedTo(){var el=$('to');var p=el.dataset.phone||el.value;if(digits(p).length<10){alert('Enter a full phone number or pick someone from the list.');return null}return p}
+async function callNew(){var to=pickedTo();if(to)callNumber(to)}
+async function sendNew(){
+  var to=pickedTo();if(!to)return;var m=needMe();if(!m)return;
+  var body=$('newbody').value.trim();if(!body){alert('Type a message first.');return}
+  $('newgo').disabled=true;
+  var d=await api('/api/sms/reply',{to:to,agent:m.agent,name:m.name,body:body});
+  if(d.ok){toast('Sent. Their replies will come to you.');openThread(to);load()}
+  else{$('newgo').disabled=false;alert(d.error||'Text failed to send')}
+}
+load();setInterval(function(){if(document.visibilityState=='visible')load()},10000);
+document.addEventListener('visibilitychange',function(){if(document.visibilityState=='visible')load()});
+</script></body></html>"""
+
+@app.route('/phone')
+def phone_hub_page():
+    if 'user_id' not in session:
+        from flask import redirect
+        return redirect('/?next=/phone')
+    resp = app.response_class(_PHONE_HUB_HTML.replace('__PICKER__', _staff_picker('You are')), mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
 
 _STAFF_PAGE_CSS = """*{box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#f5f4f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
 .card{background:#fff;border-radius:16px;padding:32px;max-width:420px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.1);text-align:center}
@@ -36665,6 +37088,7 @@ def twilio_sms():
             from twilio.rest import Client as _TwClient
             client = _TwClient(ts['account_sid'], ts['auth_token'])
             client.messages.create(body=msg_body, from_=ts['from_phone'], to=customer_phone)
+            _log_sms(customer_phone, 'out', msg_body, from_num)
             # Whoever replied now owns the thread, so their next bare reply finds it.
             execute(conn, '''UPDATE sms_conversations SET last_message_at=NOW(), oncall_phone=%s, last_reply_by=%s
                 WHERE id=%s''', (from_num, from_num, target_row['id']))
@@ -36813,6 +37237,7 @@ def twilio_sms():
     new_conv = fetchone(conn, '''INSERT INTO sms_conversations (customer_phone, oncall_phone, last_message_at, last_reply_by, slack_thread_ts)
         VALUES (%s,%s,NOW(),%s,%s) RETURNING id''', (from_num, forward_to, sticky_phone, sms_thread_ts))
     conn.commit(); conn.close()
+    _log_sms(from_num, 'in', body)
 
     # Forward to on-call person via Twilio SMS
     if forward_to and ts['account_sid'] and ts['auth_token']:
@@ -37421,6 +37846,14 @@ def twilio_callback_bridge():
             status_callback=f'{host}/twilio/call-status',
             status_callback_method='POST'
         )
+        try:
+            _oc = get_db()
+            execute(_oc, '''INSERT INTO outbound_calls (call_sid, to_phone, staff_phone, staff_name)
+                VALUES (%s,%s,%s,%s)''', (call.sid, to_number, agent_number,
+                (d.get('name') or '').strip() or _session_user_name()))
+            _oc.commit(); _oc.close()
+        except Exception as log_err:
+            app.logger.warning(f'outbound_calls log failed: {log_err}')
         return jsonify({'ok': True, 'sid': call.sid})
     except Exception as e:
         return jsonify({'error': str(e)}), 500

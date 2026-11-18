@@ -559,6 +559,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   .page-body a[href^="mailto:"],.page-body [style*="word-break"]{overflow-wrap:anywhere}
   .page-body img{max-width:100%;height:auto}
   #page-mobile-calendar{padding:8px 8px 0}
+  /* profile pages (volunteers, participants…): banner wraps, its buttons become one swipeable row */
+  #page-profile{overflow-x:hidden}
+  #profile-header > div{flex-wrap:wrap !important;gap:12px !important;padding-left:16px !important;padding-right:16px !important}
+  #profile-header > div > div{min-width:0;max-width:100%}
+  #profile-header > div > div:last-child{flex-shrink:1 !important;width:100%;flex-wrap:nowrap !important;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+  #profile-header > div > div:last-child::-webkit-scrollbar{display:none}
+  #profile-header > div > div:last-child > *{flex-shrink:0;white-space:nowrap}
+  .profile-layout{display:block !important}
+  .profile-layout > *{min-width:0;max-width:100%;margin-bottom:14px}
+  .profile-card{width:auto !important}
 }
 </style>
  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
@@ -20239,7 +20249,7 @@ function mobToggleTab(p){
       muts.forEach(function(m){ m.addedNodes.forEach(function(n){
         if(n.nodeType !== 1 || n.tagName !== 'DIV' || n.id === 'mob-more' || n.id === 'inbox-thread-overlay') return
         var st = n.style
-        if(st && st.position === 'fixed' && (parseInt(st.zIndex) || 0) >= 9000 && n.firstElementChild) n.classList.add('rc-sheet')
+        if(st && st.position === 'fixed' && (parseInt(st.zIndex) || 0) >= 9000 && n.firstElementChild && n.firstElementChild.tagName === 'DIV' && /rgba?\(0,\s*0,\s*0/.test(st.background || st.backgroundColor || '') && n.id !== 'app-loading-overlay') n.classList.add('rc-sheet')
       }) })
     }).observe(document.documentElement, {childList: true, subtree: false})
     document.addEventListener('DOMContentLoaded', function(){
@@ -20247,7 +20257,7 @@ function mobToggleTab(p){
         muts.forEach(function(m){ m.addedNodes.forEach(function(n){
           if(n.nodeType !== 1 || n.tagName !== 'DIV' || n.id === 'mob-more' || n.id === 'inbox-thread-overlay') return
           var st = n.style
-          if(st && st.position === 'fixed' && (parseInt(st.zIndex) || 0) >= 9000 && n.firstElementChild) n.classList.add('rc-sheet')
+          if(st && st.position === 'fixed' && (parseInt(st.zIndex) || 0) >= 9000 && n.firstElementChild && n.firstElementChild.tagName === 'DIV' && /rgba?\(0,\s*0,\s*0/.test(st.background || st.backgroundColor || '') && n.id !== 'app-loading-overlay') n.classList.add('rc-sheet')
         }) })
       }).observe(document.body, {childList: true})
     })

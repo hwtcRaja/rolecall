@@ -576,6 +576,35 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   .profile-layout > *{min-width:0;max-width:100%;margin-bottom:14px}
   .profile-card{width:auto !important}
 }
+
+/* Volunteers on phones: card list, table hidden */
+#vol-mobile-list{display:none}
+@media (max-width: 768px){
+  #vol-mobile-list{display:block}
+  #page-volunteers .card:has(#vol-table-body){display:none !important}
+  .vm-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:12px 14px;margin-bottom:10px;cursor:pointer}
+  .vm-card:active{background:var(--bg)}
+  .vm-top{display:flex;gap:10px;align-items:center}
+  .vm-who{flex:1;min-width:0}
+  .vm-name{font-weight:700;font-size:15.5px;color:var(--teal-600)}
+  .vm-pro{font-size:12px;font-weight:400;color:var(--text-hint)}
+  .vm-sub{font-size:13px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .vm-hrs{font-weight:800;color:var(--teal-600);font-size:14px;flex-shrink:0}
+  .vm-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+  .vm-chips > *{margin:0 !important}
+  .vm-more{font-size:12px;color:var(--text-muted);font-weight:700}
+  .vm-act{display:flex;gap:8px;margin-top:10px}
+  .vm-act:empty{display:none}
+  .vm-act a{flex:1;text-align:center;padding:9px 0;border-radius:10px;border:1.5px solid var(--border-md);font-weight:700;font-size:14px;color:var(--teal-dark);text-decoration:none;background:var(--surface)}
+  /* inbox conversation: the message list scrolls, the reply box always stays on screen */
+  #inbox-thread-overlay{height:100%;bottom:0}
+  .ibx-box{height:100% !important;max-height:100dvh}
+  .ibx-body{min-height:0 !important;flex:1 1 auto !important;overflow:hidden}
+  .ibx-main{min-height:0 !important;flex:1 1 auto !important;overflow:hidden}
+  .ibx-msgs{min-height:0 !important;flex:1 1 auto !important;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+  .ibx-compose{flex-shrink:0 !important;background:var(--surface);padding-bottom:calc(14px + env(safe-area-inset-bottom,0px)) !important}
+  .ibx-sidep{min-height:0;overflow-y:auto !important}
+}
 </style>
  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
 </head>
@@ -5773,6 +5802,25 @@ function renderVolunteers(){
  else filtered.sort((a,b)=>(a.name||'').localeCompare(b.name||''))
  document.getElementById('vol-count-label').textContent=`${filtered.length} of ${volunteers.length} volunteers`
  const tbody=document.getElementById('vol-table-body')
+ // Phones: a simple list of volunteer cards instead of the table
+ var _mob = document.getElementById('vol-mobile-list')
+ if(!_mob){ _mob = document.createElement('div'); _mob.id = 'vol-mobile-list'; var _tc = tbody.closest('.card'); _tc.parentNode.insertBefore(_mob, _tc) }
+ if(window.innerWidth <= 768){
+   _mob.innerHTML = filtered.length ? filtered.map(function(v){
+       var interests = []; try{ interests = JSON.parse(v.interests||'[]') }catch(e){}
+       var hrs = sortBy.startsWith('hours_ytd') ? (v.hours_ytd||0)+'h YTD' : (v.total_hours||0)+'h'
+       return '<div class="vm-card" onclick="openProfile(\''+v.id+'\')">'
+         + '<div class="vm-top">'+avatarHTML(v.name)+'<div class="vm-who"><div class="vm-name">'+escHtml(v.name||'')+(v.pronouns?' <span class="vm-pro">('+escHtml(v.pronouns)+')</span>':'')+'</div>'
+         + '<div class="vm-sub">'+escHtml(v.email||'')+'</div>'+(v.phone?'<div class="vm-sub">'+escHtml(v.phone)+'</div>':'')+'</div>'
+         + '<div class="vm-hrs">'+hrs+'</div></div>'
+         + '<div class="vm-chips"><span class="status-badge '+(v.status==='active'?'status-active':'status-inactive')+'">'+(v.status==='active'?'Active':'Inactive')+'</span>'
+         + waiverBadgeHTML(waiverStatus(v)) + bgcBadgeHTML(v.background_check_status, true)
+         + interests.slice(0,3).map(function(i){ return interestTagHTML(i) }).join('') + (interests.length>3?'<span class="vm-more">+'+(interests.length-3)+'</span>':'') + '</div>'
+         + '<div class="vm-act" onclick="event.stopPropagation()">'
+         + (v.phone?'<a href="tel:'+escHtml(v.phone)+'">Call</a><a href="sms:'+escHtml(v.phone)+'">Text</a>':'')
+         + (v.email?'<a href="mailto:'+escHtml(v.email)+'">Email</a>':'') + '</div></div>'
+     }).join('') : '<div class="empty-state"><p>No volunteers found</p><span>Try adjusting your search or filters</span></div>'
+ } else _mob.innerHTML = ''
  if(!filtered.length){
  tbody.innerHTML=`<tr><td colspan="8"><div class="empty-state"><div class="empty-icon"></div><p>No volunteers found</p><span>Try adjusting your search or filters</span></div></td></tr>`
  return

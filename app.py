@@ -15228,6 +15228,7 @@ def callback_page(digits=None):
         # The login page only returns to plain paths (no query string), so
         # send people back to the /callback/<digits> form of this page.
         return redirect('/?next=/callback/' + ''.join(ch for ch in to_number if ch.isdigit()))
+    picker_html = _staff_picker('Who is calling? (we ring them first)')
     from_number = request.args.get('from_number','') or to_number
     return f'''<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
@@ -15247,18 +15248,15 @@ button:disabled{{opacity:0.6}}
 <h1>Call Back via HWTC</h1>
 <div class="sub">Your call will show as the HWTC number</div>
 <div class="num">{from_number or to_number}</div>
-<label>Your cell number (we'll call you first)</label>
-<input type="tel" id="agent" placeholder="+14075550100" value=""/>
+{picker_html}
 <button onclick="startCall()"> Connect Call</button>
 <div id="status"></div>
 </div>
 <script>
 var to = '{to_number or from_number}';
-var saved = localStorage.getItem('hwtc_agent_phone');
-if(saved) document.getElementById('agent').value = saved;
 async function startCall(){{
   var agent = document.getElementById('agent').value.trim();
-  if(!agent){{alert('Enter your cell number first.');return}}
+  if(!agent){{alert('Choose who is calling first.');return}}
   localStorage.setItem('hwtc_agent_phone', agent);
   var btn = document.querySelector('button'); btn.disabled=true; btn.textContent='Calling…';
   var status = document.getElementById('status');
@@ -36206,6 +36204,8 @@ def api_take_call(sid):
     ts = get_twilio_settings()
     conf = _conf_name_for(sid)
     who = (d.get('name') or '').strip() or _session_user_name() or fmt_phone(agent)
+    # The page may be used by someone ringing a colleague; note who clicked it
+    clicker = _session_user_name()
     resp = _tw_api('POST', 'Calls.json', data={
         'To': agent, 'From': ts['from_phone'],
         'Url': f'{_HOST}/twilio/screen-call?conf={conf}&caller_sid={sid}', 'Method': 'POST',
@@ -36218,7 +36218,7 @@ def api_take_call(sid):
         return jsonify({'error': (resp or {}).get('message') or 'Twilio could not place the call.'}), 500
     _add_staff_leg(sid, resp['sid'], agent, who)
     verb = 'is taking over' if st['state'] == 'in_progress' else 'is picking up'
-    msg = f'{who} {verb} from RoleCall (ringing `{fmt_phone(agent)}`)'
+    msg = f'{who} {verb} (ringing `{fmt_phone(agent)}`)' + (f', sent by {clicker}' if clicker and clicker != who else '')
     post_to_slack_calls([{'type':'section','text':{'type':'mrkdwn','text': msg}}], text=msg,
         thread_ts=get_call_thread_ts(sid))
     return jsonify({'ok': True})
@@ -36241,7 +36241,7 @@ def api_sms_reply():
     ok, send_err = _send_sms(to, body)
     if not ok:
         return jsonify({'error': send_err or 'Text failed to send.'}), 500
-    who = _session_user_name() or fmt_phone(agent)
+    who = (d.get('name') or '').strip() or _session_user_name() or fmt_phone(agent)
     conn = get_db()
     try:
         prior = fetchone(conn, """SELECT slack_thread_ts FROM sms_conversations
@@ -36257,7 +36257,9 @@ def api_sms_reply():
     to_name = lookup_contact_name_by_phone(to)
     to_label = f'{to_name} (`{fmt_phone(to)}`)' if to_name else f'`{fmt_phone(to)}`'
     kind = 'Reply sent' if thread_ts else 'New text sent'
-    msg = f'*{kind}* by {who} (from RoleCall)\n*To:* {to_label}\n*Message:* {body}\n_Their replies will go to {who}._'
+    clicker = _session_user_name()
+    by = who + (f' (sent by {clicker})' if clicker and clicker != who else '')
+    msg = f'*{kind}* as {by}\n*To:* {to_label}\n*Message:* {body}\n_Their replies will go to {who}._'
     blocks = [{'type':'section','text':{'type':'mrkdwn','text': msg}}]
     if not thread_ts:
         blocks.append({'type':'actions','elements':[{'type':'button','text':{'type':'plain_text','text':'Reply'},
@@ -36273,6 +36275,65 @@ def api_sms_reply():
         except Exception as e:
             app.logger.warning(f'Could not save SMS Slack thread: {e}')
     return jsonify({'ok': True, 'who': who})
+
+def _staff_phone_list():
+    """People who can take calls/texts: everyone on the on-call schedule in
+    the last 6 months or upcoming (latest name per phone), plus the fallback line."""
+    people, seen = [], set()
+    try:
+        conn = get_db()
+        rows = fetchall(conn, """SELECT DISTINCT ON (RIGHT(REGEXP_REPLACE(phone,'[^0-9]','','g'),10))
+                person_name, phone
+            FROM on_call_schedule
+            WHERE COALESCE(phone,'') <> '' AND COALESCE(person_name,'') <> ''
+              AND (end_date IS NULL OR end_date >= CURRENT_DATE - INTERVAL '180 days')
+            ORDER BY RIGHT(REGEXP_REPLACE(phone,'[^0-9]','','g'),10), start_date DESC""") or []
+        conn.close()
+    except Exception as e:
+        app.logger.warning(f'_staff_phone_list error: {e}')
+        rows = []
+    for r in sorted(rows, key=lambda r: (r.get('person_name') or '').lower()):
+        k = _phone_last10(r['phone'])
+        if k and k not in seen:
+            seen.add(k)
+            people.append({'name': r['person_name'], 'phone': normalize_to_e164(r['phone'])})
+    fb = (get_twilio_settings().get('fallback') or '').strip()
+    if fb and _phone_last10(fb) not in seen:
+        people.append({'name': 'Fallback line', 'phone': normalize_to_e164(fb)})
+    return people
+
+def _staff_picker(label):
+    """A 'who is this?' dropdown for the staff pages. Keeps the existing
+    #agent input as the value the page reads, so the pages' own JS is
+    unchanged: picking a person fills it in, and 'Someone else' shows it
+    for typing. Remembers the last pick on this device. Also exposes
+    agentName() for the person's name."""
+    from html import escape as _he
+    people = _staff_phone_list()
+    opts = ''.join(f'<option value="{_he(p["phone"])}">{_he(p["name"])}</option>' for p in people)
+    return ("""<label for="agent-pick">""" + _he(label) + """</label>
+<select id="agent-pick" style="width:100%;padding:12px 14px;border:1.5px solid #d1d5db;border-radius:8px;font-size:16px;margin-bottom:16px;font-family:inherit;background:#fff">
+<option value="">Choose a person…</option>""" + opts + """<option value="other">Someone else (type a number)</option>
+</select>
+<input type="tel" id="agent" placeholder="(407) 555-0100" style="display:none"/>
+<script>
+(function(){
+  var sel=document.getElementById('agent-pick'), inp=document.getElementById('agent');
+  function last10(p){return (p||'').replace(/\\D/g,'').slice(-10)}
+  function sync(){
+    if(sel.value==='other'){inp.style.display='block'; if(last10(inp.value)&&[].some.call(sel.options,function(o){return o.value!=='other'&&o.value&&last10(o.value)===last10(inp.value)})) inp.value=''; inp.focus()}
+    else {inp.style.display='none'; inp.value=sel.value}
+  }
+  sel.addEventListener('change', sync);
+  var saved=''; try{saved=localStorage.getItem('hwtc_agent_phone')||''}catch(e){}
+  if(saved){
+    var match=[].find.call(sel.options,function(o){return o.value&&o.value!=='other'&&last10(o.value)===last10(saved)});
+    if(match){sel.value=match.value; inp.value=match.value}
+    else {sel.value='other'; inp.style.display='block'; inp.value=saved}
+  } else if(sel.options.length<=2){sel.value='other'; inp.style.display='block'}
+  window.agentName=function(){return sel.value&&sel.value!=='other'?sel.options[sel.selectedIndex].text:''};
+})();
+</script>""")
 
 _STAFF_PAGE_CSS = """*{box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#f5f4f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
 .card{background:#fff;border-radius:16px;padding:32px;max-width:420px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.1);text-align:center}
@@ -36293,6 +36354,7 @@ def take_call_page(sid):
         from flask import redirect
         return redirect('/?next=/call/take/' + sid)
     sid_js = json.dumps(sid)
+    picker_html = _staff_picker('Who is taking it?')
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>Take this call</title><style>{_STAFF_PAGE_CSS}</style></head>
@@ -36302,8 +36364,7 @@ def take_call_page(sid):
 <div class="sub" id="sub">Checking the call…</div>
 <div class="num" id="who">…</div>
 <div id="form" style="display:none">
-<label for="agent">Phone to ring (yours, or whoever is taking it)</label>
-<input type="tel" id="agent" placeholder="+14075550100"/>
+{picker_html}
 <button id="go" onclick="take()">Ring this phone</button>
 <div class="note" id="howto"></div>
 </div>
@@ -36312,8 +36373,6 @@ def take_call_page(sid):
 </div>
 <script>
 var SID = {sid_js};
-var saved = localStorage.getItem('hwtc_agent_phone');
-if(saved) document.getElementById('agent').value = saved;
 function fmt(p){{var d=(p||'').replace(/\\D/g,'').slice(-10);return d.length==10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):p}}
 async function load(){{
   try{{
@@ -36340,12 +36399,12 @@ async function load(){{
 }}
 async function take(){{
   var agent=document.getElementById('agent').value.trim();
-  if(!agent){{alert('Enter a phone number first.');return}}
+  if(!agent){{alert('Choose who is taking it first.');return}}
   localStorage.setItem('hwtc_agent_phone', agent);
   var btn=document.getElementById('go'), st=document.getElementById('status');
   btn.disabled=true; btn.textContent='Ringing…';
   try{{
-    var r = await fetch('/api/calls/'+SID+'/take',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{agent:agent}})}});
+    var r = await fetch('/api/calls/'+SID+'/take',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{agent:agent,name:agentName()}})}});
     var d = await r.json();
     if(d.ok){{st.style.color='#166534';st.textContent='Ringing now. Press 1 when you answer.';btn.textContent='Ringing'}}
     else{{st.style.color='#991b1b';st.textContent=d.error||'Something went wrong';btn.disabled=false;btn.textContent='Ring this phone'}}
@@ -36369,6 +36428,7 @@ def sms_reply_page(digits=''):
     to = normalize_to_e164(digits) if digits else ''
     name = (lookup_contact_name_by_phone(to) or '') if to else ''
     to_js = json.dumps(to)
+    picker_html = _staff_picker('Who is sending this? (their replies go to them)')
     if to:
         to_block = f'<div class="num">{_he((name + " · " if name else "") + fmt_phone(to))}</div>'
         title = 'Text back via HWTC'
@@ -36386,29 +36446,26 @@ def sms_reply_page(digits=''):
 {to_block}
 <label for="body">Message</label>
 <textarea id="body"></textarea>
-<label for="agent">Your cell (their replies will come to you)</label>
-<input type="tel" id="agent" placeholder="+14075550100"/>
+{picker_html}
 <button id="go" onclick="send()">Send text</button>
-<div class="note">After this, just reply from your phone to keep talking. Their texts stay with you for 24 hours after the last message.</div>
+<div class="note">After this, the person you picked can just reply from their phone to keep talking. Their texts stay with you for 24 hours after the last message.</div>
 <div id="status"></div>
 </div>
 <script>
 var TO = {to_js};
-var saved = localStorage.getItem('hwtc_agent_phone');
-if(saved) document.getElementById('agent').value = saved;
 async function send(){{
   var body=document.getElementById('body').value.trim(), agent=document.getElementById('agent').value.trim();
   var st=document.getElementById('status'), btn=document.getElementById('go');
   var toEl=document.getElementById('to'); var to = toEl ? toEl.value.trim() : TO;
   if(toEl && to.replace(/\\D/g,'').length < 10){{alert('Enter their full phone number.');return}}
   if(!body){{alert('Type a message first.');return}}
-  if(!agent){{alert('Enter your cell first.');return}}
+  if(!agent){{alert('Choose who is sending this first.');return}}
   localStorage.setItem('hwtc_agent_phone', agent);
   btn.disabled=true; btn.textContent='Sending…';
   try{{
-    var r = await fetch('/api/sms/reply',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{to:to,agent:agent,body:body}})}});
+    var r = await fetch('/api/sms/reply',{{method:'POST',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{to:to,agent:agent,body:body,name:agentName()}})}});
     var d = await r.json();
-    if(d.ok){{st.style.color='#166534';st.textContent='Sent. Their replies will come to your phone.';btn.textContent='Sent';document.getElementById('body').value=''}}
+    if(d.ok){{st.style.color='#166534';st.textContent='Sent. Their replies will go to '+(d.who||'that phone')+'.';btn.textContent='Sent';document.getElementById('body').value=''}}
     else{{st.style.color='#991b1b';st.textContent=d.error||'Something went wrong';btn.disabled=false;btn.textContent='Send text'}}
   }}catch(e){{st.textContent='Error: '+e.message;btn.disabled=false;btn.textContent='Send text'}}
 }}

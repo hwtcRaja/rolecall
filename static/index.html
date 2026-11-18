@@ -770,6 +770,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <button id="ev-view-list" class="btn btn-sm" style="padding:6px 14px;font-size:13px;background:transparent;border-radius:8px;border:none;font-weight:500;color:var(--text-muted)" onclick="setEventsView('list')">List</button>
  </div>
 <button class="btn btn-secondary btn-sm" onclick="openCalendarShare()" title="A view-only calendar for phones, no login needed">Phone calendar link</button>
+<button class="btn btn-secondary btn-sm" onclick="openSignupExport()" title="Who signed up for what, with roles and contact info">Export sign-ups</button>
 <select class="filter-select" id="ev-filter-type" onchange="renderEventsPage()" style="font-size:13px"><option value="">All Types</option></select>
  <select class="filter-select" id="ev-filter-category" onchange="renderEventsPage()" style="font-size:13px">
  <option value="">All Categories</option>
@@ -21785,6 +21786,29 @@ function calNav(dir){
  renderEventsPage()
 }
 
+// ── Export sign-ups (who signed up for what, roles, contact info) ──
+function openSignupExport(eventId, eventName){
+  var t = new Date(), iso = function(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') }
+  var to = new Date(t); to.setDate(to.getDate()+30)
+  var types = (typeof allEventTypes !== 'undefined' && Array.isArray(allEventTypes)) ? allEventTypes : []
+  showAdHocModal('su-export', eventId ? 'Export sign-ups · '+escHtml(eventName||'') : 'Export sign-ups',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">A spreadsheet (CSV) with one row per person per event and role: the event, date and time, role and shift time, name, email, phone, status, and anyone in their party.</div>'
+    + (eventId ? '' : '<div class="form-row"><div class="form-group"><label>Events from</label><input type="date" id="sue-from" value="'+iso(t)+'"/></div><div class="form-group"><label>through</label><input type="date" id="sue-to" value="'+iso(to)+'"/></div></div>'
+      + (types.length ? '<div class="form-group"><label>Event type</label><select id="sue-type"><option value="">All types</option>'+types.map(function(x){ return '<option value="'+x.id+'">'+escHtml(x.name)+'</option>' }).join('')+'</select></div>' : ''))
+    + '<label style="display:flex;gap:6px;align-items:center;font-size:13px;margin-bottom:14px;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" id="sue-all" style="width:auto"/> Include people who declined or cancelled</label>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="downloadSignupExport(\''+(eventId||'')+'\')">Download spreadsheet</button>', 480)
+}
+function downloadSignupExport(eventId){
+  var q = []
+  if(eventId) q.push('event_id='+encodeURIComponent(eventId))
+  else {
+    var f = document.getElementById('sue-from').value, t = document.getElementById('sue-to').value, ty = (document.getElementById('sue-type')||{}).value
+    if(f) q.push('from='+f); if(t) q.push('to='+t); if(ty) q.push('type='+encodeURIComponent(ty))
+  }
+  if(document.getElementById('sue-all').checked) q.push('status=all')
+  window.location.href = '/api/events/signups/export?'+q.join('&')
+  closeAdHocModal('su-export')
+}
 // ── View-only phone calendar link (no login) ──
 async function openCalendarShare(rotate){
   if(rotate && !confirm('Make a new link? The current link will stop working for everyone who bookmarked it.')) return
@@ -22077,7 +22101,7 @@ function renderEventDetailPage(eid){
  <div>
  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
  <div style="font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted)">${e.rsvp_kind==='guest'?'RSVPs':'Sign-ups'}</div>
- ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openEmailSignedUpModal('${e.id}','${escHtml(e.name)}')">${e.rsvp_kind==='guest'?'Email RSVPs':'Email Signed-Up'}</button>`:''}
+ ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openEmailSignedUpModal('${e.id}','${escHtml(e.name)}')">${e.rsvp_kind==='guest'?'Email RSVPs':'Email Signed-Up'}</button>`:''} ${isAdmin?`<button class="btn btn-secondary btn-sm" onclick="openSignupExport('${e.id}','${escHtml(e.name).replace(/[\x27\x22]/g,'')}')">Export</button>`:''}
  </div>
  <div id="event-rsvps-list"><div style="color:var(--text-muted);font-size:13px;padding:20px 0">Loading…</div></div>
 

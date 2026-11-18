@@ -3254,6 +3254,13 @@ def init_db():
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_error TEXT",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS last_send_attempt_at TIMESTAMP",
         "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS send_claim_at TIMESTAMP",
+        "ALTER TABLE rental_payments ADD COLUMN IF NOT EXISTS credit_applied_cents INTEGER DEFAULT 0",
+        """CREATE TABLE IF NOT EXISTS rental_credits (
+            id TEXT PRIMARY KEY, partner_id TEXT, request_id TEXT, payment_id TEXT,
+            kind TEXT NOT NULL,              -- credit (+), applied (−), refund (money back, not part of the balance)
+            amount_cents INTEGER NOT NULL, reason TEXT DEFAULT '', square_refund_id TEXT DEFAULT '',
+            created_by TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_rental_credits_partner ON rental_credits(partner_id)",
         "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS is_rush BOOLEAN DEFAULT FALSE",
         # optional cheaper price while buying through the pre-sale link
         "ALTER TABLE ticket_types ADD COLUMN IF NOT EXISTS presale_price_cents INTEGER",
@@ -41110,6 +41117,159 @@ def edit_rental_payment_installment(pid):
     conn.commit(); conn.close()
     return jsonify({'ok': True})
 
+# ══ Artistic Partnership: refunds and partner credit ══════════════════════
+# A paid invoice can be refunded (money back through Square, or recorded as
+# refunded outside Square) or turned into credit the partner can use on a
+# future invoice. Staff can also add credit directly (goodwill, a cancelled
+# date). Credit is applied to an invoice before it's sent.
+def _rental_partner_for_payment(conn, payment):
+    return fetchone(conn, '''SELECT rr.partner_id, rr.id AS request_id, rr.title, rp.name AS partner_name, rp.contact_email
+        FROM rental_agreements ra JOIN rental_requests rr ON rr.id=ra.request_id LEFT JOIN rental_partners rp ON rp.id=rr.partner_id
+        WHERE ra.id=%s''', (payment['agreement_id'],)) or {}
+
+
+def rental_credit_balance(conn, partner_id):
+    r = fetchone(conn, "SELECT COALESCE(SUM(amount_cents),0) AS b FROM rental_credits WHERE partner_id=%s AND kind IN ('credit','applied')", (partner_id,)) or {}
+    return int(r.get('b') or 0)
+
+
+def _payment_returned(conn, pid):
+    """Already refunded or credited back from this invoice."""
+    r = fetchone(conn, "SELECT COALESCE(SUM(amount_cents),0) AS n FROM rental_credits WHERE payment_id=%s AND kind IN ('refund','credit')", (pid,)) or {}
+    return int(r.get('n') or 0)
+
+
+@app.route('/api/rental/payments/<pid>/refund', methods=['POST'])
+def rental_payment_refund(pid):
+    """mode='refund' (money back: Square, or recorded as done outside Square)
+    or mode='credit' (kept as credit for a future rental)."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    mode = 'credit' if d.get('mode') == 'credit' else 'refund'
+    reason = (d.get('reason') or '').strip()[:500]
+    try: amount = int(round(float(d.get('amount') or 0) * 100))
+    except Exception: amount = 0
+    conn = get_db()
+    try:
+        p = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (pid,))
+        if not p:
+            return jsonify({'error': 'Invoice not found'}), 404
+        if p.get('square_invoice_status') != 'PAID':
+            return jsonify({'error': 'Only a paid invoice can be refunded or credited.'}), 400
+        left = int(p.get('amount_cents') or 0) - _payment_returned(conn, pid)
+        if amount <= 0 or amount > left:
+            return jsonify({'error': f'Enter an amount up to ${left/100:.2f} (what\'s left on this invoice).'}), 400
+        if not reason:
+            return jsonify({'error': 'Add a short reason (it goes on the record).'}), 400
+        info = _rental_partner_for_payment(conn, p)
+        who = session.get('name') or 'Staff'
+        refund_id, outside = '', bool(d.get('outside_square'))
+        if mode == 'refund' and not outside:
+            if not SQUARE_ACCESS_TOKEN:
+                return jsonify({'error': 'Square isn\'t connected. Refund in Square, then record it here with "refunded outside Square".'}), 400
+            order_id = p.get('square_order_id') or ''
+            if not order_id and p.get('square_invoice_id'):
+                inv = square_get_invoice(p['square_invoice_id']) or {}
+                order_id = inv.get('order_id') or ''
+            if not order_id:
+                return jsonify({'error': 'This invoice wasn\'t paid through Square (or Square has no record of it). If you refunded it another way (check, cash, Venmo), tick "refunded outside Square".'}), 400
+            try:
+                od = requests.get(f'{SQUARE_API_BASE}/v2/orders/{order_id}', headers=square_headers(), timeout=20).json()
+                tenders = (od.get('order') or {}).get('tenders') or []
+                payment_id = (tenders[0].get('payment_id') or tenders[0].get('id')) if tenders else ''
+                if not payment_id:
+                    return jsonify({'error': 'Square has no card payment on this invoice to refund. If it was paid another way, tick "refunded outside Square".'}), 400
+                rr = requests.post(f'{SQUARE_API_BASE}/v2/refunds', headers=square_headers(), timeout=25, json={
+                    'idempotency_key': str(uuid.uuid4()), 'payment_id': payment_id,
+                    'amount_money': {'amount': amount, 'currency': 'USD'},
+                    'reason': (f'HWTC partnership refund: {info.get("title") or ""} · {reason}')[:192]}).json()
+                if 'refund' not in rr:
+                    msg = ((rr.get('errors') or [{}])[0].get('detail')) or 'Square declined the refund'
+                    return jsonify({'error': 'Square: ' + msg}), 400
+                refund_id = rr['refund']['id']
+            except Exception as e:
+                return jsonify({'error': f'Could not reach Square: {e}'}), 502
+        execute(conn, '''INSERT INTO rental_credits (id, partner_id, request_id, payment_id, kind, amount_cents, reason, square_refund_id, created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''', (str(uuid.uuid4()), info.get('partner_id'), info.get('request_id'), pid, mode, amount,
+            reason + (' (refunded outside Square)' if mode == 'refund' and outside else ''), refund_id, who))
+        conn.commit()
+        return jsonify({'ok': True, 'mode': mode, 'square_refund_id': refund_id, 'balance_cents': rental_credit_balance(conn, info.get('partner_id'))})
+    finally:
+        conn.close()
+
+
+@app.route('/api/rental/partners/<partner_id>/credits', methods=['GET', 'POST'])
+def rental_partner_credits(partner_id):
+    """GET: credit balance and history. POST {amount, reason}: add credit
+    directly (goodwill, a date HWTC had to cancel, …)."""
+    err = require_permission('rentals', 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            d = request.json or {}
+            try: amount = int(round(float(d.get('amount') or 0) * 100))
+            except Exception: amount = 0
+            reason = (d.get('reason') or '').strip()[:500]
+            if amount <= 0 or not reason:
+                return jsonify({'error': 'Enter an amount and a reason.'}), 400
+            execute(conn, '''INSERT INTO rental_credits (id, partner_id, request_id, kind, amount_cents, reason, created_by)
+                VALUES (%s,%s,%s,'credit',%s,%s,%s)''', (str(uuid.uuid4()), partner_id, d.get('request_id') or None, amount, reason, session.get('name') or 'Staff'))
+            conn.commit()
+        rows = fetchall(conn, '''SELECT c.*, rp.installment_label, rp.payment_type, rr.title AS request_title
+            FROM rental_credits c LEFT JOIN rental_payments rp ON rp.id=c.payment_id LEFT JOIN rental_requests rr ON rr.id=c.request_id
+            WHERE c.partner_id=%s ORDER BY c.created_at DESC''', (partner_id,)) or []
+        for r in rows:
+            r['created_at'] = str(r['created_at'])[:16]
+        return jsonify({'balance_cents': rental_credit_balance(conn, partner_id), 'history': rows})
+    finally:
+        conn.close()
+
+
+@app.route('/api/rental/payments/<pid>/apply-credit', methods=['POST'])
+def rental_payment_apply_credit(pid):
+    """Use the partner's credit on an invoice that hasn't been sent yet. If
+    the credit covers it all, the invoice is marked paid (by credit)."""
+    err = require_permission('rentals')
+    if err: return err
+    d = request.json or {}
+    conn = get_db()
+    try:
+        p = fetchone(conn, 'SELECT * FROM rental_payments WHERE id=%s', (pid,))
+        if not p:
+            return jsonify({'error': 'Invoice not found'}), 404
+        if p.get('square_invoice_status') == 'PAID':
+            return jsonify({'error': 'That invoice is already paid.'}), 400
+        if p.get('sent_at') or p.get('square_invoice_id'):
+            return jsonify({'error': 'This invoice has already gone out through Square. Cancel it in Square first, then apply credit to a new installment for the remaining amount.'}), 400
+        info = _rental_partner_for_payment(conn, p)
+        bal = rental_credit_balance(conn, info.get('partner_id'))
+        due = int(p.get('amount_cents') or 0)
+        try: amount = int(round(float(d.get('amount') or 0) * 100)) if d.get('amount') not in (None, '') else min(bal, due)
+        except Exception: amount = 0
+        if amount <= 0 or amount > bal or amount > due:
+            return jsonify({'error': f'Credit available: ${bal/100:.2f}; invoice: ${due/100:.2f}.'}), 400
+        who = session.get('name') or 'Staff'
+        execute(conn, '''INSERT INTO rental_credits (id, partner_id, request_id, payment_id, kind, amount_cents, reason, created_by)
+            VALUES (%s,%s,%s,%s,'applied',%s,%s,%s)''', (str(uuid.uuid4()), info.get('partner_id'), info.get('request_id'), pid, -amount,
+            'Used on ' + (p.get('installment_label') or p.get('payment_type') or 'invoice'), who))
+        new_amt = due - amount
+        label = (p.get('installment_label') or '').strip()
+        note = f' (−${amount/100:.2f} credit)'
+        if new_amt == 0:
+            execute(conn, """UPDATE rental_payments SET amount_cents=0, square_invoice_status='PAID', paid_at=NOW(), installment_label=%s WHERE id=%s""",
+                    ((label or ('Deposit' if p.get('payment_type') == 'deposit' else 'Final Payment' if p.get('payment_type') == 'final' else 'Invoice')) + ' · paid with credit', pid))
+        else:
+            execute(conn, 'UPDATE rental_payments SET amount_cents=%s, installment_label=%s WHERE id=%s', (new_amt, (label + note).strip(), pid))
+        try: execute(conn, 'UPDATE rental_payments SET credit_applied_cents=COALESCE(credit_applied_cents,0)+%s WHERE id=%s', (amount, pid))
+        except Exception: conn.rollback()
+        conn.commit()
+        return jsonify({'ok': True, 'remaining_cents': new_amt, 'balance_cents': rental_credit_balance(conn, info.get('partner_id'))})
+    finally:
+        conn.close()
+
+
 @app.route('/api/rental/payments/<pid>/send-invoice', methods=['POST'])
 def send_scheduled_rental_invoice_route(pid):
     """Manually send a scheduled installment's Square invoice early — e.g.
@@ -41190,7 +41350,15 @@ def get_rental_payments(aid):
     err = require_permission('rentals', 'view')
     if err: return err
     conn = get_db()
-    payments = fetchall(conn, 'SELECT * FROM rental_payments WHERE agreement_id=%s ORDER BY due_date, created_at', (aid,)) or []
+    payments = fetchall(conn, '''SELECT p.*, (SELECT COALESCE(SUM(c.amount_cents),0) FROM rental_credits c WHERE c.payment_id=p.id AND c.kind='refund') AS refunded_cents,
+            (SELECT COALESCE(SUM(c.amount_cents),0) FROM rental_credits c WHERE c.payment_id=p.id AND c.kind='credit') AS credited_cents
+        FROM rental_payments p WHERE p.agreement_id=%s ORDER BY p.due_date, p.created_at''', (aid,)) or []
+    if request.args.get('with_credit'):
+        info = fetchone(conn, '''SELECT rr.partner_id, rp.name FROM rental_agreements ra JOIN rental_requests rr ON rr.id=ra.request_id
+            LEFT JOIN rental_partners rp ON rp.id=rr.partner_id WHERE ra.id=%s''', (aid,)) or {}
+        bal = rental_credit_balance(conn, info.get('partner_id')) if info.get('partner_id') else 0
+        conn.close()
+        return jsonify({'payments': payments, 'partner_id': info.get('partner_id'), 'partner_name': info.get('name') or '', 'credit_balance_cents': bal})
     conn.close()
     return jsonify(payments)
 

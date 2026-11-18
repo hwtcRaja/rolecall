@@ -519,7 +519,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 /* ══ Phone layer for every page ══ */
 @media (max-width: 768px){
   /* tables → cards */
-  table.rc-cards{min-width:0 !important;width:100% !important;border:0 !important;background:none !important}
+  /* display:block on the table too: iPhone Safari otherwise sizes the cards to their widest content and pushes values off the right edge */
+  table.rc-cards{display:block !important;min-width:0 !important;width:100% !important;max-width:100% !important;border:0 !important;background:none !important;table-layout:auto !important}
+  table.rc-cards tr{box-sizing:border-box;max-width:100%;overflow:hidden}
+  table.rc-cards td{flex-wrap:wrap;box-sizing:border-box;max-width:100%;min-width:0}
+  table.rc-cards td > *{min-width:0;max-width:100%}
+  table.rc-cards td.rc-title > div{flex-wrap:wrap}
+  table.rc-cards td.rc-title div{white-space:normal !important;overflow-wrap:anywhere}
   table.rc-cards thead{display:none !important}
   table.rc-cards tbody,table.rc-cards tr,table.rc-cards td{display:block !important;width:auto !important}
   table.rc-cards tr{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin:0 0 8px}
@@ -34497,6 +34503,63 @@ async function recheckRentalPayments(aid){
   document.getElementById('rental-payments-list-modal')?.remove(); openRentalPaymentsListModal(aid)
   if(typeof loadRentalsPage==='function') loadRentalsPage()
 }
+// ── Refunds and partner credit ──
+function rpRefund(pid, leftCents){
+  showAdHocModal('rp-refund','Refund or credit this payment',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">Up to <strong>$'+(leftCents/100).toFixed(2)+'</strong> is left on this invoice.</div>'
+    + '<div style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px">'
+    + '<label style="display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--border-md);border-radius:var(--radius);padding:10px 12px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500"><input type="radio" name="rp-mode" value="credit" checked style="width:auto;margin-top:3px"/><div><div style="font-weight:700;font-size:13px">Keep as credit</div><div style="font-size:11.5px;color:var(--text-muted)">The partner keeps the money with HWTC, to use on a future rental. No money moves.</div></div></label>'
+    + '<label style="display:flex;gap:10px;align-items:flex-start;border:1.5px solid var(--border-md);border-radius:var(--radius);padding:10px 12px;cursor:pointer;text-transform:none;letter-spacing:0;font-weight:500"><input type="radio" name="rp-mode" value="refund" style="width:auto;margin-top:3px"/><div><div style="font-weight:700;font-size:13px">Refund the money</div><div style="font-size:11.5px;color:var(--text-muted)">Sent back to their card through Square (usually 5–10 business days).</div>'
+    + '<label style="display:flex;gap:6px;align-items:center;margin-top:6px;font-size:12px;text-transform:none;letter-spacing:0;font-weight:500"><input type="checkbox" id="rp-outside" style="width:auto"/> Already refunded outside Square (check, cash, Venmo): just record it</label></div></label></div>'
+    + '<div class="form-row"><div class="form-group"><label>Amount ($)</label><input type="number" id="rp-amt" min="0" step="0.01" value="'+(leftCents/100).toFixed(2)+'"/></div></div>'
+    + '<div class="form-group"><label>Reason</label><input id="rp-reason" placeholder="e.g. Dec 24 rental cancelled by HWTC"/></div>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="rpRefundSave(\''+pid+'\')">Save</button>', 500)
+}
+async function rpRefundSave(pid){
+  var mode = (document.querySelector('input[name=rp-mode]:checked')||{}).value
+  var body = {mode: mode, amount: document.getElementById('rp-amt').value, reason: document.getElementById('rp-reason').value.trim(), outside_square: document.getElementById('rp-outside').checked}
+  if(mode === 'refund' && !body.outside_square && !confirm('Refund $'+parseFloat(body.amount||0).toFixed(2)+' to their card through Square?')) return
+  var r = await api('/api/rental/payments/'+pid+'/refund','POST', body)
+  if(r.error){ toast(r.error,'error'); return }
+  closeAdHocModal('rp-refund')
+  toast(mode==='credit' ? 'Credit added · partner balance $'+(r.balance_cents/100).toFixed(2) : 'Refund '+(r.square_refund_id?'sent through Square':'recorded'),'success')
+  openRentalPaymentsListModal(window._rpCredit.agreement)
+}
+async function rpApplyCredit(pid, dueCents){
+  var bal = (window._rpCredit||{}).balance || 0, use = Math.min(bal, dueCents)
+  var v = prompt('Apply how much credit to this invoice? (credit available $'+(bal/100).toFixed(2)+', invoice $'+(dueCents/100).toFixed(2)+')', (use/100).toFixed(2))
+  if(v === null) return
+  var r = await api('/api/rental/payments/'+pid+'/apply-credit','POST',{amount: v})
+  if(r.error){ toast(r.error,'error'); return }
+  toast(r.remaining_cents ? 'Credit applied · invoice now $'+(r.remaining_cents/100).toFixed(2) : 'Paid in full with credit','success')
+  openRentalPaymentsListModal(window._rpCredit.agreement)
+}
+function rpAddCredit(){
+  showAdHocModal('rp-add-credit','Add partner credit',
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">For goodwill, a date HWTC had to cancel, or an overpayment. The partner can use it on a future invoice.</div>'
+    + '<div class="form-group"><label>Amount ($)</label><input type="number" id="rpc-amt" min="0" step="0.01"/></div>'
+    + '<div class="form-group"><label>Reason</label><input id="rpc-reason" placeholder="e.g. Studio closed for a water leak on Nov 12"/></div>'
+    + '<button class="btn btn-primary" style="width:100%" onclick="rpAddCreditSave()">Add credit</button>', 460)
+}
+async function rpAddCreditSave(){
+  var c = window._rpCredit || {}
+  var r = await api('/api/rental/partners/'+c.partner_id+'/credits','POST',{amount: document.getElementById('rpc-amt').value, reason: document.getElementById('rpc-reason').value.trim()})
+  if(r.error){ toast(r.error,'error'); return }
+  closeAdHocModal('rp-add-credit'); toast('Credit added · balance $'+(r.balance_cents/100).toFixed(2),'success'); openRentalPaymentsListModal(c.agreement)
+}
+async function rpCreditHistory(){
+  var c = window._rpCredit || {}
+  var r = await api('/api/rental/partners/'+c.partner_id+'/credits')
+  if(r.error){ toast(r.error,'error'); return }
+  var kinds = {credit:['Credit added','#6d28d9'], applied:['Used','#0f766e'], refund:['Refunded','#b45309']}
+  showAdHocModal('rp-credit-history','Credit &amp; refund history',
+    '<div style="font-size:14px;margin-bottom:10px">Current credit: <strong>$'+(r.balance_cents/100).toFixed(2)+'</strong></div>'
+    + (r.history.length ? r.history.map(function(h){ var k = kinds[h.kind]||[h.kind,'#555']
+        return '<div style="display:flex;gap:10px;padding:8px 0;border-top:1px solid var(--border);font-size:13px"><div style="flex:1"><strong style="color:'+k[1]+'">'+k[0]+'</strong> · '+escHtml(h.reason||'')
+          + '<div style="font-size:11.5px;color:var(--text-muted)">'+escHtml(h.created_at)+(h.created_by?' · '+escHtml(h.created_by):'')+(h.request_title?' · '+escHtml(h.request_title):'')+(h.square_refund_id?' · Square refund':'')+'</div></div>'
+          + '<div style="font-weight:700;white-space:nowrap">'+(h.amount_cents<0?'−':'')+'$'+(Math.abs(h.amount_cents)/100).toFixed(2)+'</div></div>' }).join('')
+      : '<div style="font-size:13px;color:var(--text-muted)">Nothing yet.</div>'), 520)
+}
 async function openRentalPaymentsListModal(agreementId){
   const overlay = document.createElement('div')
   overlay.id = 'rental-payments-list-modal'
@@ -34533,12 +34596,20 @@ async function openRentalPaymentsListModal(agreementId){
     const sync = await api('/api/rental/agreements/'+agreementId+'/sync-payments','POST',{})
     if(sync && sync.newly_paid) toast(sync.newly_paid+' payment'+(sync.newly_paid===1?'':'s')+' found in Square and marked paid','success')
   }catch(e){}
-  const payments = await api('/api/rental/agreements/'+agreementId+'/payments')
+  const _pd = await api('/api/rental/agreements/'+agreementId+'/payments?with_credit=1')
+  const payments = (_pd && _pd.payments) || []
+  const _credit = (_pd && _pd.credit_balance_cents) || 0
+  window._rpCredit = {partner_id: _pd && _pd.partner_id, balance: _credit, agreement: agreementId}
   window._rpListCache = Array.isArray(payments) ? payments : []
   const body = document.getElementById('rp-list-body')
   if(!body) return
-  if(!Array.isArray(payments) || !payments.length){ body.innerHTML = 'No invoices yet.'; return }
-  body.innerHTML = payments.map(function(p){
+  const creditBar = (_pd && _pd.partner_id) ? '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 12px;margin-bottom:10px;border-radius:8px;background:'+(_credit?'#f5f3ff':'var(--bg)')+';border:1px solid '+(_credit?'#ddd6fe':'var(--border)')+'">'
+      + '<div style="flex:1;font-size:13px"><strong style="color:'+(_credit?'#6d28d9':'var(--text)')+'">Partner credit: $'+(_credit/100).toFixed(2)+'</strong>'
+      + '<div style="font-size:11.5px;color:var(--text-muted)">'+(_credit?'Use it on an upcoming invoice with <b>Apply credit</b>.':'Credit from refunds-as-credit or goodwill shows here.')+'</div></div>'
+      + '<button class="btn btn-secondary btn-sm" onclick="rpAddCredit()">+ Add credit</button>'
+      + '<button class="btn btn-secondary btn-sm" onclick="rpCreditHistory()">History</button></div>' : ''
+  if(!Array.isArray(payments) || !payments.length){ body.innerHTML = creditBar + 'No invoices yet.'; return }
+  body.innerHTML = creditBar + payments.map(function(p){
     const paid = p.square_invoice_status === 'PAID'
     const scheduled = !paid && !p.sent_at
     const today = todayLocalISO()
@@ -34572,9 +34643,13 @@ async function openRentalPaymentsListModal(agreementId){
       + (scheduled ? (autoWindow && !needsSending ? ' · Square invoice goes out automatically within the hour' : ' · Not yet invoiced'
                       + (p.due_date && !autoWindow ? ' · sends automatically '+_rpMinusDays(p.due_date, 7) : '')) : '') + '</div>'
       + (sendFailed ? '<div style="font-size:11.5px;color:#991b1b;margin-top:3px">'+escHtml(p.last_send_error)+'</div>' : '')
+      + ((p.refunded_cents||p.credited_cents||p.credit_applied_cents) ? '<div style="font-size:11.5px;margin-top:3px;color:#6d28d9;font-weight:600">'
+          + [p.refunded_cents?'Refunded $'+(p.refunded_cents/100).toFixed(2):'', p.credited_cents?'Turned into credit $'+(p.credited_cents/100).toFixed(2):'', p.credit_applied_cents?'Paid with credit $'+(p.credit_applied_cents/100).toFixed(2):''].filter(Boolean).join(' · ') + '</div>' : '')
       + '<div style="margin-top:6px;display:flex;gap:10px;align-items:center">'
       + (scheduled && p.payment_type==='installment' ? '<input type="checkbox" class="rp-combine" value="'+p.id+'" title="Select to combine into one invoice" onchange="rpCombineBar()" style="width:auto;margin:0"/>' : '')
       + (p.public_url?'<a href="'+p.public_url+'" target="_blank" style="font-size:11px;color:#145466;font-weight:600">View invoice </a>':'')
+      + (paid && (p.amount_cents||0) > (p.refunded_cents||0) + (p.credited_cents||0) ? '<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="rpRefund(\''+p.id+'\','+((p.amount_cents||0)-(p.refunded_cents||0)-(p.credited_cents||0))+')">Refund / credit</button>' : '')
+      + (scheduled && _credit > 0 && (p.amount_cents||0) > 0 ? '<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px;color:#6d28d9" onclick="rpApplyCredit(\''+p.id+'\','+(p.amount_cents||0)+')">Apply credit</button>' : '')
       + (!paid && !scheduled?'<span style="font-size:11px;color:#145466;font-weight:600;cursor:pointer" onclick="checkRentalPaymentStatus(\''+p.id+'\').then(()=>openRentalPaymentsListModal(\''+agreementId+'\'))">Check Status</span>':'')
       + (!paid?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="markRentalPaymentPaid(\''+p.id+'\',\''+agreementId+'\')">Mark as Paid</button>':'')
       + (scheduled?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="sendScheduledRentalInvoice(\''+p.id+'\',\''+agreementId+'\')">Send Now</button>':'')

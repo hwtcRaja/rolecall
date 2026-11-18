@@ -2,8 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>RoleCall — HWTC Management</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#0d3d4d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="RoleCall">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/static/images/logo.jpg">
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -472,6 +479,41 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   .ibx-compose{padding:8px 12px calc(8px + env(safe-area-inset-bottom,0px)) !important}
   .ibx-compose #inbox-reply-body{font-size:15px !important;min-height:44px !important;max-height:30vh !important}
   .ibx-compose #inbox-reply-send-btn{padding:10px 18px !important;font-size:14px !important}
+}
+
+/* ══ Phone shell: bottom tab bar, More screen, phone-sized pop-ups ══ */
+#mob-tabbar{display:none}
+@media (max-width: 768px){
+  #mob-tabbar{display:flex;position:fixed;left:0;right:0;bottom:0;z-index:150;background:var(--surface);border-top:1px solid var(--border);
+    padding:4px 4px calc(4px + env(safe-area-inset-bottom,0px));box-shadow:0 -4px 16px rgba(0,0,0,.06)}
+  #mob-tabbar button{flex:1;border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 2px;
+    font:inherit;font-size:10.5px;font-weight:700;color:var(--text-muted);position:relative;cursor:pointer;min-height:52px}
+  #mob-tabbar button.on{color:var(--teal-dark)}
+  #mob-tabbar button.on svg{stroke-width:2.3}
+  .mob-badge{position:absolute;top:2px;left:calc(50% + 6px);background:#dc2626;color:#fff;border-radius:999px;font-size:10px;font-weight:800;padding:1px 5px;line-height:1.3}
+  .main-content{padding-bottom:calc(68px + env(safe-area-inset-bottom,0px))}
+  .mobile-topbar{padding-top:calc(12px + env(safe-area-inset-top,0px))}
+  #mob-more{position:fixed;inset:0;z-index:160;background:rgba(0,0,0,.4);display:flex;align-items:flex-end}
+  .mob-more-box{background:var(--surface);width:100%;border-radius:18px 18px 0 0;padding:14px 14px calc(80px + env(safe-area-inset-bottom,0px));max-height:85vh;overflow:auto}
+  .mob-more-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;font-size:16px}
+  .mob-more-head button{border:0;background:var(--bg);border-radius:999px;padding:7px 14px;font:inherit;font-size:13px;font-weight:700;color:var(--teal-dark)}
+  .mob-more-hint{font-size:12.5px;color:var(--text-muted);margin-bottom:10px}
+  .mob-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .mob-grid button{position:relative;border:1.5px solid var(--border);background:var(--surface);border-radius:14px;padding:14px 6px 10px;display:flex;flex-direction:column;align-items:center;gap:6px;
+    font:inherit;font-size:12px;font-weight:700;color:var(--text);cursor:pointer;min-height:84px}
+  .mob-grid button svg{color:var(--teal-dark)}
+  .mob-grid button.picked{border-color:var(--teal-dark);background:var(--teal-light)}
+  .mob-grid button i{position:absolute;top:6px;right:8px;font-style:normal;font-size:11px;font-weight:800;color:var(--teal-dark)}
+  .mob-all{width:100%;margin-top:12px;border:0;background:var(--bg);border-radius:12px;padding:13px;font:inherit;font-size:14px;font-weight:700;color:var(--teal-dark)}
+  /* pop-up windows: slide up from the bottom, full width (rc-sheet is added to every pop-up) */
+  .rc-sheet{padding:0 !important;align-items:flex-end !important}
+  .rc-sheet > div:not(.ibx-box){max-width:100% !important;width:100% !important;max-height:92vh !important;
+    border-radius:18px 18px 0 0 !important;padding-bottom:calc(20px + env(safe-area-inset-bottom,0px)) !important;animation:rcSheetUp .2s ease-out}
+  @keyframes rcSheetUp{from{transform:translateY(40px);opacity:.6}to{transform:none;opacity:1}}
+  /* no zooming in on iPhone when typing */
+  input,select,textarea{font-size:16px !important}
+  .btn{min-height:40px}
+  .btn-sm{min-height:34px}
 }
 </style>
  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
@@ -20067,6 +20109,111 @@ function toggleMobileNav(){
  overlay.classList.toggle('open')
  document.body.style.overflow=sidebar.classList.contains('open')?'hidden':''
 }
+// ══ Phone navigation: bottom tab bar + "More" screen ═════════════════════
+// On phones, the tools people reach for most sit in a bottom bar (4 tabs +
+// More). Each person picks their own 4 (remembered on that phone). Only
+// tools this person can see in the menu are offered.
+var MOB_TOOLS = [
+  {p:'dashboard', l:'Dashboard', i:'M3 11l9-8 9 8v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1z'},
+  {p:'inbox', l:'Inbox', i:'M3 13h5l2 3h4l2-3h5M5 5h14l2 8v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z'},
+  {p:'events', l:'Calendar', i:'M4 6h16v14H4zM4 10h16M8 3v4M16 3v4'},
+  {p:'my-time', l:'My Time', i:'M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z'},
+  {p:'instructor-dashboard', l:'My Programs', i:'M4 5h7a3 3 0 0 1 3 3v12a2 2 0 0 0-2-2H4zM20 5h-6M20 5v13h-6'},
+  {p:'oncall', l:'On-Call', i:'M5 4h4l2 5-3 2a11 11 0 0 0 5 5l2-3 5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z'},
+  {p:'volunteers', l:'Volunteers', i:'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M17 11a3 3 0 1 0 0-6M22 21v-1a5 5 0 0 0-4-4.9'},
+  {p:'talent', l:'Talent', i:'M12 3l2.6 5.6 6.1.6-4.6 4.1 1.3 6L12 16.4 6.6 19.3l1.3-6L3.3 9.2l6.1-.6z'},
+  {p:'patrons', l:'Patrons', i:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4 21v-1a7 7 0 0 1 16 0v1'},
+  {p:'marquee', l:'Marquee', i:'M4 8h16v10H4zM8 8V5h8v3M8 13h8'},
+  {p:'youth', l:'Participants', i:'M12 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6 22v-6l-2-4 4-2h8l4 2-2 4v6'},
+  {p:'donors', l:'Donors', i:'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z'},
+  {p:'board', l:'Board', i:'M4 20h16M6 20V9l6-5 6 5v11M10 20v-6h4v6'},
+  {p:'notifications', l:'Notifications', i:'M6 16V11a6 6 0 1 1 12 0v5l2 2H4zM10 21h4'}
+]
+var MOB_DEFAULT = ['dashboard','inbox','events','my-time','instructor-dashboard','oncall']
+function _mobNavItem(page){ return document.querySelector('.nav-item[onclick*="navTo(\'' + page + '\'"]') }
+function mobAvailable(){
+  // offered only if this person can see it in the menu (hidden by permissions = inline display:none)
+  return MOB_TOOLS.filter(function(t){
+    var el = _mobNavItem(t.p); if(!el) return false
+    return el.style.display !== 'none' && !el.closest('[style*="display:none"],[style*="display: none"]')
+  })
+}
+function mobTabs(){
+  var avail = mobAvailable().map(function(t){ return t.p }), saved = []
+  try{ saved = JSON.parse(localStorage.getItem('mob_tabs') || '[]') }catch(e){}
+  var pick = saved.filter(function(p){ return avail.indexOf(p) >= 0 })
+  MOB_DEFAULT.concat(avail).forEach(function(p){ if(pick.length < 4 && avail.indexOf(p) >= 0 && pick.indexOf(p) < 0) pick.push(p) })
+  return pick.slice(0, 4)
+}
+function _mobIcon(d){ return '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="'+d+'"/></svg>' }
+function _mobBadge(page){
+  var el = _mobNavItem(page); if(!el) return ''
+  var b = el.querySelector('.nav-badge,.badge,[id$="-badge"]'); var n = b ? parseInt((b.textContent||'').trim()) : 0
+  return n > 0 ? '<span class="mob-badge">'+(n > 99 ? '99+' : n)+'</span>' : ''
+}
+function renderMobileTabbar(){
+  var bar = document.getElementById('mob-tabbar'); if(!bar) return
+  var active = (document.querySelector('.page.active')||{}).id || ''
+  var tabs = mobTabs()
+  bar.innerHTML = tabs.map(function(p){
+      var t = MOB_TOOLS.find(function(x){ return x.p === p })
+      return '<button class="'+(active === 'page-'+p ? 'on' : '')+'" onclick="mobGo(\''+p+'\')">'+_mobIcon(t.i)+_mobBadge(p)+'<span>'+t.l+'</span></button>'
+    }).join('')
+    + '<button class="'+(tabs.indexOf(active.replace('page-','')) < 0 && active ? 'on' : '')+'" onclick="openMobileMore()">'+_mobIcon('M5 12h.01M12 12h.01M19 12h.01')+'<span>More</span></button>'
+}
+function mobGo(p){ closeMobileMore(); navTo(p); window.scrollTo(0,0) }
+function openMobileMore(edit){
+  closeMobileMore()
+  var avail = mobAvailable(), tabs = mobTabs()
+  var sheet = document.createElement('div'); sheet.id = 'mob-more'
+  sheet.innerHTML = '<div class="mob-more-box">'
+    + '<div class="mob-more-head"><strong>'+(edit ? 'Pick your 4 tabs' : 'More')+'</strong>'
+    + (edit ? '<button onclick="openMobileMore()">Done</button>' : '<button onclick="openMobileMore(true)">Edit tabs</button>')+'</div>'
+    + (edit ? '<div class="mob-more-hint">Tap to add or remove. The first 4 you pick show in the bottom bar.</div>' : '')
+    + '<div class="mob-grid">' + avail.map(function(t){
+        var on = tabs.indexOf(t.p) >= 0
+        return '<button class="'+(edit && on ? 'picked' : '')+'" onclick="'+(edit ? 'mobToggleTab(\''+t.p+'\')' : 'mobGo(\''+t.p+'\')')+'">'
+          + _mobIcon(t.i) + _mobBadge(t.p) + '<span>'+t.l+'</span>'+(edit ? '<i>'+(on ? (tabs.indexOf(t.p)+1) : '+')+'</i>' : '')+'</button>' }).join('') + '</div>'
+    + (edit ? '' : '<button class="mob-all" onclick="closeMobileMore();toggleMobileNav()">All pages (full menu)</button>')
+    + '</div>'
+  sheet.addEventListener('click', function(e){ if(e.target === sheet) closeMobileMore() })
+  document.body.appendChild(sheet)
+}
+function closeMobileMore(){ var s = document.getElementById('mob-more'); if(s) s.remove() }
+function mobToggleTab(p){
+  var tabs = mobTabs(), i = tabs.indexOf(p)
+  if(i >= 0) tabs.splice(i, 1); else { if(tabs.length >= 4) tabs.pop(); tabs.push(p) }
+  try{ localStorage.setItem('mob_tabs', JSON.stringify(tabs)) }catch(e){}
+  renderMobileTabbar(); openMobileMore(true)
+}
+;(function(){
+  // mark every pop-up window (they're full-screen fixed overlays added to <body>) so phones show them as bottom sheets
+  try{
+    new MutationObserver(function(muts){
+      muts.forEach(function(m){ m.addedNodes.forEach(function(n){
+        if(n.nodeType !== 1 || n.tagName !== 'DIV' || n.id === 'mob-more' || n.id === 'inbox-thread-overlay') return
+        var st = n.style
+        if(st && st.position === 'fixed' && (parseInt(st.zIndex) || 0) >= 9000 && n.firstElementChild) n.classList.add('rc-sheet')
+      }) })
+    }).observe(document.documentElement, {childList: true, subtree: false})
+    document.addEventListener('DOMContentLoaded', function(){
+      new MutationObserver(function(muts){
+        muts.forEach(function(m){ m.addedNodes.forEach(function(n){
+          if(n.nodeType !== 1 || n.tagName !== 'DIV' || n.id === 'mob-more' || n.id === 'inbox-thread-overlay') return
+          var st = n.style
+          if(st && st.position === 'fixed' && (parseInt(st.zIndex) || 0) >= 9000 && n.firstElementChild) n.classList.add('rc-sheet')
+        }) })
+      }).observe(document.body, {childList: true})
+    })
+  }catch(e){}
+  var bar = document.createElement('nav'); bar.id = 'mob-tabbar'
+  document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(bar); renderMobileTabbar() })
+  if(document.readyState !== 'loading'){ document.body.appendChild(bar) }
+  var _nav = navTo
+  navTo = function(page, el){ var r = _nav.apply(this, arguments); try{ renderMobileTabbar() }catch(e){} return r }
+  setInterval(function(){ if(window.innerWidth <= 768) renderMobileTabbar() }, 20000)   // keep badges fresh
+})()
+
 function closeMobileNav(){
  const sidebar=document.getElementById('sidebar')
  const overlay=document.getElementById('mobile-overlay')

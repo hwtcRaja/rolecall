@@ -5436,6 +5436,16 @@ def calendar_share_link():
         conn.close()
 
 
+@app.route('/manifest.webmanifest')
+def web_manifest():
+    """Lets people add RoleCall to their phone's home screen and open it full screen."""
+    from flask import Response
+    data = {'name': 'RoleCall · HWTC', 'short_name': 'RoleCall', 'start_url': '/', 'scope': '/', 'display': 'standalone',
+            'background_color': '#0d3d4d', 'theme_color': '#0d3d4d',
+            'icons': [{'src': '/static/images/logo.jpg', 'sizes': '512x512', 'type': 'image/jpeg', 'purpose': 'any'}]}
+    return Response(json.dumps(data), mimetype='application/manifest+json')
+
+
 @app.route('/cal/<token>')
 def calendar_share_page(token):
     return send_from_directory('static', 'calendar-view.html')

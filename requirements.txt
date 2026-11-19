@@ -8,3 +8,4 @@ APScheduler
 pypdf
 xhtml2pdf
 segno
+cryptography

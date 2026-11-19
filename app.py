@@ -5011,6 +5011,14 @@ def index():
     return resp
 @app.route('/api/debug')
 def debug():
+    # Table names and row counts are admin-only; anyone else just gets a DB
+    # ping, so an uptime/health check pointed here still works.
+    if session.get('role') != 'admin':
+        try:
+            conn = get_db(); fetchone(conn, 'SELECT 1 AS ok'); conn.close()
+            return jsonify({'status': 'ok'})
+        except Exception:
+            return jsonify({'status': 'error'}), 503
     try:
         conn = get_db()
         tables = fetchall(conn, "SELECT table_name FROM information_schema.tables WHERE table_schema='public' ORDER BY table_name")
@@ -5926,6 +5934,77 @@ def get_volunteer_communications(vol_id):
         WHERE volunteer_id=%s ORDER BY sent_at DESC''', (vol_id,))
     conn.close()
     return jsonify(rows)
+
+@app.route('/api/volunteers/<vol_id>/timeline')
+def get_volunteer_timeline(vol_id):
+    """Everything we've exchanged with a volunteer, newest first: system
+    emails RoleCall sent, inbox conversations (linked to them, or to/from
+    their email address), texts, and calls with their phone number.
+    Inbox threads only appear for people with inbox access."""
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        vol = fetchone(conn, 'SELECT id, email, phone FROM volunteers WHERE id=%s', (vol_id,))
+        if not vol:
+            return jsonify({'error': 'Not found'}), 404
+        email = (vol.get('email') or '').strip().lower()
+        k10 = _phone_last10(vol.get('phone') or '')
+        if len(k10) != 10:
+            k10 = ''
+        items = []
+
+        for r in fetchall(conn, '''SELECT subject, email_type, sent_at, sent_by FROM volunteer_communications
+                WHERE volunteer_id=%s ORDER BY sent_at DESC LIMIT 100''', (vol_id,)) or []:
+            items.append({'kind': 'system', 'at': r.get('sent_at'), 'subject': r.get('subject') or '',
+                          'email_type': r.get('email_type') or '', 'by': r.get('sent_by') or 'system'})
+
+        can_inbox = require_permission('inbox', 'view') is None
+        inbox_count = 0
+        threads = fetchall(conn, '''SELECT t.id, t.subject, t.status, t.last_message_at,
+                (SELECT COUNT(*) FROM inbox_messages m WHERE m.thread_id=t.id) AS n,
+                lm.direction, lm.from_name, lm.from_email, lm.sent_by, LEFT(lm.body_text, 240) AS preview
+            FROM inbox_threads t
+            LEFT JOIN LATERAL (SELECT direction, from_name, from_email, sent_by, body_text
+                FROM inbox_messages m WHERE m.thread_id=t.id ORDER BY created_at DESC LIMIT 1) lm ON TRUE
+            WHERE COALESCE(t.status,'') <> 'spam' AND (
+                (t.linked_record_type='volunteer' AND t.linked_record_id=%s)
+                OR (%s <> '' AND (LOWER(t.participant_email)=%s
+                    OR EXISTS (SELECT 1 FROM inbox_messages m WHERE m.thread_id=t.id
+                        AND (LOWER(m.from_email)=%s
+                             OR POSITION(%s IN LOWER(COALESCE(m.to_emails,'')))>0
+                             OR POSITION(%s IN LOWER(COALESCE(m.cc_emails,'')))>0)))))
+            ORDER BY t.last_message_at DESC LIMIT 50''',
+            (vol_id, email, email, email, email, email)) or []
+        inbox_count = len(threads)
+        if can_inbox:
+            for t in threads:
+                who = (t.get('sent_by') or 'HWTC') if t.get('direction') == 'outbound' else (t.get('from_name') or t.get('from_email') or '')
+                items.append({'kind': 'email', 'at': t.get('last_message_at'), 'subject': t.get('subject') or '(no subject)',
+                              'thread_id': t['id'], 'count': int(t.get('n') or 0), 'status': t.get('status') or '',
+                              'last_dir': t.get('direction') or '', 'last_from': who,
+                              'preview': ' '.join((t.get('preview') or '').split())[:180]})
+
+        if k10:
+            k = "RIGHT(REGEXP_REPLACE({c},'[^0-9]','','g'),10)"
+            for r in fetchall(conn, f'''SELECT direction, body, staff_name, staff_phone, created_at FROM sms_messages
+                    WHERE {k.format(c='customer_phone')}=%s ORDER BY created_at DESC LIMIT 60''', (k10,)) or []:
+                items.append({'kind': 'text', 'at': r.get('created_at'), 'dir': r.get('direction'),
+                              'body': r.get('body') or '',
+                              'by': (r.get('staff_name') or fmt_phone(r.get('staff_phone') or '')) if r.get('direction') == 'out' else ''})
+            for r in fetchall(conn, f'''SELECT call_sid, status, routed_to_name, created_at FROM call_log
+                    WHERE {k.format(c='from_number')}=%s ORDER BY created_at DESC LIMIT 30''', (k10,)) or []:
+                items.append({'kind': 'call', 'at': r.get('created_at'), 'dir': 'in', 'status': r.get('status') or '',
+                              'by': r.get('routed_to_name') or ''})
+            for r in fetchall(conn, f'''SELECT staff_name, staff_phone, created_at FROM outbound_calls
+                    WHERE {k.format(c='to_phone')}=%s ORDER BY created_at DESC LIMIT 30''', (k10,)) or []:
+                items.append({'kind': 'call', 'at': r.get('created_at'), 'dir': 'out', 'status': 'outgoing',
+                              'by': r.get('staff_name') or fmt_phone(r.get('staff_phone') or '')})
+    finally:
+        conn.close()
+    items.sort(key=lambda x: str(x.get('at') or ''), reverse=True)
+    return jsonify({'items': items, 'phone': vol.get('phone') or '', 'email': vol.get('email') or '',
+                    'hidden_inbox': 0 if can_inbox else inbox_count})
 
 @app.route('/api/volunteers/<vol_id>')
 def get_volunteer(vol_id):
@@ -35266,6 +35345,9 @@ def _start_oncall_scheduler():
                               max_instances=1, coalesce=True, misfire_grace_time=120)
         except Exception as e:
             app.logger.warning(f'Could not schedule inbox check (non-fatal): {e}')
+        # Nightly RC Crash Report (PDF emailed + saved to Drive)
+        scheduler.add_job(lambda: run_emergency_snapshot('schedule'), CronTrigger(hour=3, minute=30),
+                          id='rc_crash_report', max_instances=1, coalesce=True, misfire_grace_time=3600)
         scheduler.start()
         app.logger.info('On-call report scheduler started')
     except ImportError:
@@ -36757,6 +36839,657 @@ def phone_hub_page():
     resp.headers['Cache-Control'] = 'no-store'
     return resp
 
+
+# ─────────────────────────────────────────────
+# RC Crash Report
+#
+# A nightly, password-protected PDF of what we'd need if RoleCall or its
+# database went down: who's on call, upcoming events/performances/rentals,
+# class rosters (registrations and enrollments), emergency and pickup info
+# for kids in current programs, contacts for cast and crew in active
+# productions, and will-call lists. It's emailed and uploaded to a Google
+# Shared Drive, so it already lives outside Railway when it's needed.
+#
+# Configured with Railway environment variables (secrets stay out of the
+# database, and none of it depends on the database being up). The older
+# SNAPSHOT_* names also work.
+#   CRASH_REPORT_PDF_PASSWORD     password that opens the PDF (required —
+#                                 nothing is sent unencrypted)
+#   CRASH_REPORT_EMAILS           comma-separated recipients
+#   CRASH_REPORT_DRIVE_FOLDER_ID  folder ID in a Google *Shared Drive*
+#   GOOGLE_SERVICE_ACCOUNT_JSON   the service account's JSON key (that
+#                                 account must be a member of the Shared Drive)
+#   CRASH_REPORT_KEEP_DAYS        how many PDFs to keep in Drive (default 14)
+# ─────────────────────────────────────────────
+import datetime as _snap_dt
+from zoneinfo import ZoneInfo as _SnapZI
+
+_SNAP_TZ = _SnapZI('America/New_York')
+_SNAP_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+
+
+def _snap_cfg():
+    import os
+    env = lambda name, default='': (os.environ.get('CRASH_REPORT_' + name) or os.environ.get('SNAPSHOT_' + name) or default).strip()
+    return {
+        'password': env('PDF_PASSWORD'),
+        'emails': [e.strip() for e in env('EMAILS').split(',') if e.strip()],
+        'folder': env('DRIVE_FOLDER_ID'),
+        'sa_json': os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON', '').strip(),
+        'keep': int(env('KEEP_DAYS', '14') or 14),
+    }
+
+
+def _snap_q(conn, label, sql, params=()):
+    """Run one section's query; a broken section shouldn't sink the whole
+    snapshot, so failures come back as an empty list plus a note."""
+    try:
+        return fetchall(conn, sql, params) or [], None
+    except Exception as e:
+        try: conn.rollback()
+        except Exception: pass
+        app.logger.warning(f'snapshot section {label} failed: {e}')
+        return [], f'{label}: could not be loaded ({e.__class__.__name__})'
+
+
+def _snap_t(t):
+    """'19:30' -> '7:30 PM'; leaves anything else alone."""
+    t = (t or '').strip()
+    try:
+        return _snap_dt.datetime.strptime(t[:5], '%H:%M').strftime('%-I:%M %p')
+    except Exception:
+        return t
+
+
+def _snap_d(d):
+    d = (str(d or '')).strip()[:10]
+    try:
+        return _snap_dt.datetime.strptime(d, '%Y-%m-%d').strftime('%a %b %-d')
+    except Exception:
+        return d
+
+
+def _snap_ph(p):
+    """Format whatever's stored as (407) 555-0100 when it's a US number."""
+    p = (p or '').strip()
+    ds = ''.join(c for c in p if c.isdigit())
+    if len(ds) == 11 and ds[0] == '1':
+        ds = ds[1:]
+    return f'({ds[:3]}) {ds[3:6]}-{ds[6:]}' if len(ds) == 10 else p
+
+
+def _snap_age(dob):
+    try:
+        b = _snap_dt.datetime.strptime(str(dob)[:10], '%Y-%m-%d').date()
+        t = _snap_dt.datetime.now(_SNAP_TZ).date()
+        return str(t.year - b.year - ((t.month, t.day) < (b.month, b.day)))
+    except Exception:
+        return ''
+
+
+def build_emergency_snapshot_html():
+    """Gather everything and lay it out as print-friendly HTML (xhtml2pdf:
+    tables only, no flexbox)."""
+    import json as _json
+    import json
+    from html import escape as E
+    now = _snap_dt.datetime.now(_SNAP_TZ)
+    today = now.date()
+    d = lambda n: (today + _snap_dt.timedelta(days=n)).isoformat()
+    T, D14, D30 = today.isoformat(), d(14), d(30)
+    notes = []
+    conn = get_db()
+    try:
+        # ── On call, day by day for two weeks (same rules as get_oncall_now)
+        oc, n = _snap_q(conn, 'On-call schedule', '''SELECT person_name, phone, start_date, end_date,
+                start_time, end_time, days_of_week FROM on_call_schedule
+            WHERE start_date <= %s AND (end_date IS NULL OR end_date >= %s) AND person_name <> ''
+            ORDER BY start_date DESC''', (D14, T)); n and notes.append(n)
+        oncall_days = []
+        for i in range(14):
+            day = today + _snap_dt.timedelta(days=i)
+            ds = day.isoformat()
+            who = []
+            for r in oc:
+                if str(r.get('start_date'))[:10] > ds or (r.get('end_date') and str(r['end_date'])[:10] < ds):
+                    continue
+                try: days = _json.loads(r.get('days_of_week') or '[0,1,2,3,4,5,6]')
+                except Exception: days = list(range(7))
+                if day.weekday() in days:
+                    who.append(f"{r['person_name']} {_snap_ph(r['phone'])} ({_snap_t(r.get('start_time') or '00:00')}–{_snap_t(r.get('end_time') or '23:59')})")
+            oncall_days.append((ds, who))
+
+        board, n = _snap_q(conn, 'Board', '''SELECT b.name, b.role, b.email, COALESCE(v.phone,'') AS phone
+            FROM board_members b LEFT JOIN volunteers v ON v.id=b.volunteer_id
+            WHERE COALESCE(b.status,'active')='active' ORDER BY b.name'''); n and notes.append(n)
+
+        # ── Next 30 days
+        events, n = _snap_q(conn, 'Events', '''SELECT e.name, e.event_date, e.start_time, e.end_time,
+                COALESCE(NULLIF(e.location,''), e.address, '') AS location, COALESCE(p.name,'') AS production
+            FROM events e LEFT JOIN productions p ON p.id=e.production_id
+            WHERE e.event_date >= %s AND e.event_date <= %s AND COALESCE(e.status,'') NOT IN ('cancelled','canceled')
+            ORDER BY e.event_date, e.start_time''', (T, D30)); n and notes.append(n)
+        perfs, n = _snap_q(conn, 'Performances', '''SELECT pf.id, pf.performance_date, pf.performance_time, pf.doors_time,
+                pr.name AS production, COALESCE(v.name,'') AS venue,
+                (SELECT COUNT(*) FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+                   WHERE t.performance_id=pf.id AND o.status='completed') AS sold
+            FROM performances pf JOIN productions pr ON pr.id=pf.production_id
+            LEFT JOIN venues v ON v.id=pf.venue_id
+            WHERE pf.performance_date >= %s AND pf.performance_date <= %s AND COALESCE(pf.status,'') NOT IN ('cancelled','canceled')
+            ORDER BY pf.performance_date, pf.performance_time''', (T, D30)); n and notes.append(n)
+        rentals, n = _snap_q(conn, 'Rentals', '''SELECT o.occurrence_date, COALESCE(NULLIF(o.start_time,''), r.start_time) AS start_time,
+                COALESCE(NULLIF(o.end_time,''), r.end_time) AS end_time, r.title, COALESCE(s.name,'') AS space,
+                COALESCE(p.name,'') AS partner, COALESCE(p.contact_name,'') AS contact, COALESCE(p.contact_phone,'') AS phone,
+                COALESCE(r.hwtc_contact_name,'') AS hwtc_contact, COALESCE(r.hwtc_contact_phone,'') AS hwtc_phone,
+                COALESCE(r.door_code,'') AS door_code
+            FROM rental_occurrences o JOIN rental_requests r ON r.id=o.request_id
+            LEFT JOIN rental_partners p ON p.id=r.partner_id LEFT JOIN rental_spaces s ON s.id=r.space_id
+            WHERE o.occurrence_date >= %s AND o.occurrence_date <= %s
+              AND COALESCE(o.status,'') NOT IN ('cancelled','canceled')
+              AND COALESCE(r.status,'') NOT IN ('denied','cancelled','canceled','declined','pending','archived')
+            ORDER BY o.occurrence_date, 2''', (T, D30)); n and notes.append(n)
+
+        # ── Kids in current programs and productions
+        youth, n = _snap_q(conn, 'Youth roster', '''
+            WITH active AS (
+              SELECT pr.youth_id, yp.name AS program FROM program_registrations pr
+                JOIN youth_programs yp ON yp.id=pr.program_id
+               WHERE pr.status='confirmed' AND pr.youth_id IS NOT NULL
+                 AND COALESCE(NULLIF(yp.end_date,''),'9999-12-31') >= %s
+                 AND COALESCE(NULLIF(yp.start_date,''),'0000-01-01') <= %s
+              UNION
+              SELECT ypm.youth_id, p.name FROM youth_production_members ypm
+                JOIN productions p ON p.id=ypm.production_id
+               WHERE COALESCE(p.status,'') NOT IN ('completed','archived','cancelled'))
+            SELECT y.id, y.first_name, y.last_name, y.dob, COALESCE(y.allergies,'') AS allergies,
+                   COALESCE(y.medical_notes,'') AS medical, STRING_AGG(DISTINCT a.program, ', ') AS programs
+              FROM active a JOIN youth_participants y ON y.id=a.youth_id
+             GROUP BY y.id ORDER BY y.last_name, y.first_name''', (T, D30)); n and notes.append(n)
+        ids = [y['id'] for y in youth]
+        guardians, ecs, pickups = {}, {}, {}
+        if ids:
+            ph = ','.join(['%s'] * len(ids))
+            for table, bucket, extra in (('youth_guardians', guardians, 'is_primary DESC,'),
+                                         ('youth_emergency_contacts', ecs, ''),
+                                         ('youth_authorized_pickups', pickups, 'priority,')):
+                rows, n = _snap_q(conn, table, f'SELECT * FROM {table} WHERE youth_id IN ({ph}) ORDER BY {extra} name', tuple(ids))
+                n and notes.append(n)
+                for r in rows:
+                    bucket.setdefault(r['youth_id'], []).append(r)
+        # Confirmed registrations not linked to a participant record yet still need to be on the list
+        unlinked, n = _snap_q(conn, 'Unlinked registrations', '''SELECT pr.child_first_name, pr.child_last_name, pr.child_dob,
+                pr.guardian_name, pr.guardian_phone, pr.emergency_contact_name, pr.emergency_contact_phone,
+                COALESCE(pr.pickup_contacts,'') AS pickup_contacts, COALESCE(pr.allergies,'') AS allergies, yp.name AS program
+            FROM program_registrations pr JOIN youth_programs yp ON yp.id=pr.program_id
+            WHERE pr.status='confirmed' AND pr.youth_id IS NULL AND COALESCE(pr.is_minor, TRUE)
+              AND COALESCE(NULLIF(yp.end_date,''),'9999-12-31') >= %s
+              AND COALESCE(NULLIF(yp.start_date,''),'0000-01-01') <= %s
+            ORDER BY pr.child_last_name, pr.child_first_name''', (T, D30)); n and notes.append(n)
+
+        # ── Classes running now or starting in the next 30 days, with rosters
+        classes, n = _snap_q(conn, 'Classes', '''SELECT yp.id, yp.name, yp.start_date, yp.end_date, yp.single_date,
+                COALESCE(yp.meeting_days,'') AS meeting_days, COALESCE(yp.meeting_start_time,'') AS mstart,
+                COALESCE(yp.meeting_end_time,'') AS mend, COALESCE(yp.program_location,'') AS location,
+                COALESCE(yp.schedule_notes,'') AS schedule_notes, yp.capacity, COALESCE(v.name,'') AS instructor,
+                COALESCE(v.phone,'') AS instructor_phone
+            FROM youth_programs yp LEFT JOIN volunteers v ON v.id=yp.instructor_id
+            WHERE COALESCE(yp.status,'active') NOT IN ('draft','archived','cancelled','inactive','completed')
+              AND COALESCE(NULLIF(yp.end_date,''), NULLIF(yp.single_date,''), '9999-12-31') >= %s
+              AND COALESCE(NULLIF(yp.start_date,''), NULLIF(yp.single_date,''), '0000-01-01') <= %s
+            ORDER BY COALESCE(NULLIF(yp.start_date,''), yp.single_date), yp.name''', (T, D30)); n and notes.append(n)
+        class_ids = [c['id'] for c in classes]
+        regs_by_class, enr_by_class, sess_names = {}, {}, {}
+        if class_ids:
+            ph = ','.join(['%s'] * len(class_ids))
+            rows, n = _snap_q(conn, 'Class sessions', f'SELECT id, name FROM program_sessions WHERE program_id IN ({ph})', tuple(class_ids))
+            n and notes.append(n)
+            sess_names = {r['id']: r['name'] for r in rows}
+            rows, n = _snap_q(conn, 'Registrations', f'''SELECT pr.program_id, pr.status, pr.youth_id,
+                    COALESCE(y.first_name, pr.child_first_name, '') AS first_name,
+                    COALESCE(y.last_name, pr.child_last_name, '') AS last_name,
+                    COALESCE(y.dob, pr.child_dob, '') AS dob, COALESCE(pr.guardian_name,'') AS guardian_name,
+                    COALESCE(pr.guardian_phone,'') AS guardian_phone, COALESCE(pr.guardian_email,'') AS guardian_email,
+                    COALESCE(pr.session_ids,'[]') AS session_ids, COALESCE(pr.registration_form_type,'') AS form_type,
+                    pr.waitlist_position
+                FROM program_registrations pr LEFT JOIN youth_participants y ON y.id=pr.youth_id
+                WHERE pr.program_id IN ({ph}) AND pr.status IN ('confirmed','pending_payment','waitlisted')
+                ORDER BY pr.status='waitlisted', pr.waitlist_position NULLS LAST,
+                    LOWER(COALESCE(y.last_name, pr.child_last_name, '')), LOWER(COALESCE(y.first_name, pr.child_first_name, ''))''',
+                tuple(class_ids)); n and notes.append(n)
+            for r in rows:
+                regs_by_class.setdefault(r['program_id'], []).append(r)
+            # Older-style enrollments (youth_program_enrollments) that have no matching registration
+            rows, n = _snap_q(conn, 'Enrollments', f'''SELECT e.program_id, y.id AS youth_id, y.first_name, y.last_name, y.dob,
+                    COALESCE(g.name,'') AS guardian_name, COALESCE(g.phone,'') AS guardian_phone, COALESCE(g.email,'') AS guardian_email
+                FROM youth_program_enrollments e JOIN youth_participants y ON y.id=e.youth_id
+                LEFT JOIN LATERAL (SELECT name, phone, email FROM youth_guardians WHERE youth_id=y.id
+                    ORDER BY is_primary DESC, name LIMIT 1) g ON TRUE
+                WHERE e.program_id IN ({ph}) AND NOT EXISTS (SELECT 1 FROM program_registrations pr
+                    WHERE pr.program_id=e.program_id AND pr.youth_id=e.youth_id AND pr.status <> 'cancelled')
+                ORDER BY LOWER(y.last_name), LOWER(y.first_name)''', tuple(class_ids)); n and notes.append(n)
+            for r in rows:
+                enr_by_class.setdefault(r['program_id'], []).append(r)
+
+        # ── Cast & crew of active productions, with their emergency contacts
+        crew, n = _snap_q(conn, 'Production contacts', '''SELECT p.name AS production, v.id AS vid, v.name, COALESCE(v.phone,'') AS phone,
+                COALESCE(pm.role,'') AS role, COALESCE(pm.department,'') AS department
+            FROM production_members pm JOIN productions p ON p.id=pm.production_id JOIN volunteers v ON v.id=pm.volunteer_id
+            WHERE COALESCE(p.status,'') NOT IN ('completed','archived','cancelled')
+              AND COALESCE(pm.status,'') NOT IN ('removed','declined','withdrawn')
+            ORDER BY p.name, pm.department, v.name'''); n and notes.append(n)
+        vec = {}
+        vids = list({c['vid'] for c in crew})
+        if vids:
+            ph = ','.join(['%s'] * len(vids))
+            rows, n = _snap_q(conn, 'Volunteer emergency contacts', f'''SELECT volunteer_id, name, relationship, phone
+                FROM volunteer_emergency_contacts WHERE volunteer_id IN ({ph}) ORDER BY name''', tuple(vids)); n and notes.append(n)
+            for r in rows:
+                vec.setdefault(r['volunteer_id'], []).append(r)
+
+        # ── Will-call for the next two weeks
+        willcall, n = _snap_q(conn, 'Will-call', '''SELECT pf.performance_date, pf.performance_time, pr.name AS production,
+                o.guardian_name AS buyer, o.guardian_phone AS phone, COUNT(t.id) AS qty,
+                STRING_AGG(NULLIF(t.seat_label,''), ', ' ORDER BY t.seat_label) AS seats,
+                MIN(t.confirmation_code) AS code
+            FROM ticket_orders o JOIN tickets t ON t.ticket_order_id=o.id
+            JOIN performances pf ON pf.id=o.performance_id JOIN productions pr ON pr.id=pf.production_id
+            WHERE o.status='completed' AND pf.performance_date >= %s AND pf.performance_date <= %s
+            GROUP BY pf.id, pf.performance_date, pf.performance_time, pr.name, o.id, o.guardian_name, o.guardian_phone
+            ORDER BY pf.performance_date, pf.performance_time, LOWER(o.guardian_name)''', (T, D14)); n and notes.append(n)
+    finally:
+        conn.close()
+
+    # ── Layout
+    def table(headers, rows, widths=None):
+        if not rows:
+            return '<p class="none">None.</p>'
+        th = ''.join((f'<th width="{widths[i]}">' if widths else '<th>') + E(h) + '</th>' for i, h in enumerate(headers))
+        body = ''.join('<tr>' + ''.join(f'<td>{c}</td>' for c in r) + '</tr>' for r in rows)
+        return f'<table><thead><tr>{th}</tr></thead><tbody>{body}</tbody></table>'
+    def people(lst, keys=('name', 'relationship', 'phone')):
+        out = []
+        for p in lst or []:
+            nm = E(p.get('name') or '')
+            rel = E(p.get('relationship') or '')
+            phn = E(_snap_ph(p.get('phone') or ''))
+            out.append(f'{nm}{" (" + rel + ")" if rel else ""}{" " + phn if phn else ""}')
+        return '<br/>'.join(out) or '<span class="none">—</span>'
+
+    stamp = now.strftime('%A, %B %-d, %Y at %-I:%M %p ET')
+    h = [f'''<html><head><meta charset="utf-8"><style>
+@page {{ size: letter; margin: 36px 32px 40px 32px;
+  @frame footer {{ -pdf-frame-content: footer; bottom: 14px; margin-left: 32px; margin-right: 32px; height: 20px; }} }}
+body {{ font-family: Helvetica; font-size: 8.5pt; color: #111; }}
+h1 {{ font-size: 18pt; color: #0d3d4d; margin: 0 0 2px 0; }}
+h2 {{ font-size: 12.5pt; color: #0d3d4d; border-bottom: 1.5px solid #0d3d4d; padding-bottom: 2px; margin: 14px 0 6px 0; }}
+h3 {{ font-size: 10pt; margin: 10px 0 4px 0; }}
+table {{ width: 100%; border-collapse: collapse; margin-bottom: 6px; }}
+th {{ background: #e6eef0; text-align: left; padding: 3px 4px; font-size: 8pt; border: 0.5px solid #b8c7cb; }}
+td {{ padding: 3px 4px; vertical-align: top; border: 0.5px solid #d3dcde; }}
+.none {{ color: #777; }} .warn {{ color: #8a1c1c; font-weight: bold; }}
+.box {{ border: 1px solid #b8c7cb; background: #f4f8f9; padding: 6px 8px; margin: 6px 0; }}
+.small {{ font-size: 7.5pt; color: #555; }}
+</style></head><body>
+<div id="footer" class="small">RC Crash Report · {E(stamp)} · CONFIDENTIAL: contains minors' medical and contact information. Do not forward.</div>
+<h1>RC Crash Report</h1>
+<div class="small">HWTC · generated {E(stamp)}. Covers today through {E(_snap_d(D30))}.</div>
+<div class="box">Use this when RoleCall is unavailable. It is a read-only copy from the time above, so anything changed since then won't be here.
+Sections: On call · Board · Next 30 days · Classes &amp; registrations · Youth emergency info · Production contacts · Will-call (next 14 days).</div>''']
+    if notes:
+        h.append('<div class="box warn">Some sections could not be loaded: ' + E('; '.join(notes)) + '</div>')
+
+    h.append('<h2>On call (next 14 days)</h2>')
+    h.append(table(['Date', 'On call'], [[E(_snap_d(ds)), E('; '.join(w)) if w else '<span class="warn">Nobody scheduled</span>'] for ds, w in oncall_days], ['18%', '82%']))
+    h.append('<h2>Board</h2>')
+    h.append(table(['Name', 'Role', 'Phone', 'Email'], [[E(b['name']), E(b.get('role') or ''), E(_snap_ph(b.get('phone') or '')), E(b.get('email') or '')] for b in board]))
+
+    h.append('<h2>Next 30 days</h2><h3>Performances</h3>')
+    h.append(table(['Date', 'Time', 'Doors', 'Production', 'Venue', 'Sold'],
+        [[E(_snap_d(p['performance_date'])), E(_snap_t(p.get('performance_time'))), E(_snap_t(p.get('doors_time'))), E(p['production']), E(p.get('venue') or ''), str(p.get('sold') or 0)] for p in perfs]))
+    h.append('<h3>Events</h3>')
+    h.append(table(['Date', 'Time', 'Event', 'Production', 'Location'],
+        [[E(_snap_d(e['event_date'])), E(' – '.join(x for x in (_snap_t(e.get('start_time')), _snap_t(e.get('end_time'))) if x)), E(e['name']), E(e.get('production') or ''), E(e.get('location') or '')] for e in events]))
+    h.append('<h3>Rentals</h3>')
+    h.append(table(['Date', 'Time', 'Booking', 'Space', 'Renter contact', 'HWTC contact', 'Door code'],
+        [[E(_snap_d(r['occurrence_date'])), E(' – '.join(x for x in (_snap_t(r.get('start_time')), _snap_t(r.get('end_time'))) if x)),
+          E(r['title']) + (f'<br/><span class="small">{E(r["partner"])}</span>' if r.get('partner') else ''), E(r.get('space') or ''),
+          E(r.get('contact') or '') + (' ' + E(_snap_ph(r['phone'])) if r.get('phone') else ''),
+          E(r.get('hwtc_contact') or '') + (' ' + E(_snap_ph(r['hwtc_phone'])) if r.get('hwtc_phone') else ''), E(r.get('door_code') or '')] for r in rentals]))
+
+    h.append('<pdf:nextpage /><h2>Classes: registrations &amp; enrollments</h2>')
+    h.append('<div class="small">Classes running now or starting in the next 30 days. Emergency and pickup details for these kids are in the next section.</div>')
+    if not classes:
+        h.append('<p class="none">No active classes.</p>')
+    status_label = {'confirmed': 'Confirmed', 'pending_payment': 'Payment pending', 'waitlisted': 'Waitlist'}
+    total_enrolled = 0
+    for c in classes:
+        regs = regs_by_class.get(c['id'], [])
+        enr = enr_by_class.get(c['id'], [])
+        active = [r for r in regs if r['status'] != 'waitlisted']
+        waiting = [r for r in regs if r['status'] == 'waitlisted']
+        total_enrolled += len(active) + len(enr)
+        if c.get('single_date'):
+            when = _snap_d(c['single_date'])
+        else:
+            when = ' – '.join(x for x in (_snap_d(c.get('start_date')), _snap_d(c.get('end_date'))) if x)
+        times = ' – '.join(x for x in (_snap_t(c.get('mstart')), _snap_t(c.get('mend'))) if x)
+        days = c.get('meeting_days') or ''
+        try:
+            dl = json.loads(days) if days.strip().startswith('[') else None
+            if isinstance(dl, list):
+                days = ', '.join(str(x) for x in dl)
+        except Exception:
+            pass
+        cap = f" · {len(active) + len(enr)}{'/' + str(c['capacity']) if c.get('capacity') else ''} enrolled"
+        info = ' · '.join(E(x) for x in (when, days, times, c.get('location') or '') if x)
+        instr = (f"<br/>Instructor: {E(c['instructor'])}" + (f" {E(_snap_ph(c['instructor_phone']))}" if c.get('instructor_phone') else '')) if c.get('instructor') else ''
+        notes_line = f"<br/><span class=\"small\">{E(c['schedule_notes'])}</span>" if c.get('schedule_notes') else ''
+        h.append(f'<h3>{E(c["name"])}{E(cap)}</h3><div class="small" style="margin-bottom:4px">{info}{instr}{notes_line}</div>')
+        rows = []
+        for r in active:
+            try: sids = json.loads(r.get('session_ids') or '[]')
+            except Exception: sids = []
+            sess = ', '.join(sess_names.get(x, '') for x in sids if sess_names.get(x))
+            age = _snap_age(r.get('dob'))
+            rows.append([f"<b>{E(r['last_name'])}, {E(r['first_name'])}</b>" + (f' ({age})' if age else '')
+                         + (f'<br/><span class="small">{E(sess)}</span>' if sess else ''),
+                         E(r.get('guardian_name') or ''), E(_snap_ph(r.get('guardian_phone') or '')), E(r.get('guardian_email') or ''),
+                         E(status_label.get(r['status'], r['status']))])
+        for r in enr:
+            age = _snap_age(r.get('dob'))
+            rows.append([f"<b>{E(r['last_name'])}, {E(r['first_name'])}</b>" + (f' ({age})' if age else ''),
+                         E(r.get('guardian_name') or ''), E(_snap_ph(r.get('guardian_phone') or '')), E(r.get('guardian_email') or ''),
+                         'Enrolled'])
+        h.append(table(['Participant', 'Contact', 'Phone', 'Email', 'Status'], rows, ['27%', '20%', '15%', '26%', '12%']))
+        if waiting:
+            h.append('<div class="small"><b>Waitlist:</b> ' + E('; '.join(
+                f"{i + 1}. {r['first_name']} {r['last_name']}" + (f" · {_snap_ph(r['guardian_phone'])}" if r.get('guardian_phone') else '')
+                for i, r in enumerate(waiting))) + '</div>')
+
+    h.append('<pdf:nextpage /><h2>Youth emergency information</h2>')
+    h.append('<div class="small">Kids confirmed in a program running now or starting in the next 30 days, or in a production that is not finished. Only people listed under Authorized pickups may pick a child up.</div>')
+    yrows = []
+    for y in youth:
+        med = ' '.join(x for x in ((f'<b>Allergies:</b> {E(y["allergies"])}' if y.get('allergies') else ''),
+                                   (f'<b>Medical:</b> {E(y["medical"])}' if y.get('medical') else '')) if x)
+        yrows.append([f'<b>{E(y["last_name"])}, {E(y["first_name"])}</b>' + (f'<br/>Age {_snap_age(y.get("dob"))}' if _snap_age(y.get('dob')) else '')
+                      + f'<br/><span class="small">{E(y.get("programs") or "")}</span>',
+                      people(guardians.get(y['id'])), people(ecs.get(y['id'])), people(pickups.get(y['id'])),
+                      med or '<span class="none">—</span>'])
+    for r in unlinked:
+        yrows.append([f'<b>{E(r.get("child_last_name") or "")}, {E(r.get("child_first_name") or "")}</b>'
+                      + (f'<br/>Age {_snap_age(r.get("child_dob"))}' if _snap_age(r.get('child_dob')) else '')
+                      + f'<br/><span class="small">{E(r.get("program") or "")} (from registration)</span>',
+                      E(r.get('guardian_name') or '') + (' ' + E(_snap_ph(r['guardian_phone'])) if r.get('guardian_phone') else ''),
+                      E(r.get('emergency_contact_name') or '') + (' ' + E(_snap_ph(r['emergency_contact_phone'])) if r.get('emergency_contact_phone') else ''),
+                      E(r.get('pickup_contacts') or '') or '<span class="none">—</span>',
+                      (f'<b>Allergies:</b> {E(r["allergies"])}' if r.get('allergies') else '<span class="none">—</span>')])
+    h.append(table(['Child', 'Guardians', 'Emergency contacts', 'Authorized pickups', 'Allergies / medical'], yrows,
+                   ['20%', '20%', '20%', '20%', '20%']))
+
+    h.append('<pdf:nextpage /><h2>Production contacts</h2>')
+    by_prod = {}
+    for c in crew:
+        by_prod.setdefault(c['production'], []).append(c)
+    if not by_prod:
+        h.append('<p class="none">No active productions.</p>')
+    for prod, members in by_prod.items():
+        h.append(f'<h3>{E(prod)}</h3>')
+        h.append(table(['Name', 'Role', 'Phone', 'Emergency contact'],
+            [[E(m['name']), E(' · '.join(x for x in (m.get('department'), m.get('role')) if x)), E(_snap_ph(m.get('phone') or '')), people(vec.get(m['vid']))] for m in members],
+            ['26%', '24%', '18%', '32%']))
+
+    h.append('<pdf:nextpage /><h2>Will-call (next 14 days)</h2>')
+    by_perf = {}
+    for w in willcall:
+        by_perf.setdefault((w['performance_date'], w.get('performance_time') or '', w['production']), []).append(w)
+    if not by_perf:
+        h.append('<p class="none">No tickets sold for the next 14 days.</p>')
+    for (pd, pt, prod), orders in by_perf.items():
+        h.append(f'<h3>{E(prod)} · {E(_snap_d(pd))} {E(_snap_t(pt))} · {sum(int(o["qty"] or 0) for o in orders)} tickets</h3>')
+        h.append(table(['Name', 'Phone', 'Qty', 'Seats', 'Code'],
+            [[E(o.get('buyer') or ''), E(_snap_ph(o.get('phone') or '')), str(o['qty']), E(o.get('seats') or 'GA'), E(o.get('code') or '')] for o in orders],
+            ['30%', '18%', '7%', '33%', '12%']))
+    h.append('</body></html>')
+    stats = {'youth': len(youth) + len(unlinked), 'classes': len(classes), 'enrolled': total_enrolled, 'performances': len(perfs), 'events': len(events),
+             'rentals': len(rentals), 'willcall_orders': len(willcall), 'crew': len(crew), 'problems': notes}
+    return ''.join(h), stats
+
+
+def _snap_encrypt_pdf(pdf_bytes, password):
+    """AES-256 password protection. Needs the `cryptography` package; if it
+    isn't there we fail rather than send minors' info unprotected."""
+    import io
+    from pypdf import PdfReader, PdfWriter
+    w = PdfWriter()
+    for pg in PdfReader(io.BytesIO(pdf_bytes)).pages:
+        w.add_page(pg)
+    w.add_metadata({'/Title': 'RC Crash Report'})
+    w.encrypt(user_password=password, owner_password=None, algorithm='AES-256')
+    out = io.BytesIO(); w.write(out)
+    return out.getvalue()
+
+
+def _google_sa_token(sa_json, scope='https://www.googleapis.com/auth/drive'):
+    """Service-account access token via a signed JWT (no Google client
+    library needed; signing uses `cryptography`)."""
+    import json, time, base64, requests as _rq
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding
+    sa = json.loads(sa_json)
+    b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b'=')
+    now = int(time.time())
+    header = b64(json.dumps({'alg': 'RS256', 'typ': 'JWT'}).encode())
+    claims = b64(json.dumps({'iss': sa['client_email'], 'scope': scope, 'aud': 'https://oauth2.googleapis.com/token',
+                             'iat': now, 'exp': now + 3600}).encode())
+    key = serialization.load_pem_private_key(sa['private_key'].encode(), password=None)
+    sig = b64(key.sign(header + b'.' + claims, padding.PKCS1v15(), hashes.SHA256()))
+    r = _rq.post('https://oauth2.googleapis.com/token', timeout=20, data={
+        'grant_type': 'urn:ietf:params:oauth:grant-type:jwt-bearer', 'assertion': (header + b'.' + claims + b'.' + sig).decode()})
+    r.raise_for_status()
+    return r.json()['access_token']
+
+
+def _snap_upload_drive(cfg, filename, pdf_bytes):
+    """Upload to the Shared Drive folder, then delete older snapshots beyond
+    SNAPSHOT_KEEP_DAYS. Returns the file's web link."""
+    import json, requests as _rq
+    tok = _google_sa_token(cfg['sa_json'])
+    hdr = {'Authorization': f'Bearer {tok}'}
+    boundary = 'hwtcsnapshot' + str(int(_snap_dt.datetime.now().timestamp()))
+    meta = json.dumps({'name': filename, 'parents': [cfg['folder']], 'mimeType': 'application/pdf'})
+    body = (f'--{boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n{meta}\r\n'
+            f'--{boundary}\r\nContent-Type: application/pdf\r\n\r\n').encode() + pdf_bytes + f'\r\n--{boundary}--'.encode()
+    r = _rq.post('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&supportsAllDrives=true&fields=id,webViewLink',
+                 headers={**hdr, 'Content-Type': f'multipart/related; boundary={boundary}'}, data=body, timeout=60)
+    if r.status_code >= 300:
+        raise RuntimeError(f'Drive upload failed ({r.status_code}): {r.text[:300]}')
+    link = r.json().get('webViewLink', '')
+    # Retention: keep the newest N snapshots in the folder
+    q = f"'{cfg['folder']}' in parents and name contains 'RC-Crash-Report' and trashed=false"
+    lr = _rq.get('https://www.googleapis.com/drive/v3/files', headers=hdr, timeout=30, params={
+        'q': q, 'orderBy': 'createdTime desc', 'pageSize': 200, 'fields': 'files(id,name)',
+        'supportsAllDrives': 'true', 'includeItemsFromAllDrives': 'true', 'corpora': 'allDrives'})
+    if lr.ok:
+        for f in (lr.json().get('files') or [])[max(cfg['keep'], 1):]:
+            _rq.delete(f"https://www.googleapis.com/drive/v3/files/{f['id']}?supportsAllDrives=true", headers=hdr, timeout=30)
+    return link
+
+
+def run_emergency_snapshot(triggered_by='schedule'):
+    """Build, encrypt, email and upload. Records the outcome in settings so
+    admins can see when it last worked."""
+    import base64, json
+    cfg = _snap_cfg()
+    result = {'at': _snap_dt.datetime.now(_SNAP_TZ).isoformat(timespec='seconds'), 'by': triggered_by,
+              'emailed': False, 'drive': False, 'errors': []}
+    try:
+        if not cfg['password']:
+            raise RuntimeError('CRASH_REPORT_PDF_PASSWORD is not set, so nothing was sent (the PDF is never sent unprotected).')
+        html, stats = build_emergency_snapshot_html()
+        result['stats'] = stats
+        pdf_b64 = _html_to_pdf_b64(html)
+        if not pdf_b64:
+            raise RuntimeError('PDF rendering failed.')
+        pdf = _snap_encrypt_pdf(base64.b64decode(pdf_b64), cfg['password'])
+        filename = 'RC-Crash-Report-' + _snap_dt.datetime.now(_SNAP_TZ).strftime('%Y-%m-%d') + '.pdf'
+        if cfg['folder'] and cfg['sa_json']:
+            try:
+                result['drive_link'] = _snap_upload_drive(cfg, filename, pdf)
+                result['drive'] = True
+            except Exception as e:
+                result['errors'].append(f'Google Drive: {e}')
+        if cfg['emails']:
+            drive_line = (f'<p>It is also saved in the shared Google Drive folder: <a href="{result["drive_link"]}">open folder copy</a>.</p>'
+                          if result.get('drive_link') else '')
+            body = f'''<p>Attached is tonight's RC Crash Report: who's on call, the next 30 days of performances, events and rentals,
+                class rosters, youth emergency and pickup info, production contacts, and will-call.</p>
+                <p>The PDF is password-protected. The password is <b>not</b> in this email; use the one the board keeps for it.</p>
+                {drive_line}
+                <p style="color:#666;font-size:12px">It contains minors' medical and contact information. Please don't forward it.</p>'''
+            try:
+                ok, send_err = send_email(cfg['emails'], 'RC Crash Report: ' + _snap_dt.datetime.now(_SNAP_TZ).strftime('%b %-d, %Y'),
+                           body, source='rc_crash_report',
+                           attachments=[{'filename': filename, 'content_b64': base64.b64encode(pdf).decode()}])
+                if ok:
+                    result['emailed'] = True
+                else:
+                    result['errors'].append(f'Email: {send_err}')
+            except Exception as e:
+                result['errors'].append(f'Email: {e}')
+        if not cfg['emails'] and not (cfg['folder'] and cfg['sa_json']):
+            result['errors'].append('No destination set (CRASH_REPORT_EMAILS and/or CRASH_REPORT_DRIVE_FOLDER_ID + GOOGLE_SERVICE_ACCOUNT_JSON).')
+        if stats.get('problems'):
+            result['errors'].append('Some sections failed: ' + '; '.join(stats['problems']))
+    except Exception as e:
+        result['errors'].append(str(e))
+    result['ok'] = (result['emailed'] or result['drive']) and not any(
+        x.startswith(('Email', 'Google Drive', 'Some sections')) for x in result['errors'])
+    try:
+        conn = get_db()
+        execute(conn, '''INSERT INTO settings (key, value) VALUES ('rc_crash_report_last_run', %s)
+            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value''', (json.dumps(result),))
+        conn.commit(); conn.close()
+    except Exception as e:
+        app.logger.warning(f'could not record crash report result: {e}')
+    if not result['ok']:
+        app.logger.error(f'RC Crash Report problem: {result["errors"]}')
+        # Tell someone, without the attachment. If email itself is what failed this may not arrive,
+        # which is why the admin status endpoint exists too.
+        try:
+            if cfg['emails']:
+                send_email(cfg['emails'], 'RC Crash Report did not complete',
+                           '<p>Tonight\'s RC Crash Report ran into a problem:</p><ul>' +
+                           ''.join(f'<li>{__import__("html").escape(x)}</li>' for x in result['errors']) +
+                           '</ul><p>The most recent good copy is still in the Drive folder and earlier emails.</p>',
+                           source='rc_crash_report_error')
+        except Exception:
+            pass
+    return result
+
+
+@app.route('/api/admin/crash-report/preview')
+def emergency_snapshot_preview():
+    """Admin-only: see the snapshot in the browser (not encrypted, not sent)."""
+    err = require_admin()
+    if err: return err
+    html, _stats = build_emergency_snapshot_html()
+    resp = app.response_class(html, mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/api/admin/crash-report/run', methods=['POST'])
+def emergency_snapshot_run_now():
+    err = require_admin()
+    if err: return err
+    return jsonify(run_emergency_snapshot(triggered_by=_session_user_name() or 'admin'))
+
+
+@app.route('/api/admin/crash-report/status')
+def emergency_snapshot_status():
+    err = require_admin()
+    if err: return err
+    import json
+    cfg = _snap_cfg()
+    conn = get_db()
+    try:
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='rc_crash_report_last_run'")
+    finally:
+        conn.close()
+    try: last = json.loads((row or {}).get('value') or 'null')
+    except Exception: last = None
+    return jsonify({'last_run': last, 'config': {
+        'password_set': bool(cfg['password']), 'email_recipients': len(cfg['emails']),
+        'drive_configured': bool(cfg['folder'] and cfg['sa_json']), 'keep_in_drive': cfg['keep']}})
+
+
+@app.route('/admin/crash-report')
+def emergency_snapshot_admin_page():
+    """Small admin page: status of the last run, preview, and send now."""
+    if 'user_id' not in session:
+        from flask import redirect
+        return redirect('/?next=/admin/crash-report')
+    if session.get('role') != 'admin':
+        return 'Admins only.', 403
+    page = r"""<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>RC Crash Report</title>
+<style>
+:root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--ok:#166534;--bad:#b42318;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--ok:#6ce9a6;--bad:#f97066;color-scheme:dark}}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:640px;margin:0 auto;padding:24px 16px}
+h1{font-size:22px;color:var(--brand);margin:0 0 4px}.sub{color:var(--muted);font-size:14px;margin-bottom:18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px}
+.row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line);font-size:14px}.row:last-child{border:none}
+.ok{color:var(--ok);font-weight:700}.bad{color:var(--bad);font-weight:700}
+.btns{display:flex;gap:10px;flex-wrap:wrap}
+a.btn,button{padding:12px 16px;border-radius:10px;font-size:15px;font-weight:700;text-decoration:none;border:1.5px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font-family:inherit}
+button.primary{background:var(--brand);color:var(--brand-ink);border-color:var(--brand)}
+ul{margin:6px 0 0 18px;padding:0;font-size:14px}
+</style></head><body><div class="wrap">
+<h1>RC Crash Report</h1>
+<div class="sub">Nightly at 3:30 AM. A password-protected PDF of the important stuff, emailed and saved to Google Drive, for when RoleCall is down.</div>
+<div class="card" id="cfg">Loading…</div>
+<div class="card" id="last"></div>
+<div class="btns">
+  <a class="btn" href="/api/admin/crash-report/preview" target="_blank">Preview (not sent)</a>
+  <button class="primary" id="go" onclick="runNow()">Send one now</button>
+</div>
+</div>
+<script>
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function yn(b,y,n){return b?'<span class="ok">'+y+'</span>':'<span class="bad">'+n+'</span>'}
+function showLast(r){
+  if(!r){document.getElementById('last').innerHTML='<b>Last run</b><div class="sub" style="margin:6px 0 0">It hasn\u2019t run yet.</div>';return}
+  var h='<b>Last run</b> <span class="sub">'+esc(new Date(r.at).toLocaleString())+' · '+esc(r.by)+'</span>'
+    +'<div class="row"><span>Result</span>'+yn(r.ok,'Worked','Problem')+'</div>'
+    +'<div class="row"><span>Emailed</span>'+yn(r.emailed,'Yes','No')+'</div>'
+    +'<div class="row"><span>Saved to Drive</span>'+yn(r.drive,'Yes','No')+'</div>';
+  if(r.stats)h+='<div class="row"><span>Contents</span><span>'+(r.stats.classes!=null?r.stats.classes+' classes ('+r.stats.enrolled+' enrolled) · ':'')+r.stats.youth+' kids · '+r.stats.performances+' performances · '+r.stats.events+' events · '+r.stats.rentals+' rentals · '+r.stats.willcall_orders+' will-call orders</span></div>';
+  if(r.errors&&r.errors.length)h+='<ul>'+r.errors.map(function(e){return '<li class="bad">'+esc(e)+'</li>'}).join('')+'</ul>';
+  document.getElementById('last').innerHTML=h;
+}
+async function load(){
+  var d=await (await fetch('/api/admin/crash-report/status')).json();
+  var c=d.config||{};
+  document.getElementById('cfg').innerHTML='<b>Setup</b>'
+    +'<div class="row"><span>PDF password</span>'+yn(c.password_set,'Set','Not set (nothing will send)')+'</div>'
+    +'<div class="row"><span>Email recipients</span>'+(c.email_recipients?'<span class="ok">'+c.email_recipients+'</span>':'<span class="bad">None</span>')+'</div>'
+    +'<div class="row"><span>Google Drive</span>'+yn(c.drive_configured,'Set up (keeps '+c.keep_in_drive+')','Not set up')+'</div>';
+  showLast(d.last_run);
+}
+async function runNow(){
+  var b=document.getElementById('go');b.disabled=true;b.textContent='Sending…';
+  try{var r=await (await fetch('/api/admin/crash-report/run',{method:'POST'})).json();showLast(r)}catch(e){alert(e.message)}
+  b.disabled=false;b.textContent='Send one now';
+}
+load();
+</script></body></html>"""
+    resp = app.response_class(page, mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
 
 _STAFF_PAGE_CSS = """*{box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#f5f4f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
 .card{background:#fff;border-radius:16px;padding:32px;max-width:420px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.1);text-align:center}

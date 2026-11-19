@@ -605,6 +605,49 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
   .ibx-compose{flex-shrink:0 !important;background:var(--surface);padding-bottom:calc(14px + env(safe-area-inset-bottom,0px)) !important}
   .ibx-sidep{min-height:0;overflow-y:auto !important}
 }
+
+/* ══ Lessons manager on phones: agenda-style week, compact month, big tap targets ══ */
+@media (max-width: 768px){
+  .lm-seg{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:var(--bg);border-radius:12px;padding:4px;margin-bottom:10px}
+  .lm-seg button{border:0;background:none;border-radius:9px;padding:8px 2px;font:inherit;font-size:13px;font-weight:700;color:var(--text-muted);min-height:38px;cursor:pointer}
+  .lm-seg button.on{background:var(--surface);color:var(--teal-dark);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+  .lm-nav{display:flex;align-items:center;gap:6px;margin:4px 0 12px}
+  .lm-nav .btn{min-width:44px;justify-content:center}
+  .lm-nav strong{flex:1;text-align:center;font-size:14.5px}
+  .lm-day{margin-bottom:14px}
+  .lm-day-h{display:flex;align-items:baseline;gap:8px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--text-muted);margin:0 2px 6px}
+  .lm-day-h.today{color:var(--teal-dark)}
+  .lm-day-h .cnt{margin-left:auto;font-weight:700;text-transform:none;letter-spacing:0}
+  .lm-tag{background:var(--teal-dark);color:#fff;border-radius:999px;padding:1px 8px;font-size:10.5px;letter-spacing:0;text-transform:none}
+  .lm-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;background:#e0f2fe;color:#0c4a6e;margin-bottom:6px;cursor:pointer;min-height:50px;box-sizing:border-box}
+  .lm-row:active{filter:brightness(.96)}
+  .lm-row .t{font-weight:800;font-size:13.5px;width:84px;flex-shrink:0;line-height:1.25}
+  .lm-row .n{flex:1;min-width:0;font-weight:600;font-size:15px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lm-row .s{font-size:12px;opacity:.75;font-weight:500}
+  .lm-row .go{font-size:20px;opacity:.5;flex-shrink:0}
+  .lm-row.past{background:var(--bg);color:var(--text-muted)}
+  .lm-row.open{background:none;border:1.5px dashed #cbd5e1;color:#64748b;cursor:default}
+  .lm-row.open .btn{min-height:34px;color:#991b1b}
+  .lm-empty{font-size:13px;color:var(--text-muted);padding:2px 2px 0}
+  .lm-wk{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;margin-bottom:3px}
+  .lm-wk div{text-align:center;font-size:11px;font-weight:800;color:var(--text-muted)}
+  .lm-mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+  .lm-mcell{height:50px;border-radius:9px;border:1.5px solid var(--border);background:var(--surface);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-weight:700;font-size:14px;cursor:pointer;padding:0;font-family:inherit;color:var(--text)}
+  .lm-mcell.out{opacity:.4;background:var(--bg)}
+  .lm-mcell.today{border-color:#7dd3fc}
+  .lm-mcell.sel{border-color:var(--teal-dark);background:var(--teal-light)}
+  .lm-mcell .c{font-size:10.5px;font-weight:800;background:#e0f2fe;color:#0c4a6e;border-radius:999px;padding:0 6px;line-height:1.5}
+  .lm-mcell .o{font-size:10px;font-weight:600;color:#94a3b8;line-height:1}
+  .lm-st-acts{display:flex;gap:6px;margin-top:10px}
+  .lm-st-acts > *{flex:1;text-align:center;justify-content:center;text-decoration:none}
+  .lm-chips{flex-wrap:nowrap !important;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
+  .lm-chips > *{flex-shrink:0}
+  .lm-sheet-times{display:flex;gap:8px;align-items:center}
+  .lm-sheet-times input{flex:1;min-width:0}
+  .lm-full{width:100%;justify-content:center}
+}
+.lm-contact{display:flex;gap:6px;margin-bottom:12px}
+.lm-contact a{flex:1;text-align:center;justify-content:center;text-decoration:none}
 </style>
  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
 </head>
@@ -5735,37 +5778,74 @@ async function deleteApplication(aid){
  loadApplications()
 }
 
+var _volComms = {items:[], filter:'all', volId:'', phone:''}
 async function loadVolComms(volId){
  var el=document.getElementById('vol-comms-list')
  if(!el) return
- var rows=await api('/api/volunteers/'+volId+'/communications')
- if(!Array.isArray(rows)||!rows.length){
- el.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:8px 0">No emails sent yet</div>'
- return
+ var d=await api('/api/volunteers/'+volId+'/timeline')
+ if(!d||d.error||!Array.isArray(d.items)){
+  el.innerHTML='<div style="color:var(--text-muted);font-size:13px;padding:8px 0">'+escHtml((d&&d.error)||'Could not load communication')+'</div>'
+  return
  }
+ _volComms={items:d.items, filter:_volComms.volId===volId?_volComms.filter:'all', volId:volId, phone:d.phone||'', hidden:d.hidden_inbox||0}
+ renderVolComms()
+}
+function volCommsFilter(f){ _volComms.filter=f; renderVolComms() }
+function renderVolComms(){
+ var el=document.getElementById('vol-comms-list')
+ if(!el) return
  var typeLabels={
- volunteer_opportunity:' Volunteer Opportunity',
- disney_reminder:' Disney VoluntEARS Reminder',
- universal_reminder:' Universal Giving Reminder',
- temp_password:' Temporary Password',
- board_availability:' Board Availability',
- event_closed:' Event Closed',
- hours_submitted:' Hours Submitted',
- volunteer_opportunity_invite:' Event Invite',
+  volunteer_opportunity:'Volunteer Opportunity', disney_reminder:'Disney VoluntEARS Reminder',
+  universal_reminder:'Universal Giving Reminder', temp_password:'Temporary Password',
+  board_availability:'Board Availability', event_closed:'Event Closed', hours_submitted:'Hours Submitted',
+  volunteer_opportunity_invite:'Event Invite'
  }
- el.innerHTML=rows.map(function(r){
- var dt=new Date(r.sent_at)
- var dateStr=dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
- var timeStr=dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})
- var label=typeLabels[r.email_type]||(' '+( r.email_type||'System Email'))
- return '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">'
- +'<div style="flex-shrink:0;font-size:11px;color:var(--text-muted);min-width:90px;padding-top:2px;text-align:right">'+dateStr+'<br>'+timeStr+'</div>'
- +'<div style="flex:1">'
- +'<div style="font-size:13px;font-weight:600;margin-bottom:2px">'+escHtml(r.subject||label)+'</div>'
- +'<div style="font-size:11px;color:var(--text-muted);display:flex;gap:8px">'
- +'<span style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:1px 7px">'+label+'</span>'
- +'<span>via '+escHtml(r.sent_by||'system')+'</span>'
- +'</div></div></div>'
+ var callLabels={answered:'Answered',missed:'Missed',voicemail:'Left a voicemail',after_hours:'After hours',closed:'While closed',no_coverage:'Missed (no coverage)',ringing:'Ringing',failed:'Failed'}
+ var f=_volComms.filter, all=_volComms.items
+ var counts={all:all.length,email:0,text:0,call:0}
+ all.forEach(function(r){ if(r.kind==='email'||r.kind==='system') counts.email++; else if(counts[r.kind]!=null) counts[r.kind]++ })
+ var rows=all.filter(function(r){ return f==='all' || (f==='email'?(r.kind==='email'||r.kind==='system'):r.kind===f) })
+ var chip=function(k,label){ var on=f===k
+  return '<button onclick="volCommsFilter(\''+k+'\')" style="padding:5px 12px;border-radius:999px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid '+(on?'var(--teal-dark)':'var(--border)')+';background:'+(on?'var(--teal-dark)':'var(--surface)')+';color:'+(on?'#fff':'var(--text)')+'">'+label+' <span style="opacity:.7">'+counts[k]+'</span></button>' }
+ var digits=(_volComms.phone||'').replace(/\D/g,'')
+ var head='<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:8px">'
+  +chip('all','All')+chip('email','Emails')+chip('text','Texts')+chip('call','Calls')
+  +(digits.length>=10?'<span style="flex:1"></span><a href="/sms/reply/'+digits+'" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none">Text</a><a href="/callback/'+digits+'" target="_blank" class="btn btn-secondary btn-sm" style="text-decoration:none">Call</a>':'')
+  +'</div>'
+ if(_volComms.hidden) head+='<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px">'+_volComms.hidden+' inbox conversation'+(_volComms.hidden===1?'':'s')+' with this volunteer aren\u2019t shown because you don\u2019t have inbox access.</div>'
+ if(!rows.length){
+  el.innerHTML=head+'<div style="color:var(--text-muted);font-size:13px;padding:8px 0">'+(f==='all'?'No communication yet':'Nothing here yet')+'</div>'
+  return
+ }
+ var badge=function(t){ return '<span style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:1px 7px">'+escHtml(t)+'</span>' }
+ el.innerHTML=head+rows.map(function(r){
+  var dt=r.at?new Date(r.at):null
+  var dateStr=dt&&!isNaN(dt)?dt.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):''
+  var timeStr=dt&&!isNaN(dt)?dt.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}):''
+  var title='', meta=[], extra='', click=''
+  if(r.kind==='system'){
+   title=r.subject||typeLabels[r.email_type]||'System email'
+   meta=[badge('RoleCall email'+(typeLabels[r.email_type]?' · '+typeLabels[r.email_type]:'')),'<span>sent by '+escHtml(r.by||'system')+'</span>']
+  } else if(r.kind==='email'){
+   title=r.subject
+   meta=[badge('Inbox · '+r.count+' message'+(r.count===1?'':'s')),'<span>last from '+escHtml(r.last_from||'')+'</span>']
+   if(r.status&&r.status!=='open') meta.push(badge(r.status))
+   if(r.preview) extra='<div style="font-size:12px;color:var(--text-muted);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+escHtml(r.preview)+'</div>'
+   click=' onclick="openInboxThread(\''+escHtml(r.thread_id)+'\')" title="Open in Inbox"'
+  } else if(r.kind==='text'){
+   title=r.body||'(empty text)'
+   meta=[badge(r.dir==='out'?'Text to them':'Text from them')]
+   if(r.dir==='out'&&r.by) meta.push('<span>sent by '+escHtml(r.by)+'</span>')
+  } else if(r.kind==='call'){
+   if(r.dir==='out'){ title='Outgoing call'; meta=[badge('Call')]; if(r.by) meta.push('<span>by '+escHtml(r.by)+'</span>') }
+   else { title='Called HWTC: '+(callLabels[r.status]||r.status||'call'); meta=[badge('Call')]; if(r.status==='answered'&&r.by) meta.push('<span>answered by '+escHtml(r.by)+'</span>') }
+  }
+  return '<div'+(click||'')+' style="display:flex;align-items:flex-start;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)'+(click?';cursor:pointer':'')+'">'
+   +'<div style="flex-shrink:0;font-size:11px;color:var(--text-muted);min-width:90px;padding-top:2px;text-align:right">'+dateStr+'<br>'+timeStr+'</div>'
+   +'<div style="flex:1;min-width:0">'
+   +'<div style="font-size:13px;font-weight:600;margin-bottom:2px;'+(r.kind==='text'?'font-weight:500;white-space:pre-wrap;word-break:break-word':'')+'">'+escHtml(title)+'</div>'
+   +'<div style="font-size:11px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:8px">'+meta.join('')+'</div>'
+   +extra+'</div></div>'
  }).join('')
 }
 
@@ -6077,7 +6157,7 @@ async function openProfile(volId){
  <div class="tab" onclick="switchTab(this,'tab-history')">History</div>
  <div class="tab" onclick="switchTab(this,'tab-notes')">Notes (${(v.notes||[]).length})</div>
  <div class="tab" onclick="switchTab(this,'tab-files')">Files (${(v.files||[]).length})</div>
- <div class="tab" onclick="switchTab(this,'tab-comms');loadVolComms('${v.id}')"> Emails</div>
+ <div class="tab" onclick="switchTab(this,'tab-comms');loadVolComms('${v.id}')"> Communication</div>
  <div class="tab" onclick="switchTab(this,'tab-store')"> Hours Store</div>
  </div>
  <div style="padding:0 0 20px">
@@ -26810,10 +26890,10 @@ async function openManageAvailability(pid, programName){
    + '<div id="ma-add-form" style="background:var(--bg);border-radius:10px;padding:12px;margin-bottom:16px">'
    + '<div style="font-size:12px;font-weight:700;margin-bottom:8px">Add a new available time</div>'
    + '<div style="display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:8px">'
-   + '<input type="date" id="ma-date" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+   + '<input type="date" id="ma-date" aria-label="Date" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
    + '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
-   + '<input type="time" id="ma-start" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
-   + '<input type="time" id="ma-end" style="padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/>'
+   + '<label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:none;letter-spacing:0;margin:0">Start<input type="time" id="ma-start" aria-label="Start time" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></label>'
+   + '<label style="font-size:11px;font-weight:700;color:var(--text-muted);text-transform:none;letter-spacing:0;margin:0">End<input type="time" id="ma-end" aria-label="End time" style="display:block;width:100%;box-sizing:border-box;margin-top:3px;padding:8px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:13px"/></label>'
    + '</div></div>'
    + '<button class="btn btn-primary btn-sm" style="width:100%" onclick="addAvailabilitySlot()">+ Add This Time</button>'
    + '</div>'
@@ -26849,8 +26929,8 @@ async function loadManageAvailabilityList(){
        + (isBooked
            ? '<span style="font-size:10px;font-weight:700;background:#0d9488;color:#fff;padding:2px 8px;border-radius:20px">Booked</span>'
            : '<div style="display:flex;gap:6px">'
-             + '<span onclick="startEditAvailability(\''+s.id+'\')" style="font-size:11px;color:var(--teal-dark);cursor:pointer;text-decoration:underline">Edit</span>'
-             + '<span onclick="removeAvailabilitySlot(\''+s.id+'\')" style="font-size:11px;color:#991b1b;cursor:pointer;text-decoration:underline">Remove</span>'
+             + '<button class="btn btn-secondary btn-sm" onclick="startEditAvailability(\''+s.id+'\')">Edit</button>'
+             + '<button class="btn btn-secondary btn-sm" style="color:#991b1b" onclick="removeAvailabilitySlot(\''+s.id+'\')">Remove</button>'
              + '</div>')
        + '</div>'
        + '<div class="ma-row-edit" id="ma-edit-'+s.id+'" style="display:none;margin-top:8px;padding-top:8px;border-top:1px solid var(--border)">'
@@ -26970,6 +27050,9 @@ function lmPaint(html){
   showAdHocModal('lessons','Lessons', html, 1000)
 }
 function lmOpenFor(progId){ return (_LM.data.open_slots||[]).filter(function(s){ return !_LM.prog || s.program_id === _LM.prog }) }
+function _lmPhone(){ try{ return window.matchMedia('(max-width: 768px)').matches }catch(e){ return false } }
+// Re-draw when the screen crosses the phone/desktop width (rotating a tablet, resizing a window)
+try{ window.matchMedia('(max-width: 768px)').addEventListener('change', function(){ if(_LM.data && (_LM.inline ? document.getElementById('lessons-inline') : document.getElementById('lessons'))) lmRender() }) }catch(e){}
 function lmRender(){
   var d = _LM.data, B = d.bookings || []
   if(!d.programs.length){ lmPaint('<div style="color:var(--text-muted)">No lesson programs yet. A program shows here once it uses Booking Mode (one student per time slot).</div>'); return }
@@ -26983,12 +27066,82 @@ function lmRender(){
     + '<button class="btn btn-secondary btn-sm" onclick="openAvailabilityPlanner()">+ Add open times</button>'
     + ['week','month','students','list'].map(function(v){ return '<button class="btn btn-sm '+(_LM.view===v?'btn-primary':'btn-secondary')+'" onclick="lmView(\''+v+'\')">'+({week:'Week',month:'Month',students:'Students',list:'Upcoming'})[v]+'</button>' }).join('')
     + '</div>'
+  if(_lmPhone()){
+    // Phones: title, program picker, a four-way switch, then one big Add button; the views below are lists, not grids
+    var ph = '<div style="font-size:16px;font-weight:800;margin-bottom:8px">Your lessons'+(d.programs.length===1?' <span style="font-size:13px;font-weight:500;color:var(--text-muted)">· '+escHtml(d.programs[0].name)+'</span>':'')+'</div>'
+      + (d.programs.length > 1 ? '<select onchange="_LM.prog=this.value;lmLoad().then(lmRender)" style="width:100%;margin-bottom:8px"><option value="">All lesson programs</option>'
+          + d.programs.map(function(p){ return '<option value="'+p.id+'"'+(_LM.prog===p.id?' selected':'')+'>'+escHtml(p.name)+'</option>' }).join('')+'</select>' : '')
+      + '<div class="lm-seg">'+['week','month','students','list'].map(function(v){ return '<button class="'+(_LM.view===v?'on':'')+'" onclick="lmView(\''+v+'\')">'+({week:'Week',month:'Month',students:'Students',list:'Upcoming'})[v]+'</button>' }).join('')+'</div>'
+      + '<button class="btn btn-primary lm-full" style="margin-bottom:12px" onclick="openAvailabilityPlanner()">+ Add open times</button>'
+    var pb = _LM.view === 'week' ? lmWeekPhone(B) : _LM.view === 'month' ? lmMonthPhone(B) : _LM.view === 'students' ? lmStudents(B) : lmList(B)
+    lmPaint(ph + pb + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">Tap a lesson to move, cancel, repeat it or contact the family.</div>')
+    return
+  }
   var body = _LM.view === 'week' ? lmWeek(B) : _LM.view === 'month' ? lmMonth(B) : _LM.view === 'students' ? lmStudents(B) : lmList(B)
   lmPaint(head + body + '<div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--text-muted);margin-top:10px">'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:#e0f2fe;vertical-align:-1px"></span> booked: tap to move, cancel, repeat weekly or email</span>'
     + '<span><span style="display:inline-block;width:10px;height:10px;border-radius:3px;border:1.5px dashed #94a3b8;vertical-align:-1px"></span> open time: tap to remove</span></div>')
 }
 function lmView(v){ _LM.view = v; try{ localStorage.setItem('lm_view', v) }catch(e){} lmRender() }
+// ── Phone layouts ──
+function _lmRowBooked(b){
+  var past = b.start_date < (_LM.data.today||'')
+  return '<div class="lm-row'+(past?' past':'')+'" onclick="lmOpen(\''+b.id+'\',\''+b.session_id+'\')">'
+    + '<div class="t">'+_lmT(b.start_time)+(b.end_time?'<div class="s">to '+_lmT(b.end_time)+'</div>':'')+'</div>'
+    + '<div class="n">'+escHtml(b.student)+(b.location?'<div class="s">'+escHtml(b.location)+'</div>':'')+'</div><div class="go">›</div></div>'
+}
+function _lmRowOpen(s){
+  return '<div class="lm-row open"><div class="t">'+_lmT(s.start_time)+'</div><div class="n" style="font-weight:500">Open time</div>'
+    + '<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();lmQuickRemove(\''+s.id+'\',\''+s.program_id+'\')">Remove</button></div>'
+}
+function _lmDayList(ds, B, opens){
+  var list = B.filter(function(b){ return b.start_date === ds }).map(function(b){ return [b.start_time||'', _lmRowBooked(b)] })
+    .concat(opens.filter(function(s){ return s.start_date === ds }).map(function(s){ return [s.start_time||'', _lmRowOpen(s)] }))
+  list.sort(function(a,b){ return a[0].localeCompare(b[0]) })
+  return list.length ? list.map(function(x){ return x[1] }).join('') : '<div class="lm-empty">Nothing scheduled.</div>'
+}
+function lmWeekPhone(B){
+  var ws = _lmD(_LM.weekStart), days = [], opens = lmOpenFor()
+  for(var i=0;i<7;i++){ var x = new Date(ws); x.setDate(ws.getDate()+i); days.push(_lmISO(x)) }
+  var h = '<div class="lm-nav"><button class="btn btn-secondary btn-sm" onclick="lmShiftWeek(-7)" aria-label="Previous week">‹</button>'
+    + '<strong>'+_lmD(days[0]).toLocaleDateString('en-US',{month:'short',day:'numeric'})+' – '+_lmD(days[6]).toLocaleDateString('en-US',{month:'short',day:'numeric'})+'</strong>'
+    + '<button class="btn btn-secondary btn-sm" onclick="lmShiftWeek(7)" aria-label="Next week">›</button><button class="btn btn-secondary btn-sm" onclick="lmToday()">Today</button></div>'
+  days.forEach(function(ds){
+    var n = B.filter(function(b){ return b.start_date === ds }).length, today = ds === _LM.data.today
+    h += '<div class="lm-day"><div class="lm-day-h'+(today?' today':'')+'">'+_lmD(ds).toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})
+      + (today?' <span class="lm-tag">Today</span>':'') + (n?'<span class="cnt">'+n+' lesson'+(n===1?'':'s')+'</span>':'') + '</div>'
+      + _lmDayList(ds, B, opens) + '</div>'
+  })
+  return h
+}
+function lmMonthPhone(B){
+  var m = _lmD(_LM.month), y = m.getFullYear(), mo = m.getMonth(), opens = lmOpenFor()
+  var start = new Date(y, mo, 1); start.setDate(1 - start.getDay())
+  if(!_LM.day || _lmD(_LM.day).getMonth() !== mo){ var t = _LM.data.today||''; _LM.day = (t && _lmD(t).getMonth()===mo && _lmD(t).getFullYear()===y) ? t : _lmISO(new Date(y, mo, 1)) }
+  var h = '<div class="lm-nav"><button class="btn btn-secondary btn-sm" onclick="lmShiftMonth(-1)" aria-label="Previous month">‹</button>'
+    + '<strong>'+m.toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</strong>'
+    + '<button class="btn btn-secondary btn-sm" onclick="lmShiftMonth(1)" aria-label="Next month">›</button><button class="btn btn-secondary btn-sm" onclick="lmToday()">Today</button></div>'
+    + '<div class="lm-wk">'+['S','M','T','W','T','F','S'].map(function(x){ return '<div>'+x+'</div>' }).join('')+'</div><div class="lm-mgrid">'
+  var d = new Date(start)
+  for(var i=0;i<42;i++){
+    var ds = _lmISO(d), n = B.filter(function(b){ return b.start_date === ds }).length, o = opens.filter(function(s){ return s.start_date === ds }).length
+    var cls = 'lm-mcell'+(d.getMonth()!==mo?' out':'')+(ds===_LM.data.today?' today':'')+(ds===_LM.day?' sel':'')
+    h += '<button class="'+cls+'" onclick="_LM.day=\''+ds+'\';lmRender()">'+d.getDate()
+      + (n?'<span class="c">'+n+'</span>':'') + (!n&&o?'<span class="o">'+o+' open</span>':'') + '</button>'
+    d.setDate(d.getDate()+1)
+    if(i === 34 && d.getMonth() !== mo) break
+  }
+  h += '</div><div class="lm-day" style="margin-top:14px"><div class="lm-day-h'+(_LM.day===_LM.data.today?' today':'')+'">'
+    + _lmD(_LM.day).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'}) + '</div>' + _lmDayList(_LM.day, B, opens) + '</div>'
+  return h
+}
+async function lmQuickRemove(sid, pid){
+  var s = (_LM.data.open_slots||[]).find(function(x){ return x.id===sid })
+  if(s && !confirm('Remove the open time on '+_lmD(s.start_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' at '+_lmT(s.start_time)+'?')) return
+  var r = await api('/api/programs/'+pid+'/sessions/'+sid,'DELETE')
+  if(r && r.error){ toast(r.error,'error'); return }
+  toast('Open time removed','success'); await lmLoad(); lmRender()
+}
 function lmChip(b, compact){
   var past = b.start_date < (_LM.data.today||'')
   return '<div onclick="lmOpen(\''+b.id+'\',\''+b.session_id+'\')" title="'+escHtml(b.student)+' · '+_lmT(b.start_time)+'" style="cursor:pointer;border-radius:7px;padding:'+(compact?'2px 5px':'5px 7px')+';margin-bottom:3px;font-size:'+(compact?'11px':'12px')+';line-height:1.3;'
@@ -27055,15 +27208,17 @@ function lmStudents(B){
   B.forEach(function(b){ var k = (b.guardian_email||'').toLowerCase()+'|'+b.student; (by[k] = by[k] || {student:b.student, email:b.guardian_email, phone:b.guardian_phone, program:b.program_name, rows:[]}).rows.push(b) })
   var keys = Object.keys(by).sort(function(a,b){ return by[a].student.localeCompare(by[b].student) })
   if(!keys.length) return '<div style="color:var(--text-muted)">No booked students.</div>'
-  return '<input placeholder="Find a student" style="width:100%;margin-bottom:10px;box-sizing:border-box" oninput="_LM.q=this.value.toLowerCase();document.querySelectorAll(\'.lm-st\').forEach(function(e){e.style.display=e.dataset.k.indexOf(_LM.q)>=0?\'\':\'none\'})"/>'
+  return '<input type="search" placeholder="Find a student" style="width:100%;margin-bottom:10px;box-sizing:border-box" oninput="_LM.q=this.value.toLowerCase();document.querySelectorAll(\'.lm-st\').forEach(function(e){e.style.display=e.dataset.k.indexOf(_LM.q)>=0?\'\':\'none\'})"/>'
     + keys.map(function(k){
       var s = by[k], up = s.rows.filter(function(b){ return b.start_date >= _LM.data.today }), past = s.rows.length - up.length, next = up[0]
       return '<div class="card lm-st" data-k="'+escHtml(k)+'" style="padding:10px 12px;margin-bottom:8px">'
         + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><div style="flex:1;min-width:200px"><strong>'+escHtml(s.student)+'</strong>'
         + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(s.program)+' · '+(s.email?'<a href="mailto:'+escHtml(s.email)+'">'+escHtml(s.email)+'</a>':'no email')+(s.phone?' · <a href="tel:'+escHtml(s.phone)+'">'+escHtml(s.phone)+'</a>':'')+'</div></div>'
         + '<div style="font-size:12.5px;text-align:right">'+up.length+' upcoming'+(past?' · '+past+' recent':'')+(next?'<div style="color:var(--text-muted)">next '+_lmD(next.start_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' '+_lmT(next.start_time)+'</div>':'')+'</div>'
-        + (next ? '<button class="btn btn-secondary btn-sm" onclick="lmEmailSchedule(\''+next.id+'\')">Email schedule</button>' : '') + '</div>'
-        + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">' + up.slice(0,12).map(function(b){
+        + (next && !_lmPhone() ? '<button class="btn btn-secondary btn-sm" onclick="lmEmailSchedule(\''+next.id+'\')">Email schedule</button>' : '') + '</div>'
+        + (_lmPhone() ? '<div class="lm-st-acts">'+(s.phone?'<a class="btn btn-secondary btn-sm" href="tel:'+escHtml(s.phone)+'">Call</a><a class="btn btn-secondary btn-sm" href="sms:'+escHtml(s.phone)+'">Text</a>':'')
+            + (next ? '<button class="btn btn-secondary btn-sm" onclick="lmEmailSchedule(\''+next.id+'\')">Email schedule</button>' : '')+'</div>' : '')
+        + '<div class="'+(_lmPhone()?'lm-chips':'')+'" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">' + up.slice(0,12).map(function(b){
             return '<span onclick="lmOpen(\''+b.id+'\',\''+b.session_id+'\')" style="cursor:pointer;font-size:12px;background:#e0f2fe;color:#0c4a6e;border-radius:999px;padding:3px 10px">'
               + _lmD(b.start_date).toLocaleDateString('en-US',{month:'short',day:'numeric'})+' '+_lmT(b.start_time)+'</span>' }).join('')
         + (up.length > 12 ? '<span style="font-size:12px;color:var(--text-muted)">+'+(up.length-12)+' more</span>' : '') + '</div></div>'
@@ -27073,6 +27228,13 @@ function lmList(B){
   var up = B.filter(function(b){ return b.start_date >= _LM.data.today })
   if(!up.length) return '<div style="color:var(--text-muted)">No upcoming lessons.</div>'
   var last = '', h = ''
+  if(_lmPhone()){
+    up.forEach(function(b){
+      if(b.start_date !== last){ if(last) h += '</div>'; h += '<div class="lm-day"><div class="lm-day-h'+(b.start_date===_LM.data.today?' today':'')+'">'+_lmD(b.start_date).toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})+'</div>'; last = b.start_date }
+      h += _lmRowBooked(b)
+    })
+    return h + '</div>'
+  }
   up.forEach(function(b){
     if(b.start_date !== last){ h += '<div style="font-weight:800;margin:12px 0 4px">'+_lmD(b.start_date).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})+'</div>'; last = b.start_date }
     h += '<div onclick="lmOpen(\''+b.id+'\',\''+b.session_id+'\')" style="cursor:pointer;display:flex;gap:10px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:4px;font-size:13px">'
@@ -27083,20 +27245,27 @@ function lmList(B){
 function lmOpen(regId, sessionId){
   var b = (_LM.data.bookings||[]).find(function(x){ return x.id===regId && x.session_id===sessionId }); if(!b) return
   var slots = (_LM.data.open_slots||[]).filter(function(s){ return s.program_id === b.program_id && s.id !== b.session_id }).slice(0, 200)
-  showAdHocModal('lesson-one', escHtml(b.student)+' · '+_lmD(b.start_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' '+_lmT(b.start_time),
-    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">'+escHtml(b.program_name)+' · '+escHtml(b.guardian_name||'')+(b.guardian_email?' · '+escHtml(b.guardian_email):'')+(b.guardian_phone?' · '+escHtml(b.guardian_phone):'')+'</div>'
+  var phone = _lmPhone(), wide = phone ? ' lm-full' : ''
+  var contact = (b.guardian_phone || b.guardian_email) ? '<div class="lm-contact">'
+      + (b.guardian_phone ? '<a class="btn btn-secondary btn-sm" href="tel:'+escHtml(b.guardian_phone)+'">Call</a><a class="btn btn-secondary btn-sm" href="sms:'+escHtml(b.guardian_phone)+'">Text</a>' : '')
+      + (b.guardian_email ? '<a class="btn btn-secondary btn-sm" href="mailto:'+escHtml(b.guardian_email)+'">Email</a>' : '') + '</div>' : ''
+  showAdHocModal('lesson-one', b.student+' · '+_lmD(b.start_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' '+_lmT(b.start_time),
+    '<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">'+escHtml(b.program_name)+' · '+escHtml(b.guardian_name||'')+(b.guardian_email?' · '+escHtml(b.guardian_email):'')+(b.guardian_phone?' · '+escHtml(b.guardian_phone):'')+'</div>'
+    + contact
     + '<div class="card" style="padding:12px 14px;margin-bottom:10px"><div style="font-weight:800;margin-bottom:6px">Move this lesson</div>'
-    + (slots.length ? '<select id="lm-slot" style="margin-bottom:6px"><option value="">Pick an open time…</option>'+slots.map(function(s){ return '<option value="'+s.id+'">'+_lmD(s.start_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' '+_lmT(s.start_time)+(s.end_time?'–'+_lmT(s.end_time):'')+'</option>' }).join('')+'</select>' : '')
+    + (slots.length ? '<select id="lm-slot" style="margin-bottom:6px'+(phone?';width:100%':'')+'"><option value="">Pick an open time…</option>'+slots.map(function(s){ return '<option value="'+s.id+'">'+_lmD(s.start_date).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})+' '+_lmT(s.start_time)+(s.end_time?'–'+_lmT(s.end_time):'')+'</option>' }).join('')+'</select>' : '')
     + '<div style="font-size:12px;color:var(--text-muted);margin:2px 0 4px">'+(slots.length?'or a new time:':'Enter the new time:')+'</div>'
-    + '<div style="display:flex;gap:6px;flex-wrap:wrap"><input type="date" id="lm-date" style="width:auto"/><input type="time" id="lm-start" value="'+escHtml(b.start_time||'')+'" style="width:auto"/>–<input type="time" id="lm-end" value="'+escHtml(b.end_time||'')+'" style="width:auto"/></div>'
-    + '<button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="lmMove(\''+b.id+'\',\''+b.session_id+'\')">Move lesson</button></div>'
+    + (phone
+        ? '<input type="date" id="lm-date" style="width:100%;margin-bottom:6px"/><div class="lm-sheet-times"><input type="time" id="lm-start" value="'+escHtml(b.start_time||'')+'"/>to<input type="time" id="lm-end" value="'+escHtml(b.end_time||'')+'"/></div>'
+        : '<div style="display:flex;gap:6px;flex-wrap:wrap"><input type="date" id="lm-date" style="width:auto"/><input type="time" id="lm-start" value="'+escHtml(b.start_time||'')+'" style="width:auto"/>–<input type="time" id="lm-end" value="'+escHtml(b.end_time||'')+'" style="width:auto"/></div>')
+    + '<button class="btn btn-primary btn-sm'+wide+'" style="margin-top:8px" onclick="lmMove(\''+b.id+'\',\''+b.session_id+'\')">Move lesson</button></div>'
     + '<div class="card" style="padding:12px 14px;margin-bottom:10px"><div style="font-weight:800;margin-bottom:6px">Repeat weekly</div>'
     + '<div style="font-size:13px">Book '+escHtml(b.student)+' every '+_lmD(b.start_date).toLocaleDateString('en-US',{weekday:'long'})+' at '+_lmT(b.start_time)+' for the next '
     + '<input type="number" id="lm-weeks" min="1" max="26" value="4" style="width:60px;padding:3px 6px"/> weeks</div>'
     + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Weeks where that time is already taken are skipped and listed. Collect payment for added lessons the usual way.</div>'
-    + '<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="lmRepeat(\''+b.id+'\',\''+b.session_id+'\')">Book weekly</button></div>'
+    + '<button class="btn btn-secondary btn-sm'+wide+'" style="margin-top:8px" onclick="lmRepeat(\''+b.id+'\',\''+b.session_id+'\')">Book weekly</button></div>'
     + '<div class="card" style="padding:12px 14px;margin-bottom:10px"><div style="font-weight:800;margin-bottom:6px">Cancel this lesson</div>'
-    + '<button class="btn btn-secondary btn-sm" style="color:#991b1b" onclick="lmCancel(\''+b.id+'\',\''+b.session_id+'\')">Cancel lesson</button></div>'
+    + '<button class="btn btn-secondary btn-sm'+wide+'" style="color:#991b1b" onclick="lmCancel(\''+b.id+'\',\''+b.session_id+'\')">Cancel lesson</button></div>'
     + '<div class="form-group"><label>Note to include in the email (optional)</label><textarea id="lm-note" rows="2" placeholder="e.g. I\'m out sick this week. Sorry!"></textarea></div>'
     + '<label style="display:flex;gap:6px;align-items:center;font-size:13px;text-transform:none;letter-spacing:0;font-weight:500;cursor:pointer"><input type="checkbox" id="lm-notify" checked style="width:auto"/> Email the family about the change (with the date and time)</label>', 560)
 }

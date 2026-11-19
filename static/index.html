@@ -27098,7 +27098,56 @@ function _lmDayList(ds, B, opens){
   var list = B.filter(function(b){ return b.start_date === ds }).map(function(b){ return [b.start_time||'', _lmRowBooked(b)] })
     .concat(opens.filter(function(s){ return s.start_date === ds }).map(function(s){ return [s.start_time||'', _lmRowOpen(s)] }))
   list.sort(function(a,b){ return a[0].localeCompare(b[0]) })
-  return list.length ? list.map(function(x){ return x[1] }).join('') : '<div class="lm-empty">Nothing scheduled.</div>'
+  return list.length ? list.map(function(x){ return x[1] }).join('') + _lmAddBtn(ds, false)
+                     : '<div class="lm-empty">Nothing scheduled.</div>' + _lmAddBtn(ds, true)
+}
+function _lmAddBtn(ds, empty){
+  if(ds < (_LM.data.today||'')) return ''
+  return empty
+    ? '<button class="btn btn-secondary btn-sm lm-full" style="margin-top:6px" onclick="lmAddDay(\''+ds+'\')">+ Add open times for this day</button>'
+    : '<button class="btn btn-secondary btn-sm" style="margin-top:2px" onclick="lmAddDay(\''+ds+'\')">+ Add a time</button>'
+}
+// One day's open times, without the weeks/days planner
+function lmAddDay(ds){
+  var progs = (_LM.data && _LM.data.programs) || [], pid = _LM.prog || (progs[0]||{}).id
+  var pref = function(k, d){ try{ return localStorage.getItem(k) || d }catch(e){ return d } }
+  var len = pref('lm_add_len','60')
+  showAdHocModal('lm-addday','Add open times',
+    '<div style="font-size:15px;font-weight:800;margin-bottom:12px">'+_lmD(ds).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})+'</div>'
+    + (progs.length > 1 ? '<div class="form-group"><label>Program</label><select id="ad-prog">'+progs.map(function(p){ return '<option value="'+p.id+'"'+(p.id===pid?' selected':'')+'>'+escHtml(p.name)+'</option>' }).join('')+'</select></div>'
+                        : '<input type="hidden" id="ad-prog" value="'+escHtml(pid||'')+'"/>')
+    + '<div class="form-row"><div class="form-group"><label>From</label><input type="time" id="ad-from" value="'+escHtml(pref('lm_add_from','15:00'))+'" oninput="adPreview()"/></div>'
+    + '<div class="form-group"><label>Until</label><input type="time" id="ad-to" value="'+escHtml(pref('lm_add_to','19:00'))+'" oninput="adPreview()"/></div></div>'
+    + '<div class="form-group"><label>Lesson length</label><select id="ad-len" onchange="adPreview()">'
+    + [['30','30 min'],['45','45 min'],['60','1 hour'],['90','1.5 hours']].map(function(o){ return '<option value="'+o[0]+'"'+(o[0]===len?' selected':'')+'>'+o[1]+'</option>' }).join('')+'</select></div>'
+    + '<div id="ad-preview" style="font-size:13px;background:var(--bg);border-radius:8px;padding:8px 10px;margin-bottom:10px"></div>'
+    + '<button class="btn btn-primary" style="width:100%" id="ad-save" onclick="adSave(\''+ds+'\')">Add these times</button>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:6px">Times you already have that day are skipped.</div>', 460)
+  adPreview()
+}
+function _adCalc(){
+  var f = document.getElementById('ad-from').value, to = document.getElementById('ad-to').value, len = +document.getElementById('ad-len').value
+  var mins = function(x){ var p = (x||'0:0').split(':'); return (+p[0])*60 + (+p[1]) }
+  var start = mins(f), per = Math.max(0, Math.floor((mins(to) - start) / len)), times = []
+  for(var i=0;i<per;i++){ var t = start + i*len; times.push(String(Math.floor(t/60)).padStart(2,'0')+':'+String(t%60).padStart(2,'0')) }
+  return {from: f, to: to, len: len, per: per, times: times}
+}
+function adPreview(){
+  var c = _adCalc(), el = document.getElementById('ad-preview'); if(!el) return
+  el.innerHTML = c.per ? '<strong>'+c.per+' open time'+(c.per===1?'':'s')+'</strong>: '+c.times.slice(0,10).map(_lmT).join(', ')+(c.per>10?'…':'')
+                       : 'The time window is shorter than one lesson.'
+}
+async function adSave(ds){
+  var c = _adCalc(), pid = document.getElementById('ad-prog').value
+  if(!c.per){ adPreview(); return }
+  try{ localStorage.setItem('lm_add_from', c.from); localStorage.setItem('lm_add_to', c.to); localStorage.setItem('lm_add_len', String(c.len)) }catch(e){}
+  var btn = document.getElementById('ad-save'); if(btn){ btn.disabled = true; btn.textContent = 'Adding…' }
+  var r = await api('/api/programs/'+pid+'/sessions/generate','POST',{start_date: ds, end_date: ds,
+    days_of_week: [['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][_lmD(ds).getDay()]],
+    open_time: c.from, close_time: c.to, slot_duration_minutes: c.len, capacity: 1, skip_existing: true})
+  if(r.error){ toast(r.error,'error'); if(btn){ btn.disabled = false; btn.textContent = 'Add these times' } return }
+  closeAdHocModal('lm-addday'); toast('Added '+(r.created||0)+' open time'+(r.created===1?'':'s'),'success')
+  await lmLoad(); lmRender()
 }
 function lmWeekPhone(B){
   var ws = _lmD(_LM.weekStart), days = [], opens = lmOpenFor()
@@ -27199,6 +27248,7 @@ function lmMonth(B){
     h += '<div style="font-weight:800;margin:12px 0 6px">'+_lmD(_LM.day).toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})+'</div>'
       + (dl.length || dop.length ? '<div style="display:flex;gap:6px;flex-wrap:wrap">'+dl.map(function(b){ return '<div style="min-width:150px">'+lmChip(b)+'</div>' }).join('')+dop.map(function(s){ return '<div style="min-width:90px">'+lmOpenChip(s)+'</div>' }).join('')+'</div>'
         : '<div style="font-size:13px;color:var(--text-muted)">Nothing scheduled.</div>')
+      + (_LM.day >= (_LM.data.today||'') ? '<button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="lmAddDay(\''+_LM.day+'\')">+ Add open times for this day</button>' : '')
   }
   return h
 }

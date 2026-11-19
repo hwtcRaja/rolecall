@@ -2264,6 +2264,20 @@ def init_db():
         # Registration created a new profile, but it looks a lot like this
         # existing one: staff review it (merge, or mark "not the same person").
         "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS possible_match_youth_id TEXT",
+        # Find a cast family: a ticket staff linked to a child by hand, or a
+        # note of where a family member is sitting (general admission etc.)
+        """CREATE TABLE IF NOT EXISTS cast_family_links (
+            id TEXT PRIMARY KEY, performance_id TEXT NOT NULL, youth_id TEXT NOT NULL,
+            ticket_order_id TEXT, person_name TEXT DEFAULT '', phone TEXT DEFAULT '', seat_note TEXT DEFAULT '',
+            created_by TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_cast_family_links_perf ON cast_family_links(performance_id)",
+        # What the buyer typed for "Here to see someone in the cast?" at checkout
+        "ALTER TABLE ticket_orders ADD COLUMN IF NOT EXISTS cast_member_text TEXT DEFAULT ''",
+        # Storage page: each cleanup run (nightly or "Run now")
+        """CREATE TABLE IF NOT EXISTS purge_log (
+            id SERIAL PRIMARY KEY, rule_id TEXT, table_name TEXT, action TEXT, days INTEGER,
+            rows_affected INTEGER DEFAULT 0, triggered_by TEXT DEFAULT '', error TEXT DEFAULT '',
+            ran_at TIMESTAMP DEFAULT NOW())""",
         # Pairs staff confirmed are two different people, so the duplicate
         # finder and registration flags stop suggesting them.
         """CREATE TABLE IF NOT EXISTS youth_not_duplicates (
@@ -35677,6 +35691,9 @@ def _start_oncall_scheduler():
         # Nightly RC Crash Report (PDF emailed + saved to Drive)
         scheduler.add_job(lambda: run_emergency_snapshot('schedule'), CronTrigger(hour=3, minute=30),
                           id='rc_crash_report', max_instances=1, coalesce=True, misfire_grace_time=3600)
+        # Nightly cleanup rules from /admin/storage (only the ones an admin turned on)
+        scheduler.add_job(run_nightly_purge, CronTrigger(hour=4, minute=15),
+                          id='storage_cleanup', max_instances=1, coalesce=True, misfire_grace_time=3600)
         scheduler.start()
         app.logger.info('On-call report scheduler started')
     except ImportError:
@@ -37819,6 +37836,810 @@ load();
     resp = app.response_class(page, mimetype='text/html')
     resp.headers['Cache-Control'] = 'no-store'
     return resp
+
+# ─────────────────────────────────────────────
+# Storage & cleanup  (/admin/storage)
+#
+# Shows how big the database is and which tables use the space, and runs
+# cleanup rules for data that only piles up (logs, expired holds, old
+# routing state). Every rule starts OFF: an admin previews what it would
+# remove, sets how long to keep things, and turns it on. Enabled rules run
+# nightly at 4:15 AM; each run is logged.
+#
+# Deliberately never cleaned up: payments, donations and refunds, volunteer
+# hours and kiosk sessions, registrations, waivers, youth notes/incidents,
+# people's profiles, and inbox conversations.
+# ─────────────────────────────────────────────
+PURGE_RULES = [
+    {'id': 'seat_holds', 'table': 'seat_holds', 'action': 'delete', 'date_col': 'expires_at',
+     'title': 'Expired seat holds', 'default_days': 1, 'min_days': 1,
+     'desc': 'Seats held during checkout that were never bought. Useless once they expire.'},
+    {'id': 'refund_tokens', 'table': 'refund_approval_tokens', 'action': 'delete', 'date_col': 'expires_at',
+     'title': 'Expired refund-approval links', 'default_days': 90, 'min_days': 30,
+     'desc': 'One-time approval links for refunds, after they expire. The refunds themselves are kept.'},
+    {'id': 'email_bodies', 'table': 'email_log', 'action': 'clear', 'column': 'html_body', 'date_col': 'sent_at',
+     'title': 'Full copies of sent emails', 'default_days': 180, 'min_days': 30,
+     'desc': 'The email log keeps a full copy of every email RoleCall sends. This removes the copy but keeps who it went to, when, the subject and whether it was delivered.'},
+    {'id': 'email_log', 'table': 'email_log', 'action': 'delete', 'date_col': 'sent_at',
+     'title': 'Email log entries', 'default_days': 1095, 'min_days': 365,
+     'desc': 'The whole record that an email was sent (to, subject, status).'},
+    {'id': 'door_scans', 'table': 'door_scan_log', 'action': 'delete', 'date_col': 'created_at',
+     'title': 'Ticket scan log', 'default_days': 730, 'min_days': 90,
+     'desc': 'Each ticket scan at the door. Ticket sales and attendance totals are kept.'},
+    {'id': 'notification_reads', 'table': 'notification_reads', 'action': 'delete', 'date_col': 'read_at',
+     'title': '"Already read" marks on notifications', 'default_days': 365, 'min_days': 90,
+     'desc': 'Which notifications each user has dismissed.'},
+    {'id': 'report_runs', 'table': 'scheduled_report_runs', 'action': 'delete', 'date_col': 'fired_at',
+     'title': 'Scheduled report run history', 'default_days': 365, 'min_days': 60,
+     'desc': 'The record of each time a scheduled report was sent.'},
+    {'id': 'call_log', 'table': 'call_log', 'action': 'delete', 'date_col': 'created_at',
+     'title': 'Phone call log', 'default_days': 730, 'min_days': 90,
+     'desc': 'Incoming calls to the HWTC number (who called, who answered, voicemail links).'},
+    {'id': 'outbound_calls', 'table': 'outbound_calls', 'action': 'delete', 'date_col': 'created_at',
+     'title': 'Outgoing call log', 'default_days': 730, 'min_days': 90,
+     'desc': 'Calls placed from the HWTC number through Call Back / New call.'},
+    {'id': 'sms_messages', 'table': 'sms_messages', 'action': 'delete', 'date_col': 'created_at',
+     'title': 'Text message history', 'default_days': 730, 'min_days': 90,
+     'desc': 'Copies of texts sent to and from the HWTC number (shown in the phone page and on volunteer profiles).'},
+    {'id': 'sms_routing', 'table': 'sms_conversations', 'action': 'delete', 'date_col': 'last_message_at',
+     'title': 'Text routing records', 'default_days': 90, 'min_days': 7,
+     'desc': 'Behind-the-scenes records of which staff phone each text was forwarded to. Only recent ones matter.'},
+    {'id': 'callout_threads', 'table': 'callout_relay_threads', 'action': 'delete', 'date_col': 'last_message_at',
+     'title': 'Call-out text relays', 'default_days': 90, 'min_days': 30,
+     'desc': 'Routing records for texts between families and crew about absences. The absences are kept.'},
+    {'id': 'impersonation_log', 'table': 'impersonation_log', 'action': 'delete', 'date_col': 'started_at',
+     'title': 'Admin "view as" history', 'default_days': 730, 'min_days': 365,
+     'desc': 'When an admin viewed RoleCall as another user. A security record, so keep it a while.'},
+    {'id': 'invite_drafts', 'table': 'household_invite_drafts', 'action': 'delete', 'date_col': 'created_at',
+     'title': 'Unsent household invite drafts', 'default_days': 180, 'min_days': 30,
+     'desc': 'Invite lists that were started but never sent.'},
+]
+_PURGE_BY_ID = {r['id']: r for r in PURGE_RULES}
+
+
+def _purge_settings(conn):
+    import json
+    row = fetchone(conn, "SELECT value FROM settings WHERE key='purge_rules'")
+    try: saved = json.loads((row or {}).get('value') or '{}')
+    except Exception: saved = {}
+    out = {}
+    for r in PURGE_RULES:
+        s = saved.get(r['id']) or {}
+        days = s.get('days', r['default_days'])
+        try: days = max(int(days), r['min_days'])
+        except Exception: days = r['default_days']
+        out[r['id']] = {'enabled': bool(s.get('enabled')), 'days': days}
+    return out
+
+
+def _purge_where(rule):
+    w = f"{rule['date_col']} < NOW() - make_interval(days => %s)"
+    if rule['action'] == 'clear':
+        w += f" AND COALESCE({rule['column']},'') <> ''"
+    return w
+
+
+def _purge_count(conn, rule, days):
+    r = fetchone(conn, f"SELECT COUNT(*) AS n FROM {rule['table']} WHERE {_purge_where(rule)}", (days,))
+    return int((r or {}).get('n') or 0)
+
+
+def run_purge_rule(rule_id, days=None, triggered_by='schedule', time_limit=240):
+    """Remove (or blank) old rows in batches so tables never lock for long."""
+    import time
+    rule = _PURGE_BY_ID[rule_id]
+    conn = get_db()
+    total, err = 0, ''
+    started = time.time()
+    try:
+        if days is None:
+            days = _purge_settings(conn)[rule_id]['days']
+        days = max(int(days), rule['min_days'])
+        where = _purge_where(rule)
+        while time.time() - started < time_limit:
+            if rule['action'] == 'clear':
+                sql = (f"UPDATE {rule['table']} SET {rule['column']}='' WHERE ctid IN "
+                       f"(SELECT ctid FROM {rule['table']} WHERE {where} LIMIT 2000)")
+            else:
+                sql = f"DELETE FROM {rule['table']} WHERE ctid IN (SELECT ctid FROM {rule['table']} WHERE {where} LIMIT 5000)"
+            cur = conn.cursor()
+            cur.execute(sql, (days,))
+            n = cur.rowcount or 0
+            conn.commit()
+            total += n
+            if n == 0:
+                break
+    except Exception as e:
+        err = str(e)[:500]
+        try: conn.rollback()
+        except Exception: pass
+        app.logger.error(f'cleanup rule {rule_id} failed: {e}')
+    try:
+        execute(conn, '''INSERT INTO purge_log (rule_id, table_name, action, days, rows_affected, triggered_by, error)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''', (rule_id, rule['table'], rule['action'], days, total, triggered_by, err))
+        conn.commit()
+    except Exception as e:
+        app.logger.warning(f'purge_log write failed: {e}')
+    finally:
+        conn.close()
+    return {'rule_id': rule_id, 'rows': total, 'error': err}
+
+
+def run_nightly_purge():
+    conn = get_db()
+    try:
+        cfg = _purge_settings(conn)
+    finally:
+        conn.close()
+    for rid, c in cfg.items():
+        if c['enabled']:
+            run_purge_rule(rid, c['days'], 'schedule')
+
+
+@app.route('/api/admin/storage')
+def admin_storage_info():
+    err = require_admin()
+    if err: return err
+    conn = get_db()
+    try:
+        db = fetchone(conn, 'SELECT pg_database_size(current_database()) AS bytes') or {}
+        tables = fetchall(conn, '''SELECT c.relname AS name, pg_total_relation_size(c.oid) AS total,
+                pg_relation_size(c.oid) AS data, pg_indexes_size(c.oid) AS indexes,
+                COALESCE(pg_total_relation_size(NULLIF(c.reltoastrelid, 0)), 0) AS toast,
+                GREATEST(COALESCE(s.n_live_tup, 0), c.reltuples::BIGINT, 0) AS rows, COALESCE(s.n_dead_tup, 0) AS dead,
+                GREATEST(s.last_autovacuum, s.last_vacuum) AS last_vacuum
+            FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            LEFT JOIN pg_stat_user_tables s ON s.relid=c.oid
+            WHERE c.relkind='r' AND n.nspname='public'
+            ORDER BY pg_total_relation_size(c.oid) DESC''') or []
+        # Things stored inside rows that are worth knowing about (sizes as stored, after compression)
+        inside = []
+        for label, sql in (
+            ('Inbox email attachments (files stored in the database)', 'SELECT COUNT(*) AS n, COALESCE(SUM(pg_column_size(file_data_b64)),0) AS bytes FROM inbox_attachments'),
+            ('Board application uploads (files stored in the database)', 'SELECT COUNT(*) AS n, COALESCE(SUM(pg_column_size(file_data_b64)),0) AS bytes FROM board_application_files'),
+            ('Full copies of sent emails (email log)', "SELECT COUNT(*) AS n, COALESCE(SUM(pg_column_size(html_body)),0) AS bytes FROM email_log WHERE COALESCE(html_body,'')<>''"),
+            ('Inbox message bodies', 'SELECT COUNT(*) AS n, COALESCE(SUM(pg_column_size(body_html)),0)+COALESCE(SUM(pg_column_size(body_text)),0) AS bytes FROM inbox_messages'),
+        ):
+            try:
+                r = fetchone(conn, sql) or {}
+                inside.append({'label': label, 'count': int(r.get('n') or 0), 'bytes': int(r.get('bytes') or 0)})
+            except Exception:
+                conn.rollback()
+        cfg = _purge_settings(conn)
+        rules = []
+        for r in PURGE_RULES:
+            c = cfg[r['id']]
+            try:
+                would = _purge_count(conn, r, c['days'])
+            except Exception as e:
+                conn.rollback(); would = None
+            rules.append({'id': r['id'], 'title': r['title'], 'desc': r['desc'], 'table': r['table'], 'action': r['action'],
+                          'enabled': c['enabled'], 'days': c['days'], 'min_days': r['min_days'],
+                          'default_days': r['default_days'], 'would_remove': would})
+        log = fetchall(conn, 'SELECT * FROM purge_log ORDER BY ran_at DESC LIMIT 25') or []
+    finally:
+        conn.close()
+    return jsonify({'db_bytes': int(db.get('bytes') or 0), 'tables': tables, 'inside': inside, 'rules': rules, 'log': log})
+
+
+@app.route('/api/admin/storage/preview', methods=['POST'])
+def admin_storage_preview():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    rule = _PURGE_BY_ID.get(d.get('rule_id'))
+    if not rule: return jsonify({'error': 'Unknown rule'}), 400
+    try: days = max(int(d.get('days') or rule['default_days']), rule['min_days'])
+    except Exception: days = rule['default_days']
+    conn = get_db()
+    try:
+        return jsonify({'would_remove': _purge_count(conn, rule, days), 'days': days})
+    finally:
+        conn.close()
+
+
+@app.route('/api/admin/storage/rules', methods=['POST'])
+def admin_storage_save_rule():
+    err = require_admin()
+    if err: return err
+    import json
+    d = request.json or {}
+    rule = _PURGE_BY_ID.get(d.get('rule_id'))
+    if not rule: return jsonify({'error': 'Unknown rule'}), 400
+    try: days = int(d.get('days'))
+    except Exception: return jsonify({'error': 'Enter a number of days.'}), 400
+    if days < rule['min_days']:
+        return jsonify({'error': f"Keep at least {rule['min_days']} days for this one."}), 400
+    conn = get_db()
+    try:
+        row = fetchone(conn, "SELECT value FROM settings WHERE key='purge_rules'")
+        try: saved = json.loads((row or {}).get('value') or '{}')
+        except Exception: saved = {}
+        saved[rule['id']] = {'enabled': bool(d.get('enabled')), 'days': days}
+        execute(conn, '''INSERT INTO settings (key, value) VALUES ('purge_rules', %s)
+            ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value''', (json.dumps(saved),))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'enabled': bool(d.get('enabled')), 'days': days})
+
+
+@app.route('/api/admin/storage/run', methods=['POST'])
+def admin_storage_run_rule():
+    err = require_admin()
+    if err: return err
+    d = request.json or {}
+    if d.get('rule_id') not in _PURGE_BY_ID:
+        return jsonify({'error': 'Unknown rule'}), 400
+    return jsonify(run_purge_rule(d['rule_id'], d.get('days'), _session_user_name() or 'admin', time_limit=25))
+
+
+@app.route('/admin/storage')
+def admin_storage_page():
+    if 'user_id' not in session:
+        from flask import redirect
+        return redirect('/?next=/admin/storage')
+    if session.get('role') != 'admin':
+        return 'Admins only.', 403
+    resp = app.response_class(_STORAGE_PAGE_HTML, mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+_STORAGE_PAGE_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Storage &amp; cleanup</title>
+<style>
+:root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--soft:#eef4f6;--bar:#5aadc2;--ok:#166534;--bad:#b42318;--warn:#854d0e;--warnbg:#fefce8;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--soft:#1f2a2f;--bar:#2b6676;--ok:#6ce9a6;--bad:#f97066;--warn:#fdb022;--warnbg:#2a2412;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:24px;color:var(--brand);margin:0 0 4px}h2{font-size:17px;margin:26px 0 10px}
+.sub{color:var(--muted);font-size:14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:12px}
+.big{font-size:30px;font-weight:800;color:var(--brand)}
+.trow{display:grid;grid-template-columns:minmax(140px,1.4fr) 2fr 90px 90px;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line);font-size:13.5px}
+.trow:last-child{border:none}
+.trow .nm{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:10px;border-radius:5px;background:var(--bar);min-width:2px}
+.num{text-align:right;font-variant-numeric:tabular-nums}
+.th{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.rule{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+.rule.on{border-color:var(--brand);box-shadow:inset 3px 0 0 var(--brand)}
+.rule h3{margin:0 0 4px;font-size:15px}
+.rule p{margin:0 0 10px;font-size:13px;color:var(--muted);line-height:1.45}
+.ctl{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px}
+.ctl input[type=number]{width:84px;padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;font:inherit;background:var(--card);color:var(--ink)}
+.would{font-size:13px;font-weight:600}
+.would.some{color:var(--warn)}
+button{font:inherit;font-weight:700;font-size:13.5px;padding:8px 14px;border-radius:9px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+button.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+button:disabled{opacity:.55;cursor:default}
+.switch{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-weight:600}
+.switch input{width:18px;height:18px;accent-color:var(--brand)}
+.note{background:var(--warnbg);border:1px solid #fde047;border-radius:12px;padding:12px 14px;font-size:13px;line-height:1.5}
+.log{font-size:13px}.log div{padding:5px 0;border-bottom:1px solid var(--line)}
+.err{color:var(--bad)}
+@media (max-width:640px){.trow{grid-template-columns:1fr 70px 70px}.trow .barcell{display:none}}
+</style></head><body><div class="wrap">
+<h1>Storage &amp; cleanup</h1>
+<div class="sub">How much space RoleCall's database uses, and rules for clearing out data that only piles up.</div>
+<div id="app"><div class="card">Loading…</div></div>
+</div>
+<script>
+var D=null
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function sz(b){b=+b||0;var u=['B','KB','MB','GB','TB'],i=0;while(b>=1024&&i<u.length-1){b/=1024;i++}return (i?b.toFixed(b<10?1:0):b)+' '+u[i]}
+function n(x){return (+x||0).toLocaleString()}
+async function api(u,body){var r=await fetch(u,body?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}:{});try{return await r.json()}catch(e){return {error:'Unexpected response ('+r.status+')'}}}
+async function load(){D=await api('/api/admin/storage');if(!D||D.error){$('app').innerHTML='<div class="card err">'+esc((D&&D.error)||'Could not load')+'</div>';return}render()}
+function render(){
+  var T=D.tables||[], top=T.slice(0,15), max=Math.max.apply(null,top.map(function(t){return +t.total||0}).concat([1]))
+  var h='<div class="card"><div class="sub">Database size</div><div class="big">'+sz(D.db_bytes)+'</div>'
+    +'<div class="sub">'+T.length+' tables. Compare this with the volume size on your Railway Postgres service to see how much room is left.</div></div>'
+  h+='<h2>Biggest tables</h2><div class="card"><div class="trow th"><div>Table</div><div class="barcell"></div><div class="num">Size</div><div class="num">Rows</div></div>'
+    +top.map(function(t){return '<div class="trow"><div class="nm" title="'+esc(t.name)+'">'+esc(t.name)+'</div><div class="barcell"><div class="bar" style="width:'+Math.max(1,Math.round(100*t.total/max))+'%"></div></div><div class="num">'+sz(t.total)+'</div><div class="num">'+n(t.rows)+'</div></div>'}).join('')
+    +'</div>'
+  if((D.inside||[]).length){
+    h+='<h2>What’s inside them</h2><div class="card">'+D.inside.map(function(x){return '<div class="trow" style="grid-template-columns:1fr 90px 90px"><div>'+esc(x.label)+'</div><div class="num">'+sz(x.bytes)+'</div><div class="num">'+n(x.count)+'</div></div>'}).join('')+'</div>'
+  }
+  h+='<h2>Cleanup rules</h2><div class="note">Every rule starts off. Change “Keep” to how long you want to hold onto things, check the count it would remove, then turn it on. Turned-on rules run every night at 4:15 AM. <b>Removed data can’t be brought back</b>, except from a full database backup.</div><div style="height:10px"></div>'
+  h+=(D.rules||[]).map(function(r){
+    var w=r.would_remove
+    return '<div class="rule'+(r.enabled?' on':'')+'" id="rule-'+r.id+'"><h3>'+esc(r.title)+'</h3><p>'+esc(r.desc)+'</p>'
+      +'<div class="ctl"><label>Keep <input type="number" min="'+r.min_days+'" value="'+r.days+'" id="days-'+r.id+'" oninput="preview(\''+r.id+'\')"> days</label>'
+      +'<span class="would'+(w?' some':'')+'" id="would-'+r.id+'">'+(w==null?'':(w?n(w)+' '+(r.action==='clear'?'copies':'rows')+' would be '+(r.action==='clear'?'cleared':'removed')+' now':'Nothing to remove right now'))+'</span>'
+      +'<span style="flex:1"></span>'
+      +'<label class="switch"><input type="checkbox" id="on-'+r.id+'"'+(r.enabled?' checked':'')+' onchange="save(\''+r.id+'\')"> Run nightly</label>'
+      +'<button onclick="runNow(\''+r.id+'\')"'+(w?'':' disabled')+' id="run-'+r.id+'">Run now</button></div>'
+      +'<div class="sub" style="font-size:12px;margin-top:6px">Minimum '+r.min_days+' day'+(r.min_days===1?'':'s')+'. Suggested '+r.default_days+'.</div></div>'
+  }).join('')
+  h+='<h2>Never cleaned up</h2><div class="card sub" style="line-height:1.55">Payments, donations and refunds · volunteer hours and kiosk sessions · registrations and enrollments · waivers · youth notes and incidents · participant, volunteer and donor profiles · inbox conversations and their attachments.</div>'
+  h+='<h2>Recent cleanup activity</h2><div class="card log">'+((D.log||[]).length?D.log.map(function(l){
+      return '<div>'+esc(new Date(l.ran_at).toLocaleString())+' · '+esc(((D.rules||[]).find(function(r){return r.id===l.rule_id})||{}).title||l.rule_id)+' · '
+        +(l.error?'<span class="err">failed: '+esc(l.error)+'</span>':n(l.rows_affected)+' '+(l.action==='clear'?'cleared':'removed'))+' · '+esc(l.triggered_by||'')+'</div>'}).join(''):'<div class="sub" style="border:none">Nothing has run yet.</div>')+'</div>'
+  h+='<div class="sub" style="font-size:12.5px;margin-top:14px">Postgres reuses the space freed by cleanup for new data, so the database size above usually levels off rather than dropping right away.</div>'
+  $('app').innerHTML=h
+}
+var pt={}
+function preview(id){
+  clearTimeout(pt[id]);pt[id]=setTimeout(async function(){
+    var days=+$('days-'+id).value, r=(D.rules||[]).find(function(x){return x.id===id})
+    if(!(days>=r.min_days)){$('would-'+id).textContent='Keep at least '+r.min_days+' days';return}
+    var d=await api('/api/admin/storage/preview',{rule_id:id,days:days})
+    if(d.error){$('would-'+id).textContent=d.error;return}
+    r.would_remove=d.would_remove
+    $('would-'+id).textContent=d.would_remove?n(d.would_remove)+' '+(r.action==='clear'?'copies':'rows')+' would be '+(r.action==='clear'?'cleared':'removed')+' now':'Nothing to remove right now'
+    $('would-'+id).className='would'+(d.would_remove?' some':'')
+    $('run-'+id).disabled=!d.would_remove
+    if($('on-'+id).checked) save(id,true)
+  },400)
+}
+async function save(id,quiet){
+  var r=(D.rules||[]).find(function(x){return x.id===id}), days=+$('days-'+id).value, on=$('on-'+id).checked
+  if(on && !quiet && r.would_remove && !confirm('Turn on "'+r.title+'"?\n\nTonight it will '+(r.action==='clear'?'clear':'remove')+' about '+n(r.would_remove)+' '+(r.action==='clear'?'copies':'rows')+' older than '+days+' days, and keep doing so every night.')){ $('on-'+id).checked=false; return }
+  var d=await api('/api/admin/storage/rules',{rule_id:id,enabled:on,days:days})
+  if(d.error){alert(d.error);$('on-'+id).checked=r.enabled;return}
+  r.enabled=on;r.days=days;$('rule-'+id).className='rule'+(on?' on':'')
+}
+async function runNow(id){
+  var r=(D.rules||[]).find(function(x){return x.id===id}), days=+$('days-'+id).value
+  if(!confirm((r.action==='clear'?'Clear ':'Remove ')+n(r.would_remove)+' '+(r.action==='clear'?'copies':'rows')+' from "'+r.title+'" older than '+days+' days?\n\nThis can’t be undone.')) return
+  var b=$('run-'+id);b.disabled=true;b.textContent='Working…'
+  var d=await api('/api/admin/storage/run',{rule_id:id,days:days})
+  if(d.error) alert(d.error)
+  await load()
+}
+load()
+</script></body></html>"""
+
+# ─────────────────────────────────────────────
+# Find a cast family  (/shows/families)
+#
+# During a performance, if a child in the cast needs a parent, the house
+# manager or stage manager types the child's name and sees who from that
+# family is in the audience, their seats, whether their ticket was scanned
+# in, and Call/Text buttons — or, right away, that nobody from the family
+# is here (so they go straight to emergency contacts).
+#
+# Tickets are matched to kids by the buyer's email or phone against the
+# child's guardians, emergency contacts and family account. Staff can also
+# link a ticket by hand (a grandparent's order) or note where someone is
+# sitting (general admission, or a parent who said "we're in row F").
+# ─────────────────────────────────────────────
+def _cf_access():
+    """Kids' families and phone numbers: house managers, youth staff and
+    production staff can see this; everyone else can't."""
+    if 'user_id' not in session:
+        return jsonify({'error': 'Unauthorized'}), 401
+    if session.get('role') == 'admin':
+        return None
+    for perm in ('house_manager', 'youth', 'productions'):
+        try:
+            if require_permission(perm, 'view') is None:
+                return None
+        except Exception:
+            pass
+    return jsonify({'error': 'You don’t have access to cast family contacts.'}), 403
+
+
+def cast_families_for(conn, perf_id):
+    perf = fetchone(conn, '''SELECT pf.id, pf.production_id, pf.performance_date, pf.performance_time, pf.doors_time,
+            COALESCE(pf.reserved_seating, TRUE) AS reserved, pr.name AS production, COALESCE(v.name,'') AS venue
+        FROM performances pf JOIN productions pr ON pr.id=pf.production_id
+        LEFT JOIN venues v ON v.id=pf.venue_id WHERE pf.id=%s''', (perf_id,))
+    if not perf:
+        return None
+    pid = perf['production_id']
+    kids = {}
+    def add_kid(r):
+        if r and r['id'] not in kids:
+            kids[r['id']] = {'id': r['id'], 'first_name': r.get('first_name') or '', 'last_name': r.get('last_name') or '',
+                             'role': (r.get('role') or '').strip(), 'family_id': r.get('family_id')}
+        elif r and r.get('role') and not kids[r['id']]['role']:
+            kids[r['id']]['role'] = r['role']
+    for sql in (
+        '''SELECT y.id, y.first_name, y.last_name, y.family_id, COALESCE(NULLIF(m.cast_title,''), m.role, '') AS role
+             FROM youth_production_members m JOIN youth_participants y ON y.id=m.youth_id WHERE m.production_id=%s''',
+        '''SELECT y.id, y.first_name, y.last_name, y.family_id, COALESCE(pm.role,'') AS role
+             FROM production_members pm JOIN youth_participants y ON y.linked_volunteer_id=pm.volunteer_id
+            WHERE pm.production_id=%s AND COALESCE(pm.status,'') NOT IN ('removed','declined','withdrawn')''',
+        '''SELECT y.id, y.first_name, y.last_name, y.family_id, '' AS role
+             FROM youth_program_enrollments e JOIN youth_participants y ON y.id=e.youth_id WHERE e.production_id=%s'''):
+        try:
+            for r in fetchall(conn, sql, (pid,)) or []:
+                add_kid(r)
+        except Exception as e:
+            conn.rollback(); app.logger.warning(f'cast families: kid query failed: {e}')
+    ids = list(kids)
+    contacts = {k: [] for k in ids}
+    if ids:
+        ph = ','.join(['%s'] * len(ids))
+        for r in fetchall(conn, f'''SELECT youth_id, name, relationship, phone, email, is_primary FROM youth_guardians
+                WHERE youth_id IN ({ph}) ORDER BY is_primary DESC, created_at''', tuple(ids)) or []:
+            contacts[r['youth_id']].append({'kind': 'guardian', 'name': r.get('name') or '', 'relationship': r.get('relationship') or 'Guardian',
+                                            'phone': r.get('phone') or '', 'email': r.get('email') or ''})
+        for r in fetchall(conn, f'''SELECT youth_id, name, relationship, phone FROM youth_emergency_contacts
+                WHERE youth_id IN ({ph}) ORDER BY created_at DESC''', tuple(ids)) or []:
+            contacts[r['youth_id']].append({'kind': 'emergency', 'name': r.get('name') or '', 'relationship': r.get('relationship') or 'Emergency contact',
+                                            'phone': r.get('phone') or '', 'email': ''})
+        try:
+            for r in fetchall(conn, f'''SELECT y.id AS youth_id, f.name, f.email, f.phone FROM youth_participants y
+                    JOIN families f ON f.id = y.family_id WHERE y.id IN ({ph})
+                UNION SELECT l.youth_id, f.name, f.email, f.phone FROM youth_family_links l
+                    JOIN families f ON f.id=l.family_id WHERE l.youth_id IN ({ph})''', tuple(ids) * 2) or []:
+                if (r.get('email') or r.get('phone')):
+                    contacts[r['youth_id']].append({'kind': 'family', 'name': r.get('name') or 'Family account', 'relationship': 'Family account',
+                                                    'phone': r.get('phone') or '', 'email': r.get('email') or ''})
+        except Exception as e:
+            conn.rollback(); app.logger.warning(f'cast families: family query failed: {e}')
+    orders = fetchall(conn, '''SELECT o.id, o.guardian_name AS buyer, o.guardian_email AS email, o.guardian_phone AS phone,
+            COUNT(t.id) AS qty, COUNT(t.checked_in_at) AS scanned, MIN(t.checked_in_at) AS first_scan,
+            STRING_AGG(NULLIF(t.seat_label,''), ', ' ORDER BY t.seat_label) AS seats, MIN(t.confirmation_code) AS code,
+            COALESCE(o.cast_member_text,'') AS cast_text
+        FROM ticket_orders o JOIN tickets t ON t.ticket_order_id=o.id
+        WHERE o.performance_id=%s AND o.status='completed'
+        GROUP BY o.id, o.guardian_name, o.guardian_email, o.guardian_phone, o.cast_member_text''', (perf_id,)) or []
+    by_order = {o['id']: o for o in orders}
+    links = fetchall(conn, '''SELECT * FROM cast_family_links WHERE performance_id=%s ORDER BY created_at''', (perf_id,)) or []
+
+    def order_view(o, how):
+        return {'order_id': o['id'], 'buyer': o.get('buyer') or '', 'phone': o.get('phone') or '', 'email': o.get('email') or '',
+                'qty': int(o.get('qty') or 0), 'scanned': int(o.get('scanned') or 0),
+                'first_scan': str(o.get('first_scan') or '') or None, 'seats': o.get('seats') or '', 'code': o.get('code') or '', 'how': how}
+    # "Here to see someone in the cast?" answers: a full name, or a first name
+    # only one kid in this cast has, counts as a match; a shared first name
+    # ("Emma" when there are two) is shown as a possible match for each.
+    first_count = {}
+    for k in kids.values():
+        first_count[_yn(k['first_name'])] = first_count.get(_yn(k['first_name']), 0) + 1
+    def said_for(o, kid):
+        txt = _yn(o.get('cast_text'))
+        if not txt:
+            return None
+        f, l = _yn(kid['first_name']), _yn(kid['last_name'])
+        words = set(txt.split(' '))
+        if f and l and (f + ' ' + l) in txt:
+            return 'strong'
+        if f and f in words:
+            if l and l.split(' ')[-1] in words:
+                return 'strong'
+            return 'strong' if first_count.get(f) == 1 else 'weak'
+        return None
+
+    out = []
+    for kid in sorted(kids.values(), key=lambda k: (_yn(k['last_name']), _yn(k['first_name']))):
+        cs = contacts.get(kid['id'], [])
+        emails = {c['email'].strip().lower() for c in cs if (c.get('email') or '').strip()}
+        phones = {_y_last10(c['phone']) for c in cs if _y_last10(c.get('phone'))}
+        here, possible, notes, seen = [], [], [], set()
+        for l in links:
+            if l['youth_id'] != kid['id']:
+                continue
+            if l.get('ticket_order_id') and l['ticket_order_id'] in by_order:
+                here.append(dict(order_view(by_order[l['ticket_order_id']], 'Linked by ' + (l.get('created_by') or 'staff')), link_id=l['id']))
+                seen.add(l['ticket_order_id'])
+            elif not l.get('ticket_order_id'):
+                notes.append({'link_id': l['id'], 'name': l.get('person_name') or '', 'phone': l.get('phone') or '',
+                              'seat_note': l.get('seat_note') or '', 'by': l.get('created_by') or '', 'at': str(l.get('created_at') or '')})
+        for o in orders:
+            if o['id'] in seen:
+                continue
+            oe, op = (o.get('email') or '').strip().lower(), _y_last10(o.get('phone'))
+            if (oe and oe in emails) or (op and op in phones):
+                v = order_view(o, 'Email matches' if (oe and oe in emails) else 'Phone matches')
+                if not _y_last10(v['phone']):
+                    # Bought without a phone: use the matching guardian's number so Call works
+                    m = next((c for c in cs if (c.get('email') or '').strip().lower() == oe and _y_last10(c.get('phone'))), None)
+                    if m: v['phone'] = m['phone']
+                here.append(v)
+                seen.add(o['id'])
+        for o in orders:
+            if o['id'] in seen:
+                continue
+            m = said_for(o, kid)
+            if m == 'strong':
+                here.append(order_view(o, 'Buyer said they’re here for “' + (o.get('cast_text') or '') + '”'))
+                seen.add(o['id'])
+        kl = _yn(kid['last_name'])
+        for o in orders:
+            if o['id'] in seen or said_for(o, kid) != 'weak':
+                continue
+            possible.append(order_view(o, 'Buyer wrote “' + (o.get('cast_text') or '') + '”'))
+            seen.add(o['id'])
+        if kl:
+            for o in orders:
+                if o['id'] in seen:
+                    continue
+                bl = _yn(o.get('buyer')).split(' ')
+                if bl and bl[-1] == kl.split(' ')[-1]:
+                    possible.append(order_view(o, 'Same last name'))
+        if notes or any(h['scanned'] for h in here):
+            status = 'here'
+        elif here:
+            status = 'ticket'
+        elif possible:
+            status = 'maybe'
+        else:
+            status = 'none'
+        out.append({'id': kid['id'], 'name': (kid['first_name'] + ' ' + kid['last_name']).strip(), 'role': kid['role'],
+                    'status': status, 'here': here, 'notes': notes, 'possible': possible[:4],
+                    'contacts': [c for c in cs if _y_last10(c.get('phone')) or c.get('email')]})
+    return {'performance': {'id': perf['id'], 'production': perf['production'], 'date': perf['performance_date'],
+                            'time': perf.get('performance_time') or '', 'venue': perf.get('venue') or '',
+                            'reserved': bool(perf.get('reserved'))}, 'kids': out}
+
+
+@app.route('/api/performances/<perf_id>/cast-families')
+def api_cast_families(perf_id):
+    err = _cf_access()
+    if err: return err
+    conn = get_db()
+    try:
+        data = cast_families_for(conn, perf_id)
+    finally:
+        conn.close()
+    if not data:
+        return jsonify({'error': 'Performance not found'}), 404
+    return jsonify(data)
+
+
+@app.route('/api/performances/<perf_id>/cast-families/link', methods=['POST'])
+def api_cast_family_link(perf_id):
+    """Link a ticket order to a child, or note where a family member is
+    sitting (no ticket needed: general admission, or a parent who told an
+    usher where they are)."""
+    err = _cf_access()
+    if err: return err
+    d = request.json or {}
+    if not d.get('youth_id'):
+        return jsonify({'error': 'Pick a child'}), 400
+    order_id = d.get('ticket_order_id') or None
+    note = (d.get('seat_note') or '').strip()
+    if not order_id and not note:
+        return jsonify({'error': 'Say where they’re sitting, or pick their ticket.'}), 400
+    conn = get_db()
+    try:
+        if order_id and not fetchone(conn, 'SELECT id FROM ticket_orders WHERE id=%s AND performance_id=%s', (order_id, perf_id)):
+            return jsonify({'error': 'That ticket isn’t for this performance.'}), 400
+        execute(conn, '''INSERT INTO cast_family_links (id, performance_id, youth_id, ticket_order_id, person_name, phone, seat_note, created_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (str(uuid.uuid4()), perf_id, d['youth_id'], order_id,
+            (d.get('person_name') or '').strip()[:120], (d.get('phone') or '').strip()[:40], note[:200], _session_user_name() or 'staff'))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/performances/<perf_id>/cast-families/link/<link_id>', methods=['DELETE'])
+def api_cast_family_unlink(perf_id, link_id):
+    err = _cf_access()
+    if err: return err
+    conn = get_db()
+    try:
+        execute(conn, 'DELETE FROM cast_family_links WHERE id=%s AND performance_id=%s', (link_id, perf_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/performances/<perf_id>/ticket-orders/search')
+def api_cast_family_order_search(perf_id):
+    err = _cf_access()
+    if err: return err
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    like = f'%{q.lower()}%'
+    p10 = _y_last10(q)
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT o.id, o.guardian_name AS buyer, o.guardian_phone AS phone, COUNT(t.id) AS qty,
+                COUNT(t.checked_in_at) AS scanned, STRING_AGG(NULLIF(t.seat_label,''), ', ' ORDER BY t.seat_label) AS seats,
+                MIN(t.confirmation_code) AS code
+            FROM ticket_orders o JOIN tickets t ON t.ticket_order_id=o.id
+            WHERE o.performance_id=%s AND o.status='completed' AND (LOWER(o.guardian_name) LIKE %s OR LOWER(o.guardian_email) LIKE %s
+                OR LOWER(COALESCE(t.confirmation_code,'')) LIKE %s OR LOWER(COALESCE(t.seat_label,'')) LIKE %s
+                OR (%s<>'' AND RIGHT(REGEXP_REPLACE(COALESCE(o.guardian_phone,''),'[^0-9]','','g'),10)=%s))
+            GROUP BY o.id, o.guardian_name, o.guardian_phone ORDER BY LOWER(o.guardian_name) LIMIT 12''',
+            (perf_id, like, like, like, like, p10, p10)) or []
+    finally:
+        conn.close()
+    return jsonify(rows)
+
+
+@app.route('/api/cast-families/performances')
+def api_cast_family_performances():
+    err = _cf_access()
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT pf.id, pf.performance_date, pf.performance_time, pr.name AS production,
+                (SELECT COUNT(*) FROM youth_production_members m WHERE m.production_id=pr.id) AS kids
+            FROM performances pf JOIN productions pr ON pr.id=pf.production_id
+            WHERE pf.performance_date >= TO_CHAR((NOW() AT TIME ZONE 'America/New_York') - INTERVAL '1 day', 'YYYY-MM-DD')
+              AND pf.performance_date <= TO_CHAR((NOW() AT TIME ZONE 'America/New_York') + INTERVAL '21 days', 'YYYY-MM-DD')
+              AND COALESCE(pf.status,'') NOT IN ('cancelled','canceled','draft')
+            ORDER BY pf.performance_date, pf.performance_time''') or []
+    finally:
+        conn.close()
+    return jsonify(rows)
+
+
+@app.route('/shows/families')
+@app.route('/shows/<perf_id>/families')
+def cast_families_page(perf_id=None):
+    if 'user_id' not in session:
+        from flask import redirect
+        return redirect('/?next=' + ('/shows/' + ''.join(c for c in perf_id if c.isalnum() or c == '-') + '/families' if perf_id else '/shows/families'))
+    resp = app.response_class(_CAST_FAM_HTML.replace('__PERF__', json.dumps(perf_id or '')), mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+_CAST_FAM_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d3d4d">
+<title>Find a cast family</title>
+<style>
+:root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--soft:#eef4f6;
+  --here:#166534;--herebg:#dcfce7;--tix:#854d0e;--tixbg:#fef9c3;--none:#b42318;--nonebg:#fee2e2;--maybe:#1e40af;--maybebg:#dbeafe;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--soft:#1f2a2f;
+  --here:#6ce9a6;--herebg:#12301f;--tix:#fdb022;--tixbg:#2e2510;--none:#f97066;--nonebg:#3a1414;--maybe:#93c5fd;--maybebg:#172554;color-scheme:dark}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+body{padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
+.wrap{max-width:640px;margin:0 auto;padding:14px 14px 50px}
+h1{font-size:21px;color:var(--brand);margin:0}
+.sub{color:var(--muted);font-size:13.5px;margin-top:2px}
+.search{position:sticky;top:0;z-index:5;background:var(--bg);padding:10px 0}
+.search input{width:100%;font-size:18px;padding:14px 16px;border-radius:14px;border:2px solid var(--brand);background:var(--card);color:var(--ink)}
+.counts{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 10px}
+.chip{font-size:12px;font-weight:700;padding:3px 9px;border-radius:999px;border:0;font-family:inherit;cursor:pointer}
+.c-here{background:var(--herebg);color:var(--here)}.c-ticket{background:var(--tixbg);color:var(--tix)}
+.c-maybe{background:var(--maybebg);color:var(--maybe)}.c-none{background:var(--nonebg);color:var(--none)}
+.chip.off{opacity:.45}
+.kid{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:8px;overflow:hidden}
+.kid-h{display:flex;align-items:center;gap:10px;padding:13px 14px;cursor:pointer}
+.kid-h .nm{flex:1;min-width:0;font-weight:800;font-size:16px}
+.kid-h .rl{font-size:12.5px;color:var(--muted);font-weight:500}
+.kid-b{border-top:1px solid var(--line);padding:12px 14px;display:none}
+.kid.open .kid-b{display:block}
+.sec{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:10px 0 6px}
+.sec:first-child{margin-top:0}
+.p{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--line)}
+.p:last-child{border-bottom:0}
+.p .who{flex:1;min-width:0}
+.p .who b{font-size:15px}
+.p .meta{font-size:12.5px;color:var(--muted);margin-top:1px}
+.seat{font-weight:800;color:var(--ink);font-size:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;min-width:56px;min-height:42px;padding:0 12px;border-radius:10px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);font:inherit;font-weight:700;font-size:14px;text-decoration:none;cursor:pointer}
+.btn.call{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+.btn.sm{min-height:34px;min-width:0;font-size:12.5px;padding:0 10px}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.none-msg{background:var(--nonebg);color:var(--none);border-radius:10px;padding:10px 12px;font-weight:700;font-size:14px;margin-bottom:6px}
+.empty{color:var(--muted);padding:20px;text-align:center}
+.perf{display:block;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:8px;color:inherit;text-decoration:none}
+.perf b{font-size:16px}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:flex-end;justify-content:center;z-index:20}
+.sheet[hidden]{display:none}
+.panel{background:var(--bg);width:100%;max-width:640px;border-radius:18px 18px 0 0;padding:16px 16px calc(18px + env(safe-area-inset-bottom,0));max-height:90vh;overflow:auto}
+.field{width:100%;padding:12px;border:1.5px solid var(--line);border-radius:10px;font-size:16px;margin-bottom:10px;background:var(--card);color:var(--ink);font-family:inherit}
+.res{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:6px;cursor:pointer}
+.printonly{display:none}
+@media print{
+  body{background:#fff;color:#000}.search,.counts,.acts,.btn,.noprint{display:none!important}
+  .kid{break-inside:avoid;border:1px solid #999;margin-bottom:4px}.kid-b{display:block!important;padding:6px 10px}
+  .kid-h{padding:6px 10px}.printonly{display:block}.wrap{max-width:none;padding:0}
+}
+</style></head><body><div class="wrap" id="app"><div class="empty">Loading…</div></div>
+<div class="sheet" id="sheet" hidden onclick="if(event.target.id==='sheet')closeSheet()"><div class="panel" id="panel"></div></div>
+<script>
+var PERF=__PERF__, D=null, OPEN={}, FILTER=null, Q=''
+function $(id){return document.getElementById(id)}
+function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]})}
+function digits(p){return (p||'').replace(/\D/g,'')}
+function fmtP(p){var d=digits(p).slice(-10);return d.length==10?'('+d.slice(0,3)+') '+d.slice(3,6)+'-'+d.slice(6):(p||'')}
+function tm(t){if(!t)return '';var m=/(\d{1,2}):(\d{2})/.exec(t);if(!m)return t;var h=+m[1];return (h%12||12)+':'+m[2]+(h<12?' AM':' PM')}
+function when(ts){if(!ts)return '';var d=new Date(ts.replace(' ','T'));return isNaN(d)?'':d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}
+function dLabel(d){var x=new Date(d+'T12:00:00');return isNaN(x)?d:x.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})}
+async function api(u,m,b){var r=await fetch(u,m?{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined}:{});
+  if(r.status==401){location.href='/?next='+encodeURIComponent(location.pathname);return {}}try{return await r.json()}catch(e){return {error:'Unexpected response ('+r.status+')'}}}
+function callBtns(phone){var d=digits(phone);if(d.length<10)return '';return '<a class="btn call" href="tel:'+d+'">Call</a><a class="btn" href="sms:'+d+'">Text</a>'}
+var LABEL={here:'In the house',ticket:'Ticket, not scanned yet',maybe:'Possible match',none:'No family found'}
+
+async function loadList(){
+  var rows=await api('/api/cast-families/performances')
+  if(!Array.isArray(rows)){$('app').innerHTML='<div class="empty">'+esc(rows.error||'Could not load')+'</div>';return}
+  $('app').innerHTML='<h1>Find a cast family</h1><div class="sub" style="margin-bottom:14px">Pick a performance.</div>'
+    +(rows.length?rows.map(function(p){return '<a class="perf" href="/shows/'+encodeURIComponent(p.id)+'/families"><b>'+esc(p.production)+'</b><div class="sub">'+esc(dLabel(p.performance_date))+(p.performance_time?' · '+esc(tm(p.performance_time)):'')+'</div></a>'}).join(''):'<div class="empty">No performances in the next three weeks.</div>')
+}
+async function load(){
+  var d=await api('/api/performances/'+encodeURIComponent(PERF)+'/cast-families')
+  if(!d||d.error){$('app').innerHTML='<div class="empty">'+esc((d&&d.error)||'Could not load')+'</div>';return}
+  D=d;render()
+}
+function render(){
+  var p=D.performance, K=D.kids||[], c={here:0,ticket:0,maybe:0,none:0}
+  K.forEach(function(k){c[k.status]++})
+  var q=Q.toLowerCase().trim()
+  var list=K.filter(function(k){return (!FILTER||k.status===FILTER)&&(!q||k.name.toLowerCase().indexOf(q)>=0||(k.role||'').toLowerCase().indexOf(q)>=0)})
+  var h='<h1>Find a cast family</h1><div class="sub">'+esc(p.production)+' · '+esc(dLabel(p.date))+(p.time?' '+esc(tm(p.time)):'')+(p.reserved?'':' · general admission')+'</div>'
+    +'<div class="search noprint"><input id="q" type="search" placeholder="Child’s name" autocomplete="off" value="'+esc(Q)+'" oninput="Q=this.value;render();var e=$(\'q\');e.focus();e.setSelectionRange(e.value.length,e.value.length)"></div>'
+    +'<div class="counts">'+['here','ticket','maybe','none'].map(function(s){return '<button class="chip c-'+s+(FILTER&&FILTER!==s?' off':'')+'" onclick="FILTER=FILTER===\''+s+'\'?null:\''+s+'\';render()">'+c[s]+' '+LABEL[s].toLowerCase()+'</button>'}).join('')
+    +'<button class="chip noprint" style="background:var(--soft);color:var(--ink)" onclick="window.print()">Print list</button></div>'
+    +'<div class="printonly sub" style="margin-bottom:6px">Printed '+new Date().toLocaleString()+'</div>'
+  if(!K.length) h+='<div class="empty">No kids are listed in this production’s cast.</div>'
+  h+=list.map(kidHTML).join('')
+  if(K.length&&!list.length) h+='<div class="empty">No one matches.</div>'
+  $('app').innerHTML=h
+}
+function kidHTML(k){
+  var open=OPEN[k.id]||(Q&&(D.kids||[]).filter(function(x){return x.name.toLowerCase().indexOf(Q.toLowerCase().trim())>=0}).length===1)
+  var b=''
+  if(k.status==='none'||(k.status==='maybe'&&!k.here.length)) b+='<div class="none-msg">'+(k.status==='none'?'No one from this family has a ticket tonight that we can find.':'No confirmed family ticket. Check the possible match below.')+' Call their contacts.</div>'
+  if(k.here.length||k.notes.length){
+    b+='<div class="sec">In the audience</div>'
+    k.here.forEach(function(o){
+      b+='<div class="p"><div class="who"><b>'+esc(o.buyer||'Ticket holder')+'</b><div class="meta"><span class="seat">'+(o.seats?esc(o.seats):(D.performance.reserved?'No seat on ticket':'General admission'))+'</span> · '+o.qty+' ticket'+(o.qty==1?'':'s')
+        +' · '+(o.scanned?'scanned in '+esc(when(o.first_scan)):'<span style="color:var(--tix);font-weight:700">not scanned yet</span>')+'</div><div class="meta">'+esc(o.how)
+        +(o.link_id?' · <a href="#" class="noprint" onclick="event.preventDefault();unlink(\''+o.link_id+'\')">remove</a>':'')+'</div></div>'+callBtns(o.phone)+'</div>'
+    })
+    k.notes.forEach(function(n){
+      b+='<div class="p"><div class="who"><b>'+esc(n.name||'Family member')+'</b><div class="meta"><span class="seat">'+esc(n.seat_note)+'</span></div><div class="meta">Noted by '+esc(n.by)+' · <a href="#" class="noprint" onclick="event.preventDefault();unlink(\''+n.link_id+'\')">remove</a></div></div>'+callBtns(n.phone)+'</div>'
+    })
+  }
+  if(k.possible.length){
+    b+='<div class="sec">Possible match</div>'
+    k.possible.forEach(function(o){
+      b+='<div class="p"><div class="who"><b>'+esc(o.buyer)+'</b><div class="meta"><span class="seat">'+(o.seats?esc(o.seats):'GA')+'</span> · '+(o.scanned?'scanned in':'not scanned')+'</div><div class="meta">'+esc(o.how)+'</div></div>'
+        +'<button class="btn sm noprint" onclick="linkOrder(\''+k.id+'\',\''+o.order_id+'\')">That’s them</button>'+callBtns(o.phone)+'</div>'
+    })
+  }
+  b+='<div class="sec">Contacts</div>'+(k.contacts.length?k.contacts.map(function(c){
+      return '<div class="p"><div class="who"><b>'+esc(c.name||c.email)+'</b><div class="meta">'+esc(c.relationship)+(c.phone?' · '+esc(fmtP(c.phone)):'')+'</div></div>'+callBtns(c.phone)+'</div>'
+    }).join(''):'<div class="meta" style="color:var(--none);font-weight:700">No contacts on file.</div>')
+  b+='<div class="acts noprint"><button class="btn sm" onclick="openFind(\''+k.id+'\')">Find their ticket</button><button class="btn sm" onclick="openNote(\''+k.id+'\')">Note where they’re sitting</button></div>'
+  return '<div class="kid'+(open?' open':'')+'" id="k-'+k.id+'"><div class="kid-h" onclick="OPEN[\''+k.id+'\']=!OPEN[\''+k.id+'\'];render()"><div class="nm">'+esc(k.name)+(k.role?' <span class="rl">· '+esc(k.role)+'</span>':'')+'</div><span class="chip c-'+k.status+'">'+LABEL[k.status]+'</span></div><div class="kid-b">'+b+'</div></div>'
+}
+function kidName(id){var k=(D.kids||[]).find(function(x){return x.id===id});return k?k.name:''}
+function openSheet(h){$('panel').innerHTML=h;$('sheet').hidden=false}
+function closeSheet(){$('sheet').hidden=true}
+function openFind(kid){
+  openSheet('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:17px">Find '+esc(kidName(kid))+'’s family’s ticket</b><button class="btn sm" onclick="closeSheet()">Close</button></div>'
+    +'<input class="field" id="fq" type="search" placeholder="Buyer name, phone, seat or confirmation code" autocomplete="off" oninput="findOrders(\''+kid+'\')"><div id="fr"></div>')
+  $('fq').focus()
+}
+var ft=null
+function findOrders(kid){clearTimeout(ft);ft=setTimeout(async function(){
+  var q=$('fq').value.trim(); if(q.length<2){$('fr').innerHTML='';return}
+  var r=await api('/api/performances/'+encodeURIComponent(PERF)+'/ticket-orders/search?q='+encodeURIComponent(q))
+  $('fr').innerHTML=Array.isArray(r)&&r.length?r.map(function(o){return '<div class="res" onclick="linkOrder(\''+kid+'\',\''+o.id+'\')"><b>'+esc(o.buyer)+'</b><div class="sub">'+(o.seats?esc(o.seats):'GA')+' · '+o.qty+' ticket'+(o.qty==1?'':'s')+(o.phone?' · '+esc(fmtP(o.phone)):'')+(o.scanned?' · scanned in':'')+'</div></div>'}).join(''):'<div class="sub">No tickets match.</div>'
+},250)}
+async function linkOrder(kid,order){
+  var r=await api('/api/performances/'+encodeURIComponent(PERF)+'/cast-families/link','POST',{youth_id:kid,ticket_order_id:order})
+  if(r.error){alert(r.error);return} closeSheet();OPEN[kid]=true;load()
+}
+function openNote(kid){
+  openSheet('<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:17px">Where is '+esc(kidName(kid))+'’s family sitting?</b><button class="btn sm" onclick="closeSheet()">Close</button></div>'
+    +'<input class="field" id="nn" placeholder="Who (e.g. Mom, Grandpa Joe)"><input class="field" id="np" type="tel" placeholder="Their phone (optional)">'
+    +'<input class="field" id="ns" placeholder="Where (e.g. left side, row F, aisle)"><button class="btn call" style="width:100%" onclick="saveNote(\''+kid+'\')">Save</button>')
+  $('nn').focus()
+}
+async function saveNote(kid){
+  var r=await api('/api/performances/'+encodeURIComponent(PERF)+'/cast-families/link','POST',{youth_id:kid,person_name:$('nn').value,phone:$('np').value,seat_note:$('ns').value})
+  if(r.error){alert(r.error);return} closeSheet();OPEN[kid]=true;load()
+}
+async function unlink(id){
+  if(!confirm('Remove this?'))return
+  var r=await api('/api/performances/'+encodeURIComponent(PERF)+'/cast-families/link/'+encodeURIComponent(id),'DELETE')
+  if(r.error){alert(r.error);return} load()
+}
+if(PERF){load();setInterval(function(){if(document.visibilityState==='visible'&&$('sheet').hidden)load()},30000)} else loadList()
+</script></body></html>"""
 
 _STAFF_PAGE_CSS = """*{box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#f5f4f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
 .card{background:#fff;border-radius:16px;padding:32px;max-width:420px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.1);text-align:center}
@@ -50137,6 +50958,8 @@ def public_ticket_checkout():
                 (sale_channel_for(conn, grp['performance_id'], d.get('presale_keys') or {}, staff_ticket_preview(d.get('preview'))), order_id))
         if d.get('policy_agreed'):
             execute(conn, 'UPDATE ticket_orders SET policy_agreed_at=NOW() WHERE id=%s', (order_id,))
+        if (d.get('cast_member') or '').strip():
+            execute(conn, 'UPDATE ticket_orders SET cast_member_text=%s WHERE id=%s', ((d.get('cast_member') or '').strip()[:120], order_id))
         _perf = fetchone(conn, 'SELECT performance_date, performance_time FROM performances WHERE id=%s', (grp['performance_id'],)) or {}
         _when = str(_perf.get('performance_date') or '')[:10] + (' ' + (_perf.get('performance_time') or '')[:5] if _perf.get('performance_time') else '')
         for li in grp['line_items']:

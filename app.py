@@ -2261,6 +2261,14 @@ def init_db():
         """ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS reviewed_fields TEXT DEFAULT ''""",
         """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS pronouns TEXT DEFAULT ''""",
         """ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS grade TEXT DEFAULT ''""",
+        # Registration created a new profile, but it looks a lot like this
+        # existing one: staff review it (merge, or mark "not the same person").
+        "ALTER TABLE program_registrations ADD COLUMN IF NOT EXISTS possible_match_youth_id TEXT",
+        # Pairs staff confirmed are two different people, so the duplicate
+        # finder and registration flags stop suggesting them.
+        """CREATE TABLE IF NOT EXISTS youth_not_duplicates (
+            youth_a TEXT NOT NULL, youth_b TEXT NOT NULL, created_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (youth_a, youth_b))""",
         # A participant's own email — separate from youth_guardians, which
         # is about a parent/guardian contact. Adults registering themselves
         # for adult programs have their own email captured directly here
@@ -7194,13 +7202,16 @@ def check_youth_duplicates():
     conn = get_db()
     results = []
     for row in rows:
-        first = (row.get('first_name') or '').strip().lower()
-        last  = (row.get('last_name') or '').strip().lower()
-        dob   = (row.get('dob') or '').strip()
+        first = _yn(row.get('first_name'))
+        last  = _yn(row.get('last_name'))
+        dob   = (row.get('dob') or '').strip()[:10]
+        name_sql = _yn_sql('first_name') + '=%s AND ' + _yn_sql('last_name') + '=%s'
+        # Same name with the same birthday, or with no birthday on one side
         if dob:
-            match = fetchone(conn, 'SELECT id,first_name,last_name,dob FROM youth_participants WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s AND dob=%s', (first, last, dob))
+            match = fetchone(conn, 'SELECT id,first_name,last_name,dob FROM youth_participants WHERE ' + name_sql
+                             + ' AND (dob IS NULL OR dob::TEXT LIKE %s) ORDER BY created_at LIMIT 1', (first, last, dob + '%'))
         else:
-            match = fetchone(conn, 'SELECT id,first_name,last_name,dob FROM youth_participants WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s', (first, last))
+            match = fetchone(conn, 'SELECT id,first_name,last_name,dob FROM youth_participants WHERE ' + name_sql + ' ORDER BY created_at LIMIT 1', (first, last))
         results.append({'existing': match})
     conn.close()
     return jsonify(results)
@@ -13309,7 +13320,7 @@ def get_youth_participant(yid):
     y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
     if not y: conn.close(); return jsonify({'error': 'Not found'}), 404
     y['guardians'] = fetchall(conn, 'SELECT * FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC', (yid,))
-    y['emergency_contacts'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s', (yid,))
+    y['emergency_contacts'] = fetchall(conn, 'SELECT * FROM youth_emergency_contacts WHERE youth_id=%s ORDER BY created_at DESC', (yid,))
     y['authorized_pickups'] = fetchall(conn, 'SELECT * FROM youth_authorized_pickups WHERE youth_id=%s ORDER BY priority', (yid,))
     y['waivers'] = fetchall(conn,
         'SELECT yw.*, wt.name as type_name FROM youth_waivers yw JOIN waiver_types wt ON yw.waiver_type_id=wt.id WHERE yw.youth_id=%s ORDER BY yw.signed_date DESC', (yid,))
@@ -13632,9 +13643,15 @@ def create_youth():
         (yid, d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
          d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0, pp,
          d.get('email','')))
+    if d.get('grade'):
+        execute(conn, 'UPDATE youth_participants SET grade=%s WHERE id=%s', (d.get('grade'), yid))
     for g in d.get('guardians', []):
+        # The form always sends a guardian row; adults leave it blank
+        if not ((g.get('name') or '').strip() or (g.get('phone') or '').strip() or (g.get('email') or '').strip()):
+            continue
         execute(conn, 'INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,%s)',
-                (str(uuid.uuid4()), yid, g['name'], g.get('relationship',''), g.get('phone',''), g.get('email',''), 1 if g.get('is_primary') else 0))
+                (str(uuid.uuid4()), yid, (g.get('name') or '').strip(), (g.get('relationship') or '').strip(), (g.get('phone') or '').strip(),
+                 (g.get('email') or '').strip(), 1 if g.get('is_primary') else 0))
     if d.get('emergency_name') and d.get('emergency_phone'):
         execute(conn, 'INSERT INTO youth_emergency_contacts (id,youth_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s)',
                 (str(uuid.uuid4()), yid, d.get('emergency_name',''), d.get('emergency_relationship',''), d.get('emergency_phone','')))
@@ -13652,11 +13669,39 @@ def update_youth(yid):
     if err: return err
     d = request.json or {}
     conn = get_db()
-    execute(conn,
-        'UPDATE youth_participants SET first_name=%s,last_name=%s,dob=%s,program=%s,status=%s,medical_notes=%s,allergies=%s,photo_consent=%s,medical_consent=%s,shirt_size=%s,pronouns=%s,email=%s WHERE id=%s',
-        (d.get('first_name',''), d.get('last_name',''), d.get('dob') or None, d.get('program',''), d.get('status','active'),
-         d.get('medical_notes',''), d.get('allergies',''), 1 if d.get('photo_consent') else 0, 1 if d.get('medical_consent') else 0,
-         d.get('shirt_size',''), d.get('pronouns',''), d.get('email',''), yid))
+    # Only change fields the form actually sent. (This used to overwrite every
+    # column, blanking anything a form left out, and it ignored the guardian
+    # and emergency contact the edit form sends, so those edits never saved.)
+    cols = {'first_name': lambda v: (v or '').strip(), 'last_name': lambda v: (v or '').strip(), 'dob': lambda v: v or None,
+            'program': lambda v: v or '', 'status': lambda v: v or 'active', 'medical_notes': lambda v: v or '',
+            'allergies': lambda v: v or '', 'photo_consent': lambda v: 1 if v else 0, 'medical_consent': lambda v: 1 if v else 0,
+            'shirt_size': lambda v: v or '', 'pronouns': lambda v: v or '', 'email': lambda v: (v or '').strip(), 'grade': lambda v: v or ''}
+    sets = [(c, f(d.get(c))) for c, f in cols.items() if c in d]
+    if sets:
+        execute(conn, 'UPDATE youth_participants SET ' + ', '.join(c + '=%s' for c, _ in sets) + ' WHERE id=%s',
+                tuple(v for _, v in sets) + (yid,))
+    gs = d.get('guardians')
+    if isinstance(gs, list) and gs:
+        g = gs[0] or {}
+        gv = {k: (g.get(k) or '').strip() for k in ('name', 'relationship', 'phone', 'email')}
+        if gv['name'] or gv['phone'] or gv['email']:
+            cur = fetchone(conn, 'SELECT id FROM youth_guardians WHERE youth_id=%s ORDER BY is_primary DESC, created_at LIMIT 1', (yid,))
+            if cur:
+                execute(conn, 'UPDATE youth_guardians SET name=%s, relationship=%s, phone=%s, email=%s, is_primary=1 WHERE id=%s',
+                        (gv['name'], gv['relationship'], gv['phone'], gv['email'], cur['id']))
+            else:
+                execute(conn, 'INSERT INTO youth_guardians (id,youth_id,name,relationship,phone,email,is_primary) VALUES (%s,%s,%s,%s,%s,%s,1)',
+                        (str(uuid.uuid4()), yid, gv['name'], gv['relationship'], gv['phone'], gv['email']))
+    if 'emergency_name' in d:
+        en, ep = (d.get('emergency_name') or '').strip(), (d.get('emergency_phone') or '').strip()
+        er = (d.get('emergency_relationship') or '').strip()
+        if en or ep:
+            cur = fetchone(conn, 'SELECT id FROM youth_emergency_contacts WHERE youth_id=%s ORDER BY created_at DESC LIMIT 1', (yid,))
+            if cur:
+                execute(conn, 'UPDATE youth_emergency_contacts SET name=%s, relationship=%s, phone=%s WHERE id=%s', (en, er, ep, cur['id']))
+            else:
+                execute(conn, 'INSERT INTO youth_emergency_contacts (id,youth_id,name,relationship,phone) VALUES (%s,%s,%s,%s,%s)',
+                        (str(uuid.uuid4()), yid, en, er, ep))
     conn.commit()
     y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
     conn.close()
@@ -13693,6 +13738,126 @@ def _youth_merge_counts(conn, yid):
         'family_links': n('SELECT COUNT(*) c FROM youth_family_links WHERE youth_id=%s'),
         'registrations': n('SELECT COUNT(*) c FROM program_registrations WHERE youth_id=%s'),
     }
+
+
+# ─────────────────────────────────────────────
+# Participant duplicate finder
+# Lists pairs of participant profiles that look like the same person, so
+# staff can merge them (with the existing merge tool) or mark them as two
+# different people. Pairs are found by: same name (best when birthdays
+# agree), same birthday + last name with a similar first name (Kate /
+# Katherine), or same first name + a shared parent email/phone (last name
+# spelled differently, or hyphenated on one profile).
+# ─────────────────────────────────────────────
+@app.route('/api/youth/duplicates')
+def youth_duplicates():
+    err = require_permission('youth')
+    if err: return err
+    conn = get_db()
+    try:
+        people = fetchall(conn, '''SELECT id, first_name, last_name, dob, email, status, created_at
+            FROM youth_participants''') or []
+        guardians = fetchall(conn, 'SELECT youth_id, name, email, phone FROM youth_guardians') or []
+        regs = fetchall(conn, '''SELECT youth_id, COUNT(*) AS n FROM program_registrations
+            WHERE youth_id IS NOT NULL GROUP BY youth_id''') or []
+        ignored = {(r['youth_a'], r['youth_b']) for r in (fetchall(conn, 'SELECT youth_a, youth_b FROM youth_not_duplicates') or [])}
+    finally:
+        conn.close()
+    by_id = {p['id']: p for p in people}
+    reg_n = {r['youth_id']: int(r['n'] or 0) for r in regs}
+    gmap = {}
+    for g in guardians:
+        gmap.setdefault(g['youth_id'], []).append(g)
+    contacts = {}
+    for p in people:
+        keys = set()
+        for g in gmap.get(p['id'], []):
+            if (g.get('email') or '').strip(): keys.add('e:' + g['email'].strip().lower())
+            if _y_last10(g.get('phone')): keys.add('p:' + _y_last10(g.get('phone')))
+        if (p.get('email') or '').strip(): keys.add('e:' + p['email'].strip().lower())
+        contacts[p['id']] = keys
+    dob = lambda p: str(p.get('dob') or '')[:10]
+    pairs = {}
+    def add(a, b, reason, level):
+        if a == b: return
+        x, y = sorted([a, b])
+        if (x, y) in ignored: return
+        cur = pairs.get((x, y))
+        rank = {'high': 2, 'medium': 1}
+        if not cur or rank[level] > rank[cur[1]]:
+            pairs[(x, y)] = (reason, level)
+    # 1) same name
+    groups = {}
+    for p in people:
+        k = _yn(p.get('first_name')) + '|' + _yn(p.get('last_name'))
+        if k.strip('|'): groups.setdefault(k, []).append(p)
+    for g in groups.values():
+        for i in range(len(g)):
+            for j in range(i + 1, len(g)):
+                a, b = g[i], g[j]
+                if dob(a) and dob(b) and dob(a) != dob(b):
+                    add(a['id'], b['id'], 'Same name, different birthdays', 'medium')
+                elif dob(a) and dob(a) == dob(b):
+                    add(a['id'], b['id'], 'Same name and birthday', 'high')
+                else:
+                    add(a['id'], b['id'], 'Same name' + (' and parent contact' if contacts[a['id']] & contacts[b['id']] else ''), 'high')
+    # 2) same birthday + last name, similar first name
+    by_dl = {}
+    for p in people:
+        if dob(p) and _yn(p.get('last_name')):
+            by_dl.setdefault(dob(p) + '|' + _yn(p.get('last_name')), []).append(p)
+    for g in by_dl.values():
+        for i in range(len(g)):
+            for j in range(i + 1, len(g)):
+                fa, fb = _yn(g[i].get('first_name')), _yn(g[j].get('first_name'))
+                if fa and fb and fa != fb and len(min(fa, fb, key=len)) >= 3 and (fa.startswith(fb[:3]) or fb.startswith(fa[:3])):
+                    add(g[i]['id'], g[j]['id'], 'Same birthday and last name, similar first name', 'high')
+    # 3) same first name + shared parent contact (last name differs)
+    by_contact = {}
+    for pid, keys in contacts.items():
+        for k in keys:
+            by_contact.setdefault(k, []).append(pid)
+    for ids in by_contact.values():
+        if len(ids) < 2 or len(ids) > 12: continue   # a big shared address (an office) isn't a signal
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                a, b = by_id[ids[i]], by_id[ids[j]]
+                if _yn(a.get('first_name')) and _yn(a.get('first_name')) == _yn(b.get('first_name')) \
+                        and _yn(a.get('last_name')) != _yn(b.get('last_name')):
+                    if dob(a) and dob(b) and dob(a) != dob(b): continue
+                    add(a['id'], b['id'], 'Same first name and parent contact', 'high')
+    def card(p):
+        gs = gmap.get(p['id'], [])
+        return {'id': p['id'], 'first_name': p.get('first_name') or '', 'last_name': p.get('last_name') or '',
+                'dob': dob(p), 'status': p.get('status') or '', 'created_at': str(p.get('created_at') or '')[:10],
+                'guardians': [(g.get('name') or g.get('email') or '') for g in gs][:3],
+                'registrations': reg_n.get(p['id'], 0)}
+    out = [{'a': card(by_id[x]), 'b': card(by_id[y]), 'reason': r, 'level': lvl} for (x, y), (r, lvl) in pairs.items()]
+    out.sort(key=lambda r: (r['level'] != 'high', (r['a']['last_name'] or '').lower(), (r['a']['first_name'] or '').lower()))
+    return jsonify({'pairs': out[:300], 'total': len(out)})
+
+
+@app.route('/api/youth/not-duplicates', methods=['POST'])
+def youth_mark_not_duplicates():
+    """Staff confirmed two profiles are different people: stop suggesting
+    them, and clear any registration flag pointing one at the other."""
+    err = require_permission('youth')
+    if err: return err
+    d = request.json or {}
+    a, b = d.get('a'), d.get('b')
+    if not a or not b or a == b:
+        return jsonify({'error': 'Two participants are required'}), 400
+    x, y = sorted([a, b])
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO youth_not_duplicates (youth_a, youth_b, created_by) VALUES (%s,%s,%s)
+            ON CONFLICT DO NOTHING''', (x, y, _session_user_name()))
+        execute(conn, '''UPDATE program_registrations SET possible_match_youth_id=NULL
+            WHERE (youth_id=%s AND possible_match_youth_id=%s) OR (youth_id=%s AND possible_match_youth_id=%s)''', (x, y, y, x))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
 
 
 @app.route('/api/youth/merge-preview', methods=['POST'])
@@ -13739,6 +13904,13 @@ def youth_merge():
             conn.close(); return jsonify({'error': 'Participant not found'}), 404
 
         moved = _youth_merge_counts(conn, dup_id)
+        # Any "possible duplicate" flag between these two is settled by merging
+        try:
+            execute(conn, '''UPDATE program_registrations SET possible_match_youth_id=NULL
+                WHERE youth_id IN (%s,%s) AND possible_match_youth_id IN (%s,%s)''', (parent_id, dup_id, parent_id, dup_id))
+            execute(conn, 'UPDATE program_registrations SET possible_match_youth_id=%s WHERE possible_match_youth_id=%s', (parent_id, dup_id))
+        except Exception as fe:
+            app.logger.warning(f'clear possible-match flags on merge: {fe}')
 
         # 1) Fill in any blanks on the parent from the duplicate. Consent
         # flags (photo/medical) are deliberately left alone rather than
@@ -20270,8 +20442,8 @@ def kiosk_walkin_signin():
     # Find or create participant by name
     parts = name.split(' ', 1)
     first = parts[0]; last = parts[1] if len(parts) > 1 else ''
-    yp = fetchone(conn, 'SELECT * FROM youth_participants WHERE LOWER(first_name)=%s AND LOWER(last_name)=%s LIMIT 1',
-        (first.lower(), last.lower()))
+    yp = fetchone(conn, 'SELECT * FROM youth_participants WHERE ' + _yn_sql("first_name || ' ' || last_name") + '=%s ORDER BY created_at LIMIT 1',
+        (_yn(name),))
     if not yp:
         yid = str(uuid.uuid4())
         execute(conn, 'INSERT INTO youth_participants (id,first_name,last_name,status) VALUES (%s,%s,%s,%s)',
@@ -28194,6 +28366,133 @@ def api_split_registration_sessions(rid):
         conn.close()
 
 
+def _yn(v):
+    """Normalized name for matching: lowercase, single spaces, no stray punctuation."""
+    import re as _re
+    # Same rules as _yn_sql below, so Python and SQL agree on every name
+    v = _re.sub(r"[^a-z0-9 -]", '', str(v or '').lower().replace('\t', ' ').replace('\n', ' '))
+    return ' '.join(v.replace('-', ' ').split())
+
+# The same normalization in SQL, for a column
+def _yn_sql(col):
+    return "TRIM(REGEXP_REPLACE(REGEXP_REPLACE(LOWER(COALESCE(" + col + ",'')), '[^a-z0-9 -]', '', 'g'), '[ -]+', ' ', 'g'))"
+
+def _y_last10(v):
+    d = ''.join(ch for ch in str(v or '') if ch.isdigit())
+    return d[-10:] if len(d) >= 10 else ''
+
+def _not_dup_pair(conn, a, b):
+    if not a or not b: return False
+    x, y = sorted([a, b])
+    try:
+        return bool(fetchone(conn, 'SELECT 1 AS x FROM youth_not_duplicates WHERE youth_a=%s AND youth_b=%s', (x, y)))
+    except Exception:
+        return False
+
+def find_participant_match(conn, first, last, dob=None, guardian_email='', guardian_phone='', own_email='', youth_id=None):
+    """Find the existing participant a registration is about.
+    Returns (match, possible): `match` is safe to reuse automatically;
+    `possible` is a look-alike for staff to review (never auto-merged).
+    Strong matches, in order: a profile the registration is already linked
+    to; same name + a guardian with the same email; same name + their own
+    email (adults); same name + birthday; same name + a guardian with the
+    same phone. Names are compared ignoring case, extra spaces, and
+    punctuation, so "Mary-Kate  O'Neil" finds "mary kate oneil"."""
+    if youth_id:
+        y = fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (youth_id,))
+        if y: return y, None
+    nf, nl = _yn(first), _yn(last)
+    if not nf:
+        return None, None
+    name_sql = _yn_sql('yp.first_name') + '=%s AND ' + _yn_sql('yp.last_name') + '=%s'
+    ge = (guardian_email or '').strip().lower()
+    oe = (own_email or '').strip().lower()
+    dob = (str(dob or '').strip()[:10]) or None
+    p10 = _y_last10(guardian_phone)
+    checks = []
+    if ge:
+        checks.append(('''SELECT yp.* FROM youth_participants yp JOIN youth_guardians yg ON yg.youth_id=yp.id
+            WHERE ''' + name_sql + ''' AND LOWER(TRIM(yg.email))=%s ORDER BY yp.created_at LIMIT 1''', (nf, nl, ge)))
+    for e in [x for x in (oe, ge) if x]:
+        checks.append(('SELECT yp.* FROM youth_participants yp WHERE ' + name_sql + ''' AND LOWER(TRIM(yp.email))=%s
+            ORDER BY yp.created_at LIMIT 1''', (nf, nl, e)))
+    if dob:
+        checks.append(('SELECT yp.* FROM youth_participants yp WHERE ' + name_sql + ''' AND yp.dob::TEXT LIKE %s
+            ORDER BY yp.created_at LIMIT 1''', (nf, nl, dob + '%')))
+    if p10:
+        checks.append(('''SELECT yp.* FROM youth_participants yp JOIN youth_guardians yg ON yg.youth_id=yp.id
+            WHERE ''' + name_sql + ''' AND RIGHT(REGEXP_REPLACE(COALESCE(yg.phone,''),'[^0-9]','','g'),10)=%s
+            ORDER BY yp.created_at LIMIT 1''', (nf, nl, p10)))
+    for sql, params in checks:
+        try:
+            y = fetchone(conn, sql, params)
+        except Exception as e:
+            app.logger.warning(f'participant match query failed: {e}')
+            try: conn.rollback()
+            except Exception: pass
+            y = None
+        if y:
+            # Same name but a different birthday on file is a different kid
+            # (e.g. a cousin), unless one side has no birthday.
+            if dob and y.get('dob') and str(y['dob'])[:10] != dob:
+                continue
+            return y, None
+    # Look-alikes for review: same name (any birthday), or same birthday +
+    # last name with a similar first name (Kate / Katherine).
+    possible = None
+    try:
+        possible = fetchone(conn, 'SELECT yp.* FROM youth_participants yp WHERE ' + name_sql + ' ORDER BY yp.created_at LIMIT 1', (nf, nl))
+        if not possible and dob and len(nf) >= 3:
+            possible = fetchone(conn, '''SELECT yp.* FROM youth_participants yp WHERE yp.dob::TEXT LIKE %s
+                AND ''' + _yn_sql('yp.last_name') + '''=%s
+                AND (''' + _yn_sql('yp.first_name') + ''' LIKE %s OR %s LIKE ''' + _yn_sql('yp.first_name') + ''' || '%%')
+                ORDER BY yp.created_at LIMIT 1''', (dob + '%', nl, nf[:3] + '%', nf))
+    except Exception as e:
+        app.logger.warning(f'possible-match query failed: {e}')
+        try: conn.rollback()
+        except Exception: pass
+    return None, possible
+
+def save_pickups_from_text(conn, youth_id, text):
+    """Registration forms collect 'who can pick up' as free text. Turn it
+    into authorized-pickup records on the participant (the kiosk checks
+    those), skipping names already on file. Handles lines like
+    'Jane Doe (aunt) 407-555-0100', separated by commas, semicolons or lines."""
+    import re as _re
+    text = (text or '').strip()
+    if not youth_id or not text:
+        return 0
+    existing = {_yn(r['name']) for r in (fetchall(conn, 'SELECT name FROM youth_authorized_pickups WHERE youth_id=%s', (youth_id,)) or [])}
+    top = fetchone(conn, 'SELECT COALESCE(MAX(priority),0) AS m FROM youth_authorized_pickups WHERE youth_id=%s', (youth_id,)) or {}
+    pr = int(top.get('m') or 0)
+    added = 0
+    # don't split on commas inside parentheses
+    parts = _re.split(r'[\n;]+|,(?![^(]*\))|\band\b(?=\s+[A-Z])', text)
+    for part in parts:
+        part = (part or '').strip(' .\t-')
+        if not part:
+            continue
+        phone_m = _re.search(r'(\+?1?[\s.-]*\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', part)
+        phone = phone_m.group(1).strip(' -.') if phone_m else ''
+        if phone_m:
+            part = (part[:phone_m.start()] + part[phone_m.end():]).strip()
+        rel_m = _re.search(r'\(([^)]*)\)', part)
+        rel = rel_m.group(1).strip() if rel_m else ''
+        if rel_m:
+            part = (part[:rel_m.start()] + part[rel_m.end():]).strip()
+        name = _re.sub(r'\s*[-–:,]\s*$', '', part).strip(' -–:,')
+        if not rel:
+            m2 = _re.match(r'^(.*?)\s*[-–:]\s*([A-Za-z ]{3,20})$', name)
+            if m2:
+                name, rel = m2.group(1).strip(), m2.group(2).strip()
+        if len(_yn(name)) < 2 or _yn(name) in existing:
+            continue
+        pr += 1
+        execute(conn, 'INSERT INTO youth_authorized_pickups (id,youth_id,name,relationship,phone,priority,notes) VALUES (%s,%s,%s,%s,%s,%s,%s)',
+                (str(uuid.uuid4()), youth_id, name[:120], rel[:60], phone[:30], pr, 'From registration'))
+        existing.add(_yn(name)); added += 1
+    return added
+
 def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
     """Mark registration confirmed and create participant records."""
     reg = fetchone(conn, 'SELECT * FROM program_registrations WHERE id=%s', (reg_id,))
@@ -28207,20 +28506,22 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         (payment_id or reg.get('square_payment_id'), order_id or reg.get('square_order_id'), reg_id))
 
     reg_reviewed = set(f for f in (reg.get('reviewed_fields') or '').split(',') if f)
+    match_holder = {}
 
     def get_or_create_participant(first, last, dob, shirt, own_email=None, sibling=None):
         """Find existing participant by guardian email + name, or create new one.
         own_email, when given, is the *participant's own* email (used for
         adult self-registrants) — stored directly on youth_participants,
         separate from any youth_guardians record."""
+        first = ' '.join(str(first or '').split())
+        last = ' '.join(str(last or '').split())
         if not first:
             return None
-        existing = fetchone(conn, '''SELECT yp.* FROM youth_participants yp
-            JOIN youth_guardians yg ON yg.youth_id=yp.id
-            WHERE LOWER(yg.email)=LOWER(%s)
-            AND LOWER(yp.first_name)=LOWER(%s)
-            AND LOWER(yp.last_name)=LOWER(%s)''',
-            (reg['guardian_email'], first, last or ''))
+        existing, possible = find_participant_match(conn, first, last, dob,
+            guardian_email=reg.get('guardian_email') or '', guardian_phone=reg.get('guardian_phone') or '',
+            own_email=own_email or '', youth_id=(reg.get('youth_id') if sibling is None else None))
+        if possible and sibling is None:
+            match_holder['possible'] = possible
 
         medical_notes = reg.get('notes') or ''
         allergies = reg.get('allergies') or ''
@@ -28252,10 +28553,11 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
                     allergies=''' + allergies_sql + ''',
                     pronouns=''' + pronouns_sql + ''',
                     photo_consent=''' + consent_sql + ''',
-                    email=COALESCE(NULLIF(%s,''), email)
+                    email=COALESCE(NULLIF(%s,''), email),
+                    grade=COALESCE(NULLIF(%s,''), grade)
                     WHERE id=%s''',
                     (shirt or '', dob or None, medical_notes, allergies, pronouns, photo_consent,
-                     own_email or '', existing['id']))
+                     own_email or '', (reg.get('grade') or '') if sibling is None else '', existing['id']))
             except Exception as eu:
                 app.logger.warning(f'Participant update from reg: {eu}')
             # Emergency contact: add if none on file; if the family reviewed
@@ -28292,10 +28594,11 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         passphrase = default_passphrase(first, last)
         try:
             execute(conn, '''INSERT INTO youth_participants
-                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, photo_consent, passphrase, email)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (id, first_name, last_name, dob, shirt_size, medical_notes, allergies, pronouns, photo_consent, passphrase, email, grade)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
                 (yid, first, last or '', dob or None, shirt or '',
-                 medical_notes, allergies, pronouns, photo_consent, passphrase, own_email or ''))
+                 medical_notes, allergies, pronouns, photo_consent, passphrase, own_email or '',
+                 (reg.get('grade') or '') if sibling is None else ''))
         except Exception:
             # Fallback if columns don't exist yet
             execute(conn, '''INSERT INTO youth_participants (id, first_name, last_name, dob, shirt_size, passphrase)
@@ -28317,11 +28620,26 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         return fetchone(conn, 'SELECT * FROM youth_participants WHERE id=%s', (yid,))
 
     def ensure_guardian(youth_id):
-        existing = fetchone(conn, 'SELECT id, phone FROM youth_guardians WHERE youth_id=%s AND LOWER(email)=LOWER(%s)',
-            (youth_id, reg['guardian_email']))
-        if existing and reg.get('guardian_phone') and reg.get('guardian_phone') != (existing.get('phone') or ''):
-            execute(conn, 'UPDATE youth_guardians SET phone=%s WHERE id=%s', (reg['guardian_phone'], existing['id']))
-        if not existing and reg.get('guardian_name'):
+        g_email = (reg.get('guardian_email') or '').strip()
+        g_phone = (reg.get('guardian_phone') or '').strip()
+        g_name = (reg.get('guardian_name') or '').strip()
+        existing = None
+        if g_email:
+            existing = fetchone(conn, 'SELECT id, name, phone, email FROM youth_guardians WHERE youth_id=%s AND LOWER(TRIM(email))=LOWER(%s)',
+                (youth_id, g_email))
+        if not existing and _y_last10(g_phone):
+            existing = fetchone(conn, '''SELECT id, name, phone, email FROM youth_guardians WHERE youth_id=%s
+                AND RIGHT(REGEXP_REPLACE(COALESCE(phone,''),'[^0-9]','','g'),10)=%s''', (youth_id, _y_last10(g_phone)))
+        if existing:
+            # Keep their record current: newest phone, and fill in a missing name or email
+            execute(conn, '''UPDATE youth_guardians SET
+                phone=CASE WHEN %s<>'' THEN %s ELSE phone END,
+                name=CASE WHEN COALESCE(name,'')='' THEN %s ELSE name END,
+                email=CASE WHEN COALESCE(email,'')='' THEN %s ELSE email END
+                WHERE id=%s''', (g_phone, g_phone, g_name, g_email, existing['id']))
+            return
+        if g_name:
+            has_any = fetchone(conn, 'SELECT 1 AS x FROM youth_guardians WHERE youth_id=%s LIMIT 1', (youth_id,))
             import uuid as _ug
             # Programs that don't require a guardian are adults registering
             # themselves — the "guardian_email" field just holds their own
@@ -28330,11 +28648,9 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
             relationship = 'Self' if (prog and not prog.get('requires_guardian')) else 'Parent/Guardian'
             execute(conn, '''INSERT INTO youth_guardians
                 (id, youth_id, name, relationship, email, phone, is_primary)
-                VALUES (%s,%s,%s,%s,%s,%s,1) ON CONFLICT DO NOTHING''',
-                (str(_ug.uuid4()), youth_id,
-                 reg.get('guardian_name') or '',
-                 relationship,
-                 reg['guardian_email'], reg.get('guardian_phone') or ''))
+                VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING''',
+                (str(_ug.uuid4()), youth_id, g_name, relationship, g_email, g_phone,
+                 0 if has_any else 1))
 
     def enroll(youth_id):
         if not prog and not prod: return
@@ -28378,6 +28694,19 @@ def finalize_registration(conn, reg_id, payment_id=None, order_id=None):
         if not is_adult_registrant:
             ensure_guardian(youth['id'])
         enroll(youth['id'])
+        try:
+            if reg.get('pickup_contacts') and not is_adult_registrant:
+                save_pickups_from_text(conn, youth['id'], reg.get('pickup_contacts'))
+        except Exception as pe:
+            app.logger.warning(f'Saving pickups from registration {reg_id} failed: {pe}')
+            try: conn.rollback()
+            except Exception: pass
+        try:
+            pm = match_holder.get('possible')
+            if pm and pm.get('id') != youth['id'] and not _not_dup_pair(conn, pm['id'], youth['id']):
+                execute(conn, 'UPDATE program_registrations SET possible_match_youth_id=%s WHERE id=%s', (pm['id'], reg_id))
+        except Exception as fe:
+            app.logger.warning(f'possible-match flag failed: {fe}')
         try:
             execute(conn, 'UPDATE program_registrations SET youth_id=%s WHERE id=%s', (youth['id'], reg_id))
         except Exception as e:
@@ -46907,10 +47236,12 @@ def get_program_registrations(pid):
     import json as _jreg
     conn = get_db()
     regs = fetchall(conn, '''SELECT pr.*, yp.registration_form_type, yp.price AS program_price,
-        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount
+        su.hold_status AS step_up_hold_status, su.amount AS step_up_amount,
+        TRIM(COALESCE(pm.first_name,'') || ' ' || COALESCE(pm.last_name,'')) AS possible_match_name, pm.dob AS possible_match_dob
         FROM program_registrations pr
         JOIN youth_programs yp ON yp.id=pr.program_id
         LEFT JOIN step_up_child_holds su ON su.registration_id=pr.id
+        LEFT JOIN youth_participants pm ON pm.id=pr.possible_match_youth_id
         WHERE pr.program_id=%s ORDER BY pr.created_at DESC''', (pid,))
     # Resolve session names, and work out — the same way the financial
     # dashboard does — what a registration actually counts as revenue-wise

@@ -643,6 +643,7 @@ function renderPurchaseScreen(){
     + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
     + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
     + '</div>'
+    + castQuestionHTML()
     + renderDonorCodeSection()
     + policyCheckboxHTML()
     + '<div id="checkout-error"></div>'
@@ -1500,6 +1501,16 @@ function buildFullCartPayload(){
   return cart
 }
 
+// Optional: who in the cast they're here to see. If a young performer needs a
+// parent during the show, staff use this to find the family's seats quickly.
+function castQuestionHTML(){
+  var prev = ''
+  try{ prev = sessionStorage.getItem('tk_cast_member') || '' }catch(e){}
+  return '<div class="form-group"><label for="tk-cast">Here to see someone in the cast? <span style="font-weight:400;color:var(--text-muted)">(optional)</span></label>'
+    + '<input type="text" id="tk-cast" maxlength="120" autocomplete="off" placeholder="Their name, e.g. Maya Chen" value="'+escH(prev).replace(/"/g,'&quot;')+'" oninput="try{sessionStorage.setItem(\'tk_cast_member\',this.value)}catch(e){}"/>'
+    + '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">If a young performer needs their family during the show, this helps our staff find your seats right away.</div></div>'
+}
+
 async function doCheckout(){
   var name = (document.getElementById('tk-name').value||'').trim()
   var email = (document.getElementById('tk-email').value||'').trim()
@@ -1523,7 +1534,8 @@ async function doCheckout(){
     presale_keys: presaleKeysForServer(),
     preview: TICKET_PREVIEW,
     policy_agreed: !!(pol && pol.checked),
-    promo_code: appliedDonorCode ? appliedDonorCode.code : ''
+    promo_code: appliedDonorCode ? appliedDonorCode.code : '',
+    cast_member: ((document.getElementById('tk-cast')||{}).value||'').trim().slice(0,120)
   })
   if(res.error){
     if(res.promo_error){ appliedDonorCode = null; refreshDonorCodeSection() }
@@ -1674,6 +1686,7 @@ function renderCartPage(){
     + '<div class="form-group"><label>Email *</label><input type="email" id="tk-email"/></div>'
     + '<div class="form-group"><label>Phone *</label><input type="tel" id="tk-phone" autocomplete="tel"/></div>'
     + '</div>'
+    + castQuestionHTML()
     + renderDonorCodeSection()
     + policyCheckboxHTML()
     + '<div id="checkout-error"></div>'

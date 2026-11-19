@@ -39723,6 +39723,7 @@ async function loadTicketsTab(pid){
     + menu('tk-night-'+pid, 'Show night', [
         mi('', 'Door scanner', 'Scan tickets at the door (phone or handheld scanner)', '/tickets/scan'),
         mi('', 'House Manager', 'Live check-in, seat map, door sales, volunteers', '/house'),
+        mi('', 'Find a cast family', 'If a child backstage needs a parent: who’s in the audience, their seats, Call/Text', '/shows/families'),
         mi("openProductionSales('"+pid+"')", 'Concessions &amp; sales', 'Square sales at each performance: concessions, merch, raffle'),
         mi("openSquareItemLookup('')", 'Square item lookup', 'Which of several same-named Square items actually sold'),
         mi("openFinalReport('"+pid+"')", 'Final report', 'All sales for the run: tickets, attendance, concessions')])

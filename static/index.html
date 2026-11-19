@@ -1702,7 +1702,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <section class="page" id="page-youth">
  <div class="page-header">
  <div><div class="page-title">Participants</div><div class="page-subtitle" id="youth-count-label">Loading…</div></div>
- <div class="page-actions"><button class="btn btn-secondary admin-only" onclick="openBulkImport()"> Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">Set Default Passphrases</button><button class="btn btn-secondary admin-only" onclick="backfillParticipantDobs()" title="Recover birthdays that were captured at registration but never saved to the participant's profile">Recover Missing Birthdays</button><button class="btn btn-secondary admin-only" onclick="backfillEnrolledDates()" title="Fix enrollment dates showing as Invalid Date">Fix Enrollment Dates</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
+ <div class="page-actions"><button class="btn btn-secondary" onclick="openYouthDuplicates()">Find duplicates</button><button class="btn btn-secondary admin-only" onclick="openBulkImport()"> Bulk Import</button><button class="btn btn-secondary admin-only" onclick="backfillPassphrases()" title="Set default firstname_lastname_hwtc passphrase for any participants who don't have one">Set Default Passphrases</button><button class="btn btn-secondary admin-only" onclick="backfillParticipantDobs()" title="Recover birthdays that were captured at registration but never saved to the participant's profile">Recover Missing Birthdays</button><button class="btn btn-secondary admin-only" onclick="backfillEnrolledDates()" title="Fix enrollment dates showing as Invalid Date">Fix Enrollment Dates</button><button class="btn btn-primary admin-only" onclick="openYouthModal()">+ Add Participant</button></div>
  </div>
  <div class="page-body">
  <div class="search-bar">
@@ -11163,6 +11163,14 @@ async function saveYouth(){
  emergency_phone:emergencyPhone
  }
  let res
+ if(!editId){
+   // Same name (and birthday, if one was entered) already on file? Offer the existing profile first.
+   const dup=await api('/api/youth-participants/check-duplicates','POST',{rows:[{first_name:first,last_name:last,dob:data.dob}]})
+   const ex=Array.isArray(dup)&&dup[0]&&dup[0].existing
+   if(ex && !confirm(`${ex.first_name} ${ex.last_name}${ex.dob?' (born '+formatDate(ex.dob)+')':''} already has a profile.\n\nOK = create a separate new profile anyway\nCancel = open the existing profile instead`)){
+     closeModal('modal-youth'); openYouthProfile(ex.id); return
+   }
+ }
  if(editId) res=await api(`/api/youth/${editId}`,'PUT',data)
  else res=await api('/api/youth','POST',data)
  if(res.error){toast(res.error,'error');return}
@@ -11178,9 +11186,12 @@ async function saveYouth(){
  await api(`/api/youth/${yid}/enrollments`,'POST',{program_id:pid,enrolled_date:todayLocalISO()})
  }
  }
- // Remove deselected
+ // Remove deselected — only programs that are actually shown as checkboxes.
+ // Production enrollments and programs not in the list (archived, etc.) aren't
+ // on this form, so they must be left alone (they used to be deleted here).
+ const shownProgramIds=(allPrograms||[]).map(p=>p.id)
  for(const e of currentEnrolled){
- if(!selectedProgramIds.includes(e.program_id)){
+ if(e.program_id && shownProgramIds.includes(e.program_id) && !selectedProgramIds.includes(e.program_id)){
  await api(`/api/youth/enrollments/${e.id}`,'DELETE')
  }
  }
@@ -11292,7 +11303,76 @@ async function confirmYouthMerge(){
  toast('Profiles merged')
  closeModal('modal-youth-merge')
  allYouth=await api('/api/youth')
- openYouthProfile(parentId)
+ if(typeof ymState.after==='function'){ ymState.after(parentId) } else openYouthProfile(parentId)
+}
+// Open the merge window with both profiles already chosen
+async function openYouthMergePair(aId, bId, after){
+ if(!aId||!bId){ toast('Missing profile','error'); return }
+ openYouthMergeModal(aId)
+ ymState.after=after||null
+ await selectYouthMergeCandidate(bId)
+}
+
+// ══ Duplicate finder ══
+var _ydup={pairs:[],total:0}
+async function openYouthDuplicates(){
+ showAdHocModal('youth-dups','Possible duplicate participants','<div style="color:var(--text-muted)">Looking…</div>',780)
+ var d=await api('/api/youth/duplicates')
+ if(!d||d.error){ showAdHocModal('youth-dups','Possible duplicate participants','<div style="color:#991b1b">'+escHtml((d&&d.error)||'Could not load')+'</div>',780); return }
+ _ydup=d; renderYouthDuplicates()
+}
+function _ydupCard(p){
+ var age=p.dob?calcAge(p.dob):null
+ return '<div style="flex:1;min-width:200px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;background:var(--surface)">'
+  +'<a href="#" onclick="event.preventDefault();closeAdHocModal(\'youth-dups\');openYouthProfile(\''+p.id+'\')" style="font-weight:700;color:var(--teal-dark)">'+escHtml((p.first_name+' '+p.last_name).trim())+'</a>'
+  +'<div style="font-size:12px;color:var(--text-muted);margin-top:2px">'+(p.dob?'Born '+formatDate(p.dob)+(age!=null?' (age '+age+')':''):'No birthday on file')+'</div>'
+  +'<div style="font-size:12px;color:var(--text-muted)">'+(p.guardians.length?'Guardians: '+escHtml(p.guardians.join(', ')):'No guardians on file')+'</div>'
+  +'<div style="font-size:12px;color:var(--text-muted)">'+p.registrations+' registration'+(p.registrations===1?'':'s')+(p.created_at?' · added '+formatDate(p.created_at):'')+(p.status&&p.status!=='active'?' · '+escHtml(p.status):'')+'</div></div>'
+}
+function renderYouthDuplicates(){
+ var P=_ydup.pairs||[]
+ var h='<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px">'+(P.length
+   ? (_ydup.total>P.length?'Showing '+P.length+' of '+_ydup.total+'. ':'')+'Merging keeps one profile and moves everything from the other onto it (guardians, registrations, waivers, sign-ins). If two profiles are really different people, mark them so they stop showing up here.'
+   : 'No likely duplicates found.')+'</div>'
+ h+=P.map(function(r,i){
+   return '<div id="ydup-'+i+'" style="border:1.5px solid '+(r.level==='high'?'#fde047':'var(--border)')+';background:'+(r.level==='high'?'#fefce8':'var(--bg)')+';border-radius:12px;padding:10px;margin-bottom:10px">'
+    +'<div style="font-size:12px;font-weight:700;color:'+(r.level==='high'?'#854d0e':'var(--text-muted)')+';margin-bottom:8px">'+escHtml(r.reason)+'</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+_ydupCard(r.a)+_ydupCard(r.b)+'</div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">'
+    +'<button class="btn btn-primary btn-sm" onclick="ydupMerge('+i+')">Compare &amp; merge</button>'
+    +'<button class="btn btn-secondary btn-sm" onclick="ydupNotSame('+i+')">Not the same person</button></div></div>'
+ }).join('')
+ showAdHocModal('youth-dups','Possible duplicate participants ('+P.length+')',h,780)
+}
+function ydupMerge(i){
+ var r=_ydup.pairs[i]; if(!r) return
+ closeAdHocModal('youth-dups')
+ // Older profile first, so it's the one kept by default (it usually has the history)
+ var first=(r.a.created_at||'')<=(r.b.created_at||'')?r.a:r.b, second=first===r.a?r.b:r.a
+ openYouthMergePair(first.id, second.id, function(){ openYouthDuplicates() })
+}
+async function ydupNotSame(i){
+ var r=_ydup.pairs[i]; if(!r) return
+ var res=await api('/api/youth/not-duplicates','POST',{a:r.a.id,b:r.b.id})
+ if(res.error){ toast(res.error,'error'); return }
+ _ydup.pairs.splice(i,1); _ydup.total=Math.max(0,(_ydup.total||1)-1)
+ toast('Marked as different people','success'); renderYouthDuplicates()
+}
+// From a registration flagged "possible duplicate"
+function openRegPossibleMatch(youthId, matchId, regId){
+ var info=(window._regMatchInfo||{})[regId]||{}, matchName=info.name, matchDob=info.dob
+ showAdHocModal('reg-dup','Possible duplicate profile',
+  '<div style="font-size:14px;margin-bottom:14px">This registration created a new participant profile, but RoleCall already has <strong>'+escHtml(matchName||'a participant')+'</strong>'
+  +(matchDob?' (born '+formatDate(matchDob)+')':'')+' who looks like the same person.</div>'
+  +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
+  +'<button class="btn btn-primary" onclick="closeAdHocModal(\'reg-dup\');openYouthMergePair(\''+youthId+'\',\''+matchId+'\',function(){ if(typeof loadProgramRegistrations===\'function\'&&window._lastRegPid) loadProgramRegistrations(window._lastRegPid) })">Compare &amp; merge</button>'
+  +'<button class="btn btn-secondary" onclick="regNotSame(\''+youthId+'\',\''+matchId+'\')">Not the same person</button></div>',480)
+}
+async function regNotSame(a,b){
+ var res=await api('/api/youth/not-duplicates','POST',{a:a,b:b})
+ if(res.error){ toast(res.error,'error'); return }
+ closeAdHocModal('reg-dup'); toast('Marked as different people','success')
+ if(window._lastRegPid) loadProgramRegistrations(window._lastRegPid)
 }
 
 function openYouthWaiverModal(yid){
@@ -29300,6 +29380,7 @@ async function toggleRegCompedInline(btnEl, rid, value, contextId, contextType){
 }
 
 async function loadProgramRegistrations(pid){
+ window._lastRegPid = pid
   const el = document.getElementById('prog-registrations-content')
   if(!el) return
   el.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-muted)">Loading...</div>'
@@ -29420,6 +29501,8 @@ async function loadProgramRegistrations(pid){
           if(!participantName) participantName = escHtml(r.guardian_name||'')
           if(!isAdult && r.child_dob) participantName += ' <span style="font-weight:400;font-size:11px;color:var(--text-muted)">(Age '+(calcAge(r.child_dob)||'?')+')</span>'
           if(sibCount) participantName += ' <span style="font-size:10px;background:#e0f2fe;color:#145466;border-radius:10px;padding:1px 6px;font-weight:700">+'+sibCount+' sibling'+(sibCount>1?'s':'')+'</span>'
+          if(r.possible_match_youth_id && r.youth_id){ (window._regMatchInfo = window._regMatchInfo || {})[r.id] = {name: r.possible_match_name||'', dob: r.possible_match_dob||''} }
+          if(r.possible_match_youth_id && r.youth_id) participantName += ' <span onclick="event.stopPropagation();openRegPossibleMatch(\''+r.youth_id+'\',\''+r.possible_match_youth_id+'\',\''+r.id+'\')" title="Looks like an existing profile: '+escHtml(r.possible_match_name||'')+'" style="cursor:pointer;font-size:10px;font-weight:700;background:#fef9c3;color:#854d0e;border:1px solid #fde047;border-radius:10px;padding:1px 6px;white-space:nowrap">Possible duplicate</span>'
           // Contact: always show guardian name + email
           var contactCell = '<div style="font-size:12px;font-weight:600">'+escHtml(r.guardian_name||'')+'</div>'
             + '<div style="font-size:11px;color:var(--text-muted)"><a href="mailto:'+escHtml(r.guardian_email||'')+'" style="color:var(--teal)">'+escHtml(r.guardian_email||'')+'</a></div>'

@@ -15968,11 +15968,18 @@ def kiosk_instructor_day_submit(which):
         col = 'opened_at' if which == 'open' else 'closed_at'
         rcol = 'open_responses' if which == 'open' else 'close_responses'
         execute(conn, f'UPDATE instructor_day_logs SET {col}=NOW(), {rcol}=%s WHERE volunteer_id=%s AND day=%s',
-                (json.dumps(responses)[:5000], vid, day))
+                (json.dumps(responses[:40]), vid, day))
         conn.commit()
-        return jsonify({'ok': True})
+        log = fetchone(conn, 'SELECT id FROM instructor_day_logs WHERE volunteer_id=%s AND day=%s', (vid, day))
     finally:
         conn.close()
+    # Email the day's checklists to the report recipients when they close up
+    if which == 'close' and log:
+        try:
+            send_instructor_day_report(log['id'])
+        except Exception as e:
+            app.logger.warning(f'instructor day report email failed: {e}')
+    return jsonify({'ok': True})
 
 
 @app.route('/api/instructor-day-logs', methods=['GET', 'PUT'])
@@ -15993,11 +16000,130 @@ def instructor_day_logs_admin():
             ORDER BY l.day DESC, v.name LIMIT 60''') or []
         for r in rows:
             for k in ('opened_at', 'closed_at'):
-                r[k] = r[k].strftime('%-I:%M %p') if hasattr(r.get(k), 'strftime') else None
+                r[k] = _idl_time(r.get(k))
             r['day'] = str(r['day'])[:10]
+            r['flags'] = _idl_flag_count(r)
+            r.pop('open_responses', None); r.pop('close_responses', None)
         return jsonify({'items': _instructor_day_items(conn), 'logs': rows})
     finally:
         conn.close()
+
+
+def _idl_time(v):
+    """'3:05 PM' from a stored timestamp (the DB session runs on Eastern time)."""
+    if not v:
+        return None
+    if hasattr(v, 'strftime'):
+        return v.strftime('%-I:%M %p')
+    try:
+        import datetime as _d
+        return _d.datetime.fromisoformat(str(v).replace('Z', '')).strftime('%-I:%M %p')
+    except Exception:
+        return str(v)[11:16] or None
+
+
+def _idl_answers(raw):
+    """Normalize what the kiosk saved for an instructor checklist into
+    [{label, text, color, flag}]. Accepts a list of objects (label/item/text
+    + response/done/checked/value + note) or plain strings."""
+    try:
+        items = json.loads(raw or '[]') if isinstance(raw, str) else (raw or [])
+    except Exception:
+        return [{'label': 'Saved answers', 'text': str(raw)[:2000], 'color': '#374151', 'flag': False}]
+    out = []
+    for i, r in enumerate(items if isinstance(items, list) else []):
+        if isinstance(r, str):
+            out.append({'label': r, 'text': 'Done', 'color': '#16a34a', 'flag': False}); continue
+        if isinstance(r, bool):
+            r = {'label': f'Item {i + 1}', 'response': r}
+        if not isinstance(r, dict):
+            continue
+        has_val = any(k in r for k in ('response', 'done', 'checked', 'value', 'answer'))
+        label = r.get('label') or r.get('item') or r.get('name') or (r.get('text') if has_val else None) or f'Item {i + 1}'
+        val = None
+        for k in (('response', 'done', 'checked', 'value', 'answer') if has_val else ('text',)):
+            if k in r and r[k] is not None and str(r[k]).strip() != '':
+                val = r[k]; break
+        if isinstance(val, bool):
+            val = 'true' if val else 'false'
+        note = (r.get('note') or r.get('notes') or '').strip() if isinstance(r.get('note') or r.get('notes') or '', str) else ''
+        if note and str(val).lower() in ('true', 'false'):
+            val = f'{val} | {note}'
+        elif note and val is None:
+            val = note
+        t, c = checklist_answer({'item_type': r.get('type') or r.get('item_type') or 'checkbox', 'response': '' if val is None else str(val)})
+        out.append({'label': str(label), 'text': t, 'color': c, 'flag': c == '#dc2626' or bool(note)})
+    return out
+
+
+def _idl_flag_count(row):
+    return sum(1 for a in _idl_answers(row.get('open_responses')) + _idl_answers(row.get('close_responses')) if a['flag'])
+
+
+def _instructor_day_detail(conn, log_id):
+    r = fetchone(conn, '''SELECT l.*, v.name FROM instructor_day_logs l JOIN volunteers v ON v.id=l.volunteer_id WHERE l.id=%s''', (log_id,))
+    if not r:
+        return None
+    return {'id': r['id'], 'name': r.get('name') or '', 'day': str(r['day'])[:10],
+            'opened_at': _idl_time(r.get('opened_at')), 'closed_at': _idl_time(r.get('closed_at')),
+            'open': _idl_answers(r.get('open_responses')), 'close': _idl_answers(r.get('close_responses'))}
+
+
+def send_instructor_day_report(log_id):
+    from html import escape as E
+    conn = get_db()
+    try:
+        d = _instructor_day_detail(conn, log_id)
+    finally:
+        conn.close()
+    if not d:
+        return False, 'Not found'
+    recipients = get_recipient_emails(get_email_settings())
+    if not recipients:
+        return False, 'No report recipients configured in Email Settings'
+    def table(title, rows):
+        if not rows:
+            return f'<p style="color:#888;font-size:13px"><em>No {title.lower()} answers recorded.</em></p>'
+        body = ''.join(f'''<tr><td style="padding:7px 12px;border-bottom:1px solid #eee;vertical-align:top">{E(a['label'])}</td>
+            <td style="padding:7px 12px;border-bottom:1px solid #eee;font-weight:600;color:{a['color']};white-space:pre-wrap">{E(a['text'])}</td></tr>''' for a in rows)
+        return f'''<h3 style="color:#145466;font-size:14px;margin:18px 0 6px">{title}</h3>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px"><tbody>{body}</tbody></table>'''
+    flags = [a for a in d['open'] + d['close'] if a['flag']]
+    import datetime as _d
+    try: day_lbl = _d.date.fromisoformat(d['day']).strftime('%A, %B %-d')
+    except Exception: day_lbl = d['day']
+    html = f'''<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:640px">
+        <h2 style="color:#0d3d4d;margin:0 0 4px">Instructor day: {E(d['name'])}</h2>
+        <div style="color:#555;font-size:14px">{E(day_lbl)} · opened {E(d['opened_at'] or '—')} · closed {E(d['closed_at'] or 'not closed')}</div>
+        {('<div style="margin-top:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;color:#991b1b;font-size:13px"><b>Needs a look:</b> ' + E(', '.join(a['label'] for a in flags)) + '</div>') if flags else ''}
+        {table('Opening checklist', d['open'])}{table('Closing checklist', d['close'])}
+        <p style="color:#888;font-size:12px;margin-top:16px">Also in RoleCall under Event Logs.</p></div>'''
+    subj = f"Instructor day closed: {d['name']} · {day_lbl}" + (' (needs a look)' if flags else '')
+    return send_email(recipients, subj, html, source='instructor_day_report')
+
+
+@app.route('/api/instructor-day-logs/<log_id>')
+def instructor_day_log_detail(log_id):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        d = _instructor_day_detail(conn, log_id)
+    finally:
+        conn.close()
+    if not d:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(d)
+
+
+@app.route('/api/instructor-day-logs/<log_id>/email', methods=['POST'])
+def instructor_day_log_email(log_id):
+    err = require_auth()
+    if err: return err
+    ok, e = send_instructor_day_report(log_id)
+    if not ok:
+        return jsonify({'error': e or 'Email failed'}), 400
+    return jsonify({'ok': True})
 
 
 @app.route('/api/kiosk/paid-instruction-login', methods=['POST'])

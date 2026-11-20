@@ -2457,7 +2457,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
       <div><label style="font-size:12px;font-weight:600;color:var(--text-muted)">Closing</label><textarea id="idc-close" rows="5" style="width:100%"></textarea></div>
      </div>
      <button class="btn btn-primary btn-sm" style="margin-top:8px" onclick="saveInstructorDayItems()">Save checklists</button>
-     <div style="font-weight:600;font-size:13px;margin:18px 0 6px">Recent days</div>
+     <div style="font-weight:600;font-size:13px;margin:18px 0 6px">Recent days <span style="font-weight:400;color:var(--text-muted)">(tap one to see their answers; also listed under Event Logs, and emailed to report recipients when they close)</span></div>
      <div id="idc-logs" style="font-size:12.5px"></div>
     </div>
 
@@ -21170,6 +21170,26 @@ function renderPaidInstructorsSettings(){
  </div>`).join('')
 }
 
+async function openInstructorDay(id){
+ var d=await api('/api/instructor-day-logs/'+encodeURIComponent(id))
+ if(!d||d.error){ toast((d&&d.error)||'Could not load','error'); return }
+ var tbl=function(title,rows){
+   return '<div style="font-weight:700;font-size:13px;margin:14px 0 6px;color:var(--teal-dark)">'+title+'</div>'
+     +(rows.length?'<table style="width:100%;border-collapse:collapse;font-size:13px;border:1px solid var(--border)">'+rows.map(function(a){
+       return '<tr><td style="padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top">'+escHtml(a.label)+'</td><td style="padding:7px 10px;border-bottom:1px solid var(--border);font-weight:600;white-space:pre-wrap;color:'+a.color+'">'+escHtml(a.text)+'</td></tr>' }).join('')+'</table>'
+       :'<div style="font-size:13px;color:var(--text-muted)">Nothing recorded.</div>') }
+ var flags=d.open.concat(d.close).filter(function(a){ return a.flag })
+ showAdHocModal('iday','Instructor day: '+d.name,
+   '<div style="font-size:13px;color:var(--text-muted)">'+formatDate(d.day)+' · opened '+escHtml(d.opened_at||'—')+' · closed '+escHtml(d.closed_at||'not closed')+'</div>'
+   +(flags.length?'<div style="margin-top:10px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:8px 10px;color:#991b1b;font-size:13px"><b>Needs a look:</b> '+escHtml(flags.map(function(a){return a.label}).join(', '))+'</div>':'')
+   +tbl('Opening checklist',d.open)+tbl('Closing checklist',d.close)
+   +(d.closed_at?'<div style="margin-top:14px"><button class="btn btn-secondary btn-sm" onclick="emailInstructorDay(\''+d.id+'\')">Email this report</button></div>':''),560)
+}
+async function emailInstructorDay(id){
+ var r=await api('/api/instructor-day-logs/'+encodeURIComponent(id)+'/email','POST',{})
+ if(r&&r.error){ toast(r.error,'error'); return }
+ toast('Report emailed','success')
+}
 async function loadInstructorDayLogs(){
  var d = await api('/api/instructor-day-logs'); if(!d || d.error) return
  var o = document.getElementById('idc-open'), c = document.getElementById('idc-close')
@@ -21177,7 +21197,7 @@ async function loadInstructorDayLogs(){
  var el = document.getElementById('idc-logs'); if(!el) return
  el.innerHTML = (d.logs||[]).length ? '<table style="width:100%;border-collapse:collapse">'
    + '<tr style="text-align:left;color:var(--text-muted)"><th style="padding:4px 6px">Day</th><th style="padding:4px 6px">Instructor</th><th style="padding:4px 6px">Opened</th><th style="padding:4px 6px">Closed</th></tr>'
-   + d.logs.map(function(l){ return '<tr style="border-top:1px solid var(--border)"><td style="padding:5px 6px">'+escHtml(tkFmtDate(l.day))+'</td><td style="padding:5px 6px">'+escHtml(l.name)+'</td><td style="padding:5px 6px">'+(l.opened_at||'—')+'</td><td style="padding:5px 6px;'+(l.opened_at&&!l.closed_at?'color:#b91c1c;font-weight:600':'')+'">'+(l.closed_at||(l.opened_at?'Not closed':'—'))+'</td></tr>' }).join('') + '</table>'
+   + d.logs.map(function(l){ return '<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="openInstructorDay(\''+l.id+'\')" title="See their answers"><td style="padding:5px 6px">'+escHtml(tkFmtDate(l.day))+'</td><td style="padding:5px 6px">'+escHtml(l.name)+'</td><td style="padding:5px 6px">'+(l.opened_at||'—')+'</td><td style="padding:5px 6px;'+(l.opened_at&&!l.closed_at?'color:#b91c1c;font-weight:600':'')+'">'+(l.closed_at||(l.opened_at?'Not closed':'—'))+'</td></tr>' }).join('') + '</table>'
    : '<div style="color:var(--text-muted)">No instructor open/close days yet.</div>'
 }
 async function saveInstructorDayItems(){
@@ -22096,11 +22116,13 @@ async function viewScheduledReportSendLog(rid, name){
  overlay2.addEventListener('click', function(e){ if(e.target===overlay2) overlay2.remove() })
 }
 
+function _elTime(ts){ if(!ts) return ''; var d=new Date(String(ts).replace(' ','T')); return isNaN(d)?'':d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'}) }
 async function loadEventLogs(){
- const logs=await api('/api/event-logs')
+ const [logs, idl]=await Promise.all([api('/api/event-logs'), api('/api/instructor-day-logs')])
  const el=document.getElementById('event-logs-list')
  if(!el) return
- if(!logs.length){
+ const idays=(idl&&idl.logs)||[]
+ if(!logs.length && !idays.length){
  el.innerHTML='<div class="empty-state"><div class="empty-icon"></div><p>No event logs yet</p><span>Logs appear when ELICs open or close events from the kiosk</span></div>'
  return
  }
@@ -22114,17 +22136,26 @@ async function loadEventLogs(){
  if(log.action==='open') byEvent[eid].open = log
  if(log.action==='close') byEvent[eid].close = log
  })
- const rows = Object.values(byEvent).sort(function(a,b){
- const da = (a.close||a.open||{}).event_date||''
- const db = (b.close||b.open||{}).event_date||''
- return db.localeCompare(da)
- })
+ const rows = Object.values(byEvent).map(function(p){ return {kind:'event', pair:p, date:((p.close||p.open||{}).event_date||'')} })
+   .concat(idays.map(function(l){ return {kind:'iday', l:l, date:l.day||''} }))
+   .sort(function(a,b){ return String(b.date).localeCompare(String(a.date)) })
  if(!rows.length){
  el.innerHTML='<div class="empty-state"><div class="empty-icon"></div><p>No event logs yet</p><span>Logs appear when ELICs open or close events from the kiosk</span></div>'
  return
  }
  el.innerHTML='<div style="display:flex;flex-direction:column;gap:0;border:1.5px solid var(--border);border-radius:10px;overflow:hidden">'
- +rows.map(function(pair,i){
+ +rows.map(function(row,i){
+ if(row.kind==='iday'){
+   var l=row.l, st=l.closed_at?'<span style="color:var(--teal-600);font-weight:600">Closed</span>':(l.opened_at?'<span style="color:#b91c1c;font-weight:600">Not closed</span>':'<span style="color:var(--text-muted)">Not opened</span>')
+   var times=[l.opened_at?'opened '+l.opened_at:'', l.closed_at?'closed '+l.closed_at:''].filter(Boolean).join(', ')
+   return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);'+(i>0?'border-top:1px solid var(--border)':'')+'">'
+     +'<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">Instructor day: '+escHtml(l.name||'')
+     +(l.flags?' <span style="font-size:10.5px;font-weight:800;background:#fee2e2;color:#991b1b;border-radius:8px;padding:1px 7px">'+l.flags+' to check</span>':'')+'</div>'
+     +'<div style="font-size:12px;color:var(--text-muted);margin-top:1px">'+formatDate(l.day)+'&nbsp;·&nbsp;'+st+(times?'&nbsp;·&nbsp;'+escHtml(times):'')+'</div></div>'
+     +'<div style="display:flex;gap:6px;flex-shrink:0"><button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="openInstructorDay(\''+l.id+'\')">View</button>'
+     +(l.closed_at&&isAdmin?'<button class="btn btn-secondary btn-sm" style="font-size:11px;padding:4px 10px" onclick="emailInstructorDay(\''+l.id+'\')">Email</button>':'<div style="width:58px"></div>')+'</div></div>'
+ }
+ const pair = row.pair
  const log = pair.close || pair.open
  const isClosed =!!pair.close
  const isAutoClosed = pair.close && (pair.close.notes||'').includes('Auto-closed')
@@ -22134,8 +22165,8 @@ async function loadEventLogs(){
    : '<span style="color:var(--teal-600);font-weight:600"> Closed</span>')
  : '<span style="color:var(--green-600);font-weight:600"> Open</span>'
  const byParts = []
- if(pair.open) byParts.push('opened by '+escHtml(pair.open.elic_name||''))
- if(pair.close && !isAutoClosed) byParts.push('closed by '+escHtml(pair.close.elic_name||''))
+ if(pair.open) byParts.push('opened by '+escHtml(pair.open.elic_name||'')+(_elTime(pair.open.timestamp)?' at '+_elTime(pair.open.timestamp):''))
+ if(pair.close && !isAutoClosed) byParts.push('closed by '+escHtml(pair.close.elic_name||'')+(_elTime(pair.close.timestamp)?' at '+_elTime(pair.close.timestamp):''))
  if(isAutoClosed) byParts.push('auto-closed by system')
  return '<div style="display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);'+(i>0?'border-top:1px solid var(--border)':'')+'">'
  +'<div style="flex:1;min-width:0">'

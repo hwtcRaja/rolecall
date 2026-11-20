@@ -7104,12 +7104,17 @@ async function downloadEventReportPdf(eventId, logId){
  var mkChecklistTable = function(items, title, icon){
  if(!items||!items.length) return '<p style="color:#888;font-size:13px;font-style:italic">No '+title.toLowerCase()+' items recorded.</p>'
  var rows = items.map(function(r){
- var val=String(r.response||'')
- var isCheck = r.item_type==='checkbox'
- var valStr = isCheck ? (val==='true'?' Done':' Not Done'): (val||'—')
- var valColor = isCheck ? (val==='true'?'#16a34a':'#dc2626'): '#374151'
- return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee">'+escHtml(r.label||'')+'</td>'
- +'<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:'+valColor+'">'+escHtml(valStr)+'</td></tr>'
+ // Any written answer is shown as written, even if the item was saved as a checkbox
+ var raw=String(r.response==null?'':r.response), note=''
+ var m=/^(true|false) \| ([\s\S]*)$/i.exec(raw); if(m){ raw=m[1]; note=m[2] }
+ var low=raw.trim().toLowerCase(), valStr, valColor
+ if(r.item_type && r.item_type!=='checkbox'){ valStr=String(r.response==null?'':r.response).trim()||'—'; valColor='#374151' }
+ else if(low==='true'||low==='yes'||low==='done'){ valStr='Done'+(note?' — '+note:''); valColor='#16a34a' }
+ else if(low==='false'||low==='no'){ valStr='Not Done'+(note?' — '+note:''); valColor='#dc2626' }
+ else if(!low){ valStr=r.item_type==='checkbox'?'Not Done':'—'; valColor=r.item_type==='checkbox'?'#dc2626':'#6b7280' }
+ else { valStr=raw; valColor='#374151' }
+ return '<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;vertical-align:top">'+escHtml(r.label||'')+'</td>'
+ +'<td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;white-space:pre-wrap;color:'+valColor+'">'+escHtml(valStr)+'</td></tr>'
  }).join('')
  return '<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">'+icon+' '+title+'<'+'/h3>'
  +'<table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db"><thead><tr style="background:#f0f8fa">'
@@ -14911,6 +14916,8 @@ function _patFiltered(){
      case 'notdonors': return !p.is_donor
      case 'volunteers': return p.is_volunteer
      case 'presale': return p.presale_orders > 0
+     case 'castfam': return p.cast_orders > 0
+     case 'general': return !p.cast_orders
    }
    return true
  })
@@ -14931,6 +14938,7 @@ function renderPatronsPage(){
    + card(sm.avg_party, 'Avg. party size', 'tickets per order')
    + card(sm.donors, 'Are donors', 'of '+sm.patrons+' patrons')
    + card(sm.volunteers, 'Are volunteers', 'of '+sm.patrons+' patrons')
+   + card((sm.cast_share||0)+'%', 'Here for the cast', 'of tickets, at least')
    + '</div>'
  // trends: new vs returning by show, and favorite days
  var tr = d.show_trend, maxP = Math.max.apply(null, tr.map(function(s){ return s.patrons }).concat([1]))
@@ -14949,8 +14957,22 @@ function renderPatronsPage(){
    + '<div class="card" style="padding:14px 16px"><div style="font-size:13px;font-weight:700;margin-bottom:10px">Tickets by performance day</div>'
    + wd.map(function(x){ var n = d.weekday_tickets[x]||0; return '<div style="display:grid;grid-template-columns:34px 1fr 40px;gap:6px;align-items:center;margin-bottom:5px;font-size:12px"><span>'+x+'</span><div style="height:12px;background:var(--bg);border-radius:4px"><div style="height:100%;width:'+(n*100/wmax)+'%;background:#16728b;border-radius:4px"></div></div><span style="text-align:right;color:var(--text-muted)">'+n+'</span></div>' }).join('')
    + '</div></div>'
+ // cast & crew connections vs. general public, by show
+ var mixShows = tr.filter(function(s){ return s.tickets })
+ if(mixShows.length){
+   h += '<div class="card" style="padding:14px 16px;margin-bottom:14px"><div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline">'
+     + '<div style="font-size:13px;font-weight:700">Here for the cast vs. general public, by show</div>'
+     + '<div style="font-size:11.5px;color:var(--text-muted)"><span style="display:inline-block;width:10px;height:10px;background:var(--teal-mid);border-radius:2px"></span> connected to someone in the cast or crew &nbsp; <span style="display:inline-block;width:10px;height:10px;background:#d6dde0;border-radius:2px"></span> general public</div></div>'
+     + '<div style="font-size:11.5px;color:var(--text-muted);margin:2px 0 10px">Tickets whose buyer named someone in the cast at checkout, or whose email/phone matches a cast or crew member or a young performer’s family. Answering is optional, so the cast share is a minimum. Click a show for the breakdown by performance.</div>'
+     + mixShows.map(function(s){
+         return '<div onclick="openAudienceMix(\''+s.production_id+'\')" style="cursor:pointer;display:grid;grid-template-columns:150px 1fr 120px;gap:8px;align-items:center;margin-bottom:6px;font-size:12px">'
+           + '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+escHtml(s.name)+'">'+escHtml(s.name)+'</span>'
+           + _mixBar(s.cast_tickets, s.general_tickets, 14)
+           + '<span style="text-align:right;color:var(--text-muted);white-space:nowrap"><strong style="color:var(--text)">'+_mixPct(s.cast_tickets, s.general_tickets)+'%</strong> of '+s.tickets+' tix</span></div>' }).join('')
+     + '</div>'
+ }
  // filters
- var segs = [['all','Everyone'],['repeat','Repeat (2+ shows)'],['once','One show'],['lapsed','Lapsed (12+ months)'],['presale','Pre-sale buyers'],['donors','Donors'],['notdonors','Not donors yet'],['volunteers','Volunteers']]
+ var segs = [['all','Everyone'],['repeat','Repeat (2+ shows)'],['once','One show'],['lapsed','Lapsed (12+ months)'],['presale','Pre-sale buyers'],['donors','Donors'],['notdonors','Not donors yet'],['volunteers','Volunteers'],['castfam','Came for the cast'],['general','General public only']]
  h += '<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:12px 14px;border-bottom:1px solid var(--border)">'
    + '<input id="pat-q" placeholder="Search name, email or phone…" value="'+escHtml(_pat.q)+'" oninput="_pat.q=this.value;clearTimeout(window._patT);window._patT=setTimeout(renderPatronList,200)" style="width:240px;padding:7px 10px;font-size:13px"/>'
    + '<select onchange="_pat.seg=this.value;renderPatronList()" style="width:auto;padding:6px 8px;font-size:13px">'+segs.map(function(s){ return '<option value="'+s[0]+'"'+(_pat.seg===s[0]?' selected':'')+'>'+s[1]+'</option>' }).join('')+'</select>'
@@ -14973,7 +14995,7 @@ function renderPatronList(){
    + list.slice(0, 500).map(function(p){
        return '<tr style="border-top:1px solid var(--border);cursor:pointer" onclick="openPatron(\''+escHtml(p.key).replace(/'/g,"\\'")+'\')">'
          + '<td style="padding:9px 14px"><div style="font-weight:600">'+escHtml(p.name||p.email)
-         + (p.is_donor?badge('DONOR','#fce7f3','#9d174d'):'')+(p.is_volunteer?badge('VOLUNTEER','#e0f2fe','#075985'):'')+(p.do_not_email?badge('NO EMAIL','#f1f5f9','#64748b'):'')
+         + (p.is_donor?badge('DONOR','#fce7f3','#9d174d'):'')+(p.is_volunteer?badge('VOLUNTEER','#e0f2fe','#075985'):'')+(p.cast_orders?badge('CAST FAMILY','#dcfce7','#166534'):'')+(p.do_not_email?badge('NO EMAIL','#f1f5f9','#64748b'):'')
          + (p.tags||[]).map(function(t){ return badge(escHtml(t).toUpperCase(),'#fef3c7','#92400e') }).join('') + '</div>'
          + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(p.email)+(p.phone?' · '+escHtml(p.phone):'')+'</div></td>'
          + '<td style="padding:9px 8px" title="'+escHtml(p.shows.join(', '))+'"><strong>'+p.shows_count+'</strong></td>'
@@ -14992,6 +15014,7 @@ async function openPatron(key){
  var html = '<div style="font-size:13px;margin-bottom:10px">'+(p.email?'<a href="mailto:'+escHtml(p.email)+'">'+escHtml(p.email)+'</a>':'')+(p.phone?' · <a href="tel:'+escHtml(p.phone)+'">'+escHtml(p.phone)+'</a>':'')
    + (p.is_donor?' · <a href="#" onclick="closeAdHocModal(\'patron-modal\');navTo(\'donors\');return false">Donor record</a>':'')
    + (p.is_volunteer?' · <a href="#" onclick="closeAdHocModal(\'patron-modal\');openProfile(\''+p.volunteer_id+'\');return false">Volunteer profile</a>':'')+'</div>'
+   + (p.cast_orders?'<div style="font-size:12.5px;background:#dcfce7;color:#166534;border-radius:8px;padding:6px 10px;margin-bottom:10px">Here for the cast'+((p.came_for||[]).length?': '+escHtml(p.came_for.join(', ')):'')+' ('+p.cast_orders+' of '+p.orders+' order'+(p.orders===1?'':'s')+')</div>':'')
    + '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px">'
    + stat(p.shows_count,'shows') + stat(p.tickets,'tickets') + stat(_patMoney(p.spent_cents),'spent') + stat(p.attended_rate!=null?p.attended_rate+'%':'—','tickets scanned in')
    + '</div><div style="font-size:12px;color:var(--text-muted);margin-bottom:12px">First bought '+escHtml(tkFmtDate(p.first_purchase))+' · usually '+(p.favorite_day?escHtml(p.favorite_day)+'s, ':'')+p.avg_party+' tickets'
@@ -15023,8 +15046,8 @@ function copyPatronEmails(){
 }
 function exportPatrons(){
  var esc = function(v){ v = String(v==null?'':v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v }
- var rows = [['Name','Email','Phone','Shows','Show names','Orders','Tickets','Spent','First purchase','Last purchase','Favorite day','Avg party','Pre-sale orders','Donor','Volunteer','Tags','No email']]
- _patFiltered().forEach(function(p){ rows.push([p.name,p.email,p.phone,p.shows_count,p.shows.join('; '),p.orders,p.tickets,(p.spent_cents/100).toFixed(2),p.first_purchase,p.last_purchase,p.favorite_day,p.avg_party,p.presale_orders,p.is_donor?'Yes':'',p.is_volunteer?'Yes':'',(p.tags||[]).join('; '),p.do_not_email?'Yes':'']) })
+ var rows = [['Name','Email','Phone','Shows','Show names','Orders','Tickets','Spent','First purchase','Last purchase','Favorite day','Avg party','Pre-sale orders','Donor','Volunteer','Came for (cast)','Tags','No email']]
+ _patFiltered().forEach(function(p){ rows.push([p.name,p.email,p.phone,p.shows_count,p.shows.join('; '),p.orders,p.tickets,(p.spent_cents/100).toFixed(2),p.first_purchase,p.last_purchase,p.favorite_day,p.avg_party,p.presale_orders,p.is_donor?'Yes':'',p.is_volunteer?'Yes':'',p.cast_orders?((p.came_for||[]).join('; ')||'Yes'):'',(p.tags||[]).join('; '),p.do_not_email?'Yes':'']) })
  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['\ufeff'+rows.map(function(r){ return r.map(esc).join(',') }).join('\n')],{type:'text/csv'}))
  a.download = 'hwtc-patrons.csv'; document.body.appendChild(a); a.click(); a.remove()
 }
@@ -40555,6 +40578,56 @@ async function saveRushSettings(pid){
   if(r.error){ toast(r.error,'error'); return }
   toast(body.enabled ? 'Rush tickets saved' : 'Rush tickets turned off','success')
   closeAdHocModal('rush-modal'); openRushSettings(pid)
+}
+
+// ══ Audience mix: cast & crew connections vs. general public ══
+function _mixTime(t){ var m=/(\d{1,2}):(\d{2})/.exec(t||''); if(!m) return t||''; var h=+m[1]; return (h%12||12)+(m[2]!=='00'?':'+m[2]:'')+(h<12?'am':'pm') }
+function _mixPct(a,b){ var t=(a||0)+(b||0); return t?Math.round(100*(a||0)/t):0 }
+function _mixBar(c,g,h){
+  var p=_mixPct(c,g)
+  return '<div style="display:flex;height:'+(h||14)+'px;border-radius:7px;overflow:hidden;background:var(--bg);border:1px solid var(--border)">'
+    +'<div style="width:'+p+'%;background:var(--teal-mid)"></div><div style="flex:1;background:#d6dde0"></div></div>'
+}
+async function openAudienceMix(pid){
+  showAdHocModal('aud-mix','Audience mix','<div style="color:var(--text-muted)">Counting…</div>',760)
+  var d=await api('/api/productions/'+pid+'/audience-mix')
+  if(!d||d.error){ showAdHocModal('aud-mix','Audience mix','<div style="color:#991b1b">'+escHtml((d&&d.error)||'Could not load')+'</div>',760); return }
+  var T=d.totals, C=T.connected, G=T.general, totalOrders=C.orders+G.orders
+  var stat=function(label,b,color){ return '<div style="flex:1;min-width:220px;border:1px solid var(--border);border-radius:12px;padding:12px 14px">'
+    +'<div style="font-size:12px;font-weight:700;color:'+color+';text-transform:uppercase;letter-spacing:.04em">'+label+'</div>'
+    +'<div style="font-size:24px;font-weight:800;margin:2px 0">'+b.tickets.toLocaleString()+' <span style="font-size:13px;font-weight:600;color:var(--text-muted)">tickets</span></div>'
+    +'<div style="font-size:12.5px;color:var(--text-muted)">'+b.orders+' order'+(b.orders===1?'':'s')+' · $'+Math.round(b.cents/100).toLocaleString()+' in tickets · '+b.attended+' scanned in</div></div>' }
+  var h='<div style="font-size:15px;margin-bottom:10px"><strong style="font-size:28px;color:var(--teal-dark)">'+_mixPct(C.tickets,G.tickets)+'%</strong> of tickets for <strong>'+escHtml(d.production.name)+'</strong> were bought by people connected to the cast or crew.</div>'
+    +_mixBar(C.tickets,G.tickets,18)
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:12px 0">'+stat('Cast &amp; crew connections',C,'var(--teal-dark)')+stat('General public',G,'#64748b')+'</div>'
+    +'<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px;line-height:1.5">'+d.how.said+' of '+totalOrders+' orders answered “Here to see someone in the cast?” and '+d.how.matched+' more matched a cast or crew member’s family by email or phone. Answering is optional, so the connected share is a <strong>minimum</strong>; some “general public” buyers are really friends and family who skipped the question.</div>'
+  h+='<div style="font-weight:700;margin-bottom:6px">By performance</div>'
+    +(d.performances.length?d.performances.map(function(r){
+      var dt=new Date((r.date||'')+'T12:00:00'), lbl=isNaN(dt)?r.date:dt.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'})
+      return '<div style="display:grid;grid-template-columns:120px 1fr 120px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px">'
+        +'<div>'+escHtml(lbl)+(r.time?' <span style="color:var(--text-muted)">'+escHtml(_mixTime(r.time))+'</span>':'')+'</div>'+_mixBar(r.connected.tickets,r.general.tickets)
+        +'<div style="text-align:right;font-variant-numeric:tabular-nums"><strong>'+_mixPct(r.connected.tickets,r.general.tickets)+'%</strong> · '+(r.connected.tickets+r.general.tickets)+' tix</div></div>'
+    }).join(''):'<div style="color:var(--text-muted)">No performances yet.</div>')
+    +'<div style="display:flex;gap:14px;font-size:12px;color:var(--text-muted);margin:6px 0 16px"><span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--teal-mid)"></span> Cast &amp; crew connections</span><span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#d6dde0"></span> General public</span></div>'
+  if(d.top_draws&&d.top_draws.length){
+    h+='<div style="font-weight:700;margin-bottom:6px">Who brought people in</div><div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">Tickets tied to each person, by name at checkout or by family email/phone. An order naming two people is split between them. For staff only.</div>'
+      +d.top_draws.map(function(p){ return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);font-size:13px"><span>'+escHtml(p.name)+'</span><span style="font-variant-numeric:tabular-nums">'+p.tickets+' ticket'+(p.tickets===1?'':'s')+'</span></div>' }).join('')
+  }
+  h+='<div style="margin-top:16px"><button class="btn btn-secondary btn-sm" onclick="openAudienceMixAll()">Compare all productions</button></div>'
+  showAdHocModal('aud-mix','Audience mix: '+d.production.name,h,760)
+}
+async function openAudienceMixAll(){
+  showAdHocModal('aud-mix','Audience mix by production','<div style="color:var(--text-muted)">Counting…</div>',760)
+  var d=await api('/api/reports/audience-mix')
+  if(!d||d.error){ showAdHocModal('aud-mix','Audience mix by production','<div style="color:#991b1b">'+escHtml((d&&d.error)||'Could not load')+'</div>',760); return }
+  var P=d.productions||[]
+  var h='<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px">Productions with ticket sales in the last 18 months. Share of tickets bought by people connected to the cast or crew (a minimum; see a production for details).</div>'
+  h+=P.length?P.map(function(p){ var C=p.totals.connected, G=p.totals.general
+    return '<div style="display:grid;grid-template-columns:minmax(140px,1.2fr) 1.5fr 110px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer" onclick="openAudienceMix(\''+p.id+'\')">'
+      +'<div><strong>'+escHtml(p.name)+'</strong><div style="font-size:11.5px;color:var(--text-muted)">'+escHtml(p.first_date||'')+(p.last_date&&p.last_date!==p.first_date?' – '+escHtml(p.last_date):'')+'</div></div>'
+      +_mixBar(C.tickets,G.tickets)+'<div style="text-align:right;font-variant-numeric:tabular-nums"><strong>'+_mixPct(C.tickets,G.tickets)+'%</strong> · '+(C.tickets+G.tickets)+' tix</div></div>' }).join('')
+    :'<div style="color:var(--text-muted)">No ticket sales in that time.</div>'
+  showAdHocModal('aud-mix','Audience mix by production',h,760)
 }
 
 async function openAudienceEmailModal(pid){

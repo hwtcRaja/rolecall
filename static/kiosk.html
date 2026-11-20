@@ -815,11 +815,49 @@ async function goStopVolunteering(){
     const d = await r.json()
     if(d.error){ alert('Error: ' + d.error); return }
     hideActiveSessionBanner()
-    showConfirm('','Thank You!',
+    var thanks = function(){ showConfirm('','Thank You!',
       d.hours+'h submitted for approval.',
       paidInstructionMode ? 'Your instruction time has been recorded.' : 'Your time has been recorded. Thanks for volunteering!',
-      ()=>showScreen('screen-vol-menu'))
+      ()=>showScreen('screen-vol-menu')) }
+    // An instructor who opened the building today: ask if that was their
+    // last lesson, so closing up isn't something they have to remember.
+    if(paidInstructionMode){
+      try{
+        var day = await (await fetch('/api/kiosk/instructor-day?volunteer_id='+encodeURIComponent(selVol.id))).json()
+        if(day && !day.error){ window._instrDay = day }
+        if(day && day.opened && !day.closed){ askLastLesson(d.hours, day.close_items || [], thanks); return }
+      }catch(e){}
+    }
+    thanks()
   } catch(err){ alert('Network error stopping session: ' + err.message) }
+}
+
+function askLastLesson(hours, closeItems, notLast){
+  var old = document.getElementById('instr-last-ov'); if(old) old.remove()
+  var o = document.createElement('div')
+  o.id = 'instr-last-ov'
+  o.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px'
+  var btn = 'width:100%;padding:18px;border-radius:14px;font-family:inherit;font-size:18px;font-weight:800;cursor:pointer;margin-top:10px'
+  o.innerHTML = '<div style="background:#fff;border-radius:20px;max-width:520px;width:100%;padding:26px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.3);text-align:center">'
+    + '<div style="font-size:15px;font-weight:700;color:#166534;margin-bottom:6px">'+hours+'h recorded. Thanks!</div>'
+    + '<div style="font-size:24px;font-weight:800;color:var(--teal-dark);margin-bottom:6px">Was that your last lesson today?</div>'
+    + '<div style="font-size:14px;color:var(--muted);margin-bottom:8px">You opened the building today, so you\'re the one who closes it up.</div>'
+    + '<button type="button" id="ill-yes" style="'+btn+';border:none;background:linear-gradient(135deg,#5b21b6,#7c3aed);color:#fff">Yes, close up the building</button>'
+    + '<button type="button" id="ill-no" style="'+btn+';border:2px solid var(--border);background:var(--surface);color:var(--text)">No, I have more lessons later</button>'
+    + '</div>'
+  document.body.appendChild(o)
+  document.getElementById('ill-yes').onclick = function(){
+    o.remove()
+    // "Not yet" on the checklist goes back to the normal thank-you
+    window._idcOnCancel = notLast
+    showInstructorDayChecklist('close', closeItems)
+  }
+  document.getElementById('ill-no').onclick = function(){ o.remove(); notLast() }
+}
+function idcCancel(){
+  var ov = document.getElementById('instr-day-ov'); if(ov) ov.remove()
+  var fn = window._idcOnCancel; window._idcOnCancel = null
+  if(typeof fn === 'function') fn()
 }
 
 function showActiveSessionBanner(role){
@@ -1307,7 +1345,7 @@ function showInstructorDayChecklist(which, items){
     + items.map(function(t,i){ return '<button type="button" class="idc-item" data-i="'+i+'" onclick="this.dataset.on=this.dataset.on===\'1\'?\'0\':\'1\';idcPaint()" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;margin-bottom:10px;border-radius:14px;border:2px solid var(--border);background:var(--surface);font-family:inherit;font-size:16px;font-weight:600;cursor:pointer"><span class="idc-box" style="width:28px;height:28px;border-radius:8px;border:2px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:900"></span><span>'+t.replace(/</g,'&lt;')+'</span></button>' }).join('')
     + '<div id="idc-err" style="color:#b91c1c;font-size:13px;min-height:18px;margin:4px 0"></div>'
     + '<div style="display:flex;gap:10px">'
-    + (which==='close' ? '<button type="button" onclick="document.getElementById(\'instr-day-ov\').remove()" style="flex:1;padding:16px;border-radius:14px;border:2px solid var(--border);background:var(--surface);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer">Not yet</button>' : '')
+    + (which==='close' ? '<button type="button" onclick="idcCancel()" style="flex:1;padding:16px;border-radius:14px;border:2px solid var(--border);background:var(--surface);font-family:inherit;font-size:16px;font-weight:700;cursor:pointer">Not yet</button>' : '')
     + '<button type="button" id="idc-go" onclick="submitInstructorDay(\''+which+'\')" style="flex:2;padding:16px;border-radius:14px;border:none;background:linear-gradient(135deg,#5b21b6,#7c3aed);color:#fff;font-family:inherit;font-size:17px;font-weight:800;cursor:pointer">'+(which==='open'?'Building is open \u2192':'Building is closed')+'</button></div></div>'
   document.body.appendChild(o)
   idcPaint()
@@ -1329,6 +1367,7 @@ async function submitInstructorDay(which){
     if(r.error){ document.getElementById('idc-err').textContent = r.error; btn.disabled = false; return }
   }catch(e){ document.getElementById('idc-err').textContent = 'Could not save. Try again.'; btn.disabled = false; return }
   document.getElementById('instr-day-ov').remove()
+  window._idcOnCancel = null
   window._instrDay = Object.assign(window._instrDay||{}, which==='open' ? {opened:true, needs_open:false} : {closed:true})
   if(which==='open') goVolMenu()
   else { showConfirm('','All closed up','Thanks! The building is closed for today.','', ()=>goIdle()) }

@@ -20319,6 +20319,60 @@ def kiosk_production_signout():
 #  KIOSK  -  OPEN/CLOSE EVENT & YOUTH
 # ─────────────────────────────────────────────
 
+# ── Checklist responses ──
+# Text / Notes items were coming out of reports as "Not Done": the kiosk
+# doesn't always send each item's type, so everything was saved as a
+# checkbox, and the reports only print the typed answer for text items.
+# Now the type comes from the checklist item itself, the answer is taken
+# from whichever field it arrived in, and reports print any written answer
+# whatever type was stored (which also fixes reports already saved).
+def _checklist_insert_responses(conn, log_id, responses, opening):
+    table = 'opening_checklist_items' if opening else 'checklist_items'
+    types = {}
+    try:
+        for r in fetchall(conn, f'SELECT id, item_type FROM {table}') or []:
+            types[r['id']] = r['item_type']
+    except Exception:
+        conn.rollback()
+    for r in responses or []:
+        item_id = r.get('item_id') or r.get('id') or ''
+        itype = types.get(item_id) or r.get('type') or r.get('item_type') or 'checkbox'
+        val = None
+        for k in ('response', 'value', 'text', 'answer', 'notes', 'note'):
+            v = r.get(k)
+            if v is not None and str(v).strip() != '':
+                val = v; break
+        if isinstance(val, bool):
+            val = 'true' if val else 'false'
+        # A checkbox item that also came with a written note keeps both
+        note = r.get('note') or r.get('notes') or ''
+        if itype == 'checkbox' and str(val).lower() in ('true', 'false') and str(note).strip() and str(note) != str(val):
+            val = ('true' if str(val).lower() == 'true' else 'false') + ' | ' + str(note).strip()
+        execute(conn, '''INSERT INTO event_checklist_responses
+            (id,event_log_id,checklist_item_id,label,item_type,response)
+            VALUES (%s,%s,%s,%s,%s,%s)''',
+            (str(uuid.uuid4()), log_id, item_id, r.get('label',''), itype, '' if val is None else str(val)))
+
+
+from html import escape as _html_esc
+
+def checklist_answer(r):
+    """(text, color) for one saved response, for reports and emails."""
+    raw = str(r.get('response') if r.get('response') is not None else '')
+    flag, _, note = raw.partition(' | ') if raw.lower().startswith(('true | ', 'false | ')) else (raw, '', '')
+    low = flag.strip().lower()
+    if r.get('item_type') and r.get('item_type') != 'checkbox':
+        # Text / Notes and rating items: always the answer as written
+        return (raw.strip() or '—', '#374151' if raw.strip() else '#6b7280')
+    if low in ('true', 'yes', 'done'):
+        return ('Done' + (' — ' + note if note else ''), '#16a34a')
+    if low in ('false', 'no'):
+        return ('Not Done' + (' — ' + note if note else ''), '#dc2626')
+    if not flag.strip():
+        return ('Not Done', '#dc2626') if r.get('item_type') == 'checkbox' else ('—', '#6b7280')
+    return (flag, '#374151')
+
+
 @app.route('/api/kiosk/open-event-checklist', methods=['POST'])
 def kiosk_open_event():
     d = request.json or {}
@@ -20335,13 +20389,7 @@ def kiosk_open_event():
         execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
             VALUES (%s,%s,%s,'open','Event opened via kiosk',%s)''', (log_id, event_id, elic_id, signature))
         # Save checklist responses
-        for r in responses:
-            rid = str(uuid.uuid4())
-            execute(conn, '''INSERT INTO event_checklist_responses
-                (id,event_log_id,checklist_item_id,label,item_type,response)
-                VALUES (%s,%s,%s,%s,%s,%s)''',
-                (rid, log_id, r.get('item_id',''), r.get('label',''),
-                 r.get('type','checkbox'), str(r.get('response',''))))
+        _checklist_insert_responses(conn, log_id, responses, opening=True)
         # Mark event as open
         execute(conn, "UPDATE events SET status='open' WHERE id=%s", (event_id,))
         conn.commit(); conn.close()
@@ -20532,13 +20580,7 @@ def kiosk_close_event():
         log_id = str(uuid.uuid4())
         execute(conn, '''INSERT INTO event_logs (id,event_id,elic_id,action,notes,signature)
             VALUES (%s,%s,%s,'close','Event closed via kiosk',%s)''', (log_id, event_id, elic_id, signature))
-        for r in responses:
-            rid = str(uuid.uuid4())
-            execute(conn, '''INSERT INTO event_checklist_responses
-                (id,event_log_id,checklist_item_id,label,item_type,response)
-                VALUES (%s,%s,%s,%s,%s,%s)''',
-                (rid, log_id, r.get('item_id',''), r.get('label',''),
-                 r.get('type','checkbox'), str(r.get('response',''))))
+        _checklist_insert_responses(conn, log_id, responses, opening=False)
         execute(conn, "UPDATE events SET status='closed' WHERE id=%s", (event_id,))
         # Auto-approve pending kiosk hours for this event
         pending = fetchall(conn,
@@ -20625,15 +20667,13 @@ def kiosk_close_event():
                 # Build opening checklist rows
                 ol_rows = ''
                 for r in open_responses:
-                    val = str(r.get('response',''))
-                    val_str = ' Done' if val=='true' else (' Not Done' if val=='false' else val or ' - ')
-                    ol_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
+                    _t, _c = checklist_answer(r)
+                    ol_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee;vertical-align:top">{_html_esc(r.get("label",""))}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600;color:{_c};white-space:pre-wrap">{_html_esc(_t)}</td></tr>'
                 # Build closing checklist rows
                 cl_rows = ''
                 for r in responses:
-                    val = str(r.get('response',''))
-                    val_str = ' Done' if val=='true' else (' Not Done' if val=='false' else val or ' - ')
-                    cl_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee">{r.get("label","")}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600">{val_str}</td></tr>'
+                    _t, _c = checklist_answer(r)
+                    cl_rows += f'<tr><td style="padding:6px 12px;border-bottom:1px solid #eee;vertical-align:top">{_html_esc(r.get("label",""))}</td><td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:600;color:{_c};white-space:pre-wrap">{_html_esc(_t)}</td></tr>'
                 # Build hours summary
                 hrs_rows = ''
                 if pending:
@@ -21508,10 +21548,8 @@ def email_send_report(rid):
     def checklist_rows(items, label, icon):
         if not items: return f'<p style="color:#888;font-size:13px"><em>No {label.lower()} items recorded.</em></p>'
         rows = ''.join(f'''<tr>
-            <td style="padding:8px 12px;border-bottom:1px solid #eee">{r.get('label','')}</td>
-            <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:{'#16a34a' if str(r.get('response','')).lower() in ('true','yes','done') else '#dc2626' if r.get('item_type')=='checkbox' else '#374151'}">
-                {' Done' if str(r.get('response','')).lower() in ('true','yes','done') else (' Not Done' if r.get('item_type')=='checkbox' else str(r.get('response',' - ') or ' - '))}
-            </td></tr>''' for r in items)
+            <td style="padding:8px 12px;border-bottom:1px solid #eee;vertical-align:top">{_html_esc(r.get('label',''))}</td>
+            <td style="padding:8px 12px;border-bottom:1px solid #eee;font-weight:600;color:{checklist_answer(r)[1]};white-space:pre-wrap">{_html_esc(checklist_answer(r)[0])}</td></tr>''' for r in items)
         return f'''<h3 style="color:#145466;font-size:14px;font-weight:700;margin:20px 0 8px">{icon} {label}</h3>
         <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px">
         <thead><tr style="background:#f0f8fa"><th style="padding:8px 12px;text-align:left;color:#5f5e5a;font-size:11px;text-transform:uppercase;letter-spacing:0.5px">Item</th>
@@ -38641,6 +38679,203 @@ async function unlink(id){
 if(PERF){load();setInterval(function(){if(document.visibilityState==='visible'&&$('sheet').hidden)load()},30000)} else loadList()
 </script></body></html>"""
 
+# ─────────────────────────────────────────────
+# Audience mix: cast & crew connections vs. general public
+#
+# For each performance, how many tickets were bought by people connected to
+# someone in the production and how many by everyone else. An order counts
+# as "connected" when the buyer answered "Here to see someone in the cast?"
+# at checkout, or when their email or phone matches someone in the cast or
+# crew (the volunteer themselves, or a kid's guardians, emergency contacts
+# or family account). Because answering is optional, connected numbers are
+# a floor: the real share is at least this high.
+# ─────────────────────────────────────────────
+def _production_people(conn, production_id):
+    """Everyone in a production with the emails/phones that tie a buyer to them."""
+    people = {}
+    def person(key, first, last, kind):
+        if key not in people:
+            people[key] = {'key': key, 'first': first or '', 'last': last or '', 'kind': kind, 'emails': set(), 'phones': set()}
+        return people[key]
+    def add(p, email=None, phone=None):
+        if (email or '').strip(): p['emails'].add(email.strip().lower())
+        if _y_last10(phone): p['phones'].add(_y_last10(phone))
+    try:
+        for r in fetchall(conn, '''SELECT v.id, v.name, v.email, v.phone FROM production_members pm JOIN volunteers v ON v.id=pm.volunteer_id
+                WHERE pm.production_id=%s AND COALESCE(pm.status,'') NOT IN ('removed','declined','withdrawn')''', (production_id,)) or []:
+            parts = (r.get('name') or '').strip().split(' ')
+            add(person('v:' + r['id'], parts[0] if parts else '', ' '.join(parts[1:]), 'adult'), r.get('email'), r.get('phone'))
+    except Exception as e:
+        conn.rollback(); app.logger.warning(f'audience mix: volunteers: {e}')
+    youth = {}
+    for sql in ('SELECT y.id, y.first_name, y.last_name, y.family_id FROM youth_production_members m JOIN youth_participants y ON y.id=m.youth_id WHERE m.production_id=%s',
+                'SELECT y.id, y.first_name, y.last_name, y.family_id FROM youth_program_enrollments e JOIN youth_participants y ON y.id=e.youth_id WHERE e.production_id=%s'):
+        try:
+            for r in fetchall(conn, sql, (production_id,)) or []:
+                youth[r['id']] = r
+        except Exception as e:
+            conn.rollback(); app.logger.warning(f'audience mix: youth: {e}')
+    if youth:
+        ph = ','.join(['%s'] * len(youth)); ids = tuple(youth)
+        for y in youth.values():
+            person('y:' + y['id'], y.get('first_name'), y.get('last_name'), 'youth')
+        for r in fetchall(conn, f'SELECT youth_id, email, phone FROM youth_guardians WHERE youth_id IN ({ph})', ids) or []:
+            add(people['y:' + r['youth_id']], r.get('email'), r.get('phone'))
+        for r in fetchall(conn, f'SELECT youth_id, phone FROM youth_emergency_contacts WHERE youth_id IN ({ph})', ids) or []:
+            add(people['y:' + r['youth_id']], None, r.get('phone'))
+        try:
+            for r in fetchall(conn, f'''SELECT y.id AS youth_id, f.email, f.phone FROM youth_participants y JOIN families f ON f.id=y.family_id
+                    WHERE y.id IN ({ph})''', ids) or []:
+                add(people['y:' + r['youth_id']], r.get('email'), r.get('phone'))
+        except Exception as e:
+            conn.rollback()
+    return list(people.values())
+
+
+def _who_they_named(text, people):
+    """Match a 'Here to see…' answer to people in the production: a full
+    name, or a first name only one person in the production has."""
+    t = _yn(text)
+    if not t:
+        return []
+    words = set(t.split(' '))
+    firsts = {}
+    for p in people:
+        firsts[_yn(p['first'])] = firsts.get(_yn(p['first']), 0) + 1
+    hits = []
+    for p in people:
+        f, l = _yn(p['first']), _yn(p['last'])
+        if not f:
+            continue
+        if (l and (f + ' ' + l) in t) or (f in words and ((l and l.split(' ')[-1] in words) or firsts.get(f) == 1)):
+            hits.append(p)
+    return hits
+
+
+def audience_mix_for_production(conn, production_id):
+    prod = fetchone(conn, 'SELECT id, name FROM productions WHERE id=%s', (production_id,))
+    if not prod:
+        return None
+    people = _production_people(conn, production_id)
+    by_email, by_phone = {}, {}
+    for p in people:
+        for e in p['emails']: by_email.setdefault(e, []).append(p)
+        for ph in p['phones']: by_phone.setdefault(ph, []).append(p)
+    perfs = fetchall(conn, '''SELECT id, performance_date, performance_time FROM performances
+        WHERE production_id=%s ORDER BY performance_date, performance_time''', (production_id,)) or []
+    orders = fetchall(conn, '''SELECT o.id, o.performance_id, o.guardian_email AS email, o.guardian_phone AS phone,
+            COALESCE(o.cast_member_text,'') AS said, COUNT(t.id) AS qty, COALESCE(SUM(t.price_cents),0) AS cents,
+            COUNT(t.checked_in_at) AS scanned
+        FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id
+        JOIN tickets t ON t.ticket_order_id=o.id
+        WHERE pf.production_id=%s AND o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test'
+        GROUP BY o.id, o.performance_id, o.guardian_email, o.guardian_phone, o.cast_member_text''', (production_id,)) or []
+    blank = lambda: {'orders': 0, 'tickets': 0, 'cents': 0, 'attended': 0}
+    per = {p['id']: {'id': p['id'], 'date': p['performance_date'], 'time': p.get('performance_time') or '',
+                     'connected': blank(), 'general': blank(), 'answered': 0} for p in perfs}
+    draw = {}
+    how = {'said': 0, 'matched': 0}
+    connected_ids, order_people = set(), {}
+    for o in orders:
+        row = per.get(o['performance_id'])
+        if not row:
+            continue
+        qty, cents, scanned = int(o.get('qty') or 0), int(o.get('cents') or 0), int(o.get('scanned') or 0)
+        named = _who_they_named(o.get('said'), people) if (o.get('said') or '').strip() else []
+        matched = []
+        e, ph = (o.get('email') or '').strip().lower(), _y_last10(o.get('phone'))
+        if e: matched += by_email.get(e, [])
+        if ph: matched += by_phone.get(ph, [])
+        connected = bool((o.get('said') or '').strip()) or bool(matched)
+        if (o.get('said') or '').strip():
+            row['answered'] += 1; how['said'] += 1
+        elif matched:
+            how['matched'] += 1
+        if connected:
+            connected_ids.add(o['id'])
+            order_people[o['id']] = [(p['first'] + ' ' + p['last']).strip() for p in {q['key']: q for q in (named or matched)}.values()]
+        bucket = row['connected' if connected else 'general']
+        bucket['orders'] += 1; bucket['tickets'] += qty; bucket['cents'] += cents; bucket['attended'] += scanned
+        # Credit tickets to the people this order is tied to (split evenly if several)
+        credit = {p['key']: p for p in (named or matched)}
+        for p in credit.values():
+            d = draw.setdefault(p['key'], {'name': (p['first'] + ' ' + p['last']).strip(), 'kind': p['kind'], 'tickets': 0.0, 'orders': 0})
+            d['tickets'] += qty / len(credit); d['orders'] += 1
+    rows = list(per.values())
+    tot = {'connected': blank(), 'general': blank(), 'answered': sum(r['answered'] for r in rows)}
+    for r in rows:
+        for k in ('connected', 'general'):
+            for f in ('orders', 'tickets', 'cents', 'attended'):
+                tot[k][f] += r[k][f]
+    top = sorted(draw.values(), key=lambda d: -d['tickets'])[:15]
+    for d in top:
+        d['tickets'] = round(d['tickets'], 1)
+    return {'production': {'id': prod['id'], 'name': prod['name']}, 'performances': rows, 'totals': tot,
+            'how': how, 'people_count': len(people), 'top_draws': top,
+            '_connected_ids': connected_ids, '_order_people': order_people}
+
+
+def cast_connections_for_orders(conn, orders):
+    """For the Patrons dashboard: which of these orders came from someone
+    connected to the cast/crew, and who they came for."""
+    connected, people, mixes = set(), {}, {}
+    for pid in {o['production_id'] for o in orders}:
+        try:
+            m = audience_mix_for_production(conn, pid)
+        except Exception as e:
+            conn.rollback(); app.logger.warning(f'audience mix for {pid}: {e}'); m = None
+        if m:
+            mixes[pid] = m
+            connected |= m['_connected_ids']
+            people.update(m['_order_people'])
+    return connected, people, mixes
+
+
+def _mix_access():
+    # Ticketing staff, or anyone who can see the Patrons dashboard
+    if require_permission('ticketing', 'view') is None or require_permission('patrons', 'view') is None:
+        return None
+    return require_permission('patrons', 'view')
+
+
+@app.route('/api/productions/<production_id>/audience-mix')
+def api_audience_mix(production_id):
+    err = _mix_access()
+    if err: return err
+    conn = get_db()
+    try:
+        data = audience_mix_for_production(conn, production_id)
+    finally:
+        conn.close()
+    if not data:
+        return jsonify({'error': 'Production not found'}), 404
+    data.pop('_connected_ids', None); data.pop('_order_people', None)
+    return jsonify(data)
+
+
+@app.route('/api/reports/audience-mix')
+def api_audience_mix_all():
+    """Every production with ticket sales in the last 18 months, side by side."""
+    err = _mix_access()
+    if err: return err
+    conn = get_db()
+    try:
+        prods = fetchall(conn, '''SELECT pr.id, pr.name, MIN(pf.performance_date) AS first_date, MAX(pf.performance_date) AS last_date
+            FROM productions pr JOIN performances pf ON pf.production_id=pr.id
+            WHERE EXISTS (SELECT 1 FROM ticket_orders o WHERE o.performance_id=pf.id AND o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test')
+              AND pf.performance_date >= TO_CHAR(NOW() - INTERVAL '18 months', 'YYYY-MM-DD')
+            GROUP BY pr.id, pr.name ORDER BY MAX(pf.performance_date) DESC''') or []
+        out = []
+        for p in prods:
+            m = audience_mix_for_production(conn, p['id'])
+            if m:
+                out.append({'id': p['id'], 'name': p['name'], 'first_date': p['first_date'], 'last_date': p['last_date'],
+                            'totals': m['totals'], 'people_count': m['people_count']})
+    finally:
+        conn.close()
+    return jsonify({'productions': out})
+
+
 _STAFF_PAGE_CSS = """*{box-sizing:border-box}body{font-family:-apple-system,sans-serif;background:#f5f4f0;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
 .card{background:#fff;border-radius:16px;padding:32px;max-width:420px;width:100%;box-shadow:0 4px 20px rgba(0,0,0,0.1);text-align:center}
 .logo{height:48px;margin-bottom:16px}h1{font-size:20px;font-weight:700;color:#0d3d4d;margin:0 0 6px}
@@ -46617,6 +46852,19 @@ def list_patrons():
     conn = get_db()
     try:
         pats, orders = build_patrons(conn)
+        # Who came because of someone in the cast or crew (see audience_mix_for_production)
+        cast_ids, cast_people, _mixes = cast_connections_for_orders(conn, orders)
+        cast_by_patron = {}
+        for o in orders:
+            if o['id'] in cast_ids:
+                c = cast_by_patron.setdefault(o['ek'], {'orders': 0, 'names': []})
+                c['orders'] += 1
+                for nm in cast_people.get(o['id'], []):
+                    if nm and nm not in c['names']: c['names'].append(nm)
+        for p in pats:
+            c = cast_by_patron.get(p['key'])
+            p['cast_orders'] = c['orders'] if c else 0
+            p['came_for'] = (c['names'] if c else [])[:6]
         # trends
         import datetime as _dt
         by_show = {}
@@ -46624,7 +46872,10 @@ def list_patrons():
         for o in orders:
             k = o['ek']
             s = by_show.setdefault(o['production_id'], {'production_id': o['production_id'], 'name': o['production_name'], 'patrons': set(),
-                                                         'new': set(), 'first_date': str(o['performance_date'])[:10], 'tickets': 0, 'cents': 0})
+                                                         'new': set(), 'first_date': str(o['performance_date'])[:10], 'tickets': 0, 'cents': 0,
+                                                         'cast_tickets': 0})
+            if o['id'] in cast_ids:
+                s['cast_tickets'] += int(o['tickets'] or 0)
             s['patrons'].add(k)
             s['tickets'] += int(o['tickets'] or 0)
             s['cents'] += int(o['total_cents'] or 0)
@@ -46634,7 +46885,8 @@ def list_patrons():
                 s['new'].add(k)
         shows = sorted(by_show.values(), key=lambda s: s['first_date'])
         show_trend = [{'production_id': s['production_id'], 'name': s['name'], 'date': s['first_date'], 'patrons': len(s['patrons']),
-                       'new': len(s['new']), 'returning': len(s['patrons']) - len(s['new']), 'tickets': s['tickets'], 'cents': s['cents']} for s in shows]
+                       'new': len(s['new']), 'returning': len(s['patrons']) - len(s['new']), 'tickets': s['tickets'], 'cents': s['cents'],
+                       'cast_tickets': s['cast_tickets'], 'general_tickets': s['tickets'] - s['cast_tickets']} for s in shows]
         weekday = {}
         for o in orders:
             try:
@@ -46649,7 +46901,9 @@ def list_patrons():
                                     'orders': len(orders), 'tickets': sum(p['tickets'] for p in pats),
                                     'revenue_cents': sum(p['spent_cents'] for p in pats),
                                     'avg_party': round(sum(p['tickets'] for p in pats) / len(orders), 1) if orders else 0,
-                                    'donors': sum(1 for p in pats if p['is_donor']), 'volunteers': sum(1 for p in pats if p['is_volunteer'])},
+                                    'donors': sum(1 for p in pats if p['is_donor']), 'volunteers': sum(1 for p in pats if p['is_volunteer']),
+                                    'cast_patrons': sum(1 for p in pats if p.get('cast_orders')),
+                                    'cast_share': round(sum(s['cast_tickets'] for s in shows) * 100 / max(1, sum(s['tickets'] for s in shows)))},
                         'show_trend': show_trend, 'weekday_tickets': weekday,
                         'productions': [{'id': s['production_id'], 'name': s['name']} for s in shows]})
     finally:
@@ -46668,6 +46922,18 @@ def patron_detail():
         if not p:
             return jsonify({'error': 'Patron not found'}), 404
         mine = [o for o in orders if o['ek'] == key]
+        try:
+            cast_ids, cast_people, _m = cast_connections_for_orders(conn, mine)
+        except Exception:
+            conn.rollback(); cast_ids, cast_people = set(), {}
+        names = []
+        for o in mine:
+            o['cast_connected'] = o['id'] in cast_ids
+            o['came_for'] = cast_people.get(o['id'], [])
+            for nm in o['came_for']:
+                if nm and nm not in names: names.append(nm)
+        p['cast_orders'] = sum(1 for o in mine if o['cast_connected'])
+        p['came_for'] = names
         for o in mine:
             o['seats'] = [t['seat_label'] for t in (fetchall(conn, 'SELECT seat_label FROM tickets WHERE ticket_order_id=%s ORDER BY seat_label', (o['id'],)) or [])]
             o['bought_at'] = str(o['bought_at'])[:16]

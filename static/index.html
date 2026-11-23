@@ -12696,7 +12696,7 @@ function renderOncallClosures(){
   var fmt = function(d){ return new Date(d+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) }
   el.innerHTML = '<div class="card" style="padding:14px 16px">'
     + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px"><strong style="flex:1">Closed days (holidays)</strong><button class="btn btn-secondary btn-sm" onclick="openOncallClosureModal()">+ Add closed days</button></div>'
-    + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">On closed days, callers hear your message and can leave a voicemail, and people who text get your closed reply. Both still post to Slack. They end on their own. Open Sunday–Saturday weeks are created automatically for the next 180 days, so board members can just sign up.</div>'
+    + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">On closed days, callers hear your message and can leave a voicemail, and people who text get your closed reply. Both still post to Slack. The morning you reopen, whatever nobody answered goes to whoever was signed up for on-call that day. They end on their own. Open Sunday–Saturday weeks are created automatically for the next 180 days, so board members can just sign up.</div>'
     + (_oncallClosures.length ? _oncallClosures.map(function(c){
         return '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border);font-size:13px"><div style="flex:1"><strong>'+(c.label?escHtml(c.label)+' · ':'')+escHtml(fmt(c.start_date))+(c.end_date!==c.start_date?' – '+escHtml(fmt(c.end_date)):'')+'</strong>'
           + '<div style="color:var(--text-muted);font-style:italic">Calls: "'+escHtml(c.greeting)+'"</div>'
@@ -12710,7 +12710,7 @@ function openOncallClosureModal(){
     '<div class="form-row"><div class="form-group"><label>First day closed</label><input type="date" id="ocl-start" onchange="ocClosureDefault()"/></div><div class="form-group"><label>Last day closed</label><input type="date" id="ocl-end" onchange="ocClosureDefault()"/></div></div>'
     + '<div class="form-group"><label>Name (optional)</label><input id="ocl-label" placeholder="e.g. Winter break" oninput="ocClosureDefault()"/></div>'
     + '<div class="form-group"><label>What callers hear</label><textarea id="ocl-greeting" rows="4"></textarea><div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Read aloud, then the caller can leave a voicemail.</div></div>'
-    + '<div class="form-group"><label>What people who text get back</label><textarea id="ocl-sms" rows="3" maxlength="600"></textarea><div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Sent once to each person who texts during these days. Texts aren\'t forwarded to whoever is on call, but they still post to Slack so anyone can answer.</div></div>'
+    + '<div class="form-group"><label>What people who text get back</label><textarea id="ocl-sms" rows="3" maxlength="600"></textarea><div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Sent once to each person who texts during these days. Texts aren\'t forwarded during the closure, but they post to Slack so anyone can answer. The morning you reopen, anything nobody answered (texts, voicemails, missed calls) goes to whoever was signed up for on-call on the day it came in.</div></div>'
     + '<button class="btn btn-primary" style="width:100%" onclick="saveOncallClosure()">Save</button>', 520)
   ocClosureDefault(true)
 }

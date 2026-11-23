@@ -2094,6 +2094,7 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
     <button class="settings-nav-btn" onclick="switchSettingsPanel('kiosk',this)">Paid Instructors</button>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('checklists',this)">Checklists</button>
     <button class="settings-nav-btn" onclick="switchSettingsPanel('event-types',this)">Event types</button>
+    <button class="settings-nav-btn" onclick="switchSettingsPanel('studio-closed',this)">Studio closed days</button>
    </div>
 
    <div style="margin-bottom:16px">
@@ -2387,6 +2388,24 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
     <div class="settings-section" style="font-size:13px;color:var(--text-muted)">Instructors teaching on their own do a short opening checklist once a day and a closing checklist after their last lesson. <a href="#" onclick="switchSettingsPanel('checklists', Array.from(document.querySelectorAll('.settings-nav-btn')).find(function(b){ return /Checklists/.test(b.textContent) }));return false">Edit those lists in Checklists →</a></div>
+   </div>
+
+   <div id="settings-panel-studio-closed" class="settings-panel" style="display:none;">
+    <div style="font-size:18px;font-weight:600;color:var(--text-primary);margin-bottom:4px">Studio closed days</div>
+    <div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;line-height:1.6">Days the studio is closed. Nothing can be scheduled at the studio on these days: events (off-site events are fine; admins can override after confirming), class and lesson time slots, and rental dates (those are kept as cancelled, with the reason). The phone line's closed days are set separately, under On-Call.</div>
+    <div class="settings-section">
+     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <div><label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block">From</label><input type="date" id="scd-start" onchange="var e=document.getElementById('scd-end'); if(!e.value||e.value<this.value) e.value=this.value"/></div>
+      <div><label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block">Through</label><input type="date" id="scd-end"/></div>
+      <div style="flex:1;min-width:180px"><label style="font-size:12px;font-weight:600;color:var(--text-muted);display:block">Reason</label><input type="text" id="scd-reason" placeholder="e.g. Christmas, floor refinishing" style="width:100%"/></div>
+      <button class="btn btn-primary btn-sm" onclick="addStudioClosure()">Close the studio</button>
+     </div>
+     <div id="scd-conflicts"></div>
+    </div>
+    <div class="settings-section"><div style="font-weight:600;font-size:14px;margin-bottom:4px">Waiting for approval</div>
+     <div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">People who aren't admins can ask to schedule something on a closed day. Approving puts it on the calendar and emails them; so does declining.</div>
+     <div id="scd-requests" style="font-size:13px"></div></div>
+    <div class="settings-section"><div style="font-weight:600;font-size:14px;margin-bottom:8px">Upcoming closed days</div><div id="scd-list" style="font-size:13px"></div></div>
    </div>
 
    <div id="settings-panel-checklists" class="settings-panel" style="display:none;">
@@ -3466,9 +3485,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  </div>
  </div>
  <div class="form-row">
- <div class="form-group"><label>Default ELIC</label>
- <select id="program-default-elic"><option value="">— Assign default ELIC —</option></select>
- <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Pre-fills on events created under this program</div>
+ <div class="form-group"><label>ELICs</label>
+ <div id="program-elics" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+ <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:500;text-transform:none;letter-spacing:0;font-size:12.5px;color:var(--text-primary)"><input type="checkbox" id="program-elics-apply" style="width:auto"/> Also add them to this program's upcoming events</label>
+ <input type="hidden" id="program-default-elic"/>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Everyone ticked can open and close this program's events at the kiosk. They're added to new events automatically.</div>
  </div>
  </div>
  <div id="program-event-fields" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 14px 4px;margin-bottom:14px">
@@ -4420,9 +4441,11 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  <div class="form-group"><label>End Date</label><input type="date" id="prod-end"/></div>
  </div>
  <div class="form-row">
- <div class="form-group"><label>Default ELIC</label>
- <select id="prod-default-elic"><option value="">— Assign default ELIC —</option></select>
- <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Pre-fills on events created under this production</div>
+ <div class="form-group"><label>ELICs</label>
+ <div id="prod-elics" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+ <label style="display:flex;align-items:center;gap:8px;margin-top:8px;font-weight:500;text-transform:none;letter-spacing:0;font-size:12.5px;color:var(--text-primary)"><input type="checkbox" id="prod-elics-apply" style="width:auto"/> Also add them to this show's upcoming events</label>
+ <input type="hidden" id="prod-default-elic"/>
+ <div style="font-size:11px;color:var(--text-muted);margin-top:4px">Everyone ticked can open and close this show's events at the kiosk. They're added to new events automatically.</div>
  </div>
  </div>
  <div class="form-group"><label>Description</label><textarea id="prod-desc" placeholder="Brief description…"></textarea></div>
@@ -10799,6 +10822,7 @@ async function saveBoardMeeting(){
  var id=document.getElementById('bmeet-id').value
  var data={meeting_date:date,meeting_time:document.getElementById('bmeet-time').value,location:document.getElementById('bmeet-location').value.trim(),notes:document.getElementById('bmeet-notes').value.trim(),sync_to_calendar:document.getElementById('bmeet-sync')?.checked!==false}
  var res=id?await api('/api/board/meetings/'+id,'PUT',data):await api('/api/board/meetings','POST',data)
+ if(res&&res.studio_closed&&res.can_override&&confirm(res.error+'\n\nPut it on the calendar anyway?')){ data.override_closure=true; res=await api('/api/board/meetings','POST',data) }
  if(res&&res.error){toast(res.error,'error');return}
  closeModal('modal-board-meeting'); toast('Meeting saved!','success')
  await loadBoardPage(); switchBoardTab('meetings')
@@ -13024,6 +13048,60 @@ function switchSettingsPanel(id, btn){
  if(id==='tvdisplays') loadTvSpotlights()
  if(id==='lobby'){ loadLobbyTheme(); loadLobbyImages() }
  if(id==='nav-icons') loadNavIconSettings()
+ if(id==='studio-closed'){ loadStudioClosures(); loadClosureRequests() }
+}
+async function loadStudioClosures(){
+ var rows = await api('/api/studio-closures'); window._studioClosures = Array.isArray(rows) ? rows : []
+ var el = document.getElementById('scd-list'); if(!el) return
+ var today = todayLocalISO(), up = window._studioClosures.filter(function(c){ return c.end_date >= today })
+ el.innerHTML = up.length ? up.map(function(c){
+   return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--border)"><div style="flex:1"><b>'+formatDate(c.start_date)+(c.end_date!==c.start_date?' – '+formatDate(c.end_date):'')+'</b>'
+     +(c.reason?' <span style="color:var(--text-muted)">· '+escHtml(c.reason)+'</span>':'')+'</div>'
+     +'<button class="btn btn-secondary btn-sm" style="color:#991b1b" onclick="removeStudioClosure(\''+c.id+'\')">Reopen</button></div>' }).join('')
+   : '<div style="color:var(--text-muted)">No closed days coming up.</div>'
+}
+async function loadClosureRequests(){
+ var el = document.getElementById('scd-requests'); if(!el) return
+ var rows = await api('/api/studio-closures/requests')
+ if(!Array.isArray(rows) || !rows.length){ el.innerHTML = '<div style="color:var(--text-muted)">Nothing waiting.</div>'; return }
+ el.innerHTML = rows.map(function(r){
+   var done = r.status !== 'pending'
+   return '<div style="display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-top:1px solid var(--border)'+(done?';opacity:.6':'')+'"><div style="flex:1"><b>'+escHtml(r.summary)+'</b>'
+     + '<div style="font-size:12px;color:var(--text-muted)">'+escHtml(r.requested_by_name||'')+' · '+escHtml(r.created_at||'')+(r.reason?' · “'+escHtml(r.reason)+'”':'')+'</div>'
+     + (done?'<div style="font-size:12px;font-weight:700;color:'+(r.status==='approved'?'#166534':'#991b1b')+'">'+(r.status==='approved'?'Approved':'Declined')+(r.decided_by?' by '+escHtml(r.decided_by):'')+'</div>':'')+'</div>'
+     + (done?'':'<button class="btn btn-primary btn-sm" onclick="decideClosureRequest(\''+r.id+'\',true)">Approve</button><button class="btn btn-secondary btn-sm" style="color:#991b1b" onclick="decideClosureRequest(\''+r.id+'\',false)">Decline</button>')+'</div>' }).join('')
+}
+async function decideClosureRequest(id, approve){
+ var note = prompt(approve ? 'Optional note to them:' : 'Let them know why (optional):', '')
+ if(note === null) return
+ var r = await api('/api/studio-closures/requests/'+id+'/decide','POST',{approve: approve, note: note})
+ if(r.error){ toast(r.error,'error'); return }
+ toast(approve ? 'Approved and added to the calendar' : 'Declined','success')
+ if(approve && typeof loadEvents==='function'){ try{ loadEvents() }catch(e){} }
+ loadClosureRequests()
+}
+async function addStudioClosure(){
+ var s = document.getElementById('scd-start').value, e = document.getElementById('scd-end').value || s, reason = document.getElementById('scd-reason').value.trim()
+ if(!s){ toast('Pick a date','error'); return }
+ var r = await api('/api/studio-closures','POST',{start_date:s, end_date:e, reason:reason})
+ if(r.error){ toast(r.error,'error'); return }
+ toast('Studio closed '+formatDate(s)+(e!==s?' – '+formatDate(e):''),'success')
+ document.getElementById('scd-reason').value=''
+ var c = r.conflicts||{}, n = (c.events||[]).length+(c.rentals||[]).length+(c.sessions||[]).length
+ document.getElementById('scd-conflicts').innerHTML = n ? '<div style="margin-top:14px;background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:10px 12px;font-size:13px;color:#854d0e">'
+   + '<b>Already scheduled those days ('+n+').</b> Closing the studio doesn\'t cancel these, so move or cancel them yourself:<ul style="margin:6px 0 0 18px;padding:0">'
+   + (c.events||[]).map(function(x){ return '<li>Event: '+escHtml(x.name)+' · '+formatDate(x.event_date)+'</li>' }).join('')
+   + (c.rentals||[]).map(function(x){ return '<li>Rental: '+escHtml(x.title)+' · '+formatDate(x.occurrence_date)+'</li>' }).join('')
+   + (c.sessions||[]).map(function(x){ return '<li>'+escHtml(x.program)+': '+escHtml(x.name||'')+'</li>' }).join('') + '</ul></div>' : ''
+ loadStudioClosures()
+}
+async function removeStudioClosure(id){
+ if(!confirm('Reopen the studio for these days?')) return
+ var r = await api('/api/studio-closures/'+id,'DELETE'); if(r.error){ toast(r.error,'error'); return }
+ toast('Studio reopened','success'); loadStudioClosures()
+}
+function studioClosureFor(dateStr){
+ return (window._studioClosures||[]).find(function(c){ return c.start_date <= dateStr && dateStr <= c.end_date })
 }
 
 function clearSendersDirty(){
@@ -19667,7 +19745,8 @@ function openProductionModal(){
  document.getElementById('prod-stage-teen').checked=false
  updateStageUI()
  const pdesel2=document.getElementById('prod-default-elic')
- if(pdesel2) pdesel2.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
+ if(pdesel2) pdesel2.value=''
+ renderOwnerElics('prod', [])
  const importWrap=document.getElementById('prod-import-lic-wrap')
  if(importWrap) importWrap.style.display=''
  loadApprovedUnlinkedLicensing()
@@ -19737,7 +19816,8 @@ function openEditProductionModal(pid){
  document.getElementById('prod-stage-teen').checked=stageVal==='teen_show'
  updateStageUI()
  const epdesel2=document.getElementById('prod-default-elic')
- if(epdesel2){epdesel2.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');epdesel2.value=p.default_elic_id||''}
+ if(epdesel2) epdesel2.value=p.default_elic_id||''
+ loadOwnerElics('prod','production',p.id,p.default_elic_id)
  openModal('modal-production')
 }
 
@@ -19771,7 +19851,7 @@ async function saveProduction(){
  description:document.getElementById('prod-desc').value.trim(),
  image_url:document.getElementById('prod-image-url')?.value.trim()||null,
  ticket_logo_url:document.getElementById('prod-logo-url')?.value.trim()||null,
- default_elic_id:document.getElementById('prod-default-elic')?.value||null
+ default_elic_id:ownerElicsChecked('prod')[0]||null
  }
  if(!editId){
   const licId = document.getElementById('prod-from-licensing-id')?.value
@@ -19781,6 +19861,7 @@ async function saveProduction(){
  if(editId) res=await api(`/api/productions/${editId}`,'PUT',data)
  else res=await api('/api/productions','POST',data)
  if(res.error){toast(res.error,'error');return}
+ await saveOwnerElics('prod','production',res.id||editId)
  if(editId){
  allProductions=allProductions.map(p=>p.id===editId?{...res,members:p.members}:p)
  } else {
@@ -22488,6 +22569,7 @@ async function openCalendarShare(rotate){
     + '<div style="font-size:12px;color:var(--text-muted);margin-top:6px"><strong>Add to home screen:</strong> open the link on your phone, then Share → Add to Home Screen (iPhone) or ⋮ → Add to Home screen (Android).</div>', 560)
 }
 function renderCalendar(events){
+ if(!window._studioClosures){ window._studioClosures=[]; api('/api/studio-closures').then(function(r){ if(Array.isArray(r)){ window._studioClosures=r; renderCalendar(events) } }).catch(function(){}) }
  const label=new Date(calYear,calMonth,1).toLocaleDateString('en-US',{month:'long',year:'numeric'})
  document.getElementById('cal-month-label').textContent=label
  const firstDay=new Date(calYear,calMonth,1).getDay()
@@ -22514,6 +22596,7 @@ let cells=''
  const isAdminGrid=canEdit('events')
  cells+=`<div style="min-height:100px;background:${isToday?'var(--teal-light)':'var(--surface)'};border:${isToday?'2px solid var(--teal-400)':'1px solid var(--border)'};border-radius:8px;padding:6px;cursor:${isAdminGrid?'pointer':'default'};overflow:hidden;min-width:0" ${isAdminGrid?`onclick="calDayClick('${dateStr}',event)"`:''} title="${isAdminGrid?'Click to add event':''}">
  <div style="font-size:12px;font-weight:${isToday?'800':'500'};color:${isToday?'var(--teal-600)':'var(--text-muted)'};margin-bottom:4px">${d}</div>
+ ${(function(){ var sc=studioClosureFor(dateStr); return sc ? `<div title="Studio closed${sc.reason?': '+escHtml(sc.reason):''}" style="font-size:10px;font-weight:800;color:#6b7280;background:repeating-linear-gradient(135deg,#f3f4f6,#f3f4f6 6px,#e5e7eb 6px,#e5e7eb 12px);border-radius:5px;padding:2px 5px;margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Studio closed${sc.reason?' · '+escHtml(sc.reason):''}</div>` : '' })()}
  ${dayEvents.slice(0,3).map(e=>{
  const isCancelled = e.status==='cancelled'
  // Calendar chips specifically use the bold/saturated half of the color
@@ -23673,6 +23756,19 @@ async function saveEditEvent(){
  let res
  if(eid) res=await api(`/api/events/${eid}`,'PUT',data)
  else res=await api('/api/events','POST',data)
+ if(res.studio_closed && res.can_override && confirm(res.error+'\n\nSchedule it anyway? (Only do this if it really is happening at the studio that day.)')){
+   data.override_closure = true
+   if(eid) res=await api(`/api/events/${eid}`,'PUT',data)
+   else res=await api('/api/events','POST',data)
+ } else if(res.studio_closed && !res.can_override){
+   if(confirm(res.error.replace(' Pick another date, or ask an admin.','')+'\n\nSend it to an admin for approval? It goes on the calendar only if they approve.')){
+     var why = prompt('Why does it need to happen that day? (helps the admin decide)','') || ''
+     var rq = await api('/api/studio-closures/requests','POST',{payload:Object.assign({},data,{elic_id:document.getElementById('edit-event-elic')?.value||''}), event_id: eid||null, reason: why})
+     if(rq.error){ toast(rq.error,'error'); return }
+     closeModal('modal-edit-event'); toast('Sent for approval. You\'ll get an email when an admin decides.','success')
+   }
+   return
+ }
  if(res.error){toast(res.error,'error');return}
  if(eid) allEvents=allEvents.map(e=>e.id===eid?res:e)
  else allEvents.unshift(res)
@@ -23693,11 +23789,12 @@ async function saveEditEvent(){
  dates=computeRepeatDates(data.event_date, repeatType, count)
  }
  if(dates.length){
- let created=0
+ let created=0, skippedClosed=0
  for(const d of dates){
  const dayDiff=data.end_date&&data.event_date?(new Date(data.end_date)-new Date(data.event_date))/86400000:0
  const endD=dayDiff>0?new Date(new Date(d+'T00:00:00').getTime()+dayDiff*86400000).toISOString().split('T')[0]:d
- const r=await api('/api/events','POST',{...data,event_date:d,end_date:endD})
+ const r=await api('/api/events','POST',{...data,event_date:d,end_date:endD,override_closure:false})
+ if(r.studio_closed) skippedClosed++
  if(!r.error){
  allEvents.unshift(r)
  if(selectedElic) await api(`/api/events/${r.id}/elics`,'POST',{elic_id:selectedElic})
@@ -23708,7 +23805,7 @@ async function saveEditEvent(){
  populateHoursFilters()
  renderEventsSettings()
  renderEventsPage()
- toast(`Created event + ${created} repeat${created!==1?'s':''}!`,'success')
+ toast(`Created event + ${created} repeat${created!==1?'s':''}!`+(skippedClosed?` Skipped ${skippedClosed} day${skippedClosed!==1?'s':''} the studio is closed.`:''),'success')
  return
  }
  }
@@ -26488,7 +26585,8 @@ function openNewProgramModal(){
  document.getElementById('program-pay-rate-type').value='hourly'
  document.getElementById('program-pay-rate-amount').value=''
  const esel=document.getElementById('program-default-elic')
- if(esel) esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('')
+ if(esel) esel.value=''
+ renderOwnerElics('program', [])
  // Co-instructors need an existing program_id to attach to — hide until
  // the program's been created once, then it's available from Edit.
  const coWrap=document.getElementById('program-co-instructors-wrap')
@@ -26516,7 +26614,8 @@ function openEditProgramModal(pid){
  document.getElementById('program-pay-rate-type').value=p.pay_rate_type||'hourly'
  document.getElementById('program-pay-rate-amount').value=p.pay_rate_amount||''
  const esel=document.getElementById('program-default-elic')
- if(esel){esel.innerHTML='<option value="">— Assign default ELIC —</option>'+allElics.filter(e=>e.active).map(e=>`<option value="${e.id}">${e.volunteer_name}</option>`).join('');esel.value=p.default_elic_id||''}
+ if(esel) esel.value=p.default_elic_id||''
+ loadOwnerElics('program','program',p.id,p.default_elic_id)
  const coWrap=document.getElementById('program-co-instructors-wrap')
  if(coWrap){ coWrap.style.display=''; loadProgramCoInstructors(pid) }
  openModal('modal-program')
@@ -26869,7 +26968,7 @@ async function saveYouthProgram(){
  is_paid_instruction:document.getElementById('program-is-paid-instruction').checked,
  pay_rate_type:document.getElementById('program-pay-rate-type')?.value||'hourly',
  pay_rate_amount:parseFloat(document.getElementById('program-pay-rate-amount')?.value)||0,
- default_elic_id:document.getElementById('program-default-elic')?.value||null
+ default_elic_id:ownerElicsChecked('program')[0]||null
  }
  if(data.program_type==='event'){
    var ev = function(id){ return (document.getElementById(id)||{}).value||'' }
@@ -26883,6 +26982,7 @@ async function saveYouthProgram(){
  if(eid) res=await api(`/api/youth-programs/${eid}`,'PUT',data)
  else res=await api('/api/youth-programs','POST',data)
  if(res.error){toast(res.error,'error');return}
+ await saveOwnerElics('program','program',res.id||eid)
  if(eid) allPrograms=allPrograms.map(p=>p.id===eid?res:p)
  else allPrograms.push(res)
  closeModal('modal-program')
@@ -27340,7 +27440,9 @@ async function adSave(ds){
     days_of_week: [['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][_lmD(ds).getDay()]],
     open_time: c.from, close_time: c.to, slot_duration_minutes: c.len, capacity: 1, skip_existing: true})
   if(r.error){ toast(r.error,'error'); if(btn){ btn.disabled = false; btn.textContent = 'Add these times' } return }
-  closeAdHocModal('lm-addday'); toast('Added '+(r.created||0)+' open time'+(r.created===1?'':'s'),'success')
+  closeAdHocModal('lm-addday')
+  if(!(r.created||0) && (r.skipped_closed||[]).length){ toast('The studio is closed that day, so no times were added','error') }
+  else toast('Added '+(r.created||0)+' open time'+(r.created===1?'':'s'),'success')
   await lmLoad(); lmRender()
 }
 function lmWeekPhone(B){
@@ -27598,7 +27700,8 @@ async function apSave(){
   var r = await api('/api/programs/'+pid+'/sessions/generate','POST',{start_date: c.start, end_date: c.end, days_of_week: c.days, open_time: c.from, close_time: c.to,
     slot_duration_minutes: c.len, capacity: 1, skip_existing: true})
   if(r.error){ toast(r.error,'error'); return }
-  closeAdHocModal('avail'); toast('Added '+(r.created||0)+' open time'+(r.created===1?'':'s'),'success')
+  var sk = (r.skipped_closed||[]).length
+  closeAdHocModal('avail'); toast('Added '+(r.created||0)+' open time'+(r.created===1?'':'s')+(sk?'. Skipped '+sk+' day'+(sk===1?'':'s')+' the studio is closed.':''),'success')
   if(_LM.data){ await lmLoad(); lmRender() }
 }
 
@@ -33335,6 +33438,31 @@ async function removeFamilyMember(fid, yid){
  await loadFamilies()
  openFamilyModal(fid)
  toast('Member removed')
+}
+
+// ── ELIC lists on productions and programs ──
+function renderOwnerElics(prefix, selected){
+ var box = document.getElementById(prefix+'-elics'); if(!box) return
+ var sel = (selected||[]).filter(Boolean)
+ var act = (allElics||[]).filter(function(e){ return e.active })
+ box.innerHTML = act.length ? act.map(function(e){
+   var on = sel.indexOf(e.id) >= 0
+   return '<label class="checkbox-tag '+(on?'checked':'')+'" style="margin:0" onclick="event.preventDefault();var cb=this.querySelector(\'input\');cb.checked=!cb.checked;this.classList.toggle(\'checked\',cb.checked)"><input type="checkbox" value="'+e.id+'" '+(on?'checked':'')+' style="display:none">'+escHtml(e.volunteer_name||'')+(e.is_master?' (master)':'')+'</label>' }).join('')
+   : '<div style="font-size:12.5px;color:var(--text-muted)">No ELICs set up yet (Settings → ELIC management).</div>'
+ var ap = document.getElementById(prefix+'-elics-apply'); if(ap) ap.checked = false
+}
+function ownerElicsChecked(prefix){ return Array.from(document.querySelectorAll('#'+prefix+'-elics input:checked')).map(function(i){ return i.value }) }
+async function loadOwnerElics(prefix, kind, id, defaultId){
+ renderOwnerElics(prefix, [defaultId])
+ if(!id) return
+ var r = await api('/api/'+(kind==='production'?'productions':'youth-programs')+'/'+id+'/elics')
+ renderOwnerElics(prefix, [defaultId].concat((r&&r.elic_ids)||[]))
+}
+async function saveOwnerElics(prefix, kind, id){
+ var ids = ownerElicsChecked(prefix), apply = !!(document.getElementById(prefix+'-elics-apply')||{}).checked
+ var r = await api('/api/'+(kind==='production'?'productions':'youth-programs')+'/'+id+'/elics','PUT',{elic_ids: ids, apply_upcoming: apply})
+ if(r && r.error){ toast(r.error,'error'); return }
+ if(apply && r && r.events_updated) toast('Added to '+r.events_updated+' upcoming event'+(r.events_updated===1?'':'s'),'success')
 }
 
 // ── EVENT MODAL ELIC HELPER ──

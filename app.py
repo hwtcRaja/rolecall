@@ -969,6 +969,8 @@ def init_db():
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_phone TEXT",
         "ALTER TABLE volunteer_waivers ADD COLUMN IF NOT EXISTS emergency_contact_relationship TEXT",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS active BOOLEAN DEFAULT TRUE",
+        # Which dashboard widgets each person shows, and in what order
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS dashboard_layout TEXT",
         "ALTER TABLE youth_participants ADD COLUMN IF NOT EXISTS programs TEXT DEFAULT '[]'",
         "ALTER TABLE youth_production_members ADD COLUMN IF NOT EXISTS role TEXT",
         # volunteer-participant linking
@@ -3910,6 +3912,14 @@ def init_db():
             id TEXT PRIMARY KEY, start_date DATE NOT NULL, end_date DATE NOT NULL, greeting TEXT NOT NULL,
             label TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
+        # Surveys sent by email to chosen groups, and who got each one
+        """CREATE TABLE IF NOT EXISTS survey_sends (
+            id TEXT PRIMARY KEY, survey_id TEXT NOT NULL, subject TEXT, message TEXT, groups TEXT DEFAULT '[]',
+            recipients INTEGER DEFAULT 0, sent INTEGER DEFAULT 0, sent_by TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW(), finished_at TIMESTAMP)""",
+        """CREATE TABLE IF NOT EXISTS survey_invites (
+            survey_id TEXT NOT NULL, email_key TEXT NOT NULL, email TEXT, name TEXT DEFAULT '', send_id TEXT,
+            sent_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (survey_id, email_key))""",
         # What people who text the HWTC number get back on closed days
         "ALTER TABLE oncall_closures ADD COLUMN IF NOT EXISTS sms_reply TEXT DEFAULT ''",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
@@ -4015,6 +4025,14 @@ def resolve_perm_level(perms, section):
 # Otherwise any of the listed keys (with the usual parent fallback) grants
 # access, so nobody loses access on deploy.
 SECTION_ROUTE_PERMS = {
+    # the old all-in-one dashboard feed and the giving list are volunteer data
+    'dashboard': (['volunteers', 'hours', 'waivers'], ['volunteers']),
+    'get_employer_giving_stats': (['volunteers'], ['volunteers']),
+    # notifications list names volunteers, licensing, etc.: Notifications access only
+    'get_notifications': (['notifications'], ['notifications']),
+    # instructor open/close checklists
+    'instructor_day_log_detail': (['event_logs', 'kiosk'], ['event_logs', 'kiosk']),
+    'instructor_day_log_email': (['event_logs', 'kiosk'], ['event_logs', 'kiosk']),
     # donors (main page) — also hosts the Benefit Tracker
     **{fn: (['donors'], ['donors']) for fn in (
         'get_donors', 'create_donor', 'donor_summary', 'get_all_donations', 'bulk_update_donations',
@@ -14401,6 +14419,190 @@ def dashboard():
     return jsonify({'total_volunteers': total_vols, 'total_hours': float(total_hours), 'total_youth': total_youth,
                     'expiring_waivers': expiring, 'expired_waivers': expired,
                     'alerts': alerts, 'monthly_hours': monthly, 'top_volunteers': top})
+
+# ─────────────────────────────────────────────
+# Dashboard: pick-your-own widgets
+#
+# Each widget has its own data endpoint with its own permission check, so
+# the dashboard only ever loads what that person is allowed to see (the old
+# /api/dashboard sent volunteer names and hours to everyone who logged in).
+# Each user's choice and order of widgets is saved on their account.
+# ─────────────────────────────────────────────
+DASH_WIDGET_PERMS = {
+    # key: sections that grant it (any of them, at view level)
+    'quick_numbers': None,            # always available; shows only the numbers you can see
+    'today': ['events', 'kiosk', 'productions', 'programs'],
+    'oncall': ['oncall'],
+    'phone': ['oncall'],
+    'needs_action': ['notifications'],
+    'volunteer_hours': ['hours', 'volunteers'],
+    'waiver_alerts': ['waivers'],
+    'top_volunteers': ['volunteers'],
+    'pending_hours': ['hours'],
+    'programs_productions': ['programs', 'productions', 'youth'],
+    'recent_registrations': ['programs'],
+    'upcoming_shows': ['ticketing'],
+    'inbox': ['inbox'],
+    'checklists': ['event_logs'],
+    'employer_giving': ['volunteers'],
+}
+
+
+def _dash_user_perms():
+    if session.get('role') == 'admin':
+        return None   # admin: everything
+    conn = get_db()
+    try:
+        u = fetchone(conn, 'SELECT role, role_permissions FROM users WHERE id=%s', (session.get('user_id'),)) or {}
+    finally:
+        conn.close()
+    if u.get('role') == 'admin':
+        return None
+    try:
+        return json.loads(u.get('role_permissions') or '{}')
+    except Exception:
+        return {}
+
+
+def _dash_can(perms, sections):
+    if perms is None or sections is None:
+        return True
+    return any(resolve_perm_level(perms, s) in ('view', 'edit') for s in sections)
+
+
+@app.route('/api/dashboard/layout', methods=['GET', 'PUT'])
+def dashboard_layout():
+    err = require_auth()
+    if err: return err
+    perms = _dash_user_perms()
+    allowed = [k for k, secs in DASH_WIDGET_PERMS.items() if _dash_can(perms, secs)]
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            d = request.json or {}
+            order = [k for k in (d.get('order') or []) if k in DASH_WIDGET_PERMS]
+            hidden = [k for k in (d.get('hidden') or []) if k in DASH_WIDGET_PERMS]
+            layout = None if d.get('reset') else {'order': order, 'hidden': hidden}
+            execute(conn, 'UPDATE users SET dashboard_layout=%s WHERE id=%s',
+                    (json.dumps(layout) if layout else None, session['user_id']))
+            conn.commit()
+        row = fetchone(conn, 'SELECT dashboard_layout FROM users WHERE id=%s', (session['user_id'],)) or {}
+    finally:
+        conn.close()
+    try:
+        layout = json.loads(row.get('dashboard_layout') or 'null')
+    except Exception:
+        layout = None
+    return jsonify({'allowed': allowed, 'layout': layout})
+
+
+def _dash_numbers(conn, perms):
+    out = []
+    def add(key, label, sql, sections, nav, params=()):
+        if _dash_can(perms, sections):
+            try:
+                r = fetchone(conn, sql, params) or {}
+                out.append({'key': key, 'label': label, 'value': r.get('v') or 0, 'nav': nav})
+            except Exception:
+                conn.rollback()
+    add('volunteers', 'Active volunteers', "SELECT COUNT(*) AS v FROM volunteers WHERE COALESCE(status,'active')='active'", ['volunteers'], 'volunteers')
+    add('hours', 'Volunteer hours this year', "SELECT ROUND(COALESCE(SUM(hours),0)::numeric,0) AS v FROM hours WHERE COALESCE(pay_type,'volunteer')='volunteer' AND date >= TO_CHAR(NOW(),'YYYY')||'-01-01'", ['hours', 'volunteers'], 'hours')
+    add('youth', 'Participants', "SELECT COUNT(*) AS v FROM youth_participants WHERE status='active'", ['youth'], 'youth')
+    add('productions', 'Upcoming productions', "SELECT COUNT(*) AS v FROM productions WHERE status IN ('upcoming','in_progress')", ['productions'], 'productions')
+    add('pending_hours', 'Hours to approve', "SELECT COUNT(*) AS v FROM pending_hours WHERE status='pending'", ['hours'], 'hours')
+    add('inbox', 'Open inbox conversations', "SELECT COUNT(*) AS v FROM inbox_threads WHERE status='open'", ['inbox'], 'inbox')
+    add('registrations', 'Registrations this week', "SELECT COUNT(*) AS v FROM program_registrations WHERE created_at > NOW() - INTERVAL '7 days' AND status <> 'cancelled'", ['programs'], 'programs')
+    return out
+
+
+@app.route('/api/dashboard/w/<key>')
+def dashboard_widget(key):
+    err = require_auth()
+    if err: return err
+    if key not in DASH_WIDGET_PERMS:
+        return jsonify({'error': 'Unknown widget'}), 404
+    perms = _dash_user_perms()
+    if not _dash_can(perms, DASH_WIDGET_PERMS[key]):
+        return jsonify({'error': 'You don’t have access to this.'}), 403
+    conn = get_db()
+    try:
+        if key == 'quick_numbers':
+            return jsonify({'numbers': _dash_numbers(conn, perms)})
+        if key == 'volunteer_hours':
+            today = date.today(); months = []
+            for i in range(5, -1, -1):
+                m = today.month - i; y = today.year + (m - 1) // 12; m = ((m - 1) % 12) + 1
+                tot = fetchone(conn, """SELECT COALESCE(SUM(hours),0) AS s FROM hours WHERE date LIKE %s
+                    AND COALESCE(pay_type,'volunteer')='volunteer'""", (f'{y:04d}-{m:02d}%',)) or {}
+                months.append({'label': datetime(y, m, 1).strftime('%b'), 'total': round(float(tot.get('s') or 0), 1)})
+            return jsonify({'months': months})
+        if key == 'waiver_alerts':
+            rows = fetchall(conn, 'SELECT vw.volunteer_id, vw.expiry_date, v.name FROM volunteer_waivers vw JOIN volunteers v ON vw.volunteer_id=v.id') or []
+            worst, names = {}, {}
+            t = date.today()
+            for w in rows:
+                vid = w['volunteer_id']; names[vid] = w['name']
+                if not w['expiry_date']:
+                    worst.setdefault(vid, 'valid'); continue
+                try:
+                    diff = (datetime.strptime(str(w['expiry_date'])[:10], '%Y-%m-%d').date() - t).days
+                except Exception:
+                    continue
+                prev = worst.get(vid, 'none')
+                if diff < 0: worst[vid] = 'expired'
+                elif diff < 30 and prev != 'expired': worst[vid] = 'expiring'
+                elif prev == 'none': worst[vid] = 'valid'
+            alerts = [{'id': k, 'name': names[k], 'status': s} for k, s in worst.items() if s in ('expired', 'expiring')]
+            alerts.sort(key=lambda a: (a['status'] != 'expired', a['name'].lower()))
+            return jsonify({'alerts': alerts})
+        if key == 'top_volunteers':
+            rows = fetchall(conn, """SELECT v.id, v.name, ROUND(COALESCE(SUM(h.hours),0)::numeric,1) AS total_hours, COUNT(DISTINCT h.event) AS total_events
+                FROM volunteers v JOIN hours h ON v.id=h.volunteer_id
+                WHERE COALESCE(h.pay_type,'volunteer')='volunteer' AND h.date >= TO_CHAR(NOW() - INTERVAL '12 months','YYYY-MM-DD')
+                GROUP BY v.id, v.name ORDER BY 3 DESC LIMIT 5""") or []
+            return jsonify({'volunteers': rows})
+        if key == 'pending_hours':
+            rows = fetchall(conn, """SELECT p.id, p.event, p.date, p.hours, v.name FROM pending_hours p JOIN volunteers v ON v.id=p.volunteer_id
+                WHERE p.status='pending' ORDER BY p.submitted_at DESC LIMIT 6""") or []
+            n = fetchone(conn, "SELECT COUNT(*) AS n FROM pending_hours WHERE status='pending'") or {}
+            return jsonify({'items': rows, 'total': int(n.get('n') or 0)})
+        if key == 'recent_registrations':
+            rows = fetchall(conn, """SELECT pr.id, pr.program_id, pr.status, pr.created_at, yp.name AS program,
+                    TRIM(COALESCE(pr.child_first_name,'') || ' ' || COALESCE(pr.child_last_name,'')) AS child, pr.guardian_name
+                FROM program_registrations pr JOIN youth_programs yp ON yp.id=pr.program_id
+                WHERE pr.status <> 'cancelled' ORDER BY pr.created_at DESC LIMIT 8""") or []
+            return jsonify({'items': rows})
+        if key == 'upcoming_shows':
+            rows = fetchall(conn, """SELECT pf.id, pf.production_id, pf.performance_date, pf.performance_time, pr.name AS production,
+                    (SELECT COUNT(*) FROM tickets t JOIN ticket_orders o ON o.id=t.ticket_order_id
+                       WHERE t.performance_id=pf.id AND o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test') AS sold,
+                    pf.ga_capacity AS capacity, COALESCE(pf.reserved_seating, TRUE) AS reserved
+                FROM performances pf JOIN productions pr ON pr.id=pf.production_id
+                WHERE pf.performance_date >= TO_CHAR(NOW() AT TIME ZONE 'America/New_York','YYYY-MM-DD')
+                  AND pf.performance_date <= TO_CHAR((NOW() AT TIME ZONE 'America/New_York') + INTERVAL '21 days','YYYY-MM-DD')
+                  AND COALESCE(pf.status,'') NOT IN ('cancelled','canceled')
+                ORDER BY pf.performance_date, pf.performance_time LIMIT 10""") or []
+            return jsonify({'items': rows})
+        if key == 'inbox':
+            rows = fetchall(conn, """SELECT id, subject, participant_name, participant_email, unread, last_message_at, assigned_to
+                FROM inbox_threads WHERE status='open' ORDER BY last_message_at DESC NULLS LAST LIMIT 6""") or []
+            n = fetchone(conn, "SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE unread) AS u FROM inbox_threads WHERE status='open'") or {}
+            return jsonify({'items': rows, 'open': int(n.get('n') or 0), 'unread': int(n.get('u') or 0)})
+        if key == 'checklists':
+            days = fetchall(conn, """SELECT l.id, l.day, l.opened_at, l.closed_at, l.open_responses, l.close_responses, v.name
+                FROM instructor_day_logs l JOIN volunteers v ON v.id=l.volunteer_id
+                WHERE l.day >= (NOW() AT TIME ZONE 'America/New_York')::date - 7 ORDER BY l.day DESC""") or []
+            out = []
+            for r in days:
+                flags = _idl_flag_count(r)
+                if flags or (r.get('opened_at') and not r.get('closed_at')):
+                    out.append({'id': r['id'], 'day': str(r['day'])[:10], 'name': r['name'], 'flags': flags,
+                                'closed': bool(r.get('closed_at'))})
+            return jsonify({'items': out})
+        return jsonify({'ok': True})   # widgets drawn from data the page already has
+    finally:
+        conn.close()
+
 
 # ─────────────────────────────────────────────
 #  USERS
@@ -29291,6 +29493,266 @@ def save_survey_questions(sid):
              bool(q.get('allow_other',False)), i))
     conn.commit(); conn.close()
     return jsonify({'ok': True})
+
+# ─────────────────────────────────────────────
+# Send a survey to a group
+#
+# Staff pick one or more groups (event sign-ups, patrons, people who
+# volunteered, program families, cast & crew, all active volunteers, or
+# specific people), see the count, and send. One email per address no
+# matter how many groups it's in. Unsubscribed addresses and patrons marked
+# "don't email" are skipped, and by default so is anyone already sent this
+# survey. Sending runs in the background.
+# ─────────────────────────────────────────────
+def _sv_add(out, email, name, why):
+    e = (email or '').strip()
+    if '@' not in e:
+        return
+    k = ticket_email_key(e)
+    if not k:
+        return
+    if k not in out:
+        out[k] = {'email': e, 'name': (name or '').strip(), 'groups': []}
+    elif not out[k]['name'] and name:
+        out[k]['name'] = name.strip()
+    if why not in out[k]['groups']:
+        out[k]['groups'].append(why)
+
+
+def survey_audience(conn, groups):
+    out = {}
+    for g in groups or []:
+        t = g.get('type')
+        try:
+            if t == 'event':
+                ids = [x for x in (g.get('event_ids') or []) if x]
+                if not ids:
+                    continue
+                for r in fetchall(conn, '''SELECT COALESCE(v.email, r.volunteer_email) AS email, COALESCE(v.name, r.volunteer_name) AS name, e.name AS ev
+                        FROM event_rsvps r JOIN events e ON e.id=r.event_id LEFT JOIN volunteers v ON v.id=r.volunteer_id
+                        WHERE r.event_id = ANY(%s) AND r.status IN ('interested','confirmed')''', (ids,)) or []:
+                    _sv_add(out, r['email'], r['name'], 'Signed up: ' + (r['ev'] or 'event'))
+                if g.get('include_checked_in', True):
+                    for r in fetchall(conn, '''SELECT DISTINCT v.email, v.name, COALESCE(e.name, k.event_name) AS ev FROM kiosk_sessions k
+                            JOIN volunteers v ON v.id=k.volunteer_id LEFT JOIN events e ON e.id=k.event_id
+                            WHERE k.event_id = ANY(%s)''', (ids,)) or []:
+                        _sv_add(out, r['email'], r['name'], 'Checked in: ' + (r['ev'] or 'event'))
+            elif t == 'patrons':
+                ids = [x for x in (g.get('production_ids') or []) if x]
+                q = '''SELECT o.guardian_email AS email, o.guardian_name AS name, pr.name AS show,
+                        (SELECT COUNT(*) FROM tickets t WHERE t.ticket_order_id=o.id AND t.checked_in_at IS NOT NULL) AS came
+                    FROM ticket_orders o JOIN performances pf ON pf.id=o.performance_id JOIN productions pr ON pr.id=pf.production_id
+                    WHERE o.status='completed' AND COALESCE(o.sale_channel,'public') <> 'test' AND COALESCE(o.guardian_email,'') <> \'\''''
+                params = []
+                if ids:
+                    q += ' AND pr.id = ANY(%s)'; params.append(ids)
+                for r in fetchall(conn, q, tuple(params)) or []:
+                    if g.get('attended_only') and not int(r['came'] or 0):
+                        continue
+                    _sv_add(out, r['email'], r['name'], 'Bought tickets: ' + (r['show'] or 'a show'))
+            elif t == 'volunteered':
+                since = (g.get('since') or '1900-01-01')[:10]
+                until = (g.get('until') or '2999-12-31')[:10]
+                for r in fetchall(conn, '''SELECT DISTINCT v.email, v.name FROM hours h JOIN volunteers v ON v.id=h.volunteer_id
+                        WHERE h.date >= %s AND h.date <= %s''', (since, until)) or []:
+                    _sv_add(out, r['email'], r['name'], 'Volunteered')
+                for r in fetchall(conn, '''SELECT DISTINCT v.email, v.name FROM kiosk_sessions k JOIN volunteers v ON v.id=k.volunteer_id
+                        WHERE k.started_at::date >= %s::date AND k.started_at::date <= %s::date AND COALESCE(k.hours,0) > 0''', (since, until)) or []:
+                    _sv_add(out, r['email'], r['name'], 'Volunteered')
+            elif t == 'participants':
+                ids = [x for x in (g.get('program_ids') or []) if x]
+                if not ids:
+                    continue
+                for r in fetchall(conn, '''SELECT pr.guardian_email AS email, pr.guardian_name AS name, yp.name AS prog
+                        FROM program_registrations pr JOIN youth_programs yp ON yp.id=pr.program_id
+                        WHERE pr.program_id = ANY(%s) AND pr.status = ANY(%s)''',
+                        (ids, ['confirmed'] + (['waitlisted', 'pending_payment'] if g.get('include_waitlist') else []))) or []:
+                    _sv_add(out, r['email'], r['name'], 'Registered: ' + (r['prog'] or 'program'))
+            elif t == 'cast':
+                ids = [x for x in (g.get('production_ids') or []) if x]
+                if not ids:
+                    continue
+                for r in fetchall(conn, '''SELECT v.email, v.name, p.name AS show FROM production_members pm
+                        JOIN volunteers v ON v.id=pm.volunteer_id JOIN productions p ON p.id=pm.production_id
+                        WHERE pm.production_id = ANY(%s) AND COALESCE(pm.status,'') NOT IN ('removed','declined','withdrawn')''', (ids,)) or []:
+                    _sv_add(out, r['email'], r['name'], 'Cast/crew: ' + (r['show'] or 'show'))
+                # young performers: their parents/guardians
+                for r in fetchall(conn, '''SELECT g.email, g.name, p.name AS show FROM youth_production_members m
+                        JOIN youth_guardians g ON g.youth_id=m.youth_id JOIN productions p ON p.id=m.production_id
+                        WHERE m.production_id = ANY(%s)''', (ids,)) or []:
+                    _sv_add(out, r['email'], r['name'], 'Cast family: ' + (r['show'] or 'show'))
+            elif t == 'volunteers':
+                for r in fetchall(conn, "SELECT email, name FROM volunteers WHERE COALESCE(status,'active')='active'") or []:
+                    _sv_add(out, r['email'], r['name'], 'Active volunteer')
+            elif t == 'people':
+                for p in g.get('people') or []:
+                    _sv_add(out, p.get('email'), p.get('name'), 'Picked by hand')
+                import re as _re
+                for e in _re.split(r'[\s,;]+', g.get('emails_text') or ''):
+                    _sv_add(out, e, '', 'Picked by hand')
+        except Exception as e:
+            conn.rollback()
+            app.logger.warning(f'survey audience group {t} failed: {e}')
+    return out
+
+
+def _survey_filter(conn, survey_id, aud, skip_sent):
+    blocked = suppressed_email_keys(conn) | {r['email_key'] for r in (fetchall(conn, 'SELECT email_key FROM patron_profiles WHERE do_not_email=TRUE') or [])}
+    sent = set()
+    if skip_sent:
+        sent = {r['email_key'] for r in (fetchall(conn, 'SELECT email_key FROM survey_invites WHERE survey_id=%s', (survey_id,)) or [])}
+    keep = {k: v for k, v in aud.items() if k not in blocked and k not in sent}
+    return keep, len([k for k in aud if k in blocked]), len([k for k in aud if k in sent and k not in blocked])
+
+
+def _survey_email_html(survey, rcpt, subject, message, button):
+    from html import escape as E
+    first = (rcpt.get('name') or '').strip().split(' ')[0] or 'there'
+    fill = lambda t: (t or '').replace('{first_name}', first).replace('{survey}', survey['title'])
+    url = APP_BASE_URL.rstrip('/') + '/survey/' + survey['slug']
+    body = message_text_html(fill(message)) + ('<div style="text-align:center;margin:22px 0 8px"><a href="' + url + '" style="display:inline-block;background:#16728b;color:#fff;'
+        'text-decoration:none;font-weight:800;padding:14px 30px;border-radius:10px;font-size:16px">' + E(button or 'Take the survey') + '</a></div>')
+    return build_hwtc_email_html(E(fill(subject)), body + unsubscribe_footer(rcpt['email']))
+
+
+@app.route('/api/surveys/<sid>/send', methods=['POST'])
+def survey_send(sid):
+    """mode: preview (count + list) | test (to you) | send (in the background)."""
+    err = require_permission('surveys')
+    if err: return err
+    d = request.json or {}
+    mode = d.get('mode') or 'preview'
+    subject = (d.get('subject') or '').strip()[:200]
+    message = (d.get('message') or '').strip()[:8000]
+    button = (d.get('button') or '').strip()[:60] or 'Take the survey'
+    skip_sent = d.get('skip_sent', True)
+    conn = get_db()
+    try:
+        survey = fetchone(conn, 'SELECT id, slug, title, status FROM surveys WHERE id=%s', (sid,))
+        if not survey:
+            return jsonify({'error': 'Survey not found'}), 404
+        aud = survey_audience(conn, d.get('groups') or [])
+        rcpts, blocked, already = _survey_filter(conn, sid, aud, skip_sent)
+        if mode == 'preview':
+            people = sorted(rcpts.values(), key=lambda r: (r['name'] or r['email']).lower())
+            return jsonify({'count': len(rcpts), 'skipped_unsubscribed': blocked, 'skipped_already_sent': already,
+                            'survey_open': survey['status'] == 'open', 'people': people[:500]})
+        if not subject:
+            return jsonify({'error': 'Add a subject.'}), 400
+        if mode == 'test':
+            me = fetchone(conn, 'SELECT email, name FROM users WHERE id=%s', (session.get('user_id'),)) or {}
+            to = (d.get('test_email') or me.get('email') or '').strip()
+            if not to:
+                return jsonify({'error': 'No email address to send the test to.'}), 400
+            sample = next(iter(rcpts.values()), None) or {'name': me.get('name') or 'Friend', 'email': to}
+            res = send_email([to], '[Test] ' + subject.replace('{survey}', survey['title']),
+                             _survey_email_html(survey, dict(sample, email=to), subject, message, button), source='survey_invite_test')
+            return jsonify({'ok': bool(res[0] if isinstance(res, tuple) else res), 'to': to})
+        if survey['status'] != 'open':
+            return jsonify({'error': 'Open the survey first (Edit → Status: Open), or people will get a link that says it’s closed.'}), 400
+        if not rcpts:
+            return jsonify({'error': 'Nobody to send to for that selection.'}), 400
+        send_id = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO survey_sends (id, survey_id, subject, message, groups, recipients, sent_by)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''', (send_id, sid, subject, message, json.dumps(d.get('groups') or []), len(rcpts),
+            session.get('name') or 'Staff'))
+        conn.commit()
+        import threading
+        def run(rcpts=list(rcpts.items())):
+            sent = 0
+            for k, r in rcpts:
+                try:
+                    subj = subject.replace('{survey}', survey['title']).replace('{first_name}', (r.get('name') or '').split(' ')[0] or '')
+                    res = send_email([r['email']], subj, _survey_email_html(survey, r, subject, message, button), source='survey_invite')
+                    if (res[0] if isinstance(res, tuple) else res):
+                        sent += 1
+                        c3 = get_db()
+                        try:
+                            execute(c3, '''INSERT INTO survey_invites (survey_id, email_key, email, name, send_id) VALUES (%s,%s,%s,%s,%s)
+                                ON CONFLICT (survey_id, email_key) DO UPDATE SET sent_at=NOW(), send_id=EXCLUDED.send_id''',
+                                (sid, k, r['email'], r.get('name') or '', send_id)); c3.commit()
+                        finally:
+                            c3.close()
+                except Exception as e:
+                    app.logger.warning(f'Survey invite to {r.get("email")} failed: {e}')
+            c2 = get_db()
+            try:
+                execute(c2, 'UPDATE survey_sends SET sent=%s, finished_at=NOW() WHERE id=%s', (sent, send_id)); c2.commit()
+            finally:
+                c2.close()
+        threading.Thread(target=run, daemon=True).start()
+        return jsonify({'ok': True, 'sending': len(rcpts)})
+    finally:
+        conn.close()
+
+
+@app.route('/api/surveys/<sid>/sends')
+def survey_send_history(sid):
+    err = require_permission('surveys', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT id, subject, recipients, sent, sent_by, created_at, finished_at FROM survey_sends
+            WHERE survey_id=%s ORDER BY created_at DESC LIMIT 20''', (sid,)) or []
+        total = fetchone(conn, 'SELECT COUNT(*) AS n FROM survey_invites WHERE survey_id=%s', (sid,)) or {}
+    finally:
+        conn.close()
+    for r in rows:
+        r['created_at'] = str(r['created_at'])[:16]
+    return jsonify({'sends': rows, 'invited': int(total.get('n') or 0)})
+
+
+@app.route('/api/survey-audience/options')
+def survey_audience_options():
+    """Lists for the group pickers: recent and upcoming events, productions, programs."""
+    err = require_permission('surveys', 'view')
+    if err: return err
+    conn = get_db()
+    try:
+        events = fetchall(conn, '''SELECT e.id, e.name, e.event_date,
+                (SELECT COUNT(*) FROM event_rsvps r WHERE r.event_id=e.id AND r.status IN ('interested','confirmed')) AS signups
+            FROM events e WHERE COALESCE(e.event_date,'') >= TO_CHAR(NOW() - INTERVAL '6 months','YYYY-MM-DD')
+              AND COALESCE(e.event_date,'') <= TO_CHAR(NOW() + INTERVAL '3 months','YYYY-MM-DD')
+            ORDER BY e.event_date DESC LIMIT 200''') or []
+        prods = fetchall(conn, '''SELECT id, name, start_date, end_date FROM productions
+            ORDER BY COALESCE(NULLIF(end_date,''), NULLIF(start_date,''), '0000') DESC LIMIT 60''') or []
+        progs = fetchall(conn, '''SELECT yp.id, yp.name, yp.start_date, yp.end_date,
+                (SELECT COUNT(*) FROM program_registrations r WHERE r.program_id=yp.id AND r.status='confirmed') AS registered
+            FROM youth_programs yp WHERE COALESCE(yp.status,'active') NOT IN ('draft','archived')
+            ORDER BY COALESCE(NULLIF(yp.start_date,''), '0000') DESC LIMIT 80''') or []
+    finally:
+        conn.close()
+    return jsonify({'events': events, 'productions': prods, 'programs': progs})
+
+
+@app.route('/api/survey-audience/people')
+def survey_audience_people():
+    """Find specific people by name or email: volunteers, ticket buyers, parents, donors."""
+    err = require_permission('surveys', 'view')
+    if err: return err
+    q = (request.args.get('q') or '').strip()
+    if len(q) < 2:
+        return jsonify([])
+    like = f'%{q.lower()}%'
+    out, seen = [], set()
+    conn = get_db()
+    try:
+        for kind, sql in (
+            ('Volunteer', "SELECT name, email FROM volunteers WHERE (LOWER(name) LIKE %s OR LOWER(email) LIKE %s) AND COALESCE(email,'')<>'' LIMIT 8"),
+            ('Ticket buyer', "SELECT DISTINCT guardian_name AS name, guardian_email AS email FROM ticket_orders WHERE status='completed' AND (LOWER(guardian_name) LIKE %s OR LOWER(guardian_email) LIKE %s) AND COALESCE(guardian_email,'')<>'' LIMIT 8"),
+            ('Parent/guardian', "SELECT DISTINCT name, email FROM youth_guardians WHERE (LOWER(name) LIKE %s OR LOWER(email) LIKE %s) AND COALESCE(email,'')<>'' LIMIT 6"),
+            ('Donor', "SELECT display_name AS name, email FROM donors WHERE (LOWER(display_name) LIKE %s OR LOWER(email) LIKE %s) AND COALESCE(email,'')<>'' LIMIT 6")):
+            try:
+                for r in fetchall(conn, sql, (like, like)) or []:
+                    k = ticket_email_key(r['email'])
+                    if k and k not in seen:
+                        seen.add(k); out.append({'name': r['name'] or '', 'email': r['email'].strip(), 'kind': kind})
+            except Exception:
+                conn.rollback()
+    finally:
+        conn.close()
+    return jsonify(out[:15])
+
 
 @app.route('/api/surveys/<sid>/results', methods=['GET'])
 def get_survey_results(sid):

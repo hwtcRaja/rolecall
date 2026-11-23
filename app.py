@@ -3912,6 +3912,19 @@ def init_db():
             id TEXT PRIMARY KEY, start_date DATE NOT NULL, end_date DATE NOT NULL, greeting TEXT NOT NULL,
             label TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
+        # Several ELICs per production / program (added to each of their events)
+        "CREATE TABLE IF NOT EXISTS production_elics (production_id TEXT NOT NULL, elic_id TEXT NOT NULL, PRIMARY KEY (production_id, elic_id))",
+        "CREATE TABLE IF NOT EXISTS program_elics (program_id TEXT NOT NULL, elic_id TEXT NOT NULL, PRIMARY KEY (program_id, elic_id))",
+        # Requests to schedule something on a studio closed day, for an admin to approve
+        """CREATE TABLE IF NOT EXISTS closure_requests (
+            id TEXT PRIMARY KEY, kind TEXT DEFAULT 'event', event_id TEXT, payload TEXT, summary TEXT, event_date DATE,
+            reason TEXT DEFAULT '', requested_by_id TEXT, requested_by_name TEXT DEFAULT '', requested_by_email TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending', decided_by TEXT, decided_at TIMESTAMP, note TEXT DEFAULT '', created_event_id TEXT,
+            created_at TIMESTAMP DEFAULT NOW())""",
+        # Days the studio is closed: nothing can be scheduled there
+        """CREATE TABLE IF NOT EXISTS studio_closures (
+            id TEXT PRIMARY KEY, start_date DATE NOT NULL, end_date DATE NOT NULL, reason TEXT DEFAULT '',
+            created_by TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW())""",
         # Artistic Partner check-in / check-out at the kiosk
         """CREATE TABLE IF NOT EXISTS partner_visit_logs (
             id TEXT PRIMARY KEY, occurrence_id TEXT UNIQUE, request_id TEXT, day DATE, partner_name TEXT DEFAULT '',
@@ -5632,6 +5645,344 @@ def export_event_signups():
     return Response('\ufeff' + buf.getvalue(), mimetype='text/csv', headers={'Content-Disposition': f'attachment; filename="{fname}"'})
 
 
+
+# ─────────────────────────────────────────────
+# Studio closed days
+#
+# Days the studio is closed (holidays, maintenance, a building-wide event
+# elsewhere). On those days RoleCall won't let anyone schedule anything at
+# the studio: new or moved events (on-site ones; off-site events are fine),
+# class/lesson time slots, and rental dates. Admins can override for an
+# event after confirming. Separate from the phone line's closed days.
+# ─────────────────────────────────────────────
+def studio_closures_between(conn, start, end=None):
+    end = end or start
+    try:
+        return fetchall(conn, '''SELECT id, start_date, end_date, reason FROM studio_closures
+            WHERE start_date <= %s AND end_date >= %s ORDER BY start_date''', (end, start)) or []
+    except Exception:
+        conn.rollback()
+        return []
+
+
+def studio_closure_on(conn, day):
+    rows = studio_closures_between(conn, day, day)
+    return rows[0] if rows else None
+
+
+def _closure_label(c):
+    import datetime as _d
+    try:
+        s = _d.date.fromisoformat(str(c['start_date'])[:10]); e = _d.date.fromisoformat(str(c['end_date'])[:10])
+        when = s.strftime('%b %-d') if s == e else f"{s.strftime('%b %-d')}–{e.strftime('%b %-d')}"
+    except Exception:
+        when = str(c.get('start_date'))
+    return when + (f" ({c['reason']})" if (c.get('reason') or '').strip() else '')
+
+
+def _event_is_onsite(d):
+    loc = (d.get('location') or '').strip()
+    return not loc or loc.upper() == 'HWTC'
+
+
+def _event_closure_block(conn, d, prev=None):
+    """For event create/update: a (response) to return if the dates hit a
+    studio closure, or None. Off-site events, unchanged dates on an existing
+    event, and an admin's confirmed override all pass."""
+    if not _event_is_onsite(d):
+        return None
+    s = (d.get('event_date') or '')[:10]
+    if not s:
+        return None
+    e = (d.get('end_date') or s)[:10] or s
+    if prev and str(prev.get('event_date') or '')[:10] == s and str(prev.get('end_date') or prev.get('event_date') or '')[:10] == e:
+        return None
+    hits = studio_closures_between(conn, s, e)
+    if not hits:
+        return None
+    is_admin = session.get('role') == 'admin'
+    if is_admin and d.get('override_closure'):
+        return None
+    msg = 'The studio is closed ' + '; '.join(_closure_label(c) for c in hits) + '.'
+    return jsonify({'error': msg + ('' if is_admin else ' Pick another date, or ask an admin.'), 'studio_closed': True,
+                    'can_override': is_admin}), 409
+
+
+@app.route('/api/studio-closures', methods=['GET', 'POST'])
+def studio_closures_api():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            if session.get('role') != 'admin':
+                return jsonify({'error': 'Admins only'}), 403
+            d = request.json or {}
+            s = (d.get('start_date') or '')[:10]; e = (d.get('end_date') or s)[:10] or s
+            if len(s) != 10:
+                return jsonify({'error': 'Pick a date.'}), 400
+            if e < s:
+                s, e = e, s
+            cid = str(uuid.uuid4())
+            execute(conn, 'INSERT INTO studio_closures (id, start_date, end_date, reason, created_by) VALUES (%s,%s,%s,%s,%s)',
+                    (cid, s, e, (d.get('reason') or '').strip()[:120], session.get('name') or ''))
+            conn.commit()
+            # What's already on the books those days, for the admin to sort out
+            evs = fetchall(conn, '''SELECT id, name, event_date, location FROM events
+                WHERE event_date >= %s AND event_date <= %s AND COALESCE(status,'') NOT IN ('cancelled','closed')
+                  AND (COALESCE(location,'')='' OR UPPER(location)='HWTC') ORDER BY event_date''', (s, e)) or []
+            rents = fetchall(conn, f'''SELECT o.id, o.occurrence_date, r.title FROM rental_occurrences o JOIN rental_requests r ON r.id=o.request_id
+                WHERE o.occurrence_date >= %s AND o.occurrence_date <= %s AND COALESCE(o.status,'') NOT IN ('cancelled','canceled')
+                  AND COALESCE(r.status,'') NOT IN ('denied','cancelled','canceled','declined','archived') ORDER BY o.occurrence_date''', (s, e)) or []
+            sess = fetchall(conn, '''SELECT ps.id, ps.start_date, ps.name, yp.name AS program FROM program_sessions ps
+                JOIN youth_programs yp ON yp.id=ps.program_id
+                WHERE ps.start_date >= %s AND ps.start_date <= %s AND COALESCE(ps.status,'open') <> 'cancelled' ORDER BY ps.start_date''', (s, e)) or []
+            return jsonify({'ok': True, 'id': cid, 'conflicts': {'events': evs, 'rentals': rents, 'sessions': sess}})
+        rows = fetchall(conn, '''SELECT * FROM studio_closures WHERE end_date >= CURRENT_DATE - 30 ORDER BY start_date''') or []
+        for r in rows:
+            r['start_date'] = str(r['start_date'])[:10]; r['end_date'] = str(r['end_date'])[:10]
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+@app.route('/api/studio-closures/<cid>', methods=['DELETE'])
+def studio_closure_delete(cid):
+    err = require_auth()
+    if err: return err
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admins only'}), 403
+    conn = get_db()
+    try:
+        execute(conn, 'DELETE FROM studio_closures WHERE id=%s', (cid,)); conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/public/studio-closures')
+def public_studio_closures():
+    """Upcoming closed days, for public booking and request forms."""
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT start_date, end_date, reason FROM studio_closures
+            WHERE end_date >= CURRENT_DATE ORDER BY start_date LIMIT 100''') or []
+    finally:
+        conn.close()
+    return jsonify([{'start_date': str(r['start_date'])[:10], 'end_date': str(r['end_date'])[:10], 'reason': r.get('reason') or ''} for r in rows])
+
+
+
+# ─────────────────────────────────────────────
+# Several ELICs per production / program
+# Everyone on a production's (or program's) ELIC list is added to each of
+# its events, so any of them can open and close at the kiosk. The single
+# default_elic_id from before still counts as one of them.
+# ─────────────────────────────────────────────
+def _owner_elic_ids(conn, production_id=None, program_id=None):
+    ids = []
+    def add(x):
+        if x and x not in ids: ids.append(x)
+    try:
+        if production_id:
+            p = fetchone(conn, 'SELECT default_elic_id FROM productions WHERE id=%s', (production_id,)) or {}
+            add(p.get('default_elic_id'))
+            for r in fetchall(conn, 'SELECT elic_id FROM production_elics WHERE production_id=%s', (production_id,)) or []:
+                add(r['elic_id'])
+        if program_id:
+            p = fetchone(conn, 'SELECT default_elic_id, instructor_id FROM youth_programs WHERE id=%s', (program_id,)) or {}
+            for vid_or_eid in (p.get('default_elic_id'), p.get('instructor_id')):
+                if not vid_or_eid:
+                    continue
+                # default_elic_id holds an ELIC id; instructor_id a volunteer id (their ELIC, if they have one)
+                e = fetchone(conn, 'SELECT id FROM elics WHERE id=%s OR volunteer_id=%s LIMIT 1', (vid_or_eid, vid_or_eid))
+                if e: add(e['id'])
+            for r in fetchall(conn, 'SELECT elic_id FROM program_elics WHERE program_id=%s', (program_id,)) or []:
+                add(r['elic_id'])
+    except Exception as e:
+        conn.rollback()
+        app.logger.warning(f'owner ELIC lookup failed: {e}')
+    return ids
+
+
+def _assign_elics(conn, event_id, elic_ids):
+    for eid in elic_ids:
+        execute(conn, '''INSERT INTO event_elics (id, event_id, elic_id) VALUES (%s,%s,%s)
+            ON CONFLICT (event_id, elic_id) DO NOTHING''', (str(uuid.uuid4()), event_id, eid))
+
+
+def _owner_elics_endpoint(kind, owner_id):
+    table, col, perm = (('production_elics', 'production_id', 'productions') if kind == 'production'
+                        else ('program_elics', 'program_id', 'programs'))
+    err = require_permission(perm, 'view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            d = request.json or {}
+            ids = [x for x in (d.get('elic_ids') or []) if x]
+            execute(conn, f'DELETE FROM {table} WHERE {col}=%s', (owner_id,))
+            for x in ids:
+                execute(conn, f'INSERT INTO {table} ({col}, elic_id) VALUES (%s,%s) ON CONFLICT DO NOTHING', (owner_id, x))
+            added = 0
+            if d.get('apply_upcoming'):
+                evs = fetchall(conn, f'''SELECT id FROM events WHERE {'production_id' if kind == 'production' else 'program_id'}=%s
+                    AND COALESCE(event_date,'9999') >= TO_CHAR(NOW() AT TIME ZONE 'America/New_York','YYYY-MM-DD')
+                    AND COALESCE(status,'') NOT IN ('cancelled','closed')''', (owner_id,)) or []
+                all_ids = _owner_elic_ids(conn, owner_id if kind == 'production' else None, owner_id if kind == 'program' else None)
+                for ev in evs:
+                    _assign_elics(conn, ev['id'], all_ids)
+                added = len(evs)
+            conn.commit()
+            return jsonify({'ok': True, 'elic_ids': ids, 'events_updated': added})
+        rows = fetchall(conn, f'SELECT elic_id FROM {table} WHERE {col}=%s', (owner_id,)) or []
+        return jsonify({'elic_ids': [r['elic_id'] for r in rows]})
+    finally:
+        conn.close()
+
+
+@app.route('/api/productions/<pid>/elics', methods=['GET', 'PUT'])
+def production_elics_api(pid):
+    return _owner_elics_endpoint('production', pid)
+
+
+@app.route('/api/youth-programs/<pid>/elics', methods=['GET', 'PUT'])
+def program_elics_api(pid):
+    return _owner_elics_endpoint('program', pid)
+
+
+# ─────────────────────────────────────────────
+# Studio closed days: asking an admin for an exception
+# Someone who isn't an admin and needs an event on a closed day sends it
+# for approval instead. Admins get Slack + email, approve or decline in
+# Settings → Studio closed days, and the requester gets an email.
+# ─────────────────────────────────────────────
+def _closure_request_notify_admins(row):
+    try:
+        post_to_slack_calls([{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+            f":no_entry: *Approval needed (studio closed):* {row['summary']}. Requested by {row['requested_by_name'] or 'someone'}"
+            + (f": “{row['reason']}”" if row.get('reason') else '') + ". Approve or decline in RoleCall → Settings → Studio closed days."}}],
+            text='Approval needed: ' + row['summary'])
+    except Exception as e:
+        app.logger.warning(f'closure request Slack failed: {e}')
+    try:
+        from html import escape as E
+        rc = get_recipient_emails(get_email_settings())
+        if rc:
+            send_email(rc, 'Approval needed: ' + row['summary'],
+                f"<p>{E(row['requested_by_name'] or 'Someone')} wants to schedule <b>{E(row['summary'])}</b>, but the studio is closed that day.</p>"
+                + (f"<p>Their reason: {E(row['reason'])}</p>" if row.get('reason') else '')
+                + "<p>Approve or decline it in RoleCall under Settings → Studio closed days.</p>", source='closure_request')
+    except Exception as e:
+        app.logger.warning(f'closure request email failed: {e}')
+
+
+@app.route('/api/studio-closures/requests', methods=['GET', 'POST'])
+def closure_requests_api():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            d = request.json or {}
+            payload = d.get('payload') or {}
+            kind = 'event_update' if d.get('event_id') else 'event'
+            if not (payload.get('name') or '').strip() or not payload.get('event_date'):
+                return jsonify({'error': 'Missing event details'}), 400
+            me = fetchone(conn, 'SELECT name, email FROM users WHERE id=%s', (session.get('user_id'),)) or {}
+            import datetime as _d
+            try: when = _d.date.fromisoformat(payload['event_date'][:10]).strftime('%a %b %-d')
+            except Exception: when = payload['event_date']
+            row = {'id': str(uuid.uuid4()), 'summary': f"{payload.get('name')} on {when}", 'reason': (d.get('reason') or '').strip()[:500],
+                   'requested_by_name': me.get('name') or session.get('name') or ''}
+            execute(conn, '''INSERT INTO closure_requests (id, kind, event_id, payload, summary, event_date, reason,
+                    requested_by_id, requested_by_name, requested_by_email)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                (row['id'], kind, d.get('event_id'), json.dumps(payload), row['summary'], payload['event_date'][:10], row['reason'],
+                 session.get('user_id'), row['requested_by_name'], me.get('email') or ''))
+            conn.commit()
+            _closure_request_notify_admins(row)
+            return jsonify({'ok': True, 'id': row['id']})
+        if session.get('role') != 'admin':
+            rows = fetchall(conn, '''SELECT id, summary, status, note, created_at FROM closure_requests
+                WHERE requested_by_id=%s ORDER BY created_at DESC LIMIT 20''', (session.get('user_id'),)) or []
+        else:
+            rows = fetchall(conn, '''SELECT id, kind, summary, reason, status, note, requested_by_name, decided_by, created_at
+                FROM closure_requests WHERE status='pending' OR created_at > NOW() - INTERVAL '30 days'
+                ORDER BY (status='pending') DESC, created_at DESC LIMIT 50''') or []
+        for r in rows:
+            r['created_at'] = str(r.get('created_at') or '')[:16]
+        return jsonify(rows)
+    finally:
+        conn.close()
+
+
+@app.route('/api/studio-closures/requests/<rid>/decide', methods=['POST'])
+def closure_request_decide(rid):
+    err = require_auth()
+    if err: return err
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admins only'}), 403
+    d = request.json or {}
+    approve = bool(d.get('approve'))
+    conn = get_db()
+    try:
+        req = fetchone(conn, 'SELECT * FROM closure_requests WHERE id=%s', (rid,))
+        if not req:
+            return jsonify({'error': 'Not found'}), 404
+        if req['status'] != 'pending':
+            return jsonify({'error': 'Already ' + req['status']}), 400
+    finally:
+        conn.close()
+    created_id, err_msg = None, None
+    if approve:
+        payload = json.loads(req.get('payload') or '{}')
+        payload['override_closure'] = True
+        admin = {'user_id': session.get('user_id'), 'role': 'admin', 'name': session.get('name')}
+        try:
+            path = f"/api/events/{req['event_id']}" if req['kind'] == 'event_update' else '/api/events'
+            with app.test_request_context(path, method='PUT' if req['kind'] == 'event_update' else 'POST', json=payload):
+                for k, v in admin.items():
+                    session[k] = v
+                resp = update_event(req['event_id']) if req['kind'] == 'event_update' else create_event()
+            status = 200
+            if isinstance(resp, tuple):
+                resp, status = resp[0], resp[1]
+            body = resp.get_json() if hasattr(resp, 'get_json') else {}
+            if status >= 400 or (body or {}).get('error'):
+                err_msg = (body or {}).get('error') or 'Could not save the event'
+            else:
+                created_id = (body or {}).get('id') or req.get('event_id')
+                if payload.get('elic_id') and created_id:
+                    c2 = get_db()
+                    try:
+                        _assign_elics(c2, created_id, [payload['elic_id']]); c2.commit()
+                    finally:
+                        c2.close()
+        except Exception as e:
+            err_msg = str(e)
+        if err_msg:
+            return jsonify({'error': err_msg}), 400
+    conn = get_db()
+    try:
+        execute(conn, '''UPDATE closure_requests SET status=%s, decided_by=%s, decided_at=NOW(), note=%s, created_event_id=%s WHERE id=%s''',
+                ('approved' if approve else 'declined', session.get('name') or 'Admin', (d.get('note') or '').strip()[:500], created_id, rid))
+        conn.commit()
+    finally:
+        conn.close()
+    try:
+        if req.get('requested_by_email'):
+            from html import escape as E
+            send_email([req['requested_by_email']], ('Approved: ' if approve else 'Not approved: ') + req['summary'],
+                f"<p>Your request to schedule <b>{E(req['summary'])}</b> while the studio is closed was "
+                f"<b>{'approved' if approve else 'not approved'}</b> by {E(session.get('name') or 'an admin')}.</p>"
+                + (f"<p>{E(d.get('note'))}</p>" if d.get('note') else '')
+                + ("<p>It's on the calendar now.</p>" if approve else ''), source='closure_request_decision')
+    except Exception as e:
+        app.logger.warning(f'closure decision email failed: {e}')
+    return jsonify({'ok': True, 'event_id': created_id})
+
+
 @app.route('/api/events', methods=['POST'])
 def create_event():
     d = request.json or {}
@@ -5648,6 +5999,9 @@ def create_event():
         return jsonify({'error': 'Event date is required'}), 400
     eid = str(uuid.uuid4())
     conn = get_db()
+    blocked = _event_closure_block(conn, d)
+    if blocked:
+        conn.close(); return blocked
     execute(conn, '''INSERT INTO events
         (id,name,event_date,end_date,start_time,end_time,event_type_id,location,address,room,production_id,program_id,linked_session_id,expected_volunteers,description,notes,status,requires_background_check,auto_log_hours,hours_store_bonus_type,hours_store_bonus_multiplier,hours_store_bonus_flat_cents,kiosk_signin_mode,show_on_lobby)
         VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'draft',%s,%s,%s,%s,%s,%s,%s)''',
@@ -5664,22 +6018,13 @@ def create_event():
          d.get('kiosk_signin_mode') or 'auto',
          d.get('show_on_lobby', True)))
     conn.commit()
-    # Auto-assign program instructor/default ELIC when event belongs to a program
-    program_id = d.get('program_id') or None
-    if program_id:
+    # Everyone on the production's / program's ELIC list can open this event
+    if d.get('production_id') or d.get('program_id'):
         try:
-            prog = fetchone(conn, 'SELECT default_elic_id, instructor_id FROM youth_programs WHERE id=%s', (program_id,))
-            if prog:
-                elic_vol_id = prog.get('default_elic_id') or prog.get('instructor_id')
-                if elic_vol_id:
-                    elic = fetchone(conn, 'SELECT id FROM elics WHERE volunteer_id=%s', (elic_vol_id,))
-                    if elic:
-                        existing = fetchone(conn, 'SELECT id FROM event_elics WHERE event_id=%s AND elic_id=%s', (eid, elic['id']))
-                        if not existing:
-                            execute(conn, 'INSERT INTO event_elics (id,event_id,elic_id) VALUES (%s,%s,%s)',
-                                (str(uuid.uuid4()), eid, elic['id']))
-                            conn.commit()
+            _assign_elics(conn, eid, _owner_elic_ids(conn, d.get('production_id'), d.get('program_id')))
+            conn.commit()
         except Exception as e:
+            conn.rollback()
             app.logger.warning(f'Auto-ELIC assignment failed: {e}')
     row = fetchone(conn, '''SELECT e.*,
         COALESCE(e.requires_background_check, FALSE) as requires_background_check,
@@ -5748,8 +6093,11 @@ def update_event(eid):
         err = require_permission('events')
     if err: conn.close(); return err
     d = request.json or {}
-    prev = fetchone(conn, 'SELECT status FROM events WHERE id=%s', (eid,))
+    prev = fetchone(conn, 'SELECT status, event_date, end_date FROM events WHERE id=%s', (eid,))
     prev_status = prev.get('status') if prev else None
+    blocked = _event_closure_block(conn, d, prev)
+    if blocked:
+        conn.close(); return blocked
     new_status = d.get('status','draft')
     execute(conn, '''UPDATE events SET name=%s,event_date=%s,end_date=%s,start_time=%s,end_time=%s,
         event_type_id=%s,location=%s,address=%s,room=%s,production_id=%s,program_id=%s,linked_session_id=%s,expected_volunteers=%s,
@@ -16068,6 +16416,7 @@ def kiosk_elic_auth():
             SELECT e.*, p.name as production_name,
                    COALESCE(p.stage,'mainstage') as stage,
                    p.stage as production_stage,
+                   COALESCE(NULLIF(p.portal_image_url,''), NULLIF(p.image_url,'')) as production_image,
                    pg.name as program_name,
                    pg.requires_guardian as requires_guardian,
                    el.action as current_status
@@ -16097,6 +16446,7 @@ def kiosk_elic_auth():
                 SELECT e.*, p.name as production_name,
                        COALESCE(p.stage,'mainstage') as stage,
                        p.stage as production_stage,
+                       COALESCE(NULLIF(p.portal_image_url,''), NULLIF(p.image_url,'')) as production_image,
                        pg.name as program_name,
                        pg.requires_guardian as requires_guardian,
                        el.action as current_status
@@ -21257,8 +21607,15 @@ def kiosk_elic_events():
     try:
         elic = fetchone(conn, 'SELECT * FROM elics WHERE id=%s AND active=TRUE', (elic_id,))
         if not elic: conn.close(); return jsonify({'error': 'ELIC not found'}), 404
-        events = fetchall(conn, '''SELECT e.*, el.action as current_status
+        # Same production/program details as the login list, so a refresh
+        # doesn't drop the show name and photo from the cards
+        events = fetchall(conn, '''SELECT e.*, el.action as current_status, p.name as production_name,
+                COALESCE(p.stage,'mainstage') as stage, p.stage as production_stage,
+                COALESCE(NULLIF(p.portal_image_url,''), NULLIF(p.image_url,'')) as production_image,
+                pg.name as program_name, pg.requires_guardian as requires_guardian
             FROM events e
+            LEFT JOIN productions p ON e.production_id=p.id
+            LEFT JOIN youth_programs pg ON e.program_id=pg.id
             LEFT JOIN (SELECT event_id, action FROM event_logs
                 WHERE id IN (SELECT id FROM event_logs WHERE (event_id, timestamp) IN (SELECT event_id, MAX(timestamp) FROM event_logs GROUP BY event_id))) el
             ON el.event_id=e.id
@@ -26881,6 +27238,11 @@ def create_board_meeting():
         return jsonify({'error': 'Meeting date required'}), 400
     mid = str(uuid.uuid4())
     conn = get_db()
+    if d.get('sync_to_calendar', True):
+        blocked = _event_closure_block(conn, {'event_date': d['meeting_date'], 'location': d.get('location', ''),
+                                              'override_closure': d.get('override_closure')})
+        if blocked:
+            conn.close(); return blocked
     execute(conn, '''INSERT INTO board_meetings (id,meeting_date,meeting_time,location,notes,status)
         VALUES (%s,%s,%s,%s,%s,'scheduled')''',
         (mid, d['meeting_date'], d.get('meeting_time',''), d.get('location',''), d.get('notes','')))
@@ -33339,6 +33701,11 @@ def create_program_session(pid):
         conn.close()
         return jsonify({'error': 'Program not found'}), 404
     sid = str(uuid.uuid4())
+    if d.get('start_date'):
+        sc = studio_closure_on(conn, str(d['start_date'])[:10])
+        if sc:
+            conn.close()
+            return jsonify({'error': 'The studio is closed ' + _closure_label(sc) + '. Pick another day.', 'studio_closed': True}), 409
     price_override = d.get('price_override')
     if price_override is not None:
         try: price_override = int(price_override)
@@ -33426,8 +33793,16 @@ def generate_program_sessions(pid):
     created = 0
     sort_order = 0
 
+    closed_days = set()
+    for c in studio_closures_between(conn, cur.isoformat(), end.isoformat()):
+        cs = _dt.date.fromisoformat(str(c['start_date'])[:10]); ce = _dt.date.fromisoformat(str(c['end_date'])[:10])
+        while cs <= ce:
+            closed_days.add(cs.isoformat()); cs += _dt.timedelta(days=1)
+    skipped_closed = []
     while cur <= end:
-        if cur.weekday() in allowed_days:
+        if cur.isoformat() in closed_days and cur.weekday() in allowed_days:
+            skipped_closed.append(cur.isoformat())   # studio closed that day
+        elif cur.weekday() in allowed_days:
             day_name = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'][cur.weekday()]
             slot_start = _dt.datetime.combine(cur, ot)
             slot_end_limit = _dt.datetime.combine(cur, ct)
@@ -33455,7 +33830,7 @@ def generate_program_sessions(pid):
         cur += _dt.timedelta(days=1)
 
     conn.commit(); conn.close()
-    return jsonify({'ok': True, 'created': created})
+    return jsonify({'ok': True, 'created': created, 'skipped_closed': skipped_closed})
 
 
 @app.route('/api/programs/<pid>/sessions/bulk-import', methods=['POST'])
@@ -33492,12 +33867,15 @@ def bulk_import_program_sessions(pid):
     sort_order = (max_sort.get('m') or 0) + 1
     created = 0
     DAY_NAMES = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+    skipped_closed = []
     for slot in slots:
         sdate = (slot.get('start_date') or '').strip()
         stime = (slot.get('start_time') or '').strip()
         etime = (slot.get('end_time') or '').strip()
         if not sdate or not stime or not etime:
             continue
+        if studio_closure_on(conn, sdate[:10]):
+            skipped_closed.append(sdate[:10]); continue   # studio closed that day
         try:
             day_name = DAY_NAMES[date.fromisoformat(sdate).weekday()]
         except Exception:
@@ -33521,7 +33899,7 @@ def bulk_import_program_sessions(pid):
     conn.commit()
     sync_hours_store_for_program(conn, pid)
     conn.close()
-    return jsonify({'ok': True, 'created': created})
+    return jsonify({'ok': True, 'created': created, 'skipped_closed': sorted(set(skipped_closed))})
 
 
 
@@ -42488,10 +42866,12 @@ def _generate_rental_occurrences(conn, request_id, d):
         dt = (x.get('date') or '')[:10]
         if len(dt) != 10 or fetchone(conn, 'SELECT 1 AS y FROM rental_occurrences WHERE request_id=%s AND occurrence_date=%s', (request_id, dt)):
             continue
+        sc = studio_closure_on(conn, dt)
         execute(conn, '''INSERT INTO rental_occurrences (id, request_id, occurrence_date, start_time, end_time, status, notes)
-            VALUES (%s,%s,%s,%s,%s,'scheduled','Added date')''',
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
             (str(uuid.uuid4()), request_id, dt, x.get('start_time') or d.get('start_time') or row.get('start_time') or '',
-             x.get('end_time') or d.get('end_time') or row.get('end_time') or ''))
+             x.get('end_time') or d.get('end_time') or row.get('end_time') or '',
+             'cancelled' if sc else 'scheduled', ('Studio closed ' + _closure_label(sc)) if sc else 'Added date'))
 
 
 def _generate_rental_occurrences_base(conn, request_id, d):
@@ -42515,10 +42895,14 @@ def _generate_rental_occurrences_base(conn, request_id, d):
     import json as _jro2
 
     def _insert(date_str, stime, etime):
+        # A studio closed day is kept on the list as cancelled, with the reason,
+        # so the partner can see why that date isn't on.
+        sc = studio_closure_on(conn, date_str)
         execute(conn, '''INSERT INTO rental_occurrences
-            (id, request_id, occurrence_date, start_time, end_time, status)
-            VALUES (%s,%s,%s,%s,%s,'scheduled')''',
-            (str(_uro2.uuid4()), request_id, date_str, stime, etime))
+            (id, request_id, occurrence_date, start_time, end_time, status, notes)
+            VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+            (str(_uro2.uuid4()), request_id, date_str, stime, etime,
+             'cancelled' if sc else 'scheduled', ('Studio closed ' + _closure_label(sc)) if sc else ''))
 
     mode = (d.get('date_mode') or '').strip()
     stime, etime = d.get('start_time', ''), d.get('end_time', '')
@@ -46130,7 +46514,8 @@ def approve_space_request(rid):
         'meeting_days': json.loads(req.get('meeting_days') or '[]'),
         'specific_dates': json.loads(req.get('specific_dates') or '[]') if not req.get('recurring') else None,
     })
-    for d_str in dates:
+    skipped_closed = [x for x in dates if studio_closure_on(conn, x)]
+    for d_str in [x for x in dates if x not in skipped_closed]:
         execute(conn, '''INSERT INTO events (id, name, event_date, start_time, end_time, location, room, program_id, description)
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
             (str(uuid.uuid4()), req['title'], d_str, req.get('start_time') or None, req.get('end_time') or None,
@@ -46153,7 +46538,8 @@ def approve_space_request(rid):
     except Exception as e:
         app.logger.warning(f'Space request approval email failed: {e}')
     conn.close()
-    return jsonify({'ok': True, 'program_id': program_id, 'events_created': len(dates)})
+    return jsonify({'ok': True, 'program_id': program_id, 'events_created': len(dates) - len(skipped_closed),
+                    'skipped_closed': skipped_closed})
 
 
 # ── Artistic Partnership: customer self-service portal ──────────────────────

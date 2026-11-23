@@ -1695,10 +1695,24 @@ function renderElicMenu(){
 
     const cardBorder=status==='open'?'border:2px solid #86EFAD;':status==='closed'?'border:1px solid var(--border);opacity:0.7;':mins!==null&&mins>60?'border:2px dashed #d1d5db;':'border:2px solid var(--border);'
     const cardBg=status==='open'?'background:#f0fdf4;':status==='closed'?'background:var(--bg);':'background:var(--surface);'
-    return '<div class="elic-event-card" style="'+cardBg+cardBorder+'border-radius:var(--radius);padding:16px 20px;margin-bottom:10px">'
+    // Which show or class this is for: the production's photo as a banner, or its name as a label
+    const esc=function(x){ return String(x==null?'':x).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] }) }
+    const ownerName = e.production_name || e.program_name || ''
+    const sameName = ownerName && ownerName.trim().toLowerCase() === String(e.name||'').trim().toLowerCase()
+    const img = e.production_name && e.production_image ? String(e.production_image).replace(/["'()\s]/g, function(c){ return encodeURIComponent(c) }) : ''
+    const banner = img
+      ? '<div style="margin:-16px -20px 12px;height:110px;background:linear-gradient(180deg,rgba(0,0,0,0) 30%,rgba(0,0,0,.7)),url('+img+') center/cover no-repeat;display:flex;align-items:flex-end;padding:10px 20px">'
+        + '<div style="color:#fff;font-size:20px;font-weight:800;text-shadow:0 1px 4px rgba(0,0,0,.55)">'+esc(e.production_name)+'</div></div>'
+      : ''
+    const ownerLabel = (!img && ownerName && !sameName)
+      ? '<div style="font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:'+(e.production_name?'#6d28d9':'var(--teal)')+';margin-bottom:2px">'+esc(ownerName)+'</div>' : ''
+    const titleText = (img && sameName) ? '' : esc(e.name)
+    return '<div class="elic-event-card" style="'+cardBg+cardBorder+'border-radius:var(--radius);padding:16px 20px;margin-bottom:10px;overflow:hidden">'
+      +banner
       +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:12px">'
       +'<div>'
-      +'<div style="font-size:17px;font-weight:700;margin-bottom:4px">'+e.name+rsBadge+'</div>'
+      +ownerLabel
+      +(titleText?'<div style="font-size:17px;font-weight:700;margin-bottom:4px">'+titleText+rsBadge+'</div>':(rsBadge?'<div style="margin-bottom:4px">'+rsBadge+'</div>':''))
       +'<div style="font-size:13px;color:var(--muted)">'+todayBadge+dateStr+(timeStr?' · '+timeStr:'')+'</div>'
       +'</div>'
       +statusTag

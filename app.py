@@ -3925,6 +3925,8 @@ def init_db():
         """CREATE TABLE IF NOT EXISTS studio_closures (
             id TEXT PRIMARY KEY, start_date DATE NOT NULL, end_date DATE NOT NULL, reason TEXT DEFAULT '',
             created_by TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW())""",
+        # Open (unbooked) class/lesson times a closure took off the booking page, to put back if it's removed
+        "ALTER TABLE studio_closures ADD COLUMN IF NOT EXISTS closed_session_ids TEXT DEFAULT '[]'",
         # Artistic Partner check-in / check-out at the kiosk
         """CREATE TABLE IF NOT EXISTS partner_visit_logs (
             id TEXT PRIMARY KEY, occurrence_id TEXT UNIQUE, request_id TEXT, day DATE, partner_name TEXT DEFAULT '',
@@ -5734,10 +5736,25 @@ def studio_closures_api():
             rents = fetchall(conn, f'''SELECT o.id, o.occurrence_date, r.title FROM rental_occurrences o JOIN rental_requests r ON r.id=o.request_id
                 WHERE o.occurrence_date >= %s AND o.occurrence_date <= %s AND COALESCE(o.status,'') NOT IN ('cancelled','canceled')
                   AND COALESCE(r.status,'') NOT IN ('denied','cancelled','canceled','declined','archived') ORDER BY o.occurrence_date''', (s, e)) or []
-            sess = fetchall(conn, '''SELECT ps.id, ps.start_date, ps.name, yp.name AS program FROM program_sessions ps
-                JOIN youth_programs yp ON yp.id=ps.program_id
-                WHERE ps.start_date >= %s AND ps.start_date <= %s AND COALESCE(ps.status,'open') <> 'cancelled' ORDER BY ps.start_date''', (s, e)) or []
-            return jsonify({'ok': True, 'id': cid, 'conflicts': {'events': evs, 'rentals': rents, 'sessions': sess}})
+            all_sess = fetchall(conn, '''SELECT ps.id, ps.start_date, ps.start_time, ps.name, yp.name AS program,
+                    (SELECT COUNT(*) FROM program_registrations pr WHERE pr.program_id=ps.program_id
+                       AND pr.session_ids LIKE '%%"' || ps.id || '"%%' AND pr.status NOT IN ('cancelled','waitlisted')) AS booked
+                FROM program_sessions ps JOIN youth_programs yp ON yp.id=ps.program_id
+                WHERE ps.start_date >= %s AND ps.start_date <= %s AND COALESCE(ps.status,'open') NOT IN ('cancelled','closed')
+                ORDER BY ps.start_date, ps.start_time''', (s, e)) or []
+            # Times someone actually booked are real conflicts. Open times nobody
+            # booked are just availability: take them off the booking page so
+            # nobody books the closed day, and remember them to put back.
+            sess = [x for x in all_sess if int(x.get('booked') or 0) > 0]
+            open_ids = [x['id'] for x in all_sess if not int(x.get('booked') or 0)]
+            if open_ids:
+                execute(conn, "UPDATE program_sessions SET status='closed' WHERE id = ANY(%s)", (open_ids,))
+                execute(conn, 'UPDATE studio_closures SET closed_session_ids=%s WHERE id=%s', (json.dumps(open_ids), cid))
+                conn.commit()
+            # A placeholder event like "HOLIDAY – STUDIO CLOSED" isn't a conflict
+            evs = [x for x in evs if 'closed' not in (x.get('name') or '').lower()]
+            return jsonify({'ok': True, 'id': cid, 'conflicts': {'events': evs, 'rentals': rents, 'sessions': sess},
+                            'open_slots_closed': len(open_ids)})
         rows = fetchall(conn, '''SELECT * FROM studio_closures WHERE end_date >= CURRENT_DATE - 30 ORDER BY start_date''') or []
         for r in rows:
             r['start_date'] = str(r['start_date'])[:10]; r['end_date'] = str(r['end_date'])[:10]
@@ -5753,11 +5770,22 @@ def studio_closure_delete(cid):
     if session.get('role') != 'admin':
         return jsonify({'error': 'Admins only'}), 403
     conn = get_db()
+    reopened = 0
     try:
+        row = fetchone(conn, 'SELECT closed_session_ids FROM studio_closures WHERE id=%s', (cid,)) or {}
+        try: ids = json.loads(row.get('closed_session_ids') or '[]')
+        except Exception: ids = []
+        if ids:
+            # Put back the open times this closure took down (only ones still unbooked and not in another closure)
+            for r in fetchall(conn, "SELECT id, start_date FROM program_sessions WHERE id = ANY(%s) AND status='closed'", (ids,)) or []:
+                others = fetchone(conn, '''SELECT 1 AS x FROM studio_closures WHERE id<>%s AND start_date <= %s AND end_date >= %s''',
+                                  (cid, r['start_date'], r['start_date']))
+                if not others:
+                    execute(conn, "UPDATE program_sessions SET status='open' WHERE id=%s", (r['id'],)); reopened += 1
         execute(conn, 'DELETE FROM studio_closures WHERE id=%s', (cid,)); conn.commit()
     finally:
         conn.close()
-    return jsonify({'ok': True})
+    return jsonify({'ok': True, 'reopened_slots': reopened})
 
 
 @app.route('/api/public/studio-closures')

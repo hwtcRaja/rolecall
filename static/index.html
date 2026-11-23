@@ -648,6 +648,13 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 }
 .lm-contact{display:flex;gap:6px;margin-bottom:12px}
 .lm-contact a{flex:1;text-align:center;justify-content:center;text-decoration:none}
+
+/* Dashboard widgets */
+.dash-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.dash-grid .dash-w.full{grid-column:1/-1}
+.dash-nums{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+@media (max-width:900px){.dash-grid{grid-template-columns:minmax(0,1fr)}}
+
 </style>
  <link href="https://cdn.quilljs.com/1.3.7/quill.snow.css" rel="stylesheet">
 </head>
@@ -824,79 +831,15 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
 
  <section class="page active" id="page-dashboard">
  <div class="page-header">
- <div><div class="page-title">Dashboard</div><div class="page-subtitle">HWTC — Programs, productions, volunteers & participants</div></div>
- <div class="page-actions admin-only">
- <button class="btn btn-secondary" onclick="openEmployerReminderModal()"><img src="/static/images/mickey.png" style="width:14px;height:14px;vertical-align:middle;margin-right:2px" alt="Disney"/> Send Giving Reminder</button>
- <button class="btn btn-primary" onclick="openVolModal()">+ Add Volunteer</button>
+ <div><div class="page-title">Dashboard</div><div class="page-subtitle" id="dash-subtitle">Your HWTC at a glance</div></div>
+ <div class="page-actions">
+ <button class="btn btn-secondary" onclick="openDashCustomize()">Customize</button>
+ <button class="btn btn-secondary admin-only" onclick="openEmployerReminderModal()"><img src="/static/images/mickey.png" style="width:14px;height:14px;vertical-align:middle;margin-right:2px" alt="Disney"/> Send Giving Reminder</button>
+ <button class="btn btn-primary admin-only" onclick="openVolModal()">+ Add Volunteer</button>
  </div>
  </div>
  <div class="page-body">
- <!-- Stat row -->
- <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px;margin-bottom:24px">
- <div class="stat-card teal" style="cursor:pointer" onclick="navTo('volunteers')"><div class="stat-icon"></div><div class="stat-value" id="stat-total">0</div><div class="stat-label">Volunteers</div></div>
- <div class="stat-card blue" style="cursor:pointer" onclick="navTo('hours')"><div class="stat-icon"></div><div class="stat-value" id="stat-hours">0</div><div class="stat-label">Hours Logged</div></div>
- <div class="stat-card purple" style="cursor:pointer" onclick="navTo('youth')"><div class="stat-icon"></div><div class="stat-value" id="stat-youth">0</div><div class="stat-label">Participants</div></div>
- <div class="stat-card teal" style="cursor:pointer" onclick="navTo('productions')"><div class="stat-icon"></div><div class="stat-value" id="stat-productions">0</div><div class="stat-label">Productions</div></div>
- <div class="stat-card amber" style="cursor:pointer" onclick="navTo('waivers')"><div class="stat-icon"></div><div class="stat-value" id="stat-waivers">0</div><div class="stat-label">Waivers Expiring</div></div>
- <div class="stat-card red" style="cursor:pointer" onclick="navTo('notifications')"><div class="stat-icon"></div><div class="stat-value" id="stat-actions">0</div><div class="stat-label">Needs Action</div></div>
- </div>
- <!-- Main grid -->
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
- <!-- Today -->
- <div class="card" style="padding:20px">
- <div style="font-size:15px;font-weight:700;margin-bottom:14px"> Today — <span id="dash-today-date" style="color:var(--teal-dark);font-weight:600"></span></div>
- <div id="dash-today-events"><div style="font-size:13px;color:var(--text-muted)">No events today</div></div>
- </div>
- <!-- On-Call -->
- <div class="card" style="padding:20px">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
-  <div style="font-size:15px;font-weight:700"> On-Call</div>
-  <button class="btn btn-secondary btn-sm" onclick="navTo('oncall')">Manage</button>
- </div>
- <div id="dash-oncall"><div style="font-size:13px;color:var(--text-muted)">Loading…</div></div>
- </div>
- </div>
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px">
- <!-- Upcoming -->
- <div class="card" style="padding:20px">
- <div style="font-size:15px;font-weight:700;margin-bottom:14px"> Next 7 Days</div>
- <div id="dash-upcoming-events"><div style="font-size:13px;color:var(--text-muted)">No upcoming events</div></div>
- </div>
- <!-- Alerts -->
- <div class="card" style="padding:20px">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
- <div style="font-size:15px;font-weight:700"> Alerts</div>
- <button class="btn btn-secondary btn-sm" onclick="navTo('notifications')">View All</button>
- </div>
- <div id="alerts-container"></div>
- </div>
- <!-- Monthly hours chart -->
- <div class="card" style="padding:20px">
- <div style="font-size:15px;font-weight:700;margin-bottom:14px"> Monthly Hours</div>
- <div style="display:flex;align-items:flex-end;gap:8px;height:120px" id="hours-chart"></div>
- <div style="display:flex;gap:8px;margin-top:4px" id="chart-labels"></div>
- </div>
- </div>
- <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
- <!-- Top volunteers -->
- <div class="card">
- <div class="card-header"><div class="card-title"> Most Active Volunteers</div></div>
- <table><thead><tr><th>Volunteer</th><th>Hours</th><th>Events</th></tr></thead><tbody id="top-vols-table"></tbody></table>
- </div>
- <!-- Active programs & productions -->
- <div class="card" style="padding:20px">
- <div style="font-size:15px;font-weight:700;margin-bottom:14px"> Active Programs & Productions</div>
- <div id="dash-active-programs"></div>
- </div>
- </div>
- <!-- Employer giving -->
- <div class="card" style="padding:20px">
- <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
- <div style="font-size:15px;font-weight:700"> Employer Giving Program</div>
- <button class="btn btn-secondary btn-sm" onclick="openEmployerReminderModal()">Send Reminder</button>
- </div>
- <div id="dash-employer-giving"><div style="font-size:13px;color:var(--text-muted)">Loading…</div></div>
- </div>
+ <div id="dash-grid" class="dash-grid"></div>
  </div>
  </section>
 
@@ -4886,9 +4829,8 @@ async function loginSuccess(user){
  setInterval(function(){ fetch('/api/auth/me').catch(function(){}) }, 10 * 60 * 1000)
  // Pre-warm secondary endpoints in background so pages feel instant
  setTimeout(function(){
-  api('/api/dashboard').catch(function(){})
   api('/api/marquee/overview').catch(function(){})
-  api('/api/notifications').catch(function(){})
+  if(canView('notifications')) api('/api/notifications').catch(function(){})
  }, 2000)
 }
 function openChangePasswordModal(){
@@ -5332,136 +5274,190 @@ async function refreshRentalPendingBadge(){
 // ═══════════════════════════════════════════════════════════════
 // DASHBOARD
 // ═══════════════════════════════════════════════════════════════
+// ══ Dashboard: each person picks the widgets they want, from what they can access ══
+// The server checks every widget's data again, so hiding/showing here is only about what's useful.
+var DASH_WIDGETS = [
+ {key:'quick_numbers', title:'At a glance', desc:'Key numbers for the areas you work in', size:'full', def:true},
+ {key:'today', title:'Today & the next 7 days', desc:'Events on the calendar', def:true},
+ {key:'oncall', title:'On call', desc:'Who answers the HWTC phone today', def:true, manage:'oncall'},
+ {key:'needs_action', title:'Needs action', desc:'Alerts and notifications waiting on someone', def:true, manage:'notifications'},
+ {key:'upcoming_shows', title:'Upcoming performances', desc:'The next three weeks, with tickets sold', def:true},
+ {key:'recent_registrations', title:'New registrations', desc:'Latest class and program sign-ups', def:true},
+ {key:'pending_hours', title:'Hours to approve', desc:'Volunteer hours waiting for approval', def:true, manage:'hours'},
+ {key:'inbox', title:'Inbox', desc:'Open conversations in the info@ inbox', def:true, manage:'inbox'},
+ {key:'checklists', title:'Checklists to look at', desc:'Instructor days not closed, or with items flagged, this past week', def:true, manage:'event-logs'},
+ {key:'waiver_alerts', title:'Waivers', desc:'Volunteer waivers expired or expiring in 30 days', def:true, manage:'waivers'},
+ {key:'programs_productions', title:'Active programs & productions', desc:'What’s running now', def:true},
+ {key:'volunteer_hours', title:'Monthly volunteer hours', desc:'The last six months', def:false},
+ {key:'top_volunteers', title:'Most active volunteers', desc:'Most hours in the last 12 months', def:false},
+ {key:'phone', title:'Recent calls & texts', desc:'Latest activity on the HWTC number', def:false},
+ {key:'employer_giving', title:'Employer giving program', desc:'Disney & Universal volunteers and their reminders', def:false, size:'full'}
+]
+var _dash = {allowed:[], layout:null}
+function _dashMsg(t){ return '<div style="font-size:13px;color:var(--text-muted)">'+t+'</div>' }
+function _dashList(rows){ return rows.join('') }
+function _dashRow(main, sub, right, onclick){
+ return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border)'+(onclick?';cursor:pointer':'')+'"'+(onclick?' onclick="'+onclick+'"':'')+'>'
+  +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+main+'</div>'
+  +(sub?'<div style="font-size:11.5px;color:var(--text-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+sub+'</div>':'')+'</div>'
+  +(right?'<div style="flex-shrink:0;font-size:12px;font-weight:700">'+right+'</div>':'')+'</div>'
+}
+function dashVisibleKeys(){
+ var allowed = _dash.allowed, L = _dash.layout
+ if(!L) return DASH_WIDGETS.filter(function(w){ return w.def && allowed.indexOf(w.key)>=0 }).map(function(w){ return w.key })
+ var order = (L.order||[]).filter(function(k){ return allowed.indexOf(k)>=0 })
+ // anything new since they last saved goes at the end (off unless it's a default)
+ return order.filter(function(k){ return (L.hidden||[]).indexOf(k)<0 })
+}
 async function renderDashboard(){
- const d = await api('/api/dashboard')
- // Stats
- document.getElementById('stat-total').textContent = d.total_volunteers
- document.getElementById('stat-hours').textContent = d.total_hours
- document.getElementById('stat-youth').textContent = d.total_youth
- document.getElementById('stat-waivers').textContent = d.expiring_waivers
- document.getElementById('stat-expired') && (document.getElementById('stat-expired').textContent = d.expired_waivers)
- const prodCount = allProductions.filter(p=>(p.stage!=='rising_stars'&&p.stage!=='teen_show')).length
- const statProd = document.getElementById('stat-productions')
- if(statProd) statProd.textContent = prodCount
- const statActions = document.getElementById('stat-actions')
- if(statActions){
- api('/api/notifications').then(n=>{ if(statActions) statActions.textContent = n.total_action||0 })
- }
- // Waiver badge
- const badge = document.getElementById('waiver-badge')
- const bc = d.expiring_waivers + d.expired_waivers
- if(badge){ badge.textContent=bc; badge.style.display=bc>0?'':'none' }
-
- // Step Up Holds badge
- api('/api/admin/step-up-holds').then(res=>{
-   if(res && res.holds){ _suhHolds = res.holds; suhUpdateBadge() }
- }).catch(()=>{})
-
- // Today label
- const todayEl = document.getElementById('dash-today-date')
- if(todayEl) todayEl.textContent = new Date().toLocaleDateString('en-US',{weekday:'long',month:'short',day:'numeric'})
-
- // Today's events
- const today = todayLocalISO()
- const in7 = new Date(Date.now()+7*86400000).toISOString().split('T')[0]
- const todayEvts = allEvents.filter(e=>e.event_date===today).sort((a,b)=>(a.start_time||'').localeCompare(b.start_time||''))
- const upcomingEvts = allEvents.filter(e=>e.event_date>today&&e.event_date<=in7).sort((a,b)=>a.event_date.localeCompare(b.event_date))
- const miniEvt = e => {
- const timeStr = e.start_time ? fmtTime(e.start_time): ''
- return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="navTo(\'events\')">'
- +'<div style="width:3px;align-self:stretch;background:var(--teal-mid);border-radius:2px;flex-shrink:0"></div>'
- +'<div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">'+e.name+'</div>'
- +'<div style="font-size:11px;color:var(--text-muted)">'+(timeStr?timeStr+' · ':'')+(e.location||'')+'</div></div>'
- +'</div>'
- }
- const todayEl2 = document.getElementById('dash-today-events')
- if(todayEl2) todayEl2.innerHTML = todayEvts.length ? todayEvts.map(miniEvt).join(''): '<div style="font-size:13px;color:var(--text-muted)">No events today</div>'
- // Group upcoming by date
- const byDate = {}
- upcomingEvts.forEach(e=>{ if(!byDate[e.event_date]) byDate[e.event_date]=[]; byDate[e.event_date].push(e) })
- const upEl = document.getElementById('dash-upcoming-events')
- if(upEl) upEl.innerHTML = upcomingEvts.length
- ? Object.entries(byDate).map(([dt,evts])=>
- '<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:4px">'+formatDate(dt)+'</div>'
- +evts.map(miniEvt).join('')+'</div>').join('')
-: '<div style="font-size:13px;color:var(--text-muted)">No events in the next 7 days</div>'
-
- // Alerts
- const ac = document.getElementById('alerts-container')
- if(ac){
- if(!d.alerts.length){
- ac.innerHTML='<div style="padding:8px 0;color:var(--text-muted);font-size:13px"> No alerts at this time</div>'
+ var grid = document.getElementById('dash-grid'); if(!grid) return
+ var sub = document.getElementById('dash-subtitle')
+ if(sub) sub.textContent = (currentUser&&currentUser.name ? 'Hi '+currentUser.name.split(' ')[0]+'. ' : '') + new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'})
+ var r = await api('/api/dashboard/layout')
+ _dash.allowed = (r && r.allowed) || ['quick_numbers']; _dash.layout = (r && r.layout) || null
+ var keys = dashVisibleKeys()
+ if(!keys.length){
+  grid.innerHTML = '<div class="card dash-w full" style="padding:30px;text-align:center;color:var(--text-muted)">Your dashboard is empty. <a href="#" onclick="event.preventDefault();openDashCustomize()">Pick what to show</a>.</div>'
  } else {
- ac.innerHTML=d.alerts.slice(0,5).map(a=>
- '<div class="alert-item '+a.type+'">'
- +'<span>'+(a.type==='warning'?'':'')+'</span>'
- +'<div style="flex:1"><strong>'+a.name+'</strong> — '+a.msg+'</div>'
- +'<a class="alert-action" onclick="openProfile(\''+a.id+'\')">View →</a>'
- +'</div>').join('')
- +(d.alerts.length>5?'<div style="font-size:12px;color:var(--text-muted);padding:8px 0">+'+( d.alerts.length-5)+' more — <a onclick="navTo(\'notifications\')" style="cursor:pointer;color:var(--teal-600)">view all</a></div>':'')
+  grid.innerHTML = keys.map(function(k){
+   var w = DASH_WIDGETS.find(function(x){ return x.key===k }); if(!w) return ''
+   return '<div class="card dash-w'+(w.size==='full'?' full':'')+'" style="padding:18px 20px" id="dw-'+k+'">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px"><div style="font-size:15px;font-weight:700">'+w.title+'</div>'
+    +(w.manage?'<button class="btn btn-secondary btn-sm" onclick="navTo(\''+w.manage+'\')">Open</button>':'')+'</div>'
+    +'<div class="dw-body">'+_dashMsg('Loading…')+'</div></div>'
+  }).join('')
+  keys.forEach(function(k){
+   var body = document.querySelector('#dw-'+k+' .dw-body'); if(!body) return
+   Promise.resolve(DASH_RENDER[k] && DASH_RENDER[k](body)).catch(function(e){ body.innerHTML = _dashMsg('Couldn’t load this.') })
+  })
  }
+ // Sidebar badges, only for people who can see them
+ if(canView('waivers')){
+  api('/api/dashboard/w/waiver_alerts').then(function(d){ var b = document.getElementById('waiver-badge'); var n = ((d&&d.alerts)||[]).length; if(b){ b.textContent=n; b.style.display=n>0?'':'none' } }).catch(function(){})
  }
-
- // Monthly hours chart
- const maxH = Math.max(...d.monthly_hours.map(m=>m.total),1)
- const hc = document.getElementById('hours-chart')
- const cl = document.getElementById('chart-labels')
- if(hc) hc.innerHTML=d.monthly_hours.map(m=>
- '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px">'
- +'<div style="font-size:10px;color:var(--text-muted)">'+(m.total||'')+'</div>'
- +'<div style="width:100%;background:var(--teal-400);border-radius:4px 4px 0 0;height:'+Math.max(4,(m.total/maxH)*80)+'px"></div>'
- +'</div>').join('')
- if(cl) cl.innerHTML=d.monthly_hours.map(m=>
- '<div style="flex:1;text-align:center;font-size:11px;color:var(--text-muted)">'+m.label+'</div>').join('')
-
- // Top volunteers
- const tvt = document.getElementById('top-vols-table')
- if(tvt) tvt.innerHTML=!d.top_volunteers.length
- ?'<tr><td colspan="3" style="text-align:center;color:var(--text-muted);padding:16px">No data yet</td></tr>'
-:d.top_volunteers.map(v=>
- '<tr><td><div class="volunteer-name-cell">'+avatarHTML(v.name,28)+'<span onclick="openProfile(\''+v.id+'\')" style="cursor:pointer;font-weight:500">'+v.name+'</span></div></td>'
- +'<td style="font-weight:600;color:var(--teal-600)">'+v.total_hours+'h</td>'
- +'<td style="color:var(--text-muted)">'+v.total_events+'</td></tr>').join('')
-
- // Active programs & productions
- const ap = document.getElementById('dash-active-programs')
- if(ap){
- const activeProgs = allPrograms.filter(p=>!p.status||p.status==='active').slice(0,4)
- const activeProds = allProductions.filter(p=>p.status==='in_progress'||p.status==='upcoming').slice(0,3)
- let apHTML = ''
- if(activeProgs.length){
- apHTML += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-bottom:8px">Programs</div>'
- apHTML += activeProgs.map(p=>'<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openProgramDetail(\''+p.id+'\')">'
- +'<span style="font-size:13px;font-weight:500">'+p.name+'</span>'
- +'<span style="font-size:11px;color:var(--text-muted)">'+allYouth.filter(y=>(y.enrollments||[]).find(e=>e.program_id===p.id)).length+' enrolled</span>'
- +'</div>').join('')
+ if(canView('step_up_holds')){
+  api('/api/admin/step-up-holds').then(function(res){ if(res && res.holds){ _suhHolds = res.holds; suhUpdateBadge() } }).catch(function(){})
  }
- if(activeProds.length){
- apHTML += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-muted);margin-top:12px;margin-bottom:8px">Productions</div>'
- apHTML += activeProds.map(p=>{
- const isRS = (p.stage==='rising_stars'||p.stage==='teen_show')
- const adultCount = p.members?.length||0
- const countSpan = isRS
- ? '<span id="dash-rs-count-'+p.id+'" style="font-size:11px;color:var(--text-muted)">loading…</span>'
-: '<span style="font-size:11px;color:var(--text-muted)">'+adultCount+' members</span>'
- return '<div style="display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);cursor:pointer" onclick="openProductionDetail(\''+p.id+'\')">'
- +'<span style="font-size:13px;font-weight:500">'+p.name+'</span>'
- +countSpan
- +'</div>'
+}
+async function _dashW(k){ return api('/api/dashboard/w/'+k) }
+var DASH_RENDER = {
+ quick_numbers: async function(el){
+  var d = await _dashW('quick_numbers'), n = (d&&d.numbers)||[]
+  el.innerHTML = n.length ? '<div class="dash-nums">'+n.map(function(x){
+    return '<div class="stat-card teal" style="cursor:pointer" onclick="navTo(\''+x.nav+'\')"><div class="stat-value">'+Number(x.value).toLocaleString()+'</div><div class="stat-label">'+escHtml(x.label)+'</div></div>' }).join('')+'</div>'
+   : _dashMsg('Nothing to count for the areas you have access to.')
+ },
+ today: function(el){
+  var today = todayLocalISO(), in7 = new Date(Date.now()+7*864e5).toISOString().split('T')[0]
+  var evs = (allEvents||[]).filter(function(e){ return e.event_date>=today && e.event_date<=in7 }).sort(function(a,b){ return (a.event_date+(a.start_time||'')).localeCompare(b.event_date+(b.start_time||'')) })
+  if(!evs.length){ el.innerHTML = _dashMsg('Nothing on the calendar this week.'); return }
+  var by = {}; evs.forEach(function(e){ (by[e.event_date]=by[e.event_date]||[]).push(e) })
+  el.innerHTML = Object.keys(by).map(function(dt){
+   return '<div style="margin-bottom:10px"><div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:'+(dt===today?'var(--teal-dark)':'var(--text-muted)')+'">'+(dt===today?'Today':formatDate(dt))+'</div>'
+    + by[dt].map(function(e){ return _dashRow(escHtml(e.name), (e.start_time?fmtTime(e.start_time):'')+(e.location?' · '+escHtml(e.location):''), '', "navTo('events')") }).join('')+'</div>' }).join('')
+ },
+ oncall: async function(el){ el.innerHTML = '<div id="dash-oncall"></div>'; await renderDashboardOncall() },
+ needs_action: async function(el){
+  var d = await api('/api/notifications'); var items = (d&&d.needs_action)||[]
+  el.innerHTML = items.length ? items.slice(0,6).map(function(a){ return _dashRow(escHtml(a.title||''), escHtml(a.sub||''), '', "navTo('notifications')") }).join('')
+    + (items.length>6?'<div style="font-size:12px;color:var(--text-muted);padding-top:6px">+'+(items.length-6)+' more</div>':'') : _dashMsg('Nothing waiting. Nice.')
+ },
+ upcoming_shows: async function(el){
+  var d = await _dashW('upcoming_shows'), rows = (d&&d.items)||[]
+  el.innerHTML = rows.length ? rows.map(function(p){
+    return _dashRow(escHtml(p.production), formatDate(p.performance_date)+(p.performance_time?' · '+fmtTime(p.performance_time):''), p.sold+(p.capacity&&!p.reserved?' / '+p.capacity:'')+' sold', "openProductionDetail('"+p.production_id+"')") }).join('')
+   : _dashMsg('No performances in the next three weeks.')
+ },
+ recent_registrations: async function(el){
+  var d = await _dashW('recent_registrations'), rows = (d&&d.items)||[]
+  var lbl = {confirmed:'Confirmed', pending_payment:'Unpaid', waitlisted:'Waitlist', pending:'Pending'}
+  el.innerHTML = rows.length ? rows.map(function(r){
+    return _dashRow(escHtml(r.child||r.guardian_name||'Registration'), escHtml(r.program)+' · '+formatDate(String(r.created_at).slice(0,10)), '<span style="color:var(--text-muted)">'+escHtml(lbl[r.status]||r.status)+'</span>', "openProgramDetail('"+r.program_id+"')") }).join('')
+   : _dashMsg('No registrations yet.')
+ },
+ pending_hours: async function(el){
+  var d = await _dashW('pending_hours'), rows = (d&&d.items)||[]
+  el.innerHTML = rows.length ? '<div style="font-size:13px;margin-bottom:6px"><b>'+d.total+'</b> waiting</div>'+rows.map(function(h){ return _dashRow(escHtml(h.name), escHtml(h.event)+' · '+formatDate(h.date), h.hours+'h', "navTo('hours')") }).join('')
+   : _dashMsg('No hours waiting for approval.')
+ },
+ inbox: async function(el){
+  var d = await _dashW('inbox'), rows = (d&&d.items)||[]
+  el.innerHTML = rows.length ? '<div style="font-size:13px;margin-bottom:6px"><b>'+d.open+'</b> open'+(d.unread?' · <b>'+d.unread+'</b> unread':'')+'</div>'
+    + rows.map(function(t){ return _dashRow((t.unread?'<span style="color:var(--teal-dark)">● </span>':'')+escHtml(t.subject||'(no subject)'), escHtml(t.participant_name||t.participant_email||''), '', "openInboxThread('"+t.id+"')") }).join('')
+   : _dashMsg('Inbox is clear.')
+ },
+ checklists: async function(el){
+  var d = await _dashW('checklists'), rows = (d&&d.items)||[]
+  el.innerHTML = rows.length ? rows.map(function(r){ return _dashRow('Instructor day: '+escHtml(r.name), formatDate(r.day), r.closed ? '<span style="color:#991b1b">'+r.flags+' to check</span>' : '<span style="color:#991b1b">Not closed</span>', "openInstructorDay('"+r.id+"')") }).join('')
+   : _dashMsg('Every instructor day this week was closed with nothing flagged.')
+ },
+ waiver_alerts: async function(el){
+  var d = await _dashW('waiver_alerts'), rows = (d&&d.alerts)||[]
+  el.innerHTML = rows.length ? rows.slice(0,6).map(function(a){ return _dashRow(escHtml(a.name), a.status==='expired'?'Waiver expired':'Waiver expiring soon', '<span style="color:'+(a.status==='expired'?'#991b1b':'#92400e')+'">View →</span>', "openProfile('"+a.id+"')") }).join('')
+    + (rows.length>6?'<div style="font-size:12px;color:var(--text-muted);padding-top:6px">+'+(rows.length-6)+' more</div>':'') : _dashMsg('All waivers are current.')
+ },
+ programs_productions: function(el){
+  var progs = canView('programs') ? (allPrograms||[]).filter(function(p){ return !p.status||p.status==='active' }).slice(0,5) : []
+  var prods = canView('productions') ? (allProductions||[]).filter(function(p){ return p.status==='in_progress'||p.status==='upcoming' }).slice(0,4) : []
+  var h = ''
+  if(progs.length) h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin-bottom:4px">Programs</div>'+progs.map(function(p){ return _dashRow(escHtml(p.name), '', '', "openProgramDetail('"+p.id+"')") }).join('')
+  if(prods.length) h += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;color:var(--text-muted);margin:10px 0 4px">Productions</div>'+prods.map(function(p){ return _dashRow(escHtml(p.name), '', '', "openProductionDetail('"+p.id+"')") }).join('')
+  el.innerHTML = h || _dashMsg('Nothing running right now.')
+ },
+ volunteer_hours: async function(el){
+  var d = await _dashW('volunteer_hours'), m = (d&&d.months)||[], max = Math.max.apply(null, m.map(function(x){ return x.total }).concat([1]))
+  el.innerHTML = '<div style="display:flex;align-items:flex-end;gap:8px;height:120px">'+m.map(function(x){ return '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px"><div style="font-size:10px;color:var(--text-muted)">'+(x.total||'')+'</div><div style="width:100%;background:var(--teal-400);border-radius:4px 4px 0 0;height:'+Math.max(4,(x.total/max)*90)+'px"></div></div>' }).join('')+'</div>'
+   + '<div style="display:flex;gap:8px;margin-top:4px">'+m.map(function(x){ return '<div style="flex:1;text-align:center;font-size:11px;color:var(--text-muted)">'+x.label+'</div>' }).join('')+'</div>'
+ },
+ top_volunteers: async function(el){
+  var d = await _dashW('top_volunteers'), rows = (d&&d.volunteers)||[]
+  el.innerHTML = rows.length ? rows.map(function(v){ return _dashRow(escHtml(v.name), v.total_events+' event'+(v.total_events==1?'':'s'), '<span style="color:var(--teal-600)">'+v.total_hours+'h</span>', "openProfile('"+v.id+"')") }).join('') : _dashMsg('No hours logged in the last year.')
+ },
+ phone: async function(el){
+  var d = await api('/api/phone/recents'), rows = ((d&&d.items)||[]).slice(0,6)
+  var lbl = {answered:'Answered', missed:'Missed', voicemail:'Voicemail', after_hours:'After hours', closed:'Closed day', no_coverage:'Missed'}
+  el.innerHTML = (rows.length ? rows.map(function(it){
+    var who = escHtml(it.name || it.phone)
+    var sub = it.type==='text' ? 'Text'+(it.last_body?': '+escHtml(it.last_body):'') : it.type==='out' ? 'Outgoing call' : 'Call · '+escHtml(lbl[it.status]||it.status||'')
+    return _dashRow(who, sub, '', "window.open('/phone','_blank')") }).join('') : _dashMsg('No recent calls or texts.'))
+   + '<div style="margin-top:8px"><a href="/phone" target="_blank" style="font-size:12.5px;font-weight:600;color:var(--teal-dark)">Open the phone page →</a></div>'
+ },
+ employer_giving: async function(el){ await renderDashEmployerGiving(el) }
+}
+
+// Customize: turn widgets on/off and reorder them
+function openDashCustomize(){
+ var allowed = _dash.allowed, vis = dashVisibleKeys()
+ var rest = DASH_WIDGETS.map(function(w){ return w.key }).filter(function(k){ return allowed.indexOf(k)>=0 && vis.indexOf(k)<0 })
+ _dash.draft = vis.map(function(k){ return {key:k, on:true} }).concat(rest.map(function(k){ return {key:k, on:false} }))
+ dashDrawCustomize()
+}
+function dashDrawCustomize(){
+ var rows = _dash.draft.map(function(it,i){
+  var w = DASH_WIDGETS.find(function(x){ return x.key===it.key })
+  return '<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border)">'
+   +'<input type="checkbox" '+(it.on?'checked':'')+' onchange="_dash.draft['+i+'].on=this.checked" style="width:20px;height:20px;flex-shrink:0" aria-label="Show '+escHtml(w.title)+'"/>'
+   +'<div style="flex:1;min-width:0"><div style="font-weight:700;font-size:14px">'+w.title+'</div><div style="font-size:12px;color:var(--text-muted)">'+w.desc+'</div></div>'
+   +'<button class="btn btn-secondary btn-sm" '+(i===0?'disabled':'')+' onclick="dashMove('+i+',-1)" aria-label="Move up">↑</button>'
+   +'<button class="btn btn-secondary btn-sm" '+(i===_dash.draft.length-1?'disabled':'')+' onclick="dashMove('+i+',1)" aria-label="Move down">↓</button></div>'
  }).join('')
- }
- ap.innerHTML = apHTML || '<div style="font-size:13px;color:var(--text-muted)">No active programs or productions</div>'
- // Load RS youth enrolled counts asynchronously
- activeProds.filter(p=>(p.stage==='rising_stars'||p.stage==='teen_show')).forEach(p=>{
- api('/api/productions/'+p.id+'/youth-members').then(ym=>{
- const el = document.getElementById('dash-rs-count-'+p.id)
- if(el) el.textContent = (Array.isArray(ym)?ym.length:0)+' enrolled'
- }).catch(()=>{})
- })
- }
+ showAdHocModal('dash-cust','Customize your dashboard',
+  '<div style="font-size:13px;color:var(--text-muted);margin-bottom:8px">Tick what you want to see and use the arrows to put it in order. Only things you have access to are listed; if you need something that isn’t here, ask an admin about your permissions.</div>'
+  + rows
+  + '<div style="display:flex;gap:8px;margin-top:14px;flex-wrap:wrap"><button class="btn btn-primary" onclick="dashSaveCustomize()">Save</button><button class="btn btn-secondary" onclick="dashResetCustomize()">Reset to the default</button></div>', 560)
+}
+function dashMove(i, d){ var a = _dash.draft, j = i+d; if(j<0||j>=a.length) return; var t = a[i]; a[i] = a[j]; a[j] = t; dashDrawCustomize() }
+async function dashSaveCustomize(){
+ var r = await api('/api/dashboard/layout','PUT',{order:_dash.draft.map(function(x){ return x.key }), hidden:_dash.draft.filter(function(x){ return !x.on }).map(function(x){ return x.key })})
+ if(r && r.error){ toast(r.error,'error'); return }
+ closeAdHocModal('dash-cust'); toast('Dashboard saved','success'); renderDashboard()
+}
+async function dashResetCustomize(){
+ await api('/api/dashboard/layout','PUT',{reset:true})
+ closeAdHocModal('dash-cust'); toast('Back to the default','success'); renderDashboard()
+}
 
- // Employer giving program summary
- const egEl = document.getElementById('dash-employer-giving')
+async function renderDashEmployerGiving(egEl){
  if(egEl){
  const stats = await api('/api/volunteers/employer-giving-stats')
  if(!Array.isArray(stats)||!stats.length){
@@ -5510,8 +5506,6 @@ async function renderDashboard(){
  }
  }
 
- // On-Call widget
- renderDashboardOncall()
 }
 
 async function renderDashboardOncall(){
@@ -20745,7 +20739,7 @@ async function approveProfileUpdate(uid){
 async function rejectHours(pid){ await rejectHoursNotif(pid) }
 async function rejectProfileUpdate(uid){ await rejectProfileUpdateNotif(uid) }
 async function pollPendingCount(){
- if(currentUser?.role==='admin'||currentUser?.role==='stage_manager'||currentUser?.role==='instructor'){
+ if(canView('notifications')){
  const notifs = await api('/api/notifications')
  updateNotifBadge(notifs.total_action||0)
  }
@@ -42603,6 +42597,7 @@ function renderSurveysList(){
    + '<div style="font-size:11.5px;color:var(--text-hint)">'+(s.questions?s.questions.length:0)+' question'+((s.questions&&s.questions.length===1)?'':'s')+' · '+(s.response_count||0)+' response'+(s.response_count===1?'':'s')+' · /survey/'+escHtml(s.slug)+'</div>'
    + '</div>'
    + '<div style="display:flex;gap:6px;flex-wrap:wrap">'
+   + '<button class="btn btn-primary btn-sm" onclick="openSurveySend(\''+s.id+'\')">Send</button>'
    + '<button class="btn btn-secondary btn-sm" onclick="copySurveyLink(\''+s.slug+'\')">Copy Link</button>'
    + '<button class="btn btn-secondary btn-sm" onclick="openSurveyResults(\''+s.id+'\')">Results</button>'
    + '<button class="btn btn-secondary btn-sm" onclick="openSurveyEditor(\''+s.id+'\')">Edit</button>'
@@ -42611,6 +42606,139 @@ function renderSurveysList(){
    + '</div>'
    + '</div>'
  }).join('')
+}
+
+// ══ Send a survey to a group ══
+var _svs = {sid:null, survey:null, opts:null, people:[], prevT:null, last:null}
+var SV_GROUPS = [
+  ['event','Event sign-ups','People who signed up for (or checked in at) an event'],
+  ['patrons','Patrons','People who bought tickets'],
+  ['volunteered','People who volunteered','Anyone who logged volunteer hours in a date range'],
+  ['participants','Program families','Parents/guardians (or adult participants) registered for a class or program'],
+  ['cast','Cast & crew','Everyone in a production, plus young performers’ parents'],
+  ['volunteers','All active volunteers','Everyone with an active volunteer profile'],
+  ['people','Specific people','Pick people by name, or paste email addresses']
+]
+async function openSurveySend(sid){
+  var s = (_surveysList||[]).find(function(x){ return x.id===sid }) || {}
+  _svs = {sid:sid, survey:s, opts:null, people:[], prevT:null, last:null}
+  showAdHocModal('sv-send','Send “'+(s.title||'survey')+'”','<div style="color:var(--text-muted)">Loading…</div>',720)
+  var o = await api('/api/survey-audience/options'), h = await api('/api/surveys/'+sid+'/sends')
+  _svs.opts = (o && !o.error) ? o : {events:[],productions:[],programs:[]}
+  var today = new Date(), past = new Date(Date.now()-90*864e5), iso = function(d){ return d.toISOString().slice(0,10) }
+  var pick = function(id, rows, label){ return '<div id="'+id+'" style="max-height:170px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:4px 8px;margin-top:6px">'
+      + (rows.length ? rows.map(function(r){ return '<label style="display:flex;gap:8px;align-items:center;padding:4px 0;font-weight:500;text-transform:none;letter-spacing:0;font-size:13px;cursor:pointer;margin:0">'
+        + '<input type="checkbox" value="'+escHtml(r.id)+'" onchange="svPreview()" style="width:auto"/>'+label(r)+'</label>' }).join('') : '<div style="font-size:12.5px;color:var(--text-muted);padding:4px 0">None found.</div>') + '</div>' }
+  var dt = function(d){ return d ? escHtml(formatDate(d)) : '' }
+  var sub = {
+    event: pick('sv-events', _svs.opts.events, function(e){ return escHtml(e.name)+' <span style="color:var(--text-muted)">· '+dt(e.event_date)+' · '+e.signups+' signed up</span>' })
+      + '<label style="display:flex;gap:8px;align-items:center;margin-top:6px;font-weight:500;text-transform:none;letter-spacing:0;font-size:13px"><input type="checkbox" id="sv-ev-checked" checked onchange="svPreview()" style="width:auto"/> Also people who checked in at the kiosk for it</label>',
+    patrons: '<div style="font-size:12px;color:var(--text-muted);margin-top:6px">Pick shows, or leave all unticked for every patron.</div>' + pick('sv-pat-prods', _svs.opts.productions, function(p){ return escHtml(p.name) })
+      + '<label style="display:flex;gap:8px;align-items:center;margin-top:6px;font-weight:500;text-transform:none;letter-spacing:0;font-size:13px"><input type="checkbox" id="sv-pat-came" onchange="svPreview()" style="width:auto"/> Only people whose tickets were scanned in (they came)</label>',
+    volunteered: '<div style="display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap;font-size:13px">From <input type="date" id="sv-vol-since" value="'+iso(past)+'" onchange="svPreview()" style="width:auto"/> to <input type="date" id="sv-vol-until" value="'+iso(today)+'" onchange="svPreview()" style="width:auto"/></div>',
+    participants: pick('sv-progs', _svs.opts.programs, function(p){ return escHtml(p.name)+' <span style="color:var(--text-muted)">· '+p.registered+' registered</span>' })
+      + '<label style="display:flex;gap:8px;align-items:center;margin-top:6px;font-weight:500;text-transform:none;letter-spacing:0;font-size:13px"><input type="checkbox" id="sv-prog-wait" onchange="svPreview()" style="width:auto"/> Include waitlist and unpaid registrations</label>',
+    cast: pick('sv-cast-prods', _svs.opts.productions, function(p){ return escHtml(p.name) }),
+    volunteers: '',
+    people: '<input id="sv-ppl-q" placeholder="Search by name or email" autocomplete="off" oninput="svFindPeople()" style="margin-top:6px;width:100%;box-sizing:border-box"/><div id="sv-ppl-res"></div><div id="sv-ppl-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px"></div>'
+      + '<textarea id="sv-ppl-emails" rows="2" placeholder="Or paste email addresses, separated by commas or new lines" oninput="svPreview()" style="margin-top:8px;width:100%;box-sizing:border-box"></textarea>'
+  }
+  var s0 = _svs.survey
+  var html = (s0.status!=='open' ? '<div style="background:#fef9c3;border:1px solid #fde047;color:#854d0e;border-radius:8px;padding:8px 12px;font-size:13px;margin-bottom:12px">This survey is <b>'+escHtml(s0.status||'draft')+'</b>. You can preview and send a test, but open it (Edit → Status: Open) before sending to people.</div>' : '')
+    + '<div style="font-weight:700;margin-bottom:6px">Who should get it?</div>'
+    + SV_GROUPS.map(function(g){ return '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px">'
+        + '<label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer;text-transform:none;letter-spacing:0;margin:0"><input type="checkbox" id="sv-g-'+g[0]+'" onchange="svToggle(\''+g[0]+'\')" style="width:auto;margin-top:3px"/>'
+        + '<span><span style="font-weight:700;font-size:14px">'+g[1]+'</span><div style="font-size:12px;color:var(--text-muted);font-weight:400">'+g[2]+'</div></span></label>'
+        + (sub[g[0]] ? '<div id="sv-sub-'+g[0]+'" style="display:none;margin-left:28px">'+sub[g[0]]+'</div>' : '') + '</div>' }).join('')
+    + '<div id="sv-count" style="background:var(--bg);border-radius:10px;padding:10px 12px;margin:12px 0;font-size:13.5px">Pick at least one group.</div>'
+    + '<label style="display:flex;gap:8px;align-items:center;font-weight:500;text-transform:none;letter-spacing:0;font-size:13px;margin-bottom:12px"><input type="checkbox" id="sv-skip" checked onchange="svPreview()" style="width:auto"/> Skip people who were already sent this survey'+(h&&h.invited?' ('+h.invited+' so far)':'')+'</label>'
+    + '<div style="font-weight:700;margin:4px 0 6px">The email</div>'
+    + '<div class="form-group"><label>Subject</label><input id="sv-subj" value="'+escHtml('We’d love your feedback: '+(s0.title||''))+'"/></div>'
+    + '<div class="form-group"><label>Message</label><textarea id="sv-msg" rows="5">'+escHtml('Hi {first_name},\n\nWe’d love to hear what you think. It only takes a few minutes, and your answers help us plan what’s next at Horizon West Theater Company.\n\nThank you!')+'</textarea>'
+    + '<div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">{first_name} becomes each person’s first name. The survey button goes under the message, and an unsubscribe link at the bottom.</div></div>'
+    + '<div class="form-group"><label>Button text</label><input id="sv-btn" value="Take the survey"/></div>'
+    + '<div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-secondary" onclick="svSend(\'test\')">Send me a test</button><button class="btn btn-primary" id="sv-go" onclick="svSend(\'send\')" disabled>Send</button></div>'
+    + (h && h.sends && h.sends.length ? '<div style="font-weight:700;margin:18px 0 6px">Sent before</div>' + h.sends.map(function(x){ return '<div style="font-size:12.5px;padding:5px 0;border-top:1px solid var(--border)">'+escHtml(x.created_at)+' · '+escHtml(x.sent_by||'')+' · '+(x.finished_at?x.sent+' of '+x.recipients+' sent':'sending to '+x.recipients+'…')+'</div>' }).join('') : '')
+  showAdHocModal('sv-send','Send “'+(s0.title||'survey')+'”',html,720)
+}
+function svToggle(k){
+  var on = document.getElementById('sv-g-'+k).checked, sub = document.getElementById('sv-sub-'+k)
+  if(sub) sub.style.display = on ? '' : 'none'
+  svPreview()
+}
+function _svChecked(id){ return Array.from(document.querySelectorAll('#'+id+' input:checked')).map(function(i){ return i.value }) }
+function svGroups(){
+  var g = [], on = function(k){ var e = document.getElementById('sv-g-'+k); return e && e.checked }
+  if(on('event')) g.push({type:'event', event_ids:_svChecked('sv-events'), include_checked_in: document.getElementById('sv-ev-checked').checked})
+  if(on('patrons')) g.push({type:'patrons', production_ids:_svChecked('sv-pat-prods'), attended_only: document.getElementById('sv-pat-came').checked})
+  if(on('volunteered')) g.push({type:'volunteered', since: document.getElementById('sv-vol-since').value, until: document.getElementById('sv-vol-until').value})
+  if(on('participants')) g.push({type:'participants', program_ids:_svChecked('sv-progs'), include_waitlist: document.getElementById('sv-prog-wait').checked})
+  if(on('cast')) g.push({type:'cast', production_ids:_svChecked('sv-cast-prods')})
+  if(on('volunteers')) g.push({type:'volunteers'})
+  if(on('people')) g.push({type:'people', people:_svs.people, emails_text: document.getElementById('sv-ppl-emails').value})
+  return g
+}
+function svPreview(){
+  clearTimeout(_svs.prevT)
+  _svs.prevT = setTimeout(async function(){
+    var el = document.getElementById('sv-count'); if(!el) return
+    var groups = svGroups(), go = document.getElementById('sv-go')
+    if(!groups.length){ el.innerHTML = 'Pick at least one group.'; go.disabled = true; go.textContent = 'Send'; return }
+    el.innerHTML = 'Counting…'
+    var r = await api('/api/surveys/'+_svs.sid+'/send','POST',{mode:'preview', groups:groups, skip_sent: document.getElementById('sv-skip').checked})
+    if(r.error){ el.innerHTML = '<span style="color:#991b1b">'+escHtml(r.error)+'</span>'; return }
+    _svs.last = r
+    var extra = []
+    if(r.skipped_unsubscribed) extra.push(r.skipped_unsubscribed+' unsubscribed')
+    if(r.skipped_already_sent) extra.push(r.skipped_already_sent+' already sent this survey')
+    el.innerHTML = '<b style="font-size:16px">'+r.count+'</b> '+(r.count===1?'person':'people')+' will get it'+(extra.length?' <span style="color:var(--text-muted)">(skipping '+extra.join(', ')+')</span>':'')+'.'
+      + (r.count ? ' <a href="#" onclick="event.preventDefault();svShowList()">See who</a><div id="sv-list" style="display:none;max-height:200px;overflow:auto;margin-top:8px"></div>' : '')
+    go.disabled = !r.count; go.textContent = r.count ? 'Send to '+r.count+' '+(r.count===1?'person':'people') : 'Send'
+  }, 350)
+}
+function svShowList(){
+  var el = document.getElementById('sv-list'); if(!el || !_svs.last) return
+  el.style.display = el.style.display === 'none' ? '' : 'none'
+  el.innerHTML = (_svs.last.people||[]).map(function(p){ return '<div style="font-size:12.5px;padding:3px 0;border-top:1px solid var(--border)"><b>'+escHtml(p.name||p.email)+'</b> <span style="color:var(--text-muted)">'+escHtml(p.email)+' · '+escHtml(p.groups.join('; '))+'</span></div>' }).join('')
+    + (_svs.last.count > (_svs.last.people||[]).length ? '<div style="font-size:12px;color:var(--text-muted);padding-top:4px">…and '+(_svs.last.count-_svs.last.people.length)+' more</div>' : '')
+}
+var _svFindT = null
+function svFindPeople(){
+  clearTimeout(_svFindT)
+  _svFindT = setTimeout(async function(){
+    var q = document.getElementById('sv-ppl-q').value.trim(), box = document.getElementById('sv-ppl-res')
+    if(q.length < 2){ box.innerHTML = ''; return }
+    var r = await api('/api/survey-audience/people?q='+encodeURIComponent(q))
+    box.innerHTML = (Array.isArray(r) && r.length) ? '<div style="border:1px solid var(--border);border-radius:8px;margin-top:4px">' + r.map(function(p,i){
+        return '<div onclick="svAddPerson('+i+')" style="padding:7px 10px;cursor:pointer;font-size:13px;border-top:'+(i?'1px solid var(--border)':'0')+'"><b>'+escHtml(p.name||p.email)+'</b> <span style="color:var(--text-muted)">'+escHtml(p.email)+' · '+escHtml(p.kind)+'</span></div>' }).join('') + '</div>'
+      : '<div style="font-size:12.5px;color:var(--text-muted);margin-top:4px">No one found.</div>'
+    _svs.found = Array.isArray(r) ? r : []
+  }, 250)
+}
+function svAddPerson(i){
+  var p = (_svs.found||[])[i]; if(!p) return
+  if(!_svs.people.some(function(x){ return x.email.toLowerCase()===p.email.toLowerCase() })) _svs.people.push({name:p.name, email:p.email})
+  document.getElementById('sv-ppl-q').value = ''; document.getElementById('sv-ppl-res').innerHTML = ''
+  svChips(); svPreview()
+}
+function svRemovePerson(i){ _svs.people.splice(i,1); svChips(); svPreview() }
+function svChips(){
+  document.getElementById('sv-ppl-chips').innerHTML = _svs.people.map(function(p,i){
+    return '<span style="background:var(--teal-light);color:var(--teal-dark);border-radius:999px;padding:3px 6px 3px 10px;font-size:12.5px;font-weight:600">'+escHtml(p.name||p.email)
+      + ' <button onclick="svRemovePerson('+i+')" style="border:0;background:none;cursor:pointer;color:inherit;font-weight:800" aria-label="Remove">×</button></span>' }).join('')
+}
+async function svSend(mode){
+  var body = {mode:mode, groups:svGroups(), skip_sent: document.getElementById('sv-skip').checked,
+    subject: document.getElementById('sv-subj').value, message: document.getElementById('sv-msg').value, button: document.getElementById('sv-btn').value}
+  if(mode==='send'){
+    var n = (_svs.last||{}).count || 0
+    if(!confirm('Email this survey to '+n+' '+(n===1?'person':'people')+' now?')) return
+  }
+  var r = await api('/api/surveys/'+_svs.sid+'/send','POST',body)
+  if(r.error){ toast(r.error,'error'); return }
+  if(mode==='test'){ toast(r.ok ? 'Test sent to '+r.to : 'Test failed', r.ok?'success':'error'); return }
+  toast('Sending to '+r.sending+' '+(r.sending===1?'person':'people'),'success')
+  closeAdHocModal('sv-send')
 }
 
 function copySurveyLink(slug){

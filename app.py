@@ -3912,6 +3912,12 @@ def init_db():
             id TEXT PRIMARY KEY, start_date DATE NOT NULL, end_date DATE NOT NULL, greeting TEXT NOT NULL,
             label TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
+        # Artistic Partner check-in / check-out at the kiosk
+        """CREATE TABLE IF NOT EXISTS partner_visit_logs (
+            id TEXT PRIMARY KEY, occurrence_id TEXT UNIQUE, request_id TEXT, day DATE, partner_name TEXT DEFAULT '',
+            title TEXT DEFAULT '', person_name TEXT DEFAULT '', person_phone TEXT DEFAULT '',
+            checked_in_at TIMESTAMP, checked_out_at TIMESTAMP, open_responses TEXT DEFAULT '[]', close_responses TEXT DEFAULT '[]',
+            alert_sent BOOLEAN DEFAULT FALSE, created_at TIMESTAMP DEFAULT NOW())""",
         # Surveys sent by email to chosen groups, and who got each one
         """CREATE TABLE IF NOT EXISTS survey_sends (
             id TEXT PRIMARY KEY, survey_id TEXT NOT NULL, subject TEXT, message TEXT, groups TEXT DEFAULT '[]',
@@ -4032,6 +4038,9 @@ SECTION_ROUTE_PERMS = {
     'get_notifications': (['notifications'], ['notifications']),
     # instructor open/close checklists
     'instructor_day_log_detail': (['event_logs', 'kiosk'], ['event_logs', 'kiosk']),
+    'partner_visit_logs_list': (['event_logs', 'rentals'], ['event_logs', 'rentals']),
+    'partner_visit_log_detail': (['event_logs', 'rentals'], ['event_logs', 'rentals']),
+    'partner_visit_log_email': (['event_logs', 'rentals'], ['event_logs', 'rentals']),
     'instructor_day_log_email': (['event_logs', 'kiosk'], ['event_logs', 'kiosk']),
     # donors (main page) — also hosts the Benefit Tracker
     **{fn: (['donors'], ['donors']) for fn in (
@@ -14597,7 +14606,17 @@ def dashboard_widget(key):
                 flags = _idl_flag_count(r)
                 if flags or (r.get('opened_at') and not r.get('closed_at')):
                     out.append({'id': r['id'], 'day': str(r['day'])[:10], 'name': r['name'], 'flags': flags,
-                                'closed': bool(r.get('closed_at'))})
+                                'closed': bool(r.get('closed_at')), 'kind': 'instructor'})
+            try:
+                for r in fetchall(conn, """SELECT id, day, title, checked_in_at, checked_out_at, open_responses, close_responses
+                        FROM partner_visit_logs WHERE day >= (NOW() AT TIME ZONE 'America/New_York')::date - 7 ORDER BY day DESC""") or []:
+                    flags = _idl_flag_count(r)
+                    if flags or (r.get('checked_in_at') and not r.get('checked_out_at')):
+                        out.append({'id': r['id'], 'day': str(r['day'])[:10], 'name': r.get('title') or '', 'flags': flags,
+                                    'closed': bool(r.get('checked_out_at')), 'kind': 'partner'})
+            except Exception:
+                conn.rollback()
+            out.sort(key=lambda x: x['day'], reverse=True)
             return jsonify({'items': out})
         return jsonify({'ok': True})   # widgets drawn from data the page already has
     finally:
@@ -16328,6 +16347,381 @@ def instructor_day_log_email(log_id):
     if not ok:
         return jsonify({'error': e or 'Email failed'}), 400
     return jsonify({'ok': True})
+
+
+# ─────────────────────────────────────────────
+# Artistic Partner check-in / check-out at the kiosk
+#
+# A partner using the building for a booking (with no ELIC there) checks in
+# at the kiosk when they arrive and checks out when they leave, ticking a
+# short checklist each time (lights, thermostat, front door locked). It
+# gives us a record of who was here, and when, for every booking. If they
+# checked in but never checked out, Slack and the report recipients hear
+# about it an hour after the booking ends (the door may be unlocked).
+# ─────────────────────────────────────────────
+PARTNER_CHECKLIST_DEFAULTS = {
+    'open': ['The space looks the way we expected (nothing damaged or out of place)'],
+    'close': ['Everyone from our group has left', 'Lights off', 'Thermostat set back',
+              'Front door locked (check it from outside)'],
+}
+_PARTNER_ACTIVE_STATUSES_SQL = "COALESCE(r.status,'') NOT IN ('denied','cancelled','canceled','declined','pending','archived','draft')"
+
+
+def _partner_items(conn):
+    raw = _setting(conn, 'partner_checklist', '')
+    try:
+        d = json.loads(raw) if raw else {}
+    except Exception:
+        d = {}
+    return {'open': d.get('open') or PARTNER_CHECKLIST_DEFAULTS['open'],
+            'close': d.get('close') or PARTNER_CHECKLIST_DEFAULTS['close']}
+
+
+def _partner_code_ok(req_code, given):
+    want = (req_code or '').strip().lower()
+    if not want:
+        return True   # no door code set on the booking: nothing to check
+    return want == (given or '').strip().lower()
+
+
+def _partner_occurrence(conn, occ_id):
+    return fetchone(conn, f'''SELECT o.id, o.request_id, o.occurrence_date, COALESCE(NULLIF(o.start_time,''), r.start_time) AS start_time,
+            COALESCE(NULLIF(o.end_time,''), r.end_time) AS end_time, r.title, r.door_code, r.hwtc_contact_name, r.hwtc_contact_phone,
+            COALESCE(p.name,'') AS partner, COALESCE(s.name,'') AS space
+        FROM rental_occurrences o JOIN rental_requests r ON r.id=o.request_id
+        LEFT JOIN rental_partners p ON p.id=r.partner_id LEFT JOIN rental_spaces s ON s.id=r.space_id
+        WHERE o.id=%s AND COALESCE(o.status,'') NOT IN ('cancelled','canceled') AND {_PARTNER_ACTIVE_STATUSES_SQL}''', (occ_id,))
+
+
+@app.route('/api/kiosk/partner/today')
+def kiosk_partner_today():
+    """Today's bookings, for the kiosk's Artistic Partner button."""
+    conn = get_db()
+    try:
+        day = today_eastern().isoformat()
+        rows = fetchall(conn, f'''SELECT o.id, COALESCE(NULLIF(o.start_time,''), r.start_time) AS start_time,
+                COALESCE(NULLIF(o.end_time,''), r.end_time) AS end_time, r.title, COALESCE(p.name,'') AS partner,
+                COALESCE(s.name,'') AS space, COALESCE(r.door_code,'') <> '' AS needs_code,
+                l.checked_in_at, l.checked_out_at, l.person_name
+            FROM rental_occurrences o JOIN rental_requests r ON r.id=o.request_id
+            LEFT JOIN rental_partners p ON p.id=r.partner_id LEFT JOIN rental_spaces s ON s.id=r.space_id
+            LEFT JOIN partner_visit_logs l ON l.occurrence_id=o.id
+            WHERE o.occurrence_date=%s AND COALESCE(o.status,'') NOT IN ('cancelled','canceled') AND {_PARTNER_ACTIVE_STATUSES_SQL}
+            ORDER BY 2''', (day,)) or []
+        items = _partner_items(conn)
+    finally:
+        conn.close()
+    return jsonify({'bookings': [{'id': r['id'], 'title': r['title'], 'partner': r['partner'], 'space': r['space'],
+                                  'start_time': r['start_time'] or '', 'end_time': r['end_time'] or '',
+                                  'needs_code': bool(r['needs_code']), 'checked_in': bool(r.get('checked_in_at')),
+                                  'checked_out': bool(r.get('checked_out_at')), 'person_name': r.get('person_name') or ''}
+                                 for r in rows],
+                    'open_items': items['open'], 'close_items': items['close']})
+
+
+@app.route('/api/kiosk/partner/<which>', methods=['POST'])
+def kiosk_partner_submit(which):
+    if which not in ('checkin', 'checkout'):
+        return jsonify({'error': 'Unknown'}), 404
+    d = request.json or {}
+    conn = get_db()
+    try:
+        occ = _partner_occurrence(conn, d.get('occurrence_id'))
+        if not occ:
+            return jsonify({'error': 'That booking isn’t on today’s schedule.'}), 404
+        if not _partner_code_ok(occ.get('door_code'), d.get('code')):
+            return jsonify({'error': 'That code doesn’t match this booking.', 'bad_code': True}), 403
+        responses = (d.get('responses') or [])[:20]
+        log = fetchone(conn, 'SELECT * FROM partner_visit_logs WHERE occurrence_id=%s', (occ['id'],))
+        if which == 'checkin':
+            name = (d.get('person_name') or '').strip()[:120]
+            if not name:
+                return jsonify({'error': 'Please enter your name.'}), 400
+            if log and log.get('checked_in_at'):
+                return jsonify({'ok': True, 'already': True})
+            execute(conn, '''INSERT INTO partner_visit_logs (id, occurrence_id, request_id, day, partner_name, title, person_name, person_phone,
+                    checked_in_at, open_responses) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,NOW(),%s)
+                ON CONFLICT (occurrence_id) DO UPDATE SET person_name=EXCLUDED.person_name, person_phone=EXCLUDED.person_phone,
+                    checked_in_at=NOW(), open_responses=EXCLUDED.open_responses''',
+                (str(uuid.uuid4()), occ['id'], occ['request_id'], occ['occurrence_date'], occ['partner'], occ['title'], name,
+                 (d.get('person_phone') or '').strip()[:40], json.dumps(responses)))
+            conn.commit()
+            return jsonify({'ok': True})
+        # checkout (also works if they forgot to check in)
+        note = (d.get('note') or '').strip()[:1000]
+        if note:
+            responses = responses + [{'item': 'Anything we should know?', 'type': 'text', 'response': note}]
+        if not log:
+            execute(conn, '''INSERT INTO partner_visit_logs (id, occurrence_id, request_id, day, partner_name, title, person_name, person_phone)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', (str(uuid.uuid4()), occ['id'], occ['request_id'], occ['occurrence_date'], occ['partner'],
+                occ['title'], (d.get('person_name') or '').strip()[:120], (d.get('person_phone') or '').strip()[:40]))
+        execute(conn, 'UPDATE partner_visit_logs SET checked_out_at=NOW(), close_responses=%s WHERE occurrence_id=%s',
+                (json.dumps(responses), occ['id']))
+        conn.commit()
+        log = fetchone(conn, 'SELECT id FROM partner_visit_logs WHERE occurrence_id=%s', (occ['id'],))
+    finally:
+        conn.close()
+    try:
+        send_partner_visit_report(log['id'])
+    except Exception as e:
+        app.logger.warning(f'partner visit report email failed: {e}')
+    return jsonify({'ok': True})
+
+
+def _partner_visit_detail(conn, log_id):
+    r = fetchone(conn, '''SELECT l.*, COALESCE(NULLIF(o.start_time,''), rq.start_time) AS start_time,
+            COALESCE(NULLIF(o.end_time,''), rq.end_time) AS end_time
+        FROM partner_visit_logs l LEFT JOIN rental_occurrences o ON o.id=l.occurrence_id
+        LEFT JOIN rental_requests rq ON rq.id=l.request_id WHERE l.id=%s''', (log_id,))
+    if not r:
+        return None
+    return {'id': r['id'], 'request_id': r.get('request_id'), 'title': r.get('title') or '', 'partner': r.get('partner_name') or '',
+            'day': str(r.get('day') or '')[:10], 'person_name': r.get('person_name') or '', 'person_phone': r.get('person_phone') or '',
+            'booked': ' – '.join(x for x in (r.get('start_time') or '', r.get('end_time') or '') if x),
+            'checked_in_at': _idl_time(r.get('checked_in_at')), 'checked_out_at': _idl_time(r.get('checked_out_at')),
+            'open': _idl_answers(r.get('open_responses')), 'close': _idl_answers(r.get('close_responses'))}
+
+
+def send_partner_visit_report(log_id, reason=''):
+    from html import escape as E
+    conn = get_db()
+    try:
+        d = _partner_visit_detail(conn, log_id)
+    finally:
+        conn.close()
+    if not d:
+        return False, 'Not found'
+    recipients = get_recipient_emails(get_email_settings())
+    if not recipients:
+        return False, 'No report recipients configured in Email Settings'
+    def table(title, rows):
+        if not rows:
+            return f'<p style="color:#888;font-size:13px"><em>No {title.lower()} recorded.</em></p>'
+        body = ''.join(f'''<tr><td style="padding:7px 12px;border-bottom:1px solid #eee;vertical-align:top">{E(a['label'])}</td>
+            <td style="padding:7px 12px;border-bottom:1px solid #eee;font-weight:600;color:{a['color']};white-space:pre-wrap">{E(a['text'])}</td></tr>''' for a in rows)
+        return f'''<h3 style="color:#145466;font-size:14px;margin:18px 0 6px">{title}</h3>
+            <table style="width:100%;border-collapse:collapse;border:1px solid #e0e0db;font-size:13px"><tbody>{body}</tbody></table>'''
+    flags = [a for a in d['open'] + d['close'] if a['flag']]
+    import datetime as _d
+    try: day_lbl = _d.date.fromisoformat(d['day']).strftime('%A, %B %-d')
+    except Exception: day_lbl = d['day']
+    warn = reason or ('' if d['checked_out_at'] else 'They checked in but haven’t checked out. The building may not be locked.')
+    html = f'''<div style="font-family:-apple-system,Segoe UI,sans-serif;max-width:640px">
+        <h2 style="color:#0d3d4d;margin:0 0 4px">Partner visit: {E(d['title'])}</h2>
+        <div style="color:#555;font-size:14px">{E(d['partner'])} · {E(day_lbl)}{(' · booked ' + E(d['booked'])) if d['booked'] else ''}</div>
+        <div style="color:#555;font-size:14px;margin-top:2px">{E(d['person_name'] or 'Someone')}{(' (' + E(d['person_phone']) + ')') if d['person_phone'] else ''}
+            · checked in {E(d['checked_in_at'] or 'not recorded')} · checked out {E(d['checked_out_at'] or 'not yet')}</div>
+        {('<div style="margin-top:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;color:#991b1b;font-size:13px"><b>' + E(warn) + '</b></div>') if warn else ''}
+        {('<div style="margin-top:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 12px;color:#991b1b;font-size:13px"><b>Needs a look:</b> ' + E(', '.join(a['label'] for a in flags)) + '</div>') if flags else ''}
+        {table('Check-in', d['open'])}{table('Check-out', d['close'])}
+        <p style="color:#888;font-size:12px;margin-top:16px">Also in RoleCall under Event Logs.</p></div>'''
+    subj = (f"Partner not checked out: {d['title']} · {day_lbl}" if not d['checked_out_at']
+            else f"Partner checked out: {d['title']} · {day_lbl}" + (' (needs a look)' if flags else ''))
+    return send_email(recipients, subj, html, source='partner_visit_report')
+
+
+def partner_visit_watch():
+    """Every half hour: an hour after a booking's end time, flag a partner
+    who checked in but never checked out (Slack + email, once)."""
+    import datetime as _d
+    from zoneinfo import ZoneInfo as _Z
+    now = _d.datetime.now(_Z('America/New_York'))
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT l.id, l.title, l.partner_name, l.person_name, l.person_phone, l.day,
+                COALESCE(NULLIF(o.end_time,''), r.end_time) AS end_time, r.hwtc_contact_name
+            FROM partner_visit_logs l LEFT JOIN rental_occurrences o ON o.id=l.occurrence_id LEFT JOIN rental_requests r ON r.id=l.request_id
+            WHERE l.checked_in_at IS NOT NULL AND l.checked_out_at IS NULL AND COALESCE(l.alert_sent, FALSE)=FALSE
+              AND l.day >= %s''', ((now.date() - _d.timedelta(days=2)).isoformat(),)) or []
+        for r in rows:
+            try:
+                end = _d.datetime.strptime(str(r['day'])[:10] + ' ' + ((r.get('end_time') or '23:00')[:5]), '%Y-%m-%d %H:%M').replace(tzinfo=_Z('America/New_York'))
+            except Exception:
+                end = _d.datetime.strptime(str(r['day'])[:10] + ' 23:00', '%Y-%m-%d %H:%M').replace(tzinfo=_Z('America/New_York'))
+            if now < end + _d.timedelta(hours=1):
+                continue
+            execute(conn, 'UPDATE partner_visit_logs SET alert_sent=TRUE WHERE id=%s', (r['id'],)); conn.commit()
+            who = (r.get('person_name') or 'Someone') + (f" ({fmt_phone(r['person_phone'])})" if r.get('person_phone') else '')
+            post_to_slack_calls([{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                f":warning: *Partner didn’t check out:* {r['title']} ({r.get('partner_name') or 'partner'}). {who} checked in but never checked out, "
+                f"and the booking ended at {_idl_time(end.replace(tzinfo=None).isoformat())}. The building may not be locked; can someone check?"
+                + (f" HWTC contact: {r['hwtc_contact_name']}." if r.get('hwtc_contact_name') else '')}}],
+                text=f"Partner didn't check out: {r['title']}")
+            try:
+                send_partner_visit_report(r['id'])
+            except Exception as e:
+                app.logger.warning(f'partner not-checked-out email failed: {e}')
+    except Exception as e:
+        app.logger.warning(f'partner visit watch failed: {e}')
+    finally:
+        conn.close()
+
+
+def _watch_time(t, default='23:00'):
+    """'19:30' or '7:30 PM' -> (19, 30)."""
+    import re as _re
+    m = _re.match(r'\s*(\d{1,2}):(\d{2})\s*([AaPp][Mm])?', str(t or ''))
+    if not m:
+        m = _re.match(r'(\d{1,2}):(\d{2})', default)
+        return int(m.group(1)), int(m.group(2))
+    h, mi = int(m.group(1)), int(m.group(2))
+    ap = (m.group(3) or '').lower()
+    if ap == 'pm' and h < 12: h += 12
+    if ap == 'am' and h == 12: h = 0
+    return h, mi
+
+
+def _not_closed_alert(conn, key, slack_text, email_subject, email_html):
+    """Send one Slack post + email per thing, never twice."""
+    if _setting(conn, key):
+        return
+    _set_setting(conn, key, '1'); conn.commit()
+    post_to_slack_calls([{'type': 'section', 'text': {'type': 'mrkdwn', 'text': slack_text}}], text=email_subject)
+    try:
+        rc = get_recipient_emails(get_email_settings())
+        if rc:
+            send_email(rc, email_subject, email_html, source='not_closed_alert')
+    except Exception as e:
+        app.logger.warning(f'not-closed email failed: {e}')
+
+
+def not_closed_watch():
+    """Every half hour: anything opened at the kiosk but not closed an hour
+    after it should have ended gets one Slack post and one email, because the
+    building may not be locked.
+      - ELIC events: opened, not closed, an hour past the event's end time
+      - Instructor days: opened, not closed, an hour after their last lesson
+        session ended (and they have no session still running)
+      - Artistic Partner visits: checked in, not checked out, an hour past
+        the booking's end (partner_visit_watch)"""
+    import datetime as _d
+    from zoneinfo import ZoneInfo as _Z
+    from html import escape as E
+    tz = _Z('America/New_York')
+    now = _d.datetime.now(tz)
+    try:
+        partner_visit_watch()
+    except Exception as e:
+        app.logger.warning(f'partner watch failed: {e}')
+    conn = get_db()
+    try:
+        since = (now.date() - _d.timedelta(days=1)).isoformat()
+        # ELIC events whose latest log is an open
+        rows = fetchall(conn, '''SELECT e.id, e.name, e.event_date, e.end_time, l.id AS log_id, l.timestamp AS opened_at,
+                COALESCE(NULLIF(l.actor_name,''), v.name, 'An ELIC') AS opener
+            FROM events e JOIN event_logs l ON l.event_id=e.id
+            LEFT JOIN elics el ON el.id=l.elic_id LEFT JOIN volunteers v ON v.id=el.volunteer_id
+            WHERE l.action='open' AND e.event_date >= %s
+              AND l.timestamp = (SELECT MAX(timestamp) FROM event_logs x WHERE x.event_id=e.id)''', (since,)) or []
+        for r in rows:
+            h, m = _watch_time(r.get('end_time'))
+            try:
+                end = _d.datetime.strptime(str(r['event_date'])[:10], '%Y-%m-%d').replace(hour=h, minute=m, tzinfo=tz)
+            except Exception:
+                continue
+            if now < end + _d.timedelta(hours=1):
+                continue
+            opened = _idl_time(r.get('opened_at'))
+            ends = end.strftime('%-I:%M %p')
+            _not_closed_alert(conn, f"notclosed:event:{r['log_id']}",
+                f":warning: *Event not closed:* {r['name']}. {r['opener']} opened it at {opened}; it was scheduled to end at {ends}. "
+                f"Nobody has closed it at the kiosk, so the building may not be locked. Can someone check?",
+                f"Event not closed: {r['name']}",
+                f"<p><b>{E(r['name'])}</b> was opened at the kiosk by {E(r['opener'])} at {E(opened or '')} and was scheduled to end at {E(ends)}.</p>"
+                f"<p>Nobody has closed it, so the closing checklist wasn't done and the building may not be locked. Please check, and have the ELIC close it at the kiosk.</p>")
+        # Instructor days opened but not closed
+        days = fetchall(conn, '''SELECT l.id, l.volunteer_id, l.day, l.opened_at, v.name, v.phone FROM instructor_day_logs l
+            JOIN volunteers v ON v.id=l.volunteer_id
+            WHERE l.opened_at IS NOT NULL AND l.closed_at IS NULL AND l.day >= %s''', (since,)) or []
+        for r in days:
+            active = fetchone(conn, "SELECT 1 AS x FROM kiosk_sessions WHERE volunteer_id=%s AND ended_at IS NULL AND started_at::date=%s LIMIT 1",
+                              (r['volunteer_id'], str(r['day'])[:10]))
+            if active:
+                continue
+            last = fetchone(conn, 'SELECT MAX(ended_at) AS t FROM kiosk_sessions WHERE volunteer_id=%s AND started_at::date=%s',
+                            (r['volunteer_id'], str(r['day'])[:10])) or {}
+            ref = last.get('t') or r.get('opened_at')
+            if isinstance(ref, str):
+                try: ref = _d.datetime.fromisoformat(ref.replace('Z', ''))
+                except Exception: continue
+            if not ref:
+                continue
+            ref = ref.replace(tzinfo=tz) if ref.tzinfo is None else ref
+            if now < ref + _d.timedelta(hours=1):
+                continue
+            who = r['name'] + (f" ({fmt_phone(r['phone'])})" if r.get('phone') else '')
+            _not_closed_alert(conn, f"notclosed:iday:{r['id']}",
+                f":warning: *Instructor didn’t close up:* {who} opened the building at {_idl_time(r.get('opened_at'))} "
+                f"and their last lesson ended at {_idl_time(last.get('t')) or 'an unknown time'}, but they never did the closing checklist. "
+                f"The building may not be locked. Can someone check?",
+                f"Instructor didn't close up: {r['name']}",
+                f"<p><b>{E(r['name'])}</b> opened the building at {E(_idl_time(r.get('opened_at')) or '')} and their last lesson ended at "
+                f"{E(_idl_time(last.get('t')) or 'an unknown time')}, but they never did the closing checklist.</p><p>The building may not be locked. Please check.</p>")
+    except Exception as e:
+        app.logger.warning(f'not-closed watch failed: {e}')
+    finally:
+        conn.close()
+
+
+@app.route('/api/partner-visit-logs')
+def partner_visit_logs_list():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        rows = fetchall(conn, '''SELECT id, title, partner_name, person_name, day, checked_in_at, checked_out_at, open_responses, close_responses
+            FROM partner_visit_logs ORDER BY day DESC, checked_in_at DESC NULLS LAST LIMIT 120''') or []
+    finally:
+        conn.close()
+    for r in rows:
+        r['day'] = str(r['day'])[:10]
+        r['checked_in_at'] = _idl_time(r.get('checked_in_at')); r['checked_out_at'] = _idl_time(r.get('checked_out_at'))
+        r['flags'] = _idl_flag_count(r)
+        r.pop('open_responses', None); r.pop('close_responses', None)
+    return jsonify({'logs': rows})
+
+
+@app.route('/api/partner-visit-logs/<log_id>')
+def partner_visit_log_detail(log_id):
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        d = _partner_visit_detail(conn, log_id)
+    finally:
+        conn.close()
+    if not d:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(d)
+
+
+@app.route('/api/partner-visit-logs/<log_id>/email', methods=['POST'])
+def partner_visit_log_email(log_id):
+    err = require_auth()
+    if err: return err
+    ok, e = send_partner_visit_report(log_id)
+    if not ok:
+        return jsonify({'error': e or 'Email failed'}), 400
+    return jsonify({'ok': True})
+
+
+@app.route('/api/partner-checklist', methods=['GET', 'PUT'])
+def partner_checklist_items():
+    err = require_auth()
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'PUT':
+            if session.get('role') != 'admin':
+                return jsonify({'error': 'Admins only'}), 403
+            d = request.json or {}
+            clean = lambda xs: [str(x).strip()[:160] for x in (xs or []) if str(x).strip()][:12]
+            _set_setting(conn, 'partner_checklist', json.dumps({'open': clean(d.get('open')), 'close': clean(d.get('close'))}))
+            conn.commit()
+        return jsonify(_partner_items(conn))
+    finally:
+        conn.close()
+
 
 
 @app.route('/api/kiosk/paid-instruction-login', methods=['POST'])
@@ -36333,6 +36727,10 @@ def _start_oncall_scheduler():
         # Nightly RC Crash Report (PDF emailed + saved to Drive)
         scheduler.add_job(lambda: run_emergency_snapshot('schedule'), CronTrigger(hour=3, minute=30),
                           id='rc_crash_report', max_instances=1, coalesce=True, misfire_grace_time=3600)
+        # Anything opened at the kiosk but not closed an hour after it should have ended:
+        # ELIC events, instructor days, Artistic Partner visits
+        scheduler.add_job(not_closed_watch, CronTrigger(minute='10,40'),
+                          id='not_closed_watch', max_instances=1, coalesce=True, misfire_grace_time=900)
         # After a closure ends, hand what came in while closed to whoever's on call
         scheduler.add_job(closure_catchup, CronTrigger(minute='5,35'),
                           id='closure_catchup', max_instances=1, coalesce=True, misfire_grace_time=900)

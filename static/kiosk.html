@@ -195,6 +195,14 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
 .conf-bar-wrap{width:100%;height:6px;background:var(--border);border-radius:3px;overflow:hidden}
 .conf-bar{height:100%;background:var(--teal);border-radius:3px;transition:width 0.1s linear}
 .conf-done{margin-top:16px;background:none;border:none;color:var(--muted);font-family:inherit;font-size:14px;cursor:pointer;text-decoration:underline}
+
+/* line icons (menus) */
+.kic{fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;width:44px;height:44px;display:block}
+.role-icon,.menu-icon{display:flex;align-items:center;justify-content:center;line-height:1}
+.role-btn.vol .role-icon{color:var(--teal)}.role-btn.elic .role-icon{color:#6d28d9}
+.menu-btn.t .menu-icon{color:var(--teal)}.menu-btn.g .menu-icon{color:#15803d}.menu-btn.p .menu-icon{color:#6d28d9}.menu-btn.a .menu-icon{color:#b45309}
+#begin-vol-btn .menu-icon{color:#fff}
+.idle-svc{display:inline-flex;align-items:center;gap:5px}.idle-svc .kic{display:inline-block}
 </style>
 </head>
 <body>
@@ -208,10 +216,10 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   <button class="idle-btn">Check-In</button>
   <div class="idle-sub">Tap anywhere to get started</div>
   <div class="idle-services">
-    <div class="idle-svc"> Log Hours</div>
-    <div class="idle-svc"> Sign Waivers</div>
-    <div class="idle-svc"> Update Info</div>
-    <div class="idle-svc"> ELIC Login</div>
+    <div class="idle-svc"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true" style="width:14px;height:14px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> Log Hours</div>
+    <div class="idle-svc"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true" style="width:14px;height:14px"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M7 17c1.5-2.2 3-2.2 4 0s2.5 2.2 4 0"/></svg> Sign Waivers</div>
+    <div class="idle-svc"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true" style="width:14px;height:14px"><circle cx="10" cy="7" r="4"/><path d="M10.5 15H7a4 4 0 0 0-4 4v2"/><path d="M16.5 21l-1.5.4.4-1.5 5-5a1.06 1.06 0 0 1 1.5 1.5z"/></svg> Update Info</div>
+    <div class="idle-svc"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true" style="width:14px;height:14px"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5l3 3L22 7l-3-3"/></svg> ELIC Login</div>
   </div>
   <a href="/" class="admin-link" onclick="event.stopPropagation()">Admin Login →</a>
 </div>
@@ -225,21 +233,36 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   </div>
   <div class="role-grid">
     <button class="role-btn vol" onclick="goVolSearch()">
-      <div class="role-icon"></div>
+      <div class="role-icon"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><polyline points="16 11 18 13 22 9"/></svg></div>
       <div class="role-label">Check-In</div>
       <div class="role-desc">Log hours, sign waivers, update info</div>
     </button>
     <button class="role-btn elic" onclick="goElicPin()">
-      <div class="role-icon"></div>
+      <div class="role-icon"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5l3 3L22 7l-3-3"/></svg></div>
       <div class="role-label">Event Lead</div>
       <div class="role-desc">Open or close an event (ELIC)</div>
     </button>
     <button class="role-btn elic" onclick="goPaidInstructionPin()">
-      <div class="role-icon"></div>
+      <div class="role-icon"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/><path d="M22 10v6"/></svg></div>
       <div class="role-label">Paid Instruction</div>
       <div class="role-desc">Enter your instructor code</div>
     </button>
+    <button class="role-btn elic" onclick="goPartner()">
+      <div class="role-icon"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true"><path d="M13 4h3a2 2 0 0 1 2 2v14"/><path d="M2 20h3"/><path d="M13 20h9"/><path d="M10 12v.01"/><path d="M13 4.56v16.16a1 1 0 0 1-1.24.97L5 20V5.56a2 2 0 0 1 1.52-1.94l4-1A2 2 0 0 1 13 4.56z"/></svg></div>
+      <div class="role-label">Artistic Partner</div>
+      <div class="role-desc">Check in or out for your booking</div>
+    </button>
   </div>
+</div>
+
+<!-- ARTISTIC PARTNER: today's bookings -->
+<div class="screen hidden" id="screen-partner">
+  <button class="back-btn" onclick="showScreen('screen-role')">← Back</button>
+  <div class="screen-heading">
+    <div class="screen-title">Artistic Partner</div>
+    <div class="screen-sub">Tap your booking to check in when you arrive, and again to check out when you leave</div>
+  </div>
+  <div id="pk-list" style="width:100%;max-width:580px"></div>
 </div>
 
 <!-- VOLUNTEER SEARCH -->
@@ -301,27 +324,27 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   </div>
   <div class="menu-grid" id="vol-menu-grid">
     <button class="menu-btn" style="background:linear-gradient(135deg,#166534,#16a34a);color:#fff;grid-column:1/-1;padding:28px 20px" onclick="kioskAction(goBeginVolunteering)" id="begin-vol-btn">
-      <div class="menu-icon" style="font-size:40px" id="begin-vol-icon"></div>
+      <div class="menu-icon" id="begin-vol-icon"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="14" r="8"/><path d="M12 10v4l2.5 2.5"/><path d="M10 2h4"/><path d="M19 6l1.5-1.5"/></svg></div>
       <div class="menu-label" style="color:#fff;font-size:22px" id="begin-vol-label">Begin Volunteering</div>
       <div class="menu-desc" style="color:rgba(255,255,255,0.85);font-size:15px" id="begin-vol-desc">Tap here to start your session timer</div>
     </button>
     <button class="menu-btn t" onclick="kioskAction(goEventSelect)">
-      <div class="menu-icon"></div>
+      <div class="menu-icon"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div>
       <div class="menu-label">Log Hours</div>
       <div class="menu-desc">Manually enter time for an event</div>
     </button>
     <button class="menu-btn g" id="waiver-menu-btn" onclick="kioskAction(()=>goWaiverCheck(true))">
-      <div class="menu-icon"></div>
+      <div class="menu-icon"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M7 17c1.5-2.2 3-2.2 4 0s2.5 2.2 4 0"/></svg></div>
       <div class="menu-label">Sign Waivers</div>
       <div class="menu-desc" id="waiver-menu-desc">Review your waivers</div>
     </button>
     <button class="menu-btn p" onclick="kioskAction(goUpdateInfo)">
-      <div class="menu-icon"></div>
+      <div class="menu-icon"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="7" r="4"/><path d="M10.5 15H7a4 4 0 0 0-4 4v2"/><path d="M16.5 21l-1.5.4.4-1.5 5-5a1.06 1.06 0 0 1 1.5 1.5z"/></svg></div>
       <div class="menu-label">Update Info</div>
       <div class="menu-desc">Phone, interests, emergency contact</div>
     </button>
     <button class="menu-btn a" onclick="goIdle()">
-      <div class="menu-icon">✓</div>
+      <div class="menu-icon"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg></div>
       <div class="menu-label">Done</div>
       <div class="menu-desc">Return to start screen</div>
     </button>
@@ -468,7 +491,7 @@ html,body{height:100%;font-family:'DM Sans',sans-serif;background:var(--bg);colo
   </div>
   <div class="elic-bar">
     <div><div class="elic-name" id="elic-name">—</div><div class="elic-role" id="elic-role">—</div></div>
-    <div style="font-size:32px"></div>
+    <div style="color:var(--teal)"><svg class="kic" viewBox="0 0 24 24" aria-hidden="true" style="width:34px;height:34px"><circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5l3 3L22 7l-3-3"/></svg></div>
   </div>
   <div class="elic-events" id="elic-events"></div>
   <button onclick="goElicMasterView()" style="width:100%;max-width:600px;margin-top:16px;padding:16px;background:var(--surface);border:2px solid var(--teal);border-radius:var(--radius);font-family:inherit;font-size:15px;font-weight:700;color:var(--teal-dark);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px">
@@ -832,6 +855,97 @@ async function goStopVolunteering(){
   } catch(err){ alert('Network error stopping session: ' + err.message) }
 }
 
+
+// ══ Artistic Partners: check in / out for a booking ══
+var _pk = {data:null, occ:null, code:''}
+async function goPartner(){
+  showScreen('screen-partner')
+  var list = document.getElementById('pk-list')
+  list.innerHTML = '<div class="hint-text">Loading today\u2019s bookings…</div>'
+  try{
+    var d = await (await fetch('/api/kiosk/partner/today')).json()
+    _pk.data = d
+    var B = d.bookings || []
+    if(!B.length){ list.innerHTML = '<div class="hint-text">No partner bookings on the schedule for today. If you think that\u2019s wrong, please call or text the HWTC number.</div>'; return }
+    list.innerHTML = B.map(function(b){
+      var st = b.checked_out ? 'Checked out' : (b.checked_in ? 'Checked in'+(b.person_name?' by '+pkEsc(b.person_name):'')+' · tap to check out' : 'Tap to check in')
+      return '<button type="button" onclick="pkPick(\''+b.id+'\')" style="display:block;width:100%;text-align:left;padding:18px 20px;margin-bottom:12px;border-radius:16px;border:2px solid '+(b.checked_in&&!b.checked_out?'#7c3aed':'var(--border)')+';background:var(--surface);font-family:inherit;cursor:pointer'+(b.checked_out?';opacity:.6':'')+'">'
+        + '<div style="font-size:20px;font-weight:800;color:var(--text)">'+pkEsc(b.title)+'</div>'
+        + '<div style="font-size:14px;color:var(--muted);margin-top:2px">'+pkEsc(b.partner)+(b.space?' · '+pkEsc(b.space):'')+(b.start_time?' · '+pkTime(b.start_time)+(b.end_time?'–'+pkTime(b.end_time):''):'')+'</div>'
+        + '<div style="font-size:14px;font-weight:700;margin-top:6px;color:'+(b.checked_in&&!b.checked_out?'#6d28d9':'var(--teal-dark)')+'">'+st+'</div></button>'
+    }).join('')
+  }catch(e){ list.innerHTML = '<div class="hint-text">Couldn\u2019t load bookings. Please try again.</div>' }
+}
+function pkEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] }) }
+function pkTime(t){ var m=/(\d{1,2}):(\d{2})/.exec(t||''); if(!m) return t||''; var h=+m[1]; return (h%12||12)+(m[2]!=='00'?':'+m[2]:'')+(h<12?'am':'pm') }
+function pkPick(id){
+  var b = ((_pk.data||{}).bookings||[]).find(function(x){ return x.id===id }); if(!b) return
+  if(b.checked_out){ showConfirm('','All set','This booking is already checked out.','Thanks for taking care of the space!',goIdle); return }
+  _pk.occ = b; _pk.code = ''
+  if(b.needs_code) pkAskCode(); else pkForm()
+}
+function pkOverlay(html){
+  var old = document.getElementById('pk-ov'); if(old) old.remove()
+  var o = document.createElement('div'); o.id = 'pk-ov'
+  o.style.cssText = 'position:fixed;inset:0;background:rgba(15,23,42,0.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px'
+  o.innerHTML = '<div style="background:#fff;border-radius:20px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:26px 26px 22px;box-shadow:0 20px 60px rgba(0,0,0,0.3)">'+html+'</div>'
+  document.body.appendChild(o)
+}
+function pkClose(){ var o = document.getElementById('pk-ov'); if(o) o.remove() }
+var PK_BTN = 'padding:16px;border-radius:14px;font-family:inherit;font-size:17px;font-weight:800;cursor:pointer'
+var PK_INPUT = 'width:100%;box-sizing:border-box;padding:14px 16px;border-radius:12px;border:2px solid var(--border);font-family:inherit;font-size:18px;margin-bottom:10px'
+function pkAskCode(){
+  pkOverlay('<div style="font-size:22px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">'+pkEsc(_pk.occ.title)+'</div>'
+    + '<div style="font-size:14px;color:var(--muted);margin-bottom:14px">Enter the door code we gave you for this booking.</div>'
+    + '<input id="pk-code" inputmode="numeric" autocomplete="off" style="'+PK_INPUT+';font-size:26px;letter-spacing:.2em;text-align:center" onkeydown="if(event.key===\'Enter\')pkCheckCode()"/>'
+    + '<div id="pk-err" style="color:#b91c1c;font-size:14px;min-height:18px;margin-bottom:6px"></div>'
+    + '<div style="display:flex;gap:10px"><button type="button" onclick="pkClose()" style="flex:1;'+PK_BTN+';border:2px solid var(--border);background:var(--surface)">Back</button>'
+    + '<button type="button" onclick="pkCheckCode()" style="flex:2;'+PK_BTN+';border:none;background:linear-gradient(135deg,#5b21b6,#7c3aed);color:#fff">Continue</button></div>')
+  setTimeout(function(){ var i = document.getElementById('pk-code'); if(i) i.focus() }, 50)
+}
+function pkCheckCode(){
+  var v = (document.getElementById('pk-code').value||'').trim()
+  if(!v){ document.getElementById('pk-err').textContent = 'Enter the code first.'; return }
+  _pk.code = v; pkForm()
+}
+function pkItems(items){
+  return items.map(function(t,i){ return '<button type="button" class="idc-item" data-i="'+i+'" onclick="this.dataset.on=this.dataset.on===\'1\'?\'0\':\'1\';idcPaint()" style="display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:16px;margin-bottom:10px;border-radius:14px;border:2px solid var(--border);background:var(--surface);font-family:inherit;font-size:16px;font-weight:600;cursor:pointer"><span class="idc-box" style="width:28px;height:28px;border-radius:8px;border:2px solid var(--border);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-weight:900"></span><span>'+pkEsc(t)+'</span></button>' }).join('')
+}
+function pkForm(){
+  var b = _pk.occ, out = b.checked_in
+  var items = out ? (_pk.data.close_items||[]) : (_pk.data.open_items||[])
+  pkOverlay('<div style="font-size:24px;font-weight:800;color:var(--teal-dark);margin-bottom:4px">'+(out?'Checking out':'Checking in')+'</div>'
+    + '<div style="font-size:14px;color:var(--muted);margin-bottom:14px">'+pkEsc(b.title)+' · '+pkEsc(b.partner)+'</div>'
+    + (out ? '' : '<input id="pk-name" placeholder="Your name" autocomplete="off" style="'+PK_INPUT+'"/><input id="pk-phone" type="tel" placeholder="Your cell (so we can reach you here)" autocomplete="off" style="'+PK_INPUT+'"/>')
+    + (items.length ? '<div style="font-size:14px;font-weight:700;margin:6px 0 8px">'+(out?'Before you leave, please:':'Please confirm:')+'</div>' + pkItems(items) : '')
+    + (out ? '<textarea id="pk-note" rows="2" placeholder="Anything we should know? (optional)" style="'+PK_INPUT+';font-size:16px"></textarea>' : '')
+    + '<div id="pk-err" style="color:#b91c1c;font-size:14px;min-height:18px;margin:4px 0"></div>'
+    + '<div style="display:flex;gap:10px"><button type="button" onclick="pkClose()" style="flex:1;'+PK_BTN+';border:2px solid var(--border);background:var(--surface)">'+(out?'Not yet':'Back')+'</button>'
+    + '<button type="button" id="pk-go" onclick="pkSubmit()" style="flex:2;'+PK_BTN+';border:none;background:linear-gradient(135deg,#5b21b6,#7c3aed);color:#fff">'+(out?'We\u2019re out, door locked':'Check in')+'</button></div>')
+  idcPaint()
+  if(!out) setTimeout(function(){ var i = document.getElementById('pk-name'); if(i) i.focus() }, 50)
+}
+async function pkSubmit(){
+  var b = _pk.occ, out = b.checked_in, err = document.getElementById('pk-err')
+  var items = Array.from(document.querySelectorAll('#pk-ov .idc-item'))
+  if(items.some(function(x){ return x.dataset.on !== '1' })){ err.textContent = 'Tick each item once it\u2019s done.'; return }
+  var body = {occurrence_id: b.id, code: _pk.code, responses: items.map(function(x){ return {item: x.querySelector('span:last-child').textContent, done: true} })}
+  if(!out){
+    body.person_name = (document.getElementById('pk-name').value||'').trim(); body.person_phone = (document.getElementById('pk-phone').value||'').trim()
+    if(!body.person_name){ err.textContent = 'Please enter your name.'; return }
+  } else body.note = (document.getElementById('pk-note').value||'').trim()
+  var btn = document.getElementById('pk-go'); btn.disabled = true
+  try{
+    var r = await fetch('/api/kiosk/partner/'+(out?'checkout':'checkin'), {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})
+    var d = await r.json()
+    if(d.bad_code){ pkAskCode(); document.getElementById('pk-err').textContent = 'That code doesn\u2019t match this booking. Try again.'; return }
+    if(d.error){ err.textContent = d.error; btn.disabled = false; return }
+    pkClose()
+    if(out) showConfirm('','Thank you!','You\u2019re checked out.','Thanks for taking care of the space. See you next time!',goIdle)
+    else showConfirm('','You\u2019re checked in!','Enjoy your time in the space.','When you leave, come back to the kiosk and tap Artistic Partner to check out.',goIdle)
+  }catch(e){ err.textContent = 'Network error. Please try again.'; btn.disabled = false }
+}
+
 function askLastLesson(hours, closeItems, notLast){
   var old = document.getElementById('instr-last-ov'); if(old) old.remove()
   var o = document.createElement('div')
@@ -1086,8 +1200,7 @@ function applySessionModeTheme(){
   const verb = sessionVerb()
   const beginBtn = document.getElementById('begin-vol-btn')
   if(beginBtn) beginBtn.style.background = c.grad
-  const beginIcon = document.getElementById('begin-vol-icon'); if(beginIcon) beginIcon.textContent = c.icon
-  const beginLabel = document.getElementById('begin-vol-label'); if(beginLabel) beginLabel.textContent = 'Begin '+verb
+    const beginLabel = document.getElementById('begin-vol-label'); if(beginLabel) beginLabel.textContent = 'Begin '+verb
   const beginDesc = document.getElementById('begin-vol-desc')
   if(beginDesc) beginDesc.textContent = paidInstructionMode ? 'Tap here to start your paid instruction timer' : 'Tap here to start your session timer'
   const banner = document.getElementById('active-session-banner')

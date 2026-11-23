@@ -33873,7 +33873,7 @@ def post_oncall_slack_report():
         cl = closure_on(day_str)
         if cl:
             what = f" ({cl['label']})" if (cl.get('label') or '').strip() else ''
-            day_lines.append(f'{day_label}: :no_entry: *Closed{what}*. Calls go to voicemail and texts get an automatic closed reply; both still show up here.')
+            day_lines.append(f'{day_label}: :no_entry: *Closed{what}*. Calls go to voicemail and texts get an automatic closed reply. Anything not answered goes to whoever was signed up for that day, the morning we reopen.')
         elif day_shifts:
             names = ', '.join(f'{s["person_name"]} ({fmt12h(s.get("start_time","08:00"))}–{fmt12h(s.get("end_time","22:00"))})' for s in day_shifts)
             day_lines.append(f'{day_label}: {names}')
@@ -36333,6 +36333,9 @@ def _start_oncall_scheduler():
         # Nightly RC Crash Report (PDF emailed + saved to Drive)
         scheduler.add_job(lambda: run_emergency_snapshot('schedule'), CronTrigger(hour=3, minute=30),
                           id='rc_crash_report', max_instances=1, coalesce=True, misfire_grace_time=3600)
+        # After a closure ends, hand what came in while closed to whoever's on call
+        scheduler.add_job(closure_catchup, CronTrigger(minute='5,35'),
+                          id='closure_catchup', max_instances=1, coalesce=True, misfire_grace_time=900)
         # Nightly cleanup rules from /admin/storage (only the ones an admin turned on)
         scheduler.add_job(run_nightly_purge, CronTrigger(hour=4, minute=15),
                           id='storage_cleanup', max_instances=1, coalesce=True, misfire_grace_time=3600)
@@ -39988,7 +39991,7 @@ def twilio_sms():
         reply_digits = ''.join(ch for ch in from_num if ch.isdigit())
         posted_ts = post_to_slack_calls([
             {'type':'section','text':{'type':'mrkdwn','text':
-                f' *Inbound Text Message* (closed day)\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n_{forward_to_note}. Anyone can still answer with Reply._'}},
+                f' *Inbound Text Message* (closed day)\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n_{forward_to_note}. If nobody answers it, it goes to whoever was signed up for on-call that day, the morning we reopen. Anyone can answer now with Reply._'}},
             {'type':'actions','elements':[
                 {'type':'button','text':{'type':'plain_text','text':'Reply'},'url':f'{sms_host}/sms/reply/{reply_digits}','action_id':'smsreply'}
             ]}
@@ -40103,6 +40106,145 @@ def closure_sms_text(c):
     return ('Thanks for texting Horizon West Theater Company. Our office is closed' + (f' for {label}' if label else '')
             + (f' and we\'ll reply when we\'re back on {back}.' if back else ' and we\'ll reply when we\'re back.')
             + ' Thank you!')
+
+
+def _oncall_person_on(conn, when):
+    """Who was signed up to be on call at this date/time (ignoring closures).
+    Prefers the shift whose hours cover the time, else anyone on that day."""
+    import json as _j
+    day = when.date().isoformat(); hhmm = when.strftime('%H:%M'); dow = when.weekday()
+    rows = fetchall(conn, """SELECT person_name, phone, start_time, end_time, days_of_week FROM on_call_schedule
+        WHERE start_date <= %s AND end_date >= %s AND COALESCE(person_name,'') <> '' AND COALESCE(phone,'') <> ''
+        ORDER BY start_date DESC""", (day, day)) or []
+    on_day = []
+    for r in rows:
+        try: days = _j.loads(r.get('days_of_week') or '[0,1,2,3,4,5,6]')
+        except Exception: days = list(range(7))
+        if dow in days:
+            on_day.append(r)
+    for r in on_day:
+        if (r.get('start_time') or '00:00') <= hhmm <= (r.get('end_time') or '23:59'):
+            return r
+    return on_day[0] if on_day else None
+
+
+def closure_catchup():
+    """The morning after a closure ends: hand everything that came in while
+    closed (texts nobody answered, voicemails and missed calls nobody called
+    back) to the person who was signed up to be on call on the day it came
+    in, not whoever happens to be on call when we reopen, so a closure at the
+    end of someone's week doesn't land on next week's person. Anything from a
+    day nobody was signed up for goes to whoever is on call now. Each person
+    gets their own summary text, the texts are assigned to them, and the list
+    is posted to Slack. Runs every half hour; each closure is handled once,
+    after coverage starts."""
+    import datetime as _d
+    from zoneinfo import ZoneInfo as _Z
+    now = _d.datetime.now(_Z('America/New_York'))
+    es = get_email_settings() or {}
+    if now.strftime('%H:%M') < (es.get('twilio_coverage_start') or '08:00').strip()[:5]:
+        return
+    k10 = "RIGHT(REGEXP_REPLACE({c},'[^0-9]','','g'),10)"
+    conn = get_db()
+    try:
+        if active_oncall_closure(conn):
+            return   # still closed
+        today = today_eastern()
+        closures = fetchall(conn, 'SELECT * FROM oncall_closures WHERE end_date < %s AND end_date >= %s ORDER BY end_date',
+                            (today.isoformat(), (today - _d.timedelta(days=7)).isoformat())) or []
+        for c in closures:
+            key = f"closure_catchup:{c['id']}"
+            if _setting(conn, key):
+                continue
+            s, e = str(c['start_date'])[:10], str(c['end_date'])[:10]
+            texts = fetchall(conn, f'''SELECT {k10.format(c='customer_phone')} AS k, MAX(customer_phone) AS phone,
+                    MAX(created_at) AS last_in, COUNT(*) AS n, (ARRAY_AGG(body ORDER BY created_at DESC))[1] AS last_body
+                FROM sms_messages WHERE direction='in' AND created_at::date BETWEEN %s AND %s GROUP BY 1''', (s, e)) or []
+            todo = []
+            for t in texts:
+                answered = fetchone(conn, f'''SELECT 1 AS x FROM sms_messages WHERE direction='out'
+                    AND COALESCE(staff_name,'') <> 'Automatic reply' AND {k10.format(c='customer_phone')}=%s AND created_at > %s LIMIT 1''',
+                    (t['k'], t['last_in']))
+                if not answered:
+                    todo.append({'kind': 'text', 'k': t['k'], 'phone': t['phone'], 'n': int(t['n'] or 0), 'body': t.get('last_body') or '',
+                                 'when': t['last_in']})
+            calls = fetchall(conn, f'''SELECT {k10.format(c='from_number')} AS k, MAX(from_number) AS phone, COUNT(*) AS n,
+                    BOOL_OR(status='voicemail') AS vm, MAX(created_at) AS last_call
+                FROM call_log WHERE created_at::date BETWEEN %s AND %s AND status IN ('closed','voicemail','missed','after_hours')
+                GROUP BY 1''', (s, e)) or []
+            for cl in calls:
+                called_back = fetchone(conn, f'''SELECT 1 AS x FROM outbound_calls WHERE {k10.format(c='to_phone')}=%s AND created_at > %s LIMIT 1''',
+                                       (cl['k'], cl['last_call']))
+                if not called_back and not any(x['k'] == cl['k'] for x in todo):
+                    todo.append({'kind': 'voicemail' if cl.get('vm') else 'call', 'k': cl['k'], 'phone': cl['phone'], 'n': int(cl['n'] or 0), 'body': '',
+                                 'when': cl['last_call']})
+                elif not called_back:
+                    for x in todo:
+                        if x['k'] == cl['k']: x['also_called'] = True
+            _set_setting(conn, key, '1'); conn.commit()
+            if not todo:
+                continue
+            # Owner: whoever was signed up on the day each one came in
+            now_oc = get_oncall_now()
+            groups = {}
+            for x in todo:
+                w = x.get('when')
+                if isinstance(w, str):
+                    try: w = _d.datetime.fromisoformat(w.replace('Z', ''))
+                    except Exception: w = None
+                who = _oncall_person_on(conn, w) if w else None
+                fallback = False
+                if not who and now_oc and now_oc.get('phone'):
+                    who, fallback = now_oc, True
+                key2 = _phone_last10(who['phone']) if who else ''
+                g = groups.setdefault(key2, {'person': who, 'items': [], 'fallback': 0, 'signed': 0})
+                g['items'].append(x)
+                g['fallback' if fallback else 'signed'] += 1
+            label = (c.get('label') or '').strip()
+            head = f"Back from {label}" if label else "We're back open"
+            slack_parts = []
+            def describe(x):
+                nm = lookup_contact_name_by_phone(x['phone']) or ''
+                who = (nm + ' ' if nm else '') + fmt_phone(x['phone'])
+                snippet = (x['body'][:60] + ('…' if len(x['body']) > 60 else '')) if x['body'] else ''
+                if x['kind'] == 'text':
+                    return (f"• {who}: text{' “' + snippet + '”' if snippet else ''}{' (also called)' if x.get('also_called') else ''}. Reply @{x['k'][-4:]} + your message",
+                            f"• *{who}*: {x['n']} text{'s' if x['n'] != 1 else ''}{' and a call' if x.get('also_called') else ''}{(' — _' + snippet + '_') if snippet else ''}")
+                return (f"• {who}: {'voicemail' if x['kind'] == 'voicemail' else 'missed call'}. Call back from rolecall.hwtco.org/phone",
+                        f"• *{who}*: {'left a voicemail' if x['kind'] == 'voicemail' else 'called'} (no callback yet)")
+            for key2, g in groups.items():
+                p = g['person']; items = g['items']
+                lines = [describe(x) for x in items]
+                if p:
+                    # assign the texts to them so replies and follow-ups route to them
+                    for x in items:
+                        if x['kind'] == 'text':
+                            execute(conn, f'''UPDATE sms_conversations SET oncall_phone=%s, last_message_at=NOW()
+                                WHERE id=(SELECT id FROM sms_conversations WHERE {k10.format(c='customer_phone')}=%s
+                                          ORDER BY last_message_at DESC LIMIT 1)''', (p['phone'], x['k']))
+                    conn.commit()
+                    body = (f"[HWTC] {head}. These came in while we were closed{' during your on-call days' if not g['fallback'] else ''} and still need a reply:\n"
+                            + '\n'.join(l[0] for l in lines[:10]) + ('\n…and more' if len(lines) > 10 else '')
+                            + "\nAll of it is in Slack and at rolecall.hwtco.org/phone")
+                    try:
+                        _send_sms(p['phone'], body)
+                    except Exception as se:
+                        app.logger.warning(f'closure catch-up SMS failed: {se}')
+                    why = ('(signed up for those days)' if not g['fallback'] else
+                           '(on call now; nobody was signed up those days)' if not g['signed'] else
+                           '(signed up for some of those days, and on call now for the rest)')
+                    slack_parts.append(f"Handed to *{p.get('person_name')}* {why}:\n" + '\n'.join(l[1] for l in lines[:25]))
+                else:
+                    slack_parts.append('*Nobody was signed up and nobody is on call now*, so someone please pick these up:\n' + '\n'.join(l[1] for l in lines[:25]))
+            post_to_slack_calls([{'type': 'section', 'text': {'type': 'mrkdwn', 'text':
+                f":inbox_tray: *{head}: {len(todo)} to follow up from while we were closed.*\n\n" + '\n\n'.join(slack_parts)}},
+                {'type': 'actions', 'elements': [{'type': 'button', 'text': {'type': 'plain_text', 'text': 'Open the phone page'},
+                 'url': 'https://rolecall.hwtco.org/phone', 'action_id': 'closure_catchup'}]}],
+                text=f'{head}: {len(todo)} to follow up from the closure')
+    except Exception as e:
+        app.logger.warning(f'closure catch-up failed: {e}')
+    finally:
+        conn.close()
 
 
 def active_oncall_closure(conn, when=None):

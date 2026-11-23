@@ -13092,13 +13092,14 @@ async function addStudioClosure(){
    + '<b>Already scheduled those days ('+n+').</b> Closing the studio doesn\'t cancel these, so move or cancel them yourself:<ul style="margin:6px 0 0 18px;padding:0">'
    + (c.events||[]).map(function(x){ return '<li>Event: '+escHtml(x.name)+' · '+formatDate(x.event_date)+'</li>' }).join('')
    + (c.rentals||[]).map(function(x){ return '<li>Rental: '+escHtml(x.title)+' · '+formatDate(x.occurrence_date)+'</li>' }).join('')
-   + (c.sessions||[]).map(function(x){ return '<li>'+escHtml(x.program)+': '+escHtml(x.name||'')+'</li>' }).join('') + '</ul></div>' : ''
+   + (c.sessions||[]).map(function(x){ return '<li>'+escHtml(x.program)+': '+escHtml(x.name||'')+' ('+x.booked+' booked)</li>' }).join('') + '</ul></div>' : ''
+ if(r.open_slots_closed) document.getElementById('scd-conflicts').innerHTML += '<div style="margin-top:10px;font-size:13px;color:var(--text-muted)">Also took <b>'+r.open_slots_closed+'</b> open class/lesson time'+(r.open_slots_closed===1?'':'s')+' off the booking page for those days, since nobody had booked '+(r.open_slots_closed===1?'it':'them')+'. They come back if you reopen the studio.</div>'
  loadStudioClosures()
 }
 async function removeStudioClosure(id){
  if(!confirm('Reopen the studio for these days?')) return
  var r = await api('/api/studio-closures/'+id,'DELETE'); if(r.error){ toast(r.error,'error'); return }
- toast('Studio reopened','success'); loadStudioClosures()
+ toast('Studio reopened'+(r.reopened_slots?'. Put back '+r.reopened_slots+' open time'+(r.reopened_slots===1?'':'s')+'.':''),'success'); loadStudioClosures()
 }
 function studioClosureFor(dateStr){
  return (window._studioClosures||[]).find(function(c){ return c.start_date <= dateStr && dateStr <= c.end_date })

@@ -3910,6 +3910,8 @@ def init_db():
             id TEXT PRIMARY KEY, start_date DATE NOT NULL, end_date DATE NOT NULL, greeting TEXT NOT NULL,
             label TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
+        # What people who text the HWTC number get back on closed days
+        "ALTER TABLE oncall_closures ADD COLUMN IF NOT EXISTS sms_reply TEXT DEFAULT ''",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
         # Every phone rung for a call (on-call, plus anyone who hit "Take this
         # call" in Slack), as JSON [{sid, phone, name, joined}]. Lets one leg
@@ -33379,10 +33381,17 @@ def post_oncall_slack_report():
             WHERE start_date <= %s AND end_date >= %s
             ORDER BY start_time, start_date''',
             (week_end.isoformat(), week_start.isoformat())) or []
+        # Holidays / days off (set under On-Call → Closures): calls get the
+        # closure greeting and go to voicemail instead of ringing anyone.
+        closures = fetchall(conn, '''SELECT start_date, end_date, label FROM oncall_closures
+            WHERE start_date <= %s AND end_date >= %s ORDER BY start_date''',
+            (week_end.isoformat(), week_start.isoformat())) or []
         conn.close()
     except Exception as e:
         app.logger.warning(f'On-call report query failed: {e}')
         return
+    def closure_on(day_str):
+        return next((c for c in closures if str(c['start_date'])[:10] <= day_str <= str(c['end_date'])[:10]), None)
     DAY_NAMES = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
     def fmt12h(t):
         try:
@@ -33399,7 +33408,11 @@ def post_oncall_slack_report():
                       and dow in (_jrep.loads(s.get('days_of_week') or '[0,1,2,3,4,5,6]') or [0,1,2,3,4,5,6])]
         is_today = day_str == now.date().isoformat()
         day_label = f'*{DAY_NAMES[dow]} {day.strftime("%m/%d")}*' + (' ← today' if is_today else '')
-        if day_shifts:
+        cl = closure_on(day_str)
+        if cl:
+            what = f" ({cl['label']})" if (cl.get('label') or '').strip() else ''
+            day_lines.append(f'{day_label}: :no_entry: *Closed{what}*. Calls go to voicemail and texts get an automatic closed reply; both still show up here.')
+        elif day_shifts:
             names = ', '.join(f'{s["person_name"]} ({fmt12h(s.get("start_time","08:00"))}–{fmt12h(s.get("end_time","22:00"))})' for s in day_shifts)
             day_lines.append(f'{day_label}: {names}')
         else:
@@ -33412,6 +33425,9 @@ def post_oncall_slack_report():
         and (s.get('start_time','08:00') or '08:00') <= now_time <= (s.get('end_time','22:00') or '22:00')
         and now_dow in (_jrep.loads(s.get('days_of_week') or '[0,1,2,3,4,5,6]') or [0,1,2,3,4,5,6])), None)
     current_line = f' *On call now:* {current["person_name"]} (`{current["phone"]}`)' if current else ' *On call now:*  Nobody scheduled'
+    cl_now = closure_on(now.date().isoformat())
+    if cl_now:
+        current_line = f" *Closed today{(' (' + cl_now['label'] + ')') if (cl_now.get('label') or '').strip() else ''}:* calls go to voicemail, texts get an automatic reply" 
     blocks = [
         {'type':'header','text':{'type':'plain_text','text':f' On-Call Schedule: {week_label}'}},
         {'type':'section','text':{'type':'mrkdwn','text':current_line}},
@@ -39483,6 +39499,50 @@ def twilio_sms():
     conn.commit(); conn.close()
     _log_sms(from_num, 'in', body)
 
+    # Closed day (On-Call → Closed days)? Reply with the closure message once
+    # per person per closure, and don't text whoever is on call. Someone who
+    # is already mid-conversation with a staff member (sticky) still reaches them.
+    closure, closure_reply = None, None
+    try:
+        _cc = get_db()
+        closure = active_oncall_closure(_cc)
+        if closure and not sticky_phone:
+            key = f"closure_sms:{closure['id']}:{_phone_last10(from_num)}"
+            if not _setting(_cc, key):
+                closure_reply = closure_sms_text(closure)
+                _set_setting(_cc, key, '1'); _cc.commit()
+        _cc.close()
+    except Exception as e:
+        app.logger.warning(f'closure check for SMS failed: {e}')
+        closure = None
+    if closure and sticky_phone:
+        closure = None   # mid-conversation: route as normal
+    if closure:
+        forward_to_note = 'Not forwarded (closed' + (f" for {closure['label']}" if (closure.get('label') or '').strip() else '') + ')' \
+            + ('; sent the closed-day reply' if closure_reply else '; closed-day reply already sent')
+        if closure_reply:
+            _log_sms(from_num, 'out', closure_reply, '', 'Automatic reply')
+        sms_host = 'https://rolecall.hwtco.org'
+        reply_digits = ''.join(ch for ch in from_num if ch.isdigit())
+        posted_ts = post_to_slack_calls([
+            {'type':'section','text':{'type':'mrkdwn','text':
+                f' *Inbound Text Message* (closed day)\n*From:* {sender_label}\n*Time:* {now_str}\n*Message:* {body}\n_{forward_to_note}. Anyone can still answer with Reply._'}},
+            {'type':'actions','elements':[
+                {'type':'button','text':{'type':'plain_text','text':'Reply'},'url':f'{sms_host}/sms/reply/{reply_digits}','action_id':'smsreply'}
+            ]}
+        ], text=f'Text from {sender_label} (closed day): {body[:100]}', thread_ts=(sms_thread_ts or None))
+        if posted_ts and not sms_thread_ts and new_conv:
+            try:
+                _c3 = get_db()
+                execute(_c3, 'UPDATE sms_conversations SET slack_thread_ts=%s WHERE id=%s', (posted_ts, new_conv['id']))
+                _c3.commit(); _c3.close()
+            except Exception as e:
+                app.logger.warning(f'Could not save SMS Slack thread: {e}')
+        from xml.sax.saxutils import escape as _xesc
+        twiml = ('<?xml version="1.0" encoding="UTF-8"?><Response>'
+                 + (f'<Message>{_xesc(closure_reply)}</Message>' if closure_reply else '') + '</Response>')
+        return twiml, 200, {'Content-Type': 'text/xml'}
+
     # Forward to on-call person via Twilio SMS
     if forward_to and ts['account_sid'] and ts['auth_token']:
         try:
@@ -39564,6 +39624,23 @@ def ensure_oncall_open_weeks(conn, days=180):
     if made:
         conn.commit()
     return made
+
+
+def closure_sms_text(c):
+    """The automatic text reply for a closure: the one staff wrote, or a
+    sensible default from its name and dates."""
+    if (c.get('sms_reply') or '').strip():
+        return c['sms_reply'].strip()
+    import datetime as _dc
+    try:
+        end = _dc.date.fromisoformat(str(c['end_date'])[:10])
+        back = (end + _dc.timedelta(days=1)).strftime('%A, %B %-d')
+    except Exception:
+        back = ''
+    label = (c.get('label') or '').strip()
+    return ('Thanks for texting Horizon West Theater Company. Our office is closed' + (f' for {label}' if label else '')
+            + (f' and we\'ll reply when we\'re back on {back}.' if back else ' and we\'ll reply when we\'re back.')
+            + ' Thank you!')
 
 
 def active_oncall_closure(conn, when=None):
@@ -39755,8 +39832,9 @@ def oncall_closures():
             msg = (d.get('greeting') or '').strip()[:1000]
             if not msg:
                 return jsonify({'error': 'Write what callers should hear.'}), 400
-            execute(conn, '''INSERT INTO oncall_closures (id, start_date, end_date, greeting, label, created_by) VALUES (%s,%s,%s,%s,%s,%s)''',
-                    (str(uuid.uuid4()), s_, e_, msg, (d.get('label') or '').strip()[:120], session.get('name') or ''))
+            execute(conn, '''INSERT INTO oncall_closures (id, start_date, end_date, greeting, label, created_by, sms_reply) VALUES (%s,%s,%s,%s,%s,%s,%s)''',
+                    (str(uuid.uuid4()), s_, e_, msg, (d.get('label') or '').strip()[:120], session.get('name') or '',
+                     (d.get('sms_reply') or '').strip()[:600]))
             conn.commit()
         rows = fetchall(conn, 'SELECT * FROM oncall_closures WHERE end_date >= %s ORDER BY start_date', (today_eastern().isoformat(),)) or []
         for r in rows:

@@ -12735,20 +12735,50 @@ function renderOncallClosures(){
     + '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:6px">On closed days, callers hear your message and can leave a voicemail, and people who text get your closed reply. Both still post to Slack. The morning you reopen, whatever nobody answered goes to whoever was signed up for on-call that day. They end on their own. Open Sunday–Saturday weeks are created automatically for the next 180 days, so board members can just sign up.</div>'
     + (_oncallClosures.length ? _oncallClosures.map(function(c){
         return '<div style="display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--border);font-size:13px"><div style="flex:1"><strong>'+(c.label?escHtml(c.label)+' · ':'')+escHtml(fmt(c.start_date))+(c.end_date!==c.start_date?' – '+escHtml(fmt(c.end_date)):'')+'</strong>'
-          + '<div style="color:var(--text-muted);font-style:italic">Calls: "'+escHtml(c.greeting)+'"</div>'
+          + (c.greeting_audio ? '<div style="color:var(--text-muted);margin-top:2px">Calls: plays a recording <audio controls preload="none" src="'+escHtml(c.greeting_audio)+'" style="height:28px;vertical-align:middle;max-width:220px"></audio></div>'
+              : '<div style="color:var(--text-muted);font-style:italic">Calls: "'+escHtml(c.greeting)+'"</div>')
           + '<div style="color:var(--text-muted);font-style:italic;margin-top:2px">Texts: "'+escHtml(c.sms_reply||'(default closed reply)')+'"</div></div>'
+          + '<button class="btn btn-secondary btn-sm" onclick="openOncallClosureModal(\''+c.id+'\')">Edit</button>'
           + '<button class="btn btn-secondary btn-sm" onclick="deleteOncallClosure(\''+c.id+'\')">Remove</button></div>' }).join('')
       : '<div style="font-size:13px;color:var(--text-muted)">None coming up.</div>')
     + '</div>'
 }
-function openOncallClosureModal(){
-  showAdHocModal('oc-closure','Add closed days',
+function openOncallClosureModal(editId){
+  var ex = editId ? _oncallClosures.find(function(c){ return c.id===editId }) : null
+  window._oclAudio = ex ? (ex.greeting_audio||'') : ''
+  showAdHocModal('oc-closure', ex ? 'Edit closed days' : 'Add closed days',
     '<div class="form-row"><div class="form-group"><label>First day closed</label><input type="date" id="ocl-start" onchange="ocClosureDefault()"/></div><div class="form-group"><label>Last day closed</label><input type="date" id="ocl-end" onchange="ocClosureDefault()"/></div></div>'
     + '<div class="form-group"><label>Name (optional)</label><input id="ocl-label" placeholder="e.g. Winter break" oninput="ocClosureDefault()"/></div>'
-    + '<div class="form-group"><label>What callers hear</label><textarea id="ocl-greeting" rows="4"></textarea><div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Read aloud, then the caller can leave a voicemail.</div></div>'
+    + '<div class="form-group"><label>What callers hear</label><textarea id="ocl-greeting" rows="4"></textarea><div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Read aloud, then the caller can leave a voicemail. Or upload your own recording below to play instead.</div>'
+    + '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px"><label class="btn btn-secondary btn-sm" style="margin:0;cursor:pointer">Upload a recording (MP3)<input type="file" accept=".mp3,.wav,.m4a,.ogg,audio/*" style="display:none" onchange="oclUploadAudio(this)"/></label>'
+    + '<span id="ocl-audio-status" style="font-size:12.5px;color:var(--text-muted)"></span></div><div id="ocl-audio-preview" style="margin-top:6px"></div></div>'
     + '<div class="form-group"><label>What people who text get back</label><textarea id="ocl-sms" rows="3" maxlength="600"></textarea><div style="font-size:11.5px;color:var(--text-muted);margin-top:3px">Sent once to each person who texts during these days. Texts aren\'t forwarded during the closure, but they post to Slack so anyone can answer. The morning you reopen, anything nobody answered (texts, voicemails, missed calls) goes to whoever was signed up for on-call on the day it came in.</div></div>'
-    + '<button class="btn btn-primary" style="width:100%" onclick="saveOncallClosure()">Save</button>', 520)
-  ocClosureDefault(true)
+    + '<button class="btn btn-primary" style="width:100%" onclick="saveOncallClosure(\''+(ex?ex.id:'')+'\')">Save</button>', 520)
+  if(ex){
+    document.getElementById('ocl-start').value = ex.start_date; document.getElementById('ocl-end').value = ex.end_date
+    document.getElementById('ocl-label').value = ex.label || ''
+    document.getElementById('ocl-greeting').value = ex.greeting || ''; _oclTouched = true
+    var sm = document.getElementById('ocl-sms'); if(sm){ sm.value = ex.sms_reply || ''; sm.dataset.touched = '1' }
+    document.getElementById('ocl-greeting').oninput = function(){ _oclTouched = true }
+  } else ocClosureDefault(true)
+  oclShowAudio()
+}
+function oclShowAudio(){
+  var st = document.getElementById('ocl-audio-status'), pv = document.getElementById('ocl-audio-preview'); if(!st) return
+  var u = window._oclAudio
+  st.textContent = u ? 'Callers hear this recording instead of the text.' : ''
+  pv.innerHTML = u ? '<audio controls src="'+escHtml(u)+'" style="width:100%;max-width:360px;height:36px"></audio> <button class="btn btn-secondary btn-sm" style="color:#991b1b" onclick="window._oclAudio=\'\';oclShowAudio()">Remove recording</button>' : ''
+}
+async function oclUploadAudio(input){
+  var f = input.files[0]; if(!f) return
+  var st = document.getElementById('ocl-audio-status'); st.textContent = 'Uploading…'
+  try{
+    var fd = new FormData(); fd.append('file', f)
+    var d = await (await fetch('/api/twilio/audio/upload', {method:'POST', body:fd, credentials:'include'})).json()
+    if(d.ok){ window._oclAudio = d.url; oclShowAudio(); st.textContent = 'Uploaded. Click Save to use it.' }
+    else st.textContent = 'Upload failed: '+(d.error||'unknown error')
+  }catch(e){ st.textContent = 'Upload failed: '+e.message }
+  input.value = ''
 }
 var _oclTouched = false
 function ocClosureDefault(force){
@@ -12769,10 +12799,10 @@ function ocClosureDefault(force){
   }
   if(force) _oclTouched = false
 }
-async function saveOncallClosure(){
-  var r = await api('/api/oncall/closures','POST',{start_date: document.getElementById('ocl-start').value, end_date: document.getElementById('ocl-end').value || document.getElementById('ocl-start').value,
+async function saveOncallClosure(id){
+  var r = await api('/api/oncall/closures','POST',{id: id||null, start_date: document.getElementById('ocl-start').value, end_date: document.getElementById('ocl-end').value || document.getElementById('ocl-start').value,
     label: document.getElementById('ocl-label').value, greeting: document.getElementById('ocl-greeting').value,
-    sms_reply: (document.getElementById('ocl-sms')||{}).value || ''})
+    sms_reply: (document.getElementById('ocl-sms')||{}).value || '', greeting_audio: window._oclAudio || ''})
   if(r.error){ toast(r.error,'error'); return }
   _oncallClosures = r; closeAdHocModal('oc-closure'); renderOncallClosures(); renderOncallCalendar(); toast('Closed days saved','success')
 }

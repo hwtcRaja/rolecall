@@ -3943,6 +3943,8 @@ def init_db():
             sent_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (survey_id, email_key))""",
         # What people who text the HWTC number get back on closed days
         "ALTER TABLE oncall_closures ADD COLUMN IF NOT EXISTS sms_reply TEXT DEFAULT ''",
+        # Optional uploaded recording played instead of the spoken greeting
+        "ALTER TABLE oncall_closures ADD COLUMN IF NOT EXISTS greeting_audio TEXT DEFAULT ''",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS slack_thread_ts TEXT DEFAULT ''",
         # Every phone rung for a call (on-call, plus anyone who hit "Take this
         # call" in Slack), as JSON [{sid, phone, name, joined}]. Lets one leg
@@ -37447,9 +37449,13 @@ def twilio_voice():
             ], text=f'Call while closed from {fmt_phone(caller)}')
             log_call(call_sid, caller, 'Closed', '', 'closed', True, ts_val or '')
             from html import escape as _he
+            audio = (closure.get('greeting_audio') or '').strip()
+            if audio.startswith('/'):
+                audio = host + audio    # Twilio needs a full URL
+            greet = f'<Play>{_he(audio)}</Play>' if audio else f'<Say voice="Polly.Joanna">{_he(closure["greeting"])}</Say>'
             return f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Say voice="Polly.Joanna">{_he(closure['greeting'])}</Say>
+  {greet}
   <Record maxLength="120" action="{host}/twilio/voicemail" method="POST" transcribe="true" transcribeCallback="{host}/twilio/voicemail-transcript" playBeep="true"/>
 </Response>''', 200, {'Content-Type': 'text/xml'}
 
@@ -41253,11 +41259,17 @@ def oncall_closures():
             if not s_ or e_ < s_:
                 return jsonify({'error': 'Pick a start date and an end date on or after it.'}), 400
             msg = (d.get('greeting') or '').strip()[:1000]
-            if not msg:
-                return jsonify({'error': 'Write what callers should hear.'}), 400
-            execute(conn, '''INSERT INTO oncall_closures (id, start_date, end_date, greeting, label, created_by, sms_reply) VALUES (%s,%s,%s,%s,%s,%s,%s)''',
-                    (str(uuid.uuid4()), s_, e_, msg, (d.get('label') or '').strip()[:120], session.get('name') or '',
-                     (d.get('sms_reply') or '').strip()[:600]))
+            audio = (d.get('greeting_audio') or '').strip()[:500]
+            if not msg and not audio:
+                return jsonify({'error': 'Write what callers should hear, or upload a recording.'}), 400
+            vals = (s_, e_, msg, (d.get('label') or '').strip()[:120], (d.get('sms_reply') or '').strip()[:600], audio)
+            if d.get('id'):
+                # Editing an existing closure
+                execute(conn, '''UPDATE oncall_closures SET start_date=%s, end_date=%s, greeting=%s, label=%s, sms_reply=%s, greeting_audio=%s
+                    WHERE id=%s''', vals + (d['id'],))
+            else:
+                execute(conn, '''INSERT INTO oncall_closures (start_date, end_date, greeting, label, sms_reply, greeting_audio, id, created_by)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''', vals + (str(uuid.uuid4()), session.get('name') or ''))
             conn.commit()
         rows = fetchall(conn, 'SELECT * FROM oncall_closures WHERE end_date >= %s ORDER BY start_date', (today_eastern().isoformat(),)) or []
         for r in rows:

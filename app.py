@@ -40527,6 +40527,21 @@ def twilio_sms():
             app.logger.warning(f'Recent on-call check failed: {e}')
         finally:
             _c.close()
+    # Someone who was on call recently but isn't now, with nothing to reply to
+    # in the last 4 hours and no @code, is starting a new message to the
+    # theater (a board member testing the line, or trying to reach whoever is
+    # on call). Treat it like anyone else's text instead of as a reply.
+    if was_recent_oncall and not body.startswith('@'):
+        try:
+            _c = get_db()
+            recent_conv = fetchone(_c, '''SELECT 1 AS x FROM sms_conversations
+                WHERE RIGHT(REGEXP_REPLACE(oncall_phone,'[^0-9]','','g'),10)=%s
+                AND last_message_at > NOW() - INTERVAL '4 hours' LIMIT 1''', (from_last10_early,))
+            _c.close()
+            if not recent_conv:
+                was_recent_oncall = False
+        except Exception as e:
+            app.logger.warning(f'recent conversation check failed: {e}')
     is_oncall_replying = is_current_oncall or was_recent_oncall
     app.logger.info(f'SMS routing check — from_num={from_num} (last10={_phone_last10(from_num)}), '
                      f'forward_to={forward_to} (last10={_phone_last10(forward_to)}), '
@@ -40605,7 +40620,7 @@ def twilio_sms():
                 from twilio.rest import Client as _TwClient
                 client = _TwClient(ts['account_sid'], ts['auth_token'])
                 client.messages.create(
-                    body="RoleCall: Couldn't tell who that reply was for (no recent conversation). Start it with @ and the last 4 digits of their number, e.g. \"@1234 your message\".",
+                    body="RoleCall: You're on call, so texts to this number count as replies, and there's no recent conversation to send this to. To reply to someone, start with @ and the last 4 digits of their number (\"@1234 your message\"). To text someone new, use @ and their full number, or rolecall.hwtco.org/phone.",
                     from_=ts['from_phone'], to=from_num)
             except Exception as e:
                 app.logger.warning(f'Failed to send "no conversation" notice: {e}')

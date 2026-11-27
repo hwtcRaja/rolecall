@@ -5892,12 +5892,28 @@ def planner_data():
             FROM events e LEFT JOIN productions p ON p.id=e.production_id LEFT JOIN youth_programs yp ON yp.id=e.program_id
             WHERE e.event_date >= %s AND e.event_date <= %s AND COALESCE(e.status,'') NOT IN ('cancelled')
             ORDER BY e.event_date''', (start, end)) or []
-        prods = fetchall(conn, '''SELECT id, name, start_date, end_date, status FROM productions
-            WHERE start_date IS NOT NULL AND COALESCE(end_date, start_date) >= %s AND start_date <= %s
-              AND COALESCE(status,'') NOT IN ('cancelled')''', (start, end)) or []
-        progs = fetchall(conn, '''SELECT id, name, start_date, end_date, status FROM youth_programs
-            WHERE NULLIF(start_date,'') IS NOT NULL AND COALESCE(NULLIF(end_date,''), start_date) >= %s AND start_date <= %s
-              AND COALESCE(status,'active') NOT IN ('archived','cancelled')''', (start, end)) or []
+        # Productions and programs on the real calendar: by their own dates, or,
+        # when those aren't filled in, by the span of their events
+        prods = fetchall(conn, '''SELECT p.id, p.name, p.status, p.start_date::TEXT AS sd, p.end_date::TEXT AS ed,
+                (SELECT MIN(e.event_date) FROM events e WHERE e.production_id=p.id AND COALESCE(e.status,'')<>'cancelled') AS emin,
+                (SELECT MAX(COALESCE(NULLIF(e.end_date,''), e.event_date)) FROM events e WHERE e.production_id=p.id AND COALESCE(e.status,'')<>'cancelled') AS emax
+            FROM productions p WHERE COALESCE(p.status,'') NOT IN ('cancelled')
+              AND ((p.start_date IS NOT NULL AND COALESCE(p.end_date, p.start_date)::TEXT >= %s AND p.start_date::TEXT <= %s)
+                OR EXISTS (SELECT 1 FROM events e WHERE e.production_id=p.id AND e.event_date >= %s AND e.event_date <= %s
+                           AND COALESCE(e.status,'')<>'cancelled'))''', (start, end, start, end)) or []
+        progs = fetchall(conn, '''SELECT p.id, p.name, p.status, NULLIF(p.start_date,'') AS sd, NULLIF(p.end_date,'') AS ed,
+                (SELECT MIN(e.event_date) FROM events e WHERE e.program_id=p.id AND COALESCE(e.status,'')<>'cancelled') AS emin,
+                (SELECT MAX(COALESCE(NULLIF(e.end_date,''), e.event_date)) FROM events e WHERE e.program_id=p.id AND COALESCE(e.status,'')<>'cancelled') AS emax
+            FROM youth_programs p WHERE COALESCE(p.status,'active') NOT IN ('archived','cancelled')
+              AND ((NULLIF(p.start_date,'') IS NOT NULL AND COALESCE(NULLIF(p.end_date,''), p.start_date) >= %s AND p.start_date <= %s)
+                OR EXISTS (SELECT 1 FROM events e WHERE e.program_id=p.id AND e.event_date >= %s AND e.event_date <= %s
+                           AND COALESCE(e.status,'')<>'cancelled'))''', (start, end, start, end)) or []
+        def span(p):
+            lo = [x[:10] for x in (p.get('sd'), p.get('emin')) if x]
+            hi = [x[:10] for x in (p.get('ed'), p.get('sd'), p.get('emax')) if x]
+            return (min(lo) if lo else None), (max(hi) if hi else None)
+        for p in prods + progs:
+            p['start_date'], p['end_date'] = span(p)
         closures = studio_closures_between(conn, start, end)
         try:
             holidays = fetchall(conn, '''SELECT start_date, end_date, label FROM oncall_closures
@@ -5914,7 +5930,8 @@ def planner_data():
                       'start_time': x.get('start_time') or '', 'end_time': x.get('end_time') or ''} for x in sched],
         'real': {
             'events': [{'id': e['id'], 'name': e['name'], 'date': d10(e['event_date']), 'end': d10(e.get('end_date')),
-                        'what': e['production'] or e['program'] or '', 'offsite': not _event_is_onsite(e)} for e in events],
+                        'what': e['production'] or e['program'] or '', 'offsite': not _event_is_onsite(e),
+                        'production_id': e.get('production_id'), 'program_id': e.get('program_id')} for e in events],
             'productions': [{'id': p['id'], 'name': p['name'], 'start': d10(p['start_date']), 'end': d10(p.get('end_date')) or d10(p['start_date']),
                              'status': p.get('status')} for p in prods],
             'programs': [{'id': p['id'], 'name': p['name'], 'start': d10(p['start_date']), 'end': d10(p.get('end_date')) or d10(p['start_date']),
@@ -6268,6 +6285,9 @@ def planner_item_schedule(iid):
                     if (cur.weekday() + 1) % 7 in wd:
                         dates.append(cur.isoformat())
                     cur += _d.timedelta(days=1)
+            elif d.get('dates'):
+                # Specific dates picked one by one
+                dates = sorted({str(x)[:10] for x in d['dates'] if x})
             elif d.get('date'):
                 dates = [d['date'][:10]]
             if not dates:
@@ -6424,11 +6444,11 @@ select,input[type=text],input[type=date],textarea{padding:7px 10px;border-radius
     <select id="sc" onchange="S.scenario=this.value;load()" title="Which version of the plan"></select>
     <button class="btn sm" onclick="openVersions()">Versions</button>
     <span style="flex:1"></span>
-    <div class="seg"><button id="v-tl" onclick="setView('timeline')">Season</button><button id="v-mo" onclick="setView('month')">Month</button></div>
-    <button class="btn sm" onclick="shift(-1)" aria-label="Earlier">‹</button>
+    <div class="seg"><button id="v-tl" onclick="setView('timeline')">Season</button><button id="v-mo" onclick="setView('month')">Month</button><button id="v-li" onclick="setView('list')">List</button></div>
+    <span id="range-ctl" style="display:contents"><button class="btn sm" onclick="shift(-1)" aria-label="Earlier">‹</button>
     <strong id="range" style="min-width:150px;text-align:center"></strong>
     <button class="btn sm" onclick="shift(1)" aria-label="Later">›</button>
-    <button class="btn sm" onclick="goToday()">Today</button>
+    <button class="btn sm" onclick="goToday()">Today</button></span>
     <button class="btn sm" id="real-btn" onclick="S.showReal=!S.showReal;render()">Real calendar: on</button>
     <button class="btn sm" onclick="window.open('/planner/print?scenario='+encodeURIComponent(S.scenario),'_blank')">Print</button>
     <button class="btn primary" id="add-btn" onclick="openItem(null)">+ Add</button>
@@ -6496,7 +6516,11 @@ function shift(n){
 }
 function goToday(){ var t=new Date(); S.start=new Date(t.getFullYear(), t.getMonth(), 1); S.month=new Date(t.getFullYear(), t.getMonth(), 1); load() }
 function render(){
-  $('v-tl').className = S.view==='timeline'?'on':''; $('v-mo').className = S.view==='month'?'on':''
+  $('v-tl').className = S.view==='timeline'?'on':''; $('v-mo').className = S.view==='month'?'on':''; $('v-li').className = S.view==='list'?'on':''
+  $('range-ctl').style.display = S.view==='list' ? 'none' : 'contents'
+  $('real-btn').style.display = S.view==='list' ? 'none' : ''
+  if(S.view==='list'){ $('tray').style.display='none'; $('compare').innerHTML=''; $('view').innerHTML = listHTML(); bindDrag(); return }
+  $('tray').style.display=''
   $('real-btn').textContent = 'Real calendar: '+(S.showReal?'on':'off'); $('real-btn').className = 'btn sm'+(S.showReal?' on':'')
   var r = rangeFromTo()
   $('range').textContent = S.view==='timeline' ? fmt(r[0],{month:'short',year:'numeric'})+' – '+fmt(r[1],{month:'short',year:'numeric'}) : new Date(S.month).toLocaleDateString('en-US',{month:'long',year:'numeric'})
@@ -6553,16 +6577,25 @@ function timelineHTML(data, editable){
   if(!items.length) h += '<div class="tl-sec" style="height:auto;padding:14px 10px;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px">Nothing scheduled in these 12 months'+(editable&&S.canEdit?'. Use + Add, or drag an idea from above.':'.')+'</div>'
   if(S.showReal){
     var R = data.real
-    if((R.productions||[]).length || (R.programs||[]).length || (R.events||[]).length){
+    if((R.productions||[]).length || (R.programs||[]).length || (R.events||[]).length){ // real layer
       h += '<div class="tl-sec">Already on the real calendar</div>'
-      var realBar = function(p, kind){ var x = Math.max(0,xOf(p.start,start)), w = Math.max(14,(days(p.start,p.end||p.start)+1)*PX_DAY), narrow = w < 110
-        return '<div class="tl-lane"><div class="real-bar" title="'+kind+': '+esc(p.name)+'" style="left:'+x+'px;width:'+w+'px'+(kind==='Program'?';border-style:dotted':'')+'">'+(narrow?'':esc(p.name))+'</div>'
-          + (narrow?'<div class="bar-label muted" style="'+(x+w > W-200 ? 'right:'+(W-x+6)+'px' : 'left:'+(x+w+6)+'px')+';font-weight:500">'+esc(p.name)+'</div>':'')+'</div>' }
-      ;(R.productions||[]).forEach(function(p){ h += realBar(p, 'Production') })
-      ;(R.programs||[]).forEach(function(p){ h += realBar(p, 'Program') })
-      var byDay = {}; (R.events||[]).forEach(function(e){ (byDay[e.date]=byDay[e.date]||[]).push(e) })
-      h += '<div class="tl-lane" title="Real events (one mark per day)">'+Object.keys(byDay).map(function(d){ var n=byDay[d].length
-        return '<div class="tick" title="'+esc(fmt(d)+': '+byDay[d].map(function(e){return e.name}).join(', '))+'" style="left:'+xOf(d,start)+'px;height:'+Math.min(22,6+n*4)+'px"></div>' }).join('')+'</div>'
+      var realBar = function(p, kind, key){
+        if(!p.start) return ''
+        var ps = p.start < start ? start : p.start, pe = (p.end||p.start) > r[1] ? r[1] : (p.end||p.start)
+        var x = xOf(ps,start), w = Math.max(14,(days(ps,pe)+1)*PX_DAY), narrow = w < 110
+        var evs = (R.events||[]).filter(function(e){ return e[key]===p.id })
+        return '<div class="tl-lane"><div class="real-bar" title="'+kind+': '+esc(p.name)+(evs.length?' · '+evs.length+' event'+(evs.length===1?'':'s')+' in view':'')+'" style="left:'+x+'px;width:'+w+'px'+(kind==='Program'?';border-style:dotted':'')+'">'+(narrow?'':esc(p.name))+'</div>'
+          + (narrow?'<div class="bar-label muted" style="'+(x+w > W-200 ? 'right:'+(W-x+6)+'px' : 'left:'+(x+w+6)+'px')+';font-weight:500">'+esc(p.name)+'</div>':'')
+          + evs.map(function(e){ return '<div class="sdot" title="'+esc(e.name+' · '+fmt(e.date))+'" style="left:'+(xOf(e.date,start)+PX_DAY/2-2)+'px;background:var(--real)"></div>' }).join('')
+          + '</div>' }
+      ;(R.productions||[]).forEach(function(p){ h += realBar(p, 'Production', 'production_id') })
+      ;(R.programs||[]).forEach(function(p){ h += realBar(p, 'Program', 'program_id') })
+      var other = (R.events||[]).filter(function(e){ return !e.production_id && !e.program_id })
+      if(other.length){
+        var byDay = {}; other.forEach(function(e){ (byDay[e.date]=byDay[e.date]||[]).push(e) })
+        h += '<div class="tl-lane" title="Other events (one mark per day)"><div class="bar-label muted" style="left:6px;font-weight:600;font-size:11px;top:-2px">Other events</div>'+Object.keys(byDay).map(function(d){ var n=byDay[d].length
+          return '<div class="tick" title="'+esc(fmt(d)+': '+byDay[d].map(function(e){return e.name}).join(', '))+'" style="left:'+xOf(d,start)+'px;top:14px;height:'+Math.min(20,6+n*4)+'px"></div>' }).join('')+'</div>'
+      }
     }
   }
   return h + '</div></div>'
@@ -6588,6 +6621,48 @@ function monthHTML(){
   }
   return h + '</div>'
 }
+// ── List view: everything in this version of the plan, at a glance ──
+var LF = {status:'active', kind:'', q:'', sort:'date'}
+var STATUS_ORDER = ['idea','tentative','penciled','confirmed','greenlit','dropped']
+var STATUS_COLORS = {idea:['#f1f5f9','#475569'], tentative:['#fef3c7','#92400e'], penciled:['#dbeafe','#1e40af'], confirmed:['#dcfce7','#166534'], greenlit:['#ede9fe','#5b21b6'], dropped:['#f3f4f6','#9ca3af']}
+function listHTML(){
+  var all = S.data.items || []
+  var counts = {}; all.forEach(function(i){ counts[i.status] = (counts[i.status]||0)+1 })
+  var active = all.filter(function(i){ return i.status!=='greenlit' && i.status!=='dropped' }).length
+  var rows = all.filter(function(i){
+    if(LF.status==='active' && (i.status==='greenlit' || i.status==='dropped')) return false
+    if(LF.status!=='active' && LF.status!=='all' && i.status!==LF.status) return false
+    if(LF.kind && i.kind!==LF.kind) return false
+    if(LF.q && (i.title+' '+(i.owner||'')+' '+(i.space||'')+' '+(i.notes||'')).toLowerCase().indexOf(LF.q.toLowerCase())<0) return false
+    return true })
+  rows.sort(function(a,b){
+    if(LF.sort==='status') return STATUS_ORDER.indexOf(a.status)-STATUS_ORDER.indexOf(b.status) || String(a.start_date||'9').localeCompare(String(b.start_date||'9'))
+    if(LF.sort==='name') return a.title.localeCompare(b.title)
+    if(LF.sort==='kind') return a.kind.localeCompare(b.kind) || String(a.start_date||'9').localeCompare(String(b.start_date||'9'))
+    return String(a.start_date||'9999').localeCompare(String(b.start_date||'9999')) || a.title.localeCompare(b.title) })
+  var chip = function(key, label, n){ var on = LF.status===key
+    return '<button class="btn sm'+(on?' on':'')+'" onclick="LF.status=\''+key+'\';render()">'+label+(n!=null?' <span class="muted">'+n+'</span>':'')+'</button>' }
+  var h = '<div class="row" style="margin-bottom:10px;flex-wrap:wrap">'
+    + chip('active','In planning', active) + STATUS_ORDER.map(function(s){ return chip(s, STATUS[s], counts[s]||0) }).join('') + chip('all','Everything', all.length)
+    + '<span style="flex:1"></span><select onchange="LF.kind=this.value;render()"><option value="">All types</option>'+Object.keys(KINDS).map(function(k){ return '<option value="'+k+'"'+(LF.kind===k?' selected':'')+'>'+KINDS[k][0]+'</option>' }).join('')+'</select>'
+    + '<input type="text" placeholder="Search" value="'+esc(LF.q)+'" oninput="LF.q=this.value;clearTimeout(window._lq);window._lq=setTimeout(function(){render();var s=document.querySelector(\'#view input[placeholder=Search]\');if(s){s.focus();s.setSelectionRange(s.value.length,s.value.length)}},250)" style="width:180px"/></div>'
+  var th = function(key, label){ return '<th style="text-align:left;padding:9px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);cursor:pointer;white-space:nowrap" onclick="LF.sort=\''+key+'\';render()">'+label+(LF.sort===key?' ▾':'')+'</th>' }
+  h += '<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:13.5px">'
+    + '<thead><tr style="border-bottom:1px solid var(--line)">'+th('name','Name')+th('kind','Type')+th('status','Status')+th('date','When')+'<th style="text-align:left;padding:9px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)">Where · Leading</th><th style="text-align:right;padding:9px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)">Schedule</th></tr></thead><tbody>'
+  h += rows.length ? rows.map(function(i){
+    var sc = STATUS_COLORS[i.status] || STATUS_COLORS.idea
+    var when = i.start_date ? fmt(i.start_date,{month:'short',day:'numeric',year:'numeric'})+(i.end_date && i.end_date!==i.start_date?' – '+fmt(i.end_date,{month:'short',day:'numeric'}):'') : (i.window_label ? '<span class="muted">'+esc(i.window_label)+'</span>' : '<span class="muted">Not scheduled</span>')
+    return '<tr style="border-bottom:1px solid var(--line);cursor:pointer" onclick="openItem(\''+i.id+'\')">'
+      + '<td style="padding:9px 10px"><span class="sw" style="width:10px;height:10px;border-radius:3px;background:'+color(i)+';margin-right:8px;vertical-align:middle"></span><b>'+esc(i.title)+'</b>'+(i.comments?' <span class="muted" title="Comments">· '+i.comments+' comment'+(i.comments==1?'':'s')+'</span>':'')+'</td>'
+      + '<td style="padding:9px 10px;white-space:nowrap">'+(KINDS[i.kind]||KINDS.other)[0]+'</td>'
+      + '<td style="padding:9px 10px"><span style="background:'+sc[0]+';color:'+sc[1]+';font-weight:800;font-size:11.5px;border-radius:999px;padding:2px 9px;white-space:nowrap">'+(i.status==='greenlit'?'✓ ':'')+STATUS[i.status]+'</span></td>'
+      + '<td style="padding:9px 10px;white-space:nowrap">'+when+'</td>'
+      + '<td style="padding:9px 10px" class="muted">'+[i.space, i.owner].filter(Boolean).map(esc).join(' · ')+'</td>'
+      + '<td style="padding:9px 10px;text-align:right" class="muted">'+(i.schedule_count?i.schedule_count+' date'+(i.schedule_count==1?'':'s'):'')+'</td></tr>' }).join('')
+    : '<tr><td colspan="6" style="padding:20px;text-align:center" class="muted">Nothing here.'+(LF.status!=='all'?' Try “Everything”.':'')+'</td></tr>'
+  return h + '</tbody></table></div><div class="muted" style="font-size:12px;margin-top:8px">'+rows.length+' shown. Click a row to open it. Click a column heading to sort.</div>'
+}
+
 // ── Dragging: bars and chips move with the pointer; drop to set new dates ──
 function bindDrag(){
   document.querySelectorAll('.plan').forEach(function(el){ el.onpointerdown = function(ev){ startDrag(ev, el) } })
@@ -6659,6 +6734,7 @@ function openItem(id){
         + (ro?'':'<div class="row" style="margin-top:8px"><input type="text" id="cmt-in" placeholder="Add a comment…" style="flex:1" onkeydown="if(event.key===\'Enter\')addComment()"/><button class="btn sm" onclick="addComment()">Post</button></div>')+'</div>' : '')
     + '</div>'
   document.body.appendChild(ov)
+  SCH = {mode:'pick', picked:[], month:null, rows:[]}
   if(it){ loadComments(it.id); if(it.kind==='show'||it.kind==='class') loadSchedule(it.id) }
 }
 // ── Draft schedule (becomes real events when greenlit) ──
@@ -6673,9 +6749,10 @@ function scheduleBox(it, ro){
       + '<div class="f" style="margin-top:0"><label>Event type</label><select id="sch-type"><option value="">(none)</option></select></div></div>'
       + '<div class="two"><div class="f"><label>Starts</label><input type="time" id="sch-st"/></div><div class="f"><label>Ends</label><input type="time" id="sch-et"/></div></div>'
       + '<div class="f"><label>Where</label><input type="text" id="sch-loc" placeholder="Studio (default), or another place" value="'+esc(it.space||'')+'"/></div>'
-      + '<div class="f"><label>Repeats on</label><div class="row" id="sch-wd">'+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(x,i){ return '<button type="button" class="btn sm" data-wd="'+i+'" onclick="this.classList.toggle(\'on\')">'+x+'</button>' }).join('')+'</div></div>'
-      + '<div class="two"><div class="f"><label>From</label><input type="date" id="sch-from" value="'+(it.start_date||'')+'"/></div><div class="f"><label>Through</label><input type="date" id="sch-to" value="'+(it.end_date||it.start_date||'')+'"/></div></div>'
-      + '<div class="muted" style="font-size:12px;margin-top:4px">Pick days to repeat weekly between the dates, or leave days unpicked to add just the From date.</div>'
+      + '<div class="f"><label>Which dates</label><div class="seg"><button type="button" id="sch-m-pick" class="on" onclick="schMode(\'pick\')">Pick dates</button><button type="button" id="sch-m-week" onclick="schMode(\'week\')">Repeat weekly</button></div></div>'
+      + '<div id="sch-pick"><div id="sch-cal"></div><div class="muted" style="font-size:12px;margin-top:4px" id="sch-picked">Tap dates to select them.</div></div>'
+      + '<div id="sch-week" style="display:none"><div class="f"><label>Repeats on</label><div class="row" id="sch-wd">'+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(x,i){ return '<button type="button" class="btn sm" data-wd="'+i+'" onclick="this.classList.toggle(\'on\')">'+x+'</button>' }).join('')+'</div></div>'
+      + '<div class="two"><div class="f"><label>From</label><input type="date" id="sch-from" value="'+(it.start_date||'')+'"/></div><div class="f"><label>Through</label><input type="date" id="sch-to" value="'+(it.end_date||it.start_date||'')+'"/></div></div></div>'
       + '<div class="row" style="margin-top:8px"><button class="btn primary sm" onclick="addSchedule()">Add to schedule</button><span style="flex:1"></span><button class="btn sm" style="color:#b91c1c" onclick="clearSchedule()">Clear schedule</button></div></div>')
     + '</div>'
 }
@@ -6684,23 +6761,59 @@ async function loadSchedule(id){
   var ts = await eventTypes(), sel = $('sch-type')
   if(sel && sel.options.length<=1){ sel.innerHTML = '<option value="">(none)</option>'+ts.map(function(t){ return '<option value="'+t.id+'">'+esc(t.name)+'</option>' }).join('')
     var want = (CUR && CUR.kind==='show') ? /rehears/i : /class|program|workshop/i; var m = ts.find(function(t){ return want.test(t.name) }); if(m) sel.value = m.id }
+  SCH.rows = Array.isArray(rows) ? rows : []
+  if(!SCH.month){ var sd = (CUR && CUR.start_date) || iso(new Date()); SCH.month = new Date(D(sd).getFullYear(), D(sd).getMonth(), 1) }
+  schCal()
   if(!Array.isArray(rows) || !rows.length){ el.innerHTML = 'No dates yet.'; return }
   var byMonth = {}; rows.forEach(function(r){ var k = r.date.slice(0,7); (byMonth[k]=byMonth[k]||[]).push(r) })
   el.innerHTML = '<div style="color:var(--ink);font-size:13px;margin-bottom:4px"><b>'+rows.length+'</b> date'+(rows.length===1?'':'s')+'</div>' + Object.keys(byMonth).map(function(k){
     return '<div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted);margin:8px 0 2px">'+D(k+'-01').toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</div>'
       + byMonth[k].map(function(r){ return '<div class="row" style="padding:3px 0;font-size:13px;color:var(--ink);gap:6px"><span style="width:92px">'+fmt(r.date,{weekday:'short',month:'short',day:'numeric'})+'</span>'
         + '<span style="width:96px" class="muted">'+(r.start_time?tm(r.start_time)+(r.end_time?'–'+tm(r.end_time):''):'')+'</span><span style="flex:1">'+esc(r.name)+(r.type_name && r.type_name.toLowerCase()!==String(r.name).toLowerCase()?' <span class="muted">· '+esc(r.type_name)+'</span>':'')+(r.location?' <span class="muted">· '+esc(r.location)+'</span>':'')+'</span>'
-        + (S.canEdit?'<button class="btn sm" style="padding:1px 7px" onclick="delSchedule(\''+r.id+'\')" aria-label="Remove">×</button>':'')+'</div>' }).join('') }).join('')
+        + (S.canEdit?'<button class="btn sm" style="padding:1px 7px" onclick="editSchedule(\''+r.id+'\')">Edit</button><button class="btn sm" style="padding:1px 7px" onclick="delSchedule(\''+r.id+'\')" aria-label="Remove">×</button>':'')+'</div><div id="sch-edit-'+r.id+'"></div>' }).join('') }).join('')
 }
+var SCH = {mode:'pick', picked:[], month:null, rows:[]}
+function schMode(m){ SCH.mode = m; $('sch-m-pick').className = m==='pick'?'on':''; $('sch-m-week').className = m==='week'?'on':''
+  $('sch-pick').style.display = m==='pick'?'':'none'; $('sch-week').style.display = m==='week'?'':'none' }
+function schCal(){
+  var el = $('sch-cal'); if(!el) return
+  var m = SCH.month, y = m.getFullYear(), mo = m.getMonth(), first = new Date(y, mo, 1), s = new Date(first); s.setDate(1 - first.getDay())
+  var have = {}; (SCH.rows||[]).forEach(function(r){ have[r.date] = true })
+  var h = '<div class="row" style="margin:6px 0"><button type="button" class="btn sm" onclick="SCH.month=new Date('+y+','+(mo-1)+',1);schCal()">‹</button><strong style="flex:1;text-align:center">'+m.toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</strong><button type="button" class="btn sm" onclick="SCH.month=new Date('+y+','+(mo+1)+',1);schCal()">›</button></div>'
+    + '<div style="display:grid;grid-template-columns:repeat(7,1fr);gap:3px;text-align:center">' + ['S','M','T','W','T','F','S'].map(function(x){ return '<div class="muted" style="font-size:11px;font-weight:800">'+x+'</div>' }).join('')
+  for(var i=0;i<42;i++){ var d = new Date(s); d.setDate(s.getDate()+i); var ds = iso(d), on = SCH.picked.indexOf(ds)>=0, out = d.getMonth()!==mo
+    var inItem = CUR && CUR.start_date && ds>=CUR.start_date && ds<=(CUR.end_date||CUR.start_date)
+    h += '<button type="button" onclick="schToggle(\''+ds+'\')" style="padding:7px 0;border-radius:7px;font:inherit;font-size:13px;cursor:pointer;border:1.5px solid '+(on?'var(--brand)':'var(--line)')+';background:'+(on?'var(--brand)':(inItem?'var(--soft)':'var(--card)'))+';color:'+(on?'var(--brand-ink)':'inherit')+';opacity:'+(out?'.45':'1')+';font-weight:'+(have[ds]?'800':'500')+'" title="'+(have[ds]?'Already on the schedule':'')+'">'+d.getDate()+(have[ds]?'•':'')+'</button>' }
+  el.innerHTML = h + '</div>'
+  $('sch-picked').textContent = SCH.picked.length ? SCH.picked.length+' picked: '+SCH.picked.map(function(x){ return fmt(x) }).join(', ') : 'Tap dates to select them. Bold dates (•) are already on the schedule.'
+}
+function schToggle(ds){ var i = SCH.picked.indexOf(ds); if(i>=0) SCH.picked.splice(i,1); else SCH.picked.push(ds); SCH.picked.sort(); schCal() }
 async function addSchedule(){
   var wd = Array.from(document.querySelectorAll('#sch-wd .on')).map(function(b){ return +b.dataset.wd })
   var body = {name:$('sch-name').value, event_type_id:$('sch-type').value, start_time:$('sch-st').value, end_time:$('sch-et').value, location:$('sch-loc').value}
-  if(wd.length){ body.weekdays = wd; body.from = $('sch-from').value; body.to = $('sch-to').value } else body.date = $('sch-from').value
-  if(!body.date && !(body.from && body.to)){ toast('Pick a date'); return }
+  if(SCH.mode==='pick'){ if(!SCH.picked.length){ toast('Tap the dates you want first'); return } body.dates = SCH.picked.slice() }
+  else { if(!wd.length){ toast('Pick the days of the week'); return } body.weekdays = wd; body.from = $('sch-from').value; body.to = $('sch-to').value
+    if(!(body.from && body.to)){ toast('Pick the first and last dates'); return } }
   var r = await api('/api/planner/items/'+CUR.id+'/schedule','POST',body)
   if(r.error){ toast(r.error); return }
-  toast('Added to the schedule'); document.querySelectorAll('#sch-wd .on').forEach(function(b){ b.classList.remove('on') })
+  toast('Added '+((body.dates||[]).length || 'the')+' date'+((body.dates||[]).length===1?'':'s')+' to the schedule'); document.querySelectorAll('#sch-wd .on').forEach(function(b){ b.classList.remove('on') }); SCH.picked = []
   loadSchedule(CUR.id); refreshQuiet()
+}
+async function editSchedule(sid){
+  var r = SCH.rows.find(function(x){ return x.id===sid }); if(!r) return
+  document.querySelectorAll('[id^="sch-edit-"]').forEach(function(x){ x.innerHTML = '' })
+  var ts = await eventTypes()
+  $('sch-edit-'+sid).innerHTML = '<div style="background:var(--soft);border-radius:9px;padding:10px;margin:4px 0 8px">'
+    + '<div class="two"><div class="f" style="margin-top:0"><label>Date</label><input type="date" id="se-date" value="'+r.date+'"/></div><div class="f" style="margin-top:0"><label>What</label><input type="text" id="se-name" value="'+esc(r.name)+'"/></div></div>'
+    + '<div class="two"><div class="f"><label>Starts</label><input type="time" id="se-st" value="'+esc(r.start_time||'')+'"/></div><div class="f"><label>Ends</label><input type="time" id="se-et" value="'+esc(r.end_time||'')+'"/></div></div>'
+    + '<div class="two"><div class="f"><label>Event type</label><select id="se-type"><option value="">(none)</option>'+ts.map(function(t){ return '<option value="'+t.id+'"'+(t.id===r.event_type_id?' selected':'')+'>'+esc(t.name)+'</option>' }).join('')+'</select></div>'
+    + '<div class="f"><label>Where</label><input type="text" id="se-loc" value="'+esc(r.location||'')+'"/></div></div>'
+    + '<div class="row" style="margin-top:8px"><button class="btn primary sm" onclick="saveScheduleEdit(\''+sid+'\')">Save</button><button class="btn sm" onclick="$(\'sch-edit-'+sid+'\').innerHTML=\'\'">Cancel</button></div></div>'
+}
+async function saveScheduleEdit(sid){
+  var r = await api('/api/planner/schedule/'+sid,'PUT',{date:$('se-date').value, name:$('se-name').value, start_time:$('se-st').value, end_time:$('se-et').value, event_type_id:$('se-type').value, location:$('se-loc').value})
+  if(r.error){ toast(r.error); return }
+  toast('Saved'); loadSchedule(CUR.id); refreshQuiet()
 }
 async function delSchedule(sid){ var r = await api('/api/planner/schedule/'+sid,'DELETE'); if(r.error){ toast(r.error); return } loadSchedule(CUR.id); refreshQuiet() }
 async function clearSchedule(){ if(!confirm('Remove every date from this schedule?')) return; await api('/api/planner/items/'+CUR.id+'/schedule','DELETE'); loadSchedule(CUR.id); refreshQuiet() }

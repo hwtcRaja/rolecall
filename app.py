@@ -6361,6 +6361,46 @@ def _plan_greenlight_schedule(conn_unused, item_id, as_, new_id, override):
     return made, skipped, errors
 
 
+@app.route('/api/planner/items/<iid>/move', methods=['POST'])
+def planner_item_move(iid):
+    """Move an item to another version of the plan, or copy it there.
+    A move keeps its comments and schedule; a copy brings the schedule
+    (not the comments), and a copy of a greenlit item starts as Confirmed
+    since only the original is linked to the real thing."""
+    err = _plan_err('edit')
+    if err: return err
+    d = request.json or {}
+    target = d.get('scenario_id')
+    conn = get_db()
+    try:
+        it = fetchone(conn, 'SELECT * FROM plan_items WHERE id=%s', (iid,))
+        sc = fetchone(conn, 'SELECT id, name FROM plan_scenarios WHERE id=%s AND COALESCE(archived,FALSE)=FALSE', (target,))
+        if not it or not sc:
+            return jsonify({'error': 'Not found'}), 404
+        if it['scenario_id'] == target:
+            return jsonify({'error': 'It’s already in that version.'}), 400
+        if not d.get('copy'):
+            execute(conn, 'UPDATE plan_items SET scenario_id=%s, updated_at=NOW() WHERE id=%s', (target, iid))
+            execute(conn, 'INSERT INTO plan_comments (id, item_id, author, body) VALUES (%s,%s,%s,%s)',
+                    (str(uuid.uuid4()), iid, session.get('name') or 'Someone', f"Moved to the “{sc['name']}” version."))
+            conn.commit()
+            return jsonify({'ok': True, 'id': iid, 'moved': True})
+        nid = str(uuid.uuid4())
+        status = 'confirmed' if it['status'] == 'greenlit' else it['status']
+        execute(conn, '''INSERT INTO plan_items (id, scenario_id, title, kind, status, start_date, end_date, window_label, space,
+                color, owner, notes, sort, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (nid, target, it['title'], it['kind'], status, it['start_date'], it['end_date'], it.get('window_label') or '',
+             it.get('space') or '', it.get('color') or '', it.get('owner') or '', it.get('notes') or '', it.get('sort') or 0,
+             session.get('name') or ''))
+        execute(conn, '''INSERT INTO plan_schedule (id, item_id, name, event_type_id, date, start_time, end_time, location, notes)
+            SELECT md5(random()::text || clock_timestamp()::text), %s, name, event_type_id, date, start_time, end_time, location, notes
+            FROM plan_schedule WHERE item_id=%s''', (nid, iid))
+        conn.commit()
+        return jsonify({'ok': True, 'id': nid, 'copied': True})
+    finally:
+        conn.close()
+
+
 _PLANNER_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Season Planner · RoleCall</title>
@@ -6729,6 +6769,9 @@ function openItem(id){
     + '<div class="f"><label>Color</label><div class="swatches" id="f-color">'+SWATCH.map(function(c){ return '<button type="button" data-c="'+c+'" class="'+((CUR.color||'')===c?'on':'')+'" style="background:'+(c||'repeating-linear-gradient(135deg,#fff,#fff 4px,#ddd 4px,#ddd 8px)')+'" title="'+(c?c:'Use the type’s color')+'"'+dis+' onclick="pickColor(this)"></button>' }).join('')+'</div></div>'
     + '<div class="f"><label>Notes</label><textarea id="f-notes" rows="5"'+dis+'>'+esc(CUR.notes||'')+'</textarea></div>'
     + (ro ? '' : '<div class="row" style="margin-top:14px"><button class="btn primary" onclick="saveCur()">'+(it?'Save':'Add to the plan')+'</button>'+(it?'<span style="flex:1"></span><button class="btn sm" style="color:#b91c1c" onclick="deleteCur()">Delete</button>':'')+'</div>')
+    + (it && !ro && S.data.scenarios.length > 1 ? '<div class="box"><strong>Other versions</strong><div class="muted" style="font-size:13px;margin:4px 0 8px">Move this to another version of the plan, or put a copy there to try it both ways.</div>'
+        + '<div class="row"><select id="mv-to">'+S.data.scenarios.filter(function(s){ return s.id!==S.scenario }).map(function(s){ return '<option value="'+s.id+'">'+esc(s.name)+(s.is_primary?' (main)':'')+'</option>' }).join('')+'</select>'
+        + '<button class="btn sm" onclick="moveItem(false)">Move there</button><button class="btn sm" onclick="moveItem(true)">Copy there</button></div></div>' : '')
     + (it && (it.kind==='show' || it.kind==='class') ? scheduleBox(it, ro) : '')
     + (it ? greenlightBox(it, ro) + '<div class="box"><strong>Comments</strong><div id="cmts" class="muted" style="margin-top:6px">Loading…</div>'
         + (ro?'':'<div class="row" style="margin-top:8px"><input type="text" id="cmt-in" placeholder="Add a comment…" style="flex:1" onkeydown="if(event.key===\'Enter\')addComment()"/><button class="btn sm" onclick="addComment()">Post</button></div>')+'</div>' : '')
@@ -6825,6 +6868,13 @@ function greenlightBox(it, ro){
   return '<div class="box"><strong>Greenlight it</strong><div class="muted" style="margin:4px 0 8px;font-size:13px">Makes it real in RoleCall using these details. A production is created as Upcoming; a program or class as a Draft (not open for registration until you finish it); an event goes on the calendar for these dates.'+(it.schedule_count?' Its <b>'+it.schedule_count+' scheduled dates</b> become events under it (as drafts).':'')+'</div>'
     + '<div class="row"><select id="gl-as"><option value="production"'+(def==='production'?' selected':'')+'>Create a production</option><option value="program"'+(def==='program'?' selected':'')+'>Create a program / class</option><option value="event"'+(def==='event'?' selected':'')+'>Create an event</option></select>'
     + '<button class="btn primary" onclick="greenlight()">Greenlight</button></div></div>'
+}
+async function moveItem(copy){
+  var sel = $('mv-to'), name = sel.options[sel.selectedIndex].text
+  if(!copy && !confirm('Move “'+CUR.title+'” to '+name+'? It will leave this version.')) return
+  var r = await api('/api/planner/items/'+CUR.id+'/move','POST',{scenario_id: sel.value, copy: copy})
+  if(r.error){ toast(r.error); return }
+  closeItem(); toast(copy ? 'Copied to '+name : 'Moved to '+name); load()
 }
 function pickColor(b){ document.querySelectorAll('#f-color button').forEach(function(x){ x.classList.remove('on') }); b.classList.add('on'); CUR.color = b.dataset.c }
 function closeItem(){ var o=$('ov'); if(o) o.remove(); CUR=null }

@@ -3125,6 +3125,16 @@ tbody td{padding:12px 20px;font-size:13px;vertical-align:middle}
  oninput="previewNavIcon('event-logs',this.value)"/>
  </div>
  </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
+ <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-season-planner">
+ <span style="font-size:16px"></span>
+ </div>
+ <div style="flex:1;font-size:13px;font-weight:600">Season Planner</div>
+ <div style="display:flex;align-items:center;gap:8px">
+ <input type="text" id="ni-input-season-planner" placeholder="calendar-range" value=""
+ style="width:160px;padding:6px 10px;border:1.5px solid var(--border-md);border-radius:var(--radius);font-family:inherit;font-size:12px;outline:none"
+ oninput="previewNavIcon('season-planner',this.value)"/>
+ </div>
+ </div><div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)">
  <div style="width:32px;height:32px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center" id="ni-preview-notifications">
  <span style="font-size:16px"></span>
  </div>
@@ -11778,7 +11788,7 @@ const NAV_ICON_DEFAULTS = {
   board:'', directors:'', 'my-time':'', 'space-requests':'', surveys:'', rentals:'', 'email-templates-page':'', 'show-contracts':'',
  'step-up-holds':'',
   oncall:'', 'hours-store':'', responsibility:'', licensing:'', talent:'', inbox:'', patrons:'', proposals:'',
- 'instructor-dashboard':'', 'director-dashboard':'', 'foh-training':'', 'studio-after-dark':''
+ 'instructor-dashboard':'', 'director-dashboard':'', 'foh-training':'', 'studio-after-dark':'', 'season-planner':''
 }
 
 let _currentNavIcons = {}

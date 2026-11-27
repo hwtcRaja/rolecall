@@ -3912,6 +3912,19 @@ def init_db():
             id TEXT PRIMARY KEY, start_date DATE NOT NULL, end_date DATE NOT NULL, greeting TEXT NOT NULL,
             label TEXT DEFAULT '', created_by TEXT, created_at TIMESTAMP DEFAULT NOW())""",
         "ALTER TABLE call_log ADD COLUMN IF NOT EXISTS duration INTEGER DEFAULT 0",
+        # Season Planner: private planning versions, placeholder items, comments
+        """CREATE TABLE IF NOT EXISTS plan_scenarios (
+            id TEXT PRIMARY KEY, name TEXT NOT NULL, notes TEXT DEFAULT '', is_primary BOOLEAN DEFAULT FALSE,
+            archived BOOLEAN DEFAULT FALSE, created_by TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW())""",
+        """CREATE TABLE IF NOT EXISTS plan_items (
+            id TEXT PRIMARY KEY, scenario_id TEXT NOT NULL, title TEXT NOT NULL, kind TEXT DEFAULT 'other',
+            status TEXT DEFAULT 'idea', start_date DATE, end_date DATE, window_label TEXT DEFAULT '', space TEXT DEFAULT '',
+            color TEXT DEFAULT '', owner TEXT DEFAULT '', notes TEXT DEFAULT '', sort INTEGER DEFAULT 0,
+            greenlit_kind TEXT, greenlit_id TEXT, greenlit_at TIMESTAMP, greenlit_by TEXT,
+            created_by TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_plan_items_scenario ON plan_items(scenario_id)",
+        """CREATE TABLE IF NOT EXISTS plan_comments (
+            id TEXT PRIMARY KEY, item_id TEXT NOT NULL, author TEXT DEFAULT '', body TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW())""",
         # Several ELICs per production / program (added to each of their events)
         "CREATE TABLE IF NOT EXISTS production_elics (production_id TEXT NOT NULL, elic_id TEXT NOT NULL, PRIMARY KEY (production_id, elic_id))",
         "CREATE TABLE IF NOT EXISTS program_elics (program_id TEXT NOT NULL, elic_id TEXT NOT NULL, PRIMARY KEY (program_id, elic_id))",
@@ -5801,6 +5814,765 @@ def public_studio_closures():
         conn.close()
     return jsonify([{'start_date': str(r['start_date'])[:10], 'end_date': str(r['end_date'])[:10], 'reason': r.get('reason') or ''} for r in rows])
 
+
+
+# ─────────────────────────────────────────────
+# Season Planner  (/planner)
+#
+# A private planning board for mapping out future seasons before anything
+# is official. Placeholders ("plan items") are not events, programs or
+# productions: they never appear on public pages, the kiosk, Slack, the
+# TV displays or reports. Only people with the Season Planning permission
+# can see the planner. Real events, productions, programs and studio
+# closed days are shown faintly behind the plan so conflicts are visible.
+#
+# Versions ("scenarios") let you lay out Plan A and Plan B side by side.
+# Items have comments. "Greenlight" turns an item into a real production,
+# program/class or event (created as a draft/upcoming, to finish setting
+# up), and the item links to it.
+# ─────────────────────────────────────────────
+PLAN_KINDS = ('show', 'class', 'event', 'rental', 'fundraiser', 'other')
+PLAN_STATUSES = ('idea', 'tentative', 'penciled', 'confirmed', 'greenlit', 'dropped')
+
+
+def _plan_err(level='view'):
+    return require_permission('planning', level)
+
+
+def _plan_default_scenario(conn):
+    row = fetchone(conn, "SELECT id FROM plan_scenarios WHERE COALESCE(archived,FALSE)=FALSE ORDER BY is_primary DESC, created_at LIMIT 1")
+    if row:
+        return row['id']
+    sid = str(uuid.uuid4())
+    execute(conn, "INSERT INTO plan_scenarios (id, name, is_primary, created_by) VALUES (%s,'Season plan',TRUE,%s)",
+            (sid, session.get('name') or ''))
+    conn.commit()
+    return sid
+
+
+def _plan_item_out(r):
+    for k in ('start_date', 'end_date'):
+        r[k] = str(r[k])[:10] if r.get(k) else None
+    for k in ('created_at', 'updated_at', 'greenlit_at'):
+        if r.get(k): r[k] = str(r[k])[:16]
+    return r
+
+
+@app.route('/api/planner')
+def planner_data():
+    err = _plan_err()
+    if err: return err
+    conn = get_db()
+    try:
+        sid = request.args.get('scenario') or _plan_default_scenario(conn)
+        start = (request.args.get('from') or '')[:10] or today_eastern().replace(day=1).isoformat()
+        end = (request.args.get('to') or '')[:10]
+        if not end:
+            import datetime as _d
+            s = _d.date.fromisoformat(start)
+            end = (s.replace(year=s.year + 1) - _d.timedelta(days=1)).isoformat()
+        scenarios = fetchall(conn, '''SELECT id, name, notes, is_primary, created_by, created_at,
+                (SELECT COUNT(*) FROM plan_items i WHERE i.scenario_id=s.id AND i.status <> 'dropped') AS items
+            FROM plan_scenarios s WHERE COALESCE(archived,FALSE)=FALSE ORDER BY is_primary DESC, created_at''') or []
+        items = fetchall(conn, '''SELECT i.*, (SELECT COUNT(*) FROM plan_comments c WHERE c.item_id=i.id) AS comments
+            FROM plan_items i WHERE i.scenario_id=%s ORDER BY i.start_date NULLS LAST, i.sort, i.created_at''', (sid,)) or []
+        # Real things already on the calendar, drawn faintly behind the plan
+        events = fetchall(conn, '''SELECT e.id, e.name, e.event_date, e.end_date, e.location, e.production_id, e.program_id,
+                COALESCE(p.name,'') AS production, COALESCE(yp.name,'') AS program
+            FROM events e LEFT JOIN productions p ON p.id=e.production_id LEFT JOIN youth_programs yp ON yp.id=e.program_id
+            WHERE e.event_date >= %s AND e.event_date <= %s AND COALESCE(e.status,'') NOT IN ('cancelled')
+            ORDER BY e.event_date''', (start, end)) or []
+        prods = fetchall(conn, '''SELECT id, name, start_date, end_date, status FROM productions
+            WHERE start_date IS NOT NULL AND COALESCE(end_date, start_date) >= %s AND start_date <= %s
+              AND COALESCE(status,'') NOT IN ('cancelled')''', (start, end)) or []
+        progs = fetchall(conn, '''SELECT id, name, start_date, end_date, status FROM youth_programs
+            WHERE NULLIF(start_date,'') IS NOT NULL AND COALESCE(NULLIF(end_date,''), start_date) >= %s AND start_date <= %s
+              AND COALESCE(status,'active') NOT IN ('archived','cancelled')''', (start, end)) or []
+        closures = studio_closures_between(conn, start, end)
+        try:
+            holidays = fetchall(conn, '''SELECT start_date, end_date, label FROM oncall_closures
+                WHERE start_date <= %s AND end_date >= %s''', (end, start)) or []
+        except Exception:
+            conn.rollback(); holidays = []
+    finally:
+        conn.close()
+    def d10(x): return str(x)[:10] if x else None
+    return jsonify({
+        'scenario_id': sid, 'from': start, 'to': end, 'scenarios': scenarios,
+        'items': [_plan_item_out(i) for i in items],
+        'real': {
+            'events': [{'id': e['id'], 'name': e['name'], 'date': d10(e['event_date']), 'end': d10(e.get('end_date')),
+                        'what': e['production'] or e['program'] or '', 'offsite': not _event_is_onsite(e)} for e in events],
+            'productions': [{'id': p['id'], 'name': p['name'], 'start': d10(p['start_date']), 'end': d10(p.get('end_date')) or d10(p['start_date']),
+                             'status': p.get('status')} for p in prods],
+            'programs': [{'id': p['id'], 'name': p['name'], 'start': d10(p['start_date']), 'end': d10(p.get('end_date')) or d10(p['start_date']),
+                          'status': p.get('status')} for p in progs],
+            'closures': [{'start': d10(c['start_date']), 'end': d10(c['end_date']), 'reason': c.get('reason') or ''} for c in closures],
+            'holidays': [{'start': d10(h['start_date']), 'end': d10(h['end_date']), 'label': h.get('label') or ''} for h in holidays],
+        },
+        'can_edit': _plan_err('edit') is None,
+    })
+
+
+@app.route('/api/planner/scenarios', methods=['POST'])
+def planner_scenario_create():
+    err = _plan_err('edit')
+    if err: return err
+    d = request.json or {}
+    name = (d.get('name') or '').strip()[:80] or 'New version'
+    conn = get_db()
+    try:
+        sid = str(uuid.uuid4())
+        execute(conn, 'INSERT INTO plan_scenarios (id, name, notes, is_primary, created_by) VALUES (%s,%s,%s,FALSE,%s)',
+                (sid, name, (d.get('notes') or '').strip()[:500], session.get('name') or ''))
+        if d.get('copy_from'):
+            # A copy of another version to try changes in (comments stay with the original)
+            for it in fetchall(conn, "SELECT * FROM plan_items WHERE scenario_id=%s AND status <> 'greenlit'", (d['copy_from'],)) or []:
+                execute(conn, '''INSERT INTO plan_items (id, scenario_id, title, kind, start_date, end_date, window_label, space, color,
+                        status, owner, notes, sort, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                    (str(uuid.uuid4()), sid, it['title'], it['kind'], it['start_date'], it['end_date'], it.get('window_label') or '',
+                     it.get('space') or '', it.get('color') or '', it['status'], it.get('owner') or '', it.get('notes') or '',
+                     it.get('sort') or 0, session.get('name') or ''))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'id': sid})
+
+
+@app.route('/api/planner/scenarios/<sid>', methods=['PUT', 'DELETE'])
+def planner_scenario_update(sid):
+    err = _plan_err('edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'DELETE':
+            n = fetchone(conn, 'SELECT COUNT(*) AS n FROM plan_scenarios WHERE COALESCE(archived,FALSE)=FALSE') or {}
+            if int(n.get('n') or 0) <= 1:
+                return jsonify({'error': 'Keep at least one version.'}), 400
+            execute(conn, 'UPDATE plan_scenarios SET archived=TRUE, is_primary=FALSE WHERE id=%s', (sid,))
+            p = fetchone(conn, 'SELECT 1 AS x FROM plan_scenarios WHERE is_primary AND COALESCE(archived,FALSE)=FALSE')
+            if not p:
+                execute(conn, '''UPDATE plan_scenarios SET is_primary=TRUE WHERE id=(SELECT id FROM plan_scenarios
+                    WHERE COALESCE(archived,FALSE)=FALSE ORDER BY created_at LIMIT 1)''')
+            conn.commit()
+            return jsonify({'ok': True})
+        d = request.json or {}
+        if 'name' in d:
+            execute(conn, 'UPDATE plan_scenarios SET name=%s WHERE id=%s', ((d.get('name') or '').strip()[:80] or 'Untitled', sid))
+        if 'notes' in d:
+            execute(conn, 'UPDATE plan_scenarios SET notes=%s WHERE id=%s', ((d.get('notes') or '').strip()[:500], sid))
+        if d.get('is_primary'):
+            execute(conn, 'UPDATE plan_scenarios SET is_primary=FALSE')
+            execute(conn, 'UPDATE plan_scenarios SET is_primary=TRUE WHERE id=%s', (sid,))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
+
+
+def _plan_clean(d):
+    kind = d.get('kind') if d.get('kind') in PLAN_KINDS else 'other'
+    status = d.get('status') if d.get('status') in PLAN_STATUSES else 'idea'
+    s = (d.get('start_date') or '')[:10] or None
+    e = (d.get('end_date') or '')[:10] or None
+    if s and e and e < s:
+        s, e = e, s
+    if e and not s:
+        s = e
+    return {'title': (d.get('title') or '').strip()[:160], 'kind': kind, 'status': status, 'start_date': s, 'end_date': e or s,
+            'window_label': (d.get('window_label') or '').strip()[:60], 'space': (d.get('space') or '').strip()[:80],
+            'color': (d.get('color') or '').strip()[:20], 'owner': (d.get('owner') or '').strip()[:80],
+            'notes': (d.get('notes') or '').strip()[:4000]}
+
+
+@app.route('/api/planner/items', methods=['POST'])
+def planner_item_create():
+    err = _plan_err('edit')
+    if err: return err
+    d = request.json or {}
+    v = _plan_clean(d)
+    if not v['title']:
+        return jsonify({'error': 'Give it a name.'}), 400
+    conn = get_db()
+    try:
+        sid = d.get('scenario_id') or _plan_default_scenario(conn)
+        iid = str(uuid.uuid4())
+        execute(conn, '''INSERT INTO plan_items (id, scenario_id, title, kind, status, start_date, end_date, window_label, space,
+                color, owner, notes, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+            (iid, sid, v['title'], v['kind'], v['status'], v['start_date'], v['end_date'], v['window_label'], v['space'],
+             v['color'], v['owner'], v['notes'], session.get('name') or ''))
+        conn.commit()
+        row = fetchone(conn, 'SELECT *, 0 AS comments FROM plan_items WHERE id=%s', (iid,))
+    finally:
+        conn.close()
+    return jsonify(_plan_item_out(row))
+
+
+@app.route('/api/planner/items/<iid>', methods=['PUT', 'DELETE'])
+def planner_item_update(iid):
+    err = _plan_err('edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'DELETE':
+            execute(conn, 'DELETE FROM plan_comments WHERE item_id=%s', (iid,))
+            execute(conn, 'DELETE FROM plan_items WHERE id=%s', (iid,))
+            conn.commit()
+            return jsonify({'ok': True})
+        cur = fetchone(conn, 'SELECT * FROM plan_items WHERE id=%s', (iid,))
+        if not cur:
+            return jsonify({'error': 'Not found'}), 404
+        d = request.json or {}
+        merged = {k: (d[k] if k in d else (str(cur[k])[:10] if k in ('start_date', 'end_date') and cur.get(k) else cur.get(k)))
+                  for k in ('title', 'kind', 'status', 'start_date', 'end_date', 'window_label', 'space', 'color', 'owner', 'notes')}
+        v = _plan_clean(merged)
+        if not v['title']:
+            return jsonify({'error': 'Give it a name.'}), 400
+        if cur.get('status') == 'greenlit' and v['status'] != 'greenlit' and cur.get('greenlit_id'):
+            v['status'] = 'greenlit'   # stays linked to the real thing it became
+        execute(conn, '''UPDATE plan_items SET title=%s, kind=%s, status=%s, start_date=%s, end_date=%s, window_label=%s,
+                space=%s, color=%s, owner=%s, notes=%s, updated_at=NOW() WHERE id=%s''',
+            (v['title'], v['kind'], v['status'], v['start_date'], v['end_date'], v['window_label'], v['space'], v['color'],
+             v['owner'], v['notes'], iid))
+        conn.commit()
+        row = fetchone(conn, '''SELECT i.*, (SELECT COUNT(*) FROM plan_comments c WHERE c.item_id=i.id) AS comments
+            FROM plan_items i WHERE i.id=%s''', (iid,))
+    finally:
+        conn.close()
+    return jsonify(_plan_item_out(row))
+
+
+@app.route('/api/planner/items/<iid>/comments', methods=['GET', 'POST'])
+def planner_item_comments(iid):
+    err = _plan_err('view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'POST':
+            body = ((request.json or {}).get('body') or '').strip()[:2000]
+            if not body:
+                return jsonify({'error': 'Write something first.'}), 400
+            execute(conn, 'INSERT INTO plan_comments (id, item_id, author, body) VALUES (%s,%s,%s,%s)',
+                    (str(uuid.uuid4()), iid, session.get('name') or 'Someone', body))
+            conn.commit()
+        rows = fetchall(conn, 'SELECT id, author, body, created_at FROM plan_comments WHERE item_id=%s ORDER BY created_at', (iid,)) or []
+    finally:
+        conn.close()
+    for r in rows:
+        r['created_at'] = str(r['created_at'])[:16]
+    return jsonify(rows)
+
+
+@app.route('/api/planner/items/<iid>/greenlight', methods=['POST'])
+def planner_item_greenlight(iid):
+    """Turn a plan item into a real production, program/class or event,
+    using the planner's details. It's created as a draft/upcoming record
+    for the team to finish setting up; the plan item links to it."""
+    err = _plan_err('edit')
+    if err: return err
+    d = request.json or {}
+    as_ = d.get('as') if d.get('as') in ('production', 'program', 'event') else None
+    conn = get_db()
+    try:
+        it = fetchone(conn, 'SELECT * FROM plan_items WHERE id=%s', (iid,))
+    finally:
+        conn.close()
+    if not it:
+        return jsonify({'error': 'Not found'}), 404
+    if it.get('greenlit_id'):
+        return jsonify({'error': 'Already greenlit.'}), 400
+    if not as_:
+        as_ = {'show': 'production', 'class': 'program'}.get(it['kind'], 'event')
+    s = str(it['start_date'])[:10] if it.get('start_date') else None
+    e = str(it['end_date'])[:10] if it.get('end_date') else s
+    if as_ == 'event' and not s:
+        return jsonify({'error': 'Give it a date first; an event needs one.'}), 400
+    desc = (it.get('notes') or '').strip()
+    if as_ == 'production':
+        path, payload, fn = '/api/productions', {'name': it['title'], 'start_date': s, 'end_date': e, 'description': desc,
+                                                 'status': 'upcoming'}, create_production
+    elif as_ == 'program':
+        path, payload, fn = '/api/youth-programs', {'name': it['title'], 'start_date': s, 'end_date': e, 'description': desc,
+                                                    'program_type': 'class'}, create_youth_program
+    else:
+        loc = (it.get('space') or '').strip()
+        path, payload, fn = '/api/events', {'name': it['title'], 'event_date': s, 'end_date': e if e and e != s else None,
+                                            'description': desc, 'location': loc if loc and loc.upper() not in ('STUDIO', 'HWTC STUDIO') else 'HWTC',
+                                            'override_closure': bool(d.get('override_closure'))}, create_event
+    # Create it the same way the app's own forms do, as the person greenlighting it
+    me = {k: session.get(k) for k in ('user_id', 'role', 'name') if session.get(k) is not None}
+    with app.test_request_context(path, method='POST', json=payload):
+        for k, v in me.items():
+            session[k] = v
+        resp = fn()
+    status = 200
+    if isinstance(resp, tuple):
+        resp, status = resp[0], resp[1]
+    body = resp.get_json() if hasattr(resp, 'get_json') else {}
+    if status >= 400 or (body or {}).get('error'):
+        return jsonify(body or {'error': 'Could not create it'}), status if status >= 400 else 400
+    new_id = (body or {}).get('id')
+    conn = get_db()
+    try:
+        if as_ == 'program' and new_id:
+            # Not open to the public until someone finishes setting it up
+            execute(conn, "UPDATE youth_programs SET status='draft' WHERE id=%s", (new_id,))
+        execute(conn, '''UPDATE plan_items SET status='greenlit', greenlit_kind=%s, greenlit_id=%s, greenlit_at=NOW(), greenlit_by=%s,
+                updated_at=NOW() WHERE id=%s''', (as_, new_id, session.get('name') or '', iid))
+        execute(conn, 'INSERT INTO plan_comments (id, item_id, author, body) VALUES (%s,%s,%s,%s)',
+                (str(uuid.uuid4()), iid, session.get('name') or 'Someone',
+                 f"Greenlit as a {'program/class' if as_ == 'program' else as_}."))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True, 'kind': as_, 'id': new_id})
+
+
+@app.route('/planner')
+def planner_page():
+    if 'user_id' not in session:
+        from flask import redirect
+        return redirect('/?next=/planner')
+    if _plan_err() is not None:
+        return ('You don’t have access to the Season Planner. Ask an admin to give you Season Planning access in Settings → Users.', 403)
+    resp = app.response_class(_PLANNER_HTML, mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store'
+    return resp
+
+
+@app.route('/planner/print')
+def planner_print():
+    """One-page-per-season overview for board meetings."""
+    if 'user_id' not in session:
+        from flask import redirect
+        return redirect('/?next=/planner')
+    err = _plan_err()
+    if err: return err
+    from html import escape as E
+    import datetime as _d
+    conn = get_db()
+    try:
+        sid = request.args.get('scenario') or _plan_default_scenario(conn)
+        sc = fetchone(conn, 'SELECT * FROM plan_scenarios WHERE id=%s', (sid,)) or {}
+        items = fetchall(conn, "SELECT * FROM plan_items WHERE scenario_id=%s AND status <> 'dropped' ORDER BY start_date NULLS LAST, title", (sid,)) or []
+    finally:
+        conn.close()
+    kinds = {'show': 'Show', 'class': 'Class / program', 'event': 'Event', 'rental': 'Rental', 'fundraiser': 'Fundraiser', 'other': 'Other'}
+    stat = {'idea': 'Idea', 'tentative': 'Tentative', 'penciled': 'Penciled in', 'confirmed': 'Confirmed', 'greenlit': 'Greenlit'}
+    groups = {}
+    for it in items:
+        if it.get('start_date'):
+            sd = _d.date.fromisoformat(str(it['start_date'])[:10])
+            key = (sd.year, sd.month); label = sd.strftime('%B %Y')
+        else:
+            key = (9999, 99); label = 'Not scheduled yet'
+        groups.setdefault(key, {'label': label, 'items': []})['items'].append(it)
+    def when(it):
+        if not it.get('start_date'):
+            return E(it.get('window_label') or '')
+        s = _d.date.fromisoformat(str(it['start_date'])[:10]); e = _d.date.fromisoformat(str(it.get('end_date') or it['start_date'])[:10])
+        return s.strftime('%b %-d') + ('' if e == s else ' – ' + e.strftime('%b %-d'))
+    rows = ''.join(f'''<h2>{E(g['label'])}</h2><table>''' + ''.join(
+        f"<tr><td class='w'>{when(it)}</td><td><b>{E(it['title'])}</b>{(' <span class=sp>· ' + E(it['space']) + '</span>') if it.get('space') else ''}"
+        f"{('<div class=n>' + E(it['notes'][:220]) + ('…' if len(it['notes']) > 220 else '') + '</div>') if it.get('notes') else ''}</td>"
+        f"<td class='k'>{kinds.get(it['kind'], '')}</td><td class='s s-{it['status']}'>{stat.get(it['status'], it['status'])}</td></tr>"
+        for it in g['items']) + '</table>' for k, g in sorted(groups.items()))
+    html = f'''<!DOCTYPE html><html><head><meta charset="utf-8"><title>{E(sc.get('name') or 'Season plan')}</title><style>
+body{{font-family:-apple-system,Segoe UI,Helvetica,sans-serif;color:#111;margin:28px;font-size:12.5px}}
+h1{{font-size:22px;margin:0;color:#0d3d4d}} .sub{{color:#666;margin:2px 0 14px}}
+h2{{font-size:14px;margin:18px 0 4px;color:#0d3d4d;border-bottom:1.5px solid #0d3d4d;padding-bottom:2px}}
+table{{width:100%;border-collapse:collapse}} td{{padding:5px 6px;border-bottom:1px solid #e5e7eb;vertical-align:top}}
+.w{{width:110px;white-space:nowrap;color:#333}} .k{{width:110px;color:#555}} .s{{width:90px;font-weight:700}}
+.s-idea{{color:#6b7280}} .s-tentative{{color:#b45309}} .s-penciled{{color:#1d4ed8}} .s-confirmed{{color:#15803d}} .s-greenlit{{color:#7c3aed}}
+.n{{color:#555;font-size:11.5px;margin-top:2px}} .sp{{color:#666;font-weight:400}}
+.noprint{{margin-bottom:14px}} @media print{{.noprint{{display:none}} body{{margin:12mm}}}}
+</style></head><body><div class="noprint"><button onclick="window.print()">Print</button></div>
+<h1>{E(sc.get('name') or 'Season plan')}</h1><div class="sub">HWTC Season Planner · printed {_d.date.today().strftime('%B %-d, %Y')} · draft, not official</div>
+{rows or '<p>Nothing planned yet.</p>'}</body></html>'''
+    return app.response_class(html, mimetype='text/html')
+
+
+
+_PLANNER_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Season Planner · RoleCall</title>
+<style>
+:root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--soft:#eef4f6;--hatch:#e5e7eb;--real:#94a3b8;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--soft:#1f2a2f;--hatch:#2c3439;--real:#64748b;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px}
+a{color:var(--brand)}
+.top{position:sticky;top:0;z-index:30;background:var(--bg);border-bottom:1px solid var(--line);padding:12px 18px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+h1{font-size:20px;margin:0 8px 0 0;color:var(--brand)}
+.private{font-size:12px;color:var(--muted);margin-top:4px}
+button,select,input,textarea{font:inherit;color:inherit}
+.btn{padding:7px 12px;border-radius:9px;border:1.5px solid var(--line);background:var(--card);font-weight:600;cursor:pointer}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink)}
+.btn.sm{padding:4px 9px;font-size:12.5px}
+.btn.on{background:var(--soft);border-color:var(--brand);color:var(--brand)}
+select,input[type=text],input[type=date],textarea{padding:7px 10px;border-radius:9px;border:1.5px solid var(--line);background:var(--card)}
+.seg{display:inline-flex;border:1.5px solid var(--line);border-radius:9px;overflow:hidden}
+.seg button{border:0;background:var(--card);padding:6px 12px;font-weight:600;cursor:pointer}
+.seg button.on{background:var(--brand);color:var(--brand-ink)}
+.wrap{padding:14px 18px 60px}
+.legend{display:flex;gap:12px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin:8px 0 0}
+.legend span{display:inline-flex;align-items:center;gap:5px}
+.sw{display:inline-block;width:22px;height:11px;border-radius:3px}
+.tray{background:var(--card);border:1px dashed var(--line);border-radius:12px;padding:10px 12px;margin-bottom:14px}
+.tray h3{margin:0 0 6px;font-size:13px;color:var(--muted);font-weight:700}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{padding:5px 10px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:grab;user-select:none;touch-action:none;border:1.5px solid transparent;white-space:nowrap}
+/* timeline */
+.tl{position:relative;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:auto;max-height:calc(100vh - 230px)}
+.tl-inner{position:relative}
+.tl-head{position:sticky;top:0;z-index:5;display:flex;background:var(--card);border-bottom:1px solid var(--line);height:30px}
+.tl-month{flex:none;border-left:1px solid var(--line);font-size:12px;font-weight:800;padding:7px 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.tl-grid{position:absolute;top:30px;bottom:0;border-left:1px solid var(--line)}
+.tl-band{position:absolute;top:30px;bottom:0;z-index:0}
+.tl-band.closed{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--hatch) 5px,var(--hatch) 9px)}
+.tl-band.holiday{background:rgba(148,163,184,.12)}
+.tl-today{position:absolute;top:30px;bottom:0;width:2px;background:#ef4444;z-index:3;opacity:.6}
+.tl-sec{position:relative;z-index:1;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:8px 8px 2px;height:26px}
+.tl-lane{position:relative;height:34px;z-index:1}
+.bar{position:absolute;top:4px;height:26px;border-radius:7px;font-size:12px;font-weight:700;padding:5px 8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:grab;user-select:none;touch-action:none;border:1.5px solid transparent;min-width:14px}
+.bar.ro{cursor:pointer}
+.bar.dragging,.chip.dragging{opacity:.85;box-shadow:0 6px 18px rgba(0,0,0,.25);z-index:20}
+.bar-label{position:absolute;top:9px;font-size:12px;font-weight:700;white-space:nowrap;pointer-events:none;color:var(--ink)}
+.real-bar{position:absolute;top:6px;height:20px;border-radius:6px;font-size:11px;padding:3px 7px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:transparent;border:1.5px solid var(--real);color:var(--muted)}
+.tick{position:absolute;top:8px;width:4px;border-radius:2px;background:var(--real);opacity:.75}
+/* month */
+.mgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.mhead{font-size:11px;font-weight:800;color:var(--muted);text-align:center;text-transform:uppercase}
+.mcell{min-height:108px;background:var(--card);border:1px solid var(--line);border-radius:9px;padding:5px;position:relative;overflow:hidden}
+.mcell.out{opacity:.45}
+.mcell.closed{background:repeating-linear-gradient(135deg,var(--card),var(--card) 6px,var(--hatch) 6px,var(--hatch) 11px)}
+.mcell.droptarget{outline:2px solid var(--brand)}
+.mday{font-size:12px;font-weight:700;color:var(--muted)}
+.mtag{font-size:10px;font-weight:800;color:var(--muted)}
+.mreal{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mchip{display:block;margin-top:3px;padding:2px 6px;border-radius:5px;font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:grab;user-select:none;touch-action:none;border:1.5px solid transparent}
+/* drawer */
+.ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;justify-content:flex-end}
+.drawer{width:min(520px,100%);height:100%;background:var(--bg);overflow:auto;padding:18px 20px 40px;box-shadow:-10px 0 30px rgba(0,0,0,.2)}
+.drawer h2{margin:0;font-size:18px}
+.f{margin-top:12px}.f label{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:4px}
+.f input,.f select,.f textarea{width:100%}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.swatches{display:flex;gap:6px;flex-wrap:wrap}.swatches button{width:24px;height:24px;border-radius:6px;border:2px solid transparent;cursor:pointer}
+.swatches button.on{border-color:var(--ink)}
+.box{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-top:16px}
+.cmt{padding:8px 0;border-top:1px solid var(--line);font-size:13px}.cmt:first-child{border-top:0}
+.cmt .who{font-size:11.5px;color:var(--muted)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-weight:600;z-index:80}
+.compare-title{font-size:13px;font-weight:800;color:var(--muted);margin:18px 0 6px}
+.muted{color:var(--muted)}
+</style></head><body>
+<div class="top">
+  <div class="row">
+    <h1>Season Planner</h1>
+    <select id="sc" onchange="S.scenario=this.value;load()" title="Which version of the plan"></select>
+    <button class="btn sm" onclick="openVersions()">Versions</button>
+    <span style="flex:1"></span>
+    <div class="seg"><button id="v-tl" onclick="setView('timeline')">Season</button><button id="v-mo" onclick="setView('month')">Month</button></div>
+    <button class="btn sm" onclick="shift(-1)" aria-label="Earlier">‹</button>
+    <strong id="range" style="min-width:150px;text-align:center"></strong>
+    <button class="btn sm" onclick="shift(1)" aria-label="Later">›</button>
+    <button class="btn sm" onclick="goToday()">Today</button>
+    <button class="btn sm" id="real-btn" onclick="S.showReal=!S.showReal;render()">Real calendar: on</button>
+    <button class="btn sm" onclick="window.open('/planner/print?scenario='+encodeURIComponent(S.scenario),'_blank')">Print</button>
+    <button class="btn primary" id="add-btn" onclick="openItem(null)">+ Add</button>
+    <a class="btn sm" href="/" style="text-decoration:none">RoleCall</a>
+  </div>
+  <div class="private">Private planning space: only people with Season Planning access can see this. Nothing here is public or official until it’s greenlit.</div>
+  <div class="legend" id="legend"></div>
+</div>
+<div class="wrap">
+  <div class="tray" id="tray"></div>
+  <div id="view"></div>
+  <div id="compare"></div>
+</div>
+<script>
+var KINDS = {show:['Show','#9d174d'], 'class':['Class / program','#0f766e'], event:['Event','#1d4ed8'], rental:['Rental','#b45309'], fundraiser:['Fundraiser','#7c3aed'], other:['Other','#475569']}
+var STATUS = {idea:'Idea', tentative:'Tentative', penciled:'Penciled in', confirmed:'Confirmed', greenlit:'Greenlit', dropped:'Dropped'}
+var SWATCH = ['','#9d174d','#be123c','#c2410c','#b45309','#15803d','#0f766e','#0369a1','#1d4ed8','#7c3aed','#475569']
+var S = {scenario:'', data:null, view:'timeline', start:null, month:null, showReal:true, compare:'', compareData:null, canEdit:false}
+var PX_DAY = 4.2
+function $(id){ return document.getElementById(id) }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] }) }
+function D(s){ var p=String(s).slice(0,10).split('-'); return new Date(+p[0],+p[1]-1,+p[2]) }
+function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') }
+function addDays(s,n){ var d=D(s); d.setDate(d.getDate()+n); return iso(d) }
+function days(a,b){ return Math.round((D(b)-D(a))/864e5) }
+function fmt(s,o){ return D(s).toLocaleDateString('en-US',o||{month:'short',day:'numeric'}) }
+function toast(t){ var e=document.createElement('div'); e.className='toast'; e.textContent=t; document.body.appendChild(e); setTimeout(function(){ e.remove() },2600) }
+async function api(u,m,b){ var r=await fetch(u,m?{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined}:{}); if(r.status==401){ location.href='/?next=/planner'; return {} } try{ return await r.json() }catch(e){ return {error:'Unexpected response ('+r.status+')'} } }
+function color(it){ return it.color || (KINDS[it.kind]||KINDS.other)[1] }
+function styleFor(it){
+  var c=color(it), st=it.status
+  if(st==='confirmed'||st==='greenlit') return 'background:'+c+';color:#fff;border-color:'+c
+  if(st==='penciled') return 'background:'+c+'b3;color:#fff;border-color:'+c
+  if(st==='tentative') return 'background:'+c+'40;color:var(--ink);border-color:'+c+';border-style:dashed'
+  return 'background:'+c+'14;color:var(--ink);border-color:'+c+'99;border-style:dashed'
+}
+function legend(){
+  $('legend').innerHTML = Object.keys(KINDS).map(function(k){ return '<span><i class="sw" style="background:'+KINDS[k][1]+'"></i>'+KINDS[k][0]+'</span>' }).join('')
+    + '<span style="margin-left:10px">Idea / Tentative: dashed · Penciled in: lighter · Confirmed: solid · <b>✓</b> Greenlit</span>'
+    + '<span><i class="sw" style="background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hatch) 3px,var(--hatch) 6px);border:1px solid var(--line)"></i>Studio closed</span>'
+    + '<span><i class="sw" style="border:1.5px solid var(--real)"></i>Already on the real calendar</span>'
+}
+function rangeFromTo(){
+  if(S.view==='timeline'){ var s=new Date(S.start); var e=new Date(s.getFullYear(), s.getMonth()+12, 0); return [iso(s), iso(e)] }
+  var m=new Date(S.month); var s2=new Date(m.getFullYear(), m.getMonth(), 1); s2.setDate(1-s2.getDay())
+  var e2=new Date(s2); e2.setDate(e2.getDate()+41); return [iso(s2), iso(e2)]
+}
+async function load(){
+  var r = rangeFromTo()
+  var d = await api('/api/planner?'+(S.scenario?'scenario='+encodeURIComponent(S.scenario)+'&':'')+'from='+r[0]+'&to='+r[1])
+  if(!d || d.error){ $('view').innerHTML = '<p class="muted">'+esc((d&&d.error)||'Could not load the planner')+'</p>'; return }
+  S.data = d; S.scenario = d.scenario_id; S.canEdit = d.can_edit
+  $('sc').innerHTML = d.scenarios.map(function(s){ return '<option value="'+s.id+'"'+(s.id===d.scenario_id?' selected':'')+'>'+esc(s.name)+(s.is_primary?' (main)':'')+' · '+s.items+'</option>' }).join('')
+  $('add-btn').style.display = S.canEdit ? '' : 'none'
+  if(S.compare){ S.compareData = await api('/api/planner?scenario='+encodeURIComponent(S.compare)+'&from='+r[0]+'&to='+r[1]) } else S.compareData = null
+  render()
+}
+function setView(v){ S.view=v; if(v==='month' && !S.month){ var t=new Date(); S.month=new Date(t.getFullYear(),t.getMonth(),1) } load() }
+function shift(n){
+  if(S.view==='timeline'){ var s=new Date(S.start); S.start=new Date(s.getFullYear(), s.getMonth()+n*3, 1) }
+  else { var m=new Date(S.month); S.month=new Date(m.getFullYear(), m.getMonth()+n, 1) }
+  load()
+}
+function goToday(){ var t=new Date(); S.start=new Date(t.getFullYear(), t.getMonth(), 1); S.month=new Date(t.getFullYear(), t.getMonth(), 1); load() }
+function render(){
+  $('v-tl').className = S.view==='timeline'?'on':''; $('v-mo').className = S.view==='month'?'on':''
+  $('real-btn').textContent = 'Real calendar: '+(S.showReal?'on':'off'); $('real-btn').className = 'btn sm'+(S.showReal?' on':'')
+  var r = rangeFromTo()
+  $('range').textContent = S.view==='timeline' ? fmt(r[0],{month:'short',year:'numeric'})+' – '+fmt(r[1],{month:'short',year:'numeric'}) : new Date(S.month).toLocaleDateString('en-US',{month:'long',year:'numeric'})
+  renderTray()
+  if(S.view==='timeline') $('view').innerHTML = timelineHTML(S.data, true); else $('view').innerHTML = monthHTML()
+  $('compare').innerHTML = (S.compareData && S.compareData.items && S.view==='timeline') ? '<div class="compare-title">Compared with: '+esc((S.compareData.scenarios.find(function(x){return x.id===S.compare})||{}).name||'')+' (read only)</div>'+timelineHTML(S.compareData, false) : ''
+  bindDrag()
+}
+function renderTray(){
+  var un = (S.data.items||[]).filter(function(i){ return !i.start_date && i.status!=='dropped' })
+  var dropped = (S.data.items||[]).filter(function(i){ return i.status==='dropped' })
+  $('tray').innerHTML = '<h3>Not scheduled yet'+(S.canEdit?' · drag one onto the calendar to give it dates':'')+'</h3><div class="chips">'
+    + (un.length ? un.map(function(i){ return '<div class="chip plan" data-id="'+i.id+'" style="'+styleFor(i)+'">'+esc(i.title)+(i.window_label?' <span style="font-weight:500;opacity:.8">· '+esc(i.window_label)+'</span>':'')+(i.comments?' ('+i.comments+')':'')+'</div>' }).join('') : '<span class="muted" style="font-size:12.5px">Nothing waiting. Ideas without dates show up here.</span>')
+    + '</div>' + (dropped.length ? '<div class="muted" style="font-size:12px;margin-top:6px">Dropped: '+dropped.map(function(i){ return '<a href="#" onclick="event.preventDefault();openItem(\''+i.id+'\')">'+esc(i.title)+'</a>' }).join(', ')+'</div>' : '')
+}
+function xOf(dateStr, start){ return days(start, dateStr)*PX_DAY }
+function timelineHTML(data, editable){
+  var r = rangeFromTo(), start = r[0], total = days(start, r[1])+1
+  // Fit the year to the screen where possible (never cramped below 3px a day)
+  PX_DAY = Math.max(3, ((($('view').clientWidth || 1200) - 4) / total))
+  var W = total*PX_DAY
+  var h = '<div class="tl"><div class="tl-inner" style="width:'+(W+2)+'px">'
+  var s = D(start), head = '', grid = ''
+  for(var i=0;i<12;i++){
+    var ms = new Date(s.getFullYear(), s.getMonth()+i, 1), me = new Date(s.getFullYear(), s.getMonth()+i+1, 0)
+    var w = (days(iso(ms), iso(me))+1)*PX_DAY
+    head += '<div class="tl-month" style="width:'+w+'px">'+ms.toLocaleDateString('en-US',{month:'short'})+(ms.getMonth()===0||i===0?' '+ms.getFullYear():'')+'</div>'
+    grid += '<div class="tl-grid" style="left:'+xOf(iso(ms),start)+'px"></div>'
+  }
+  h += '<div class="tl-head">'+head+'</div>'+grid
+  if(S.showReal){
+    (data.real.closures||[]).forEach(function(c){ h += '<div class="tl-band closed" title="Studio closed'+(c.reason?': '+esc(c.reason):'')+'" style="left:'+xOf(c.start,start)+'px;width:'+((days(c.start,c.end)+1)*PX_DAY)+'px"></div>' });
+    (data.real.holidays||[]).forEach(function(c){ h += '<div class="tl-band holiday" title="Phone closed'+(c.label?': '+esc(c.label):'')+'" style="left:'+xOf(c.start,start)+'px;width:'+((days(c.start,c.end)+1)*PX_DAY)+'px"></div>' })
+  }
+  var today = iso(new Date()); if(today>=start && today<=r[1]) h += '<div class="tl-today" style="left:'+xOf(today,start)+'px"></div>'
+  var items = (data.items||[]).filter(function(i){ return i.start_date && i.status!=='dropped' })
+  Object.keys(KINDS).forEach(function(k){
+    var list = items.filter(function(i){ return i.kind===k }); if(!list.length) return
+    h += '<div class="tl-sec">'+KINDS[k][0]+'</div>'
+    list.forEach(function(it){
+      var e = it.end_date || it.start_date
+      var bw = Math.max(14,(days(it.start_date,e)+1)*PX_DAY), bx = xOf(it.start_date,start)
+      var label = (it.status==='greenlit'?'✓ ':'')+esc(it.title)+(it.comments?' ('+it.comments+')':'')
+      var when = fmt(it.start_date)+(e!==it.start_date?' – '+fmt(e):'')
+      // Short items: the name sits beside the bar instead of being cut off inside it
+      var narrow = bw < 110
+      h += '<div class="tl-lane"><div class="bar plan'+(editable&&S.canEdit?'':' ro')+'" data-id="'+it.id+'" data-ro="'+(editable?'':'1')+'" title="'+esc(it.title)+' · '+when+' · '+STATUS[it.status]+'" style="left:'+bx+'px;width:'+bw+'px;'+styleFor(it)+'">'
+        + (narrow ? '' : label) + '</div>'
+        + (narrow ? '<div class="bar-label" style="'+(bx+bw > W-200 ? 'right:'+(W-bx+6)+'px' : 'left:'+(bx+bw+6)+'px')+'">'+label+' <span class="muted">· '+when+'</span></div>' : '') + '</div>'
+    })
+  })
+  if(!items.length) h += '<div class="tl-sec" style="height:auto;padding:14px 10px;text-transform:none;letter-spacing:0;font-weight:500;font-size:13px">Nothing scheduled in these 12 months'+(editable&&S.canEdit?'. Use + Add, or drag an idea from above.':'.')+'</div>'
+  if(S.showReal){
+    var R = data.real
+    if((R.productions||[]).length || (R.programs||[]).length || (R.events||[]).length){
+      h += '<div class="tl-sec">Already on the real calendar</div>'
+      var realBar = function(p, kind){ var x = Math.max(0,xOf(p.start,start)), w = Math.max(14,(days(p.start,p.end||p.start)+1)*PX_DAY), narrow = w < 110
+        return '<div class="tl-lane"><div class="real-bar" title="'+kind+': '+esc(p.name)+'" style="left:'+x+'px;width:'+w+'px'+(kind==='Program'?';border-style:dotted':'')+'">'+(narrow?'':esc(p.name))+'</div>'
+          + (narrow?'<div class="bar-label muted" style="'+(x+w > W-200 ? 'right:'+(W-x+6)+'px' : 'left:'+(x+w+6)+'px')+';font-weight:500">'+esc(p.name)+'</div>':'')+'</div>' }
+      ;(R.productions||[]).forEach(function(p){ h += realBar(p, 'Production') })
+      ;(R.programs||[]).forEach(function(p){ h += realBar(p, 'Program') })
+      var byDay = {}; (R.events||[]).forEach(function(e){ (byDay[e.date]=byDay[e.date]||[]).push(e) })
+      h += '<div class="tl-lane" title="Real events (one mark per day)">'+Object.keys(byDay).map(function(d){ var n=byDay[d].length
+        return '<div class="tick" title="'+esc(fmt(d)+': '+byDay[d].map(function(e){return e.name}).join(', '))+'" style="left:'+xOf(d,start)+'px;height:'+Math.min(22,6+n*4)+'px"></div>' }).join('')+'</div>'
+    }
+  }
+  return h + '</div></div>'
+}
+function monthHTML(){
+  var r = rangeFromTo(), m = new Date(S.month).getMonth(), R = S.data.real, items = (S.data.items||[]).filter(function(i){ return i.start_date && i.status!=='dropped' })
+  var h = '<div class="mgrid">' + ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(x){ return '<div class="mhead">'+x+'</div>' }).join('')
+  for(var i=0;i<42;i++){
+    var d = addDays(r[0], i), dd = D(d)
+    var cl = S.showReal && (R.closures||[]).find(function(c){ return c.start<=d && d<=c.end })
+    var hol = S.showReal && (R.holidays||[]).find(function(c){ return c.start<=d && d<=c.end })
+    var ev = S.showReal ? (R.events||[]).filter(function(e){ return e.date===d }) : []
+    // Long runs (over a week, like a 7-week class) show on their first day and once a week, not every day
+    var mine = items.filter(function(it){ var e=it.end_date||it.start_date; if(!(it.start_date<=d && d<=e)) return false
+      return days(it.start_date,e) < 7 || d===it.start_date || dd.getDay()===0 || i===0 })
+    h += '<div class="mcell'+(dd.getMonth()!==m?' out':'')+(cl?' closed':'')+'" data-date="'+d+'"><div class="mday">'+dd.getDate()+(d===iso(new Date())?' · today':'')+'</div>'
+      + (cl?'<div class="mtag">Studio closed'+(cl.reason?' · '+esc(cl.reason):'')+'</div>':'') + (hol&&!cl?'<div class="mtag">Phone closed'+(hol.label?' · '+esc(hol.label):'')+'</div>':'')
+      + ev.slice(0,2).map(function(e){ return '<div class="mreal" title="'+esc(e.name)+'">· '+esc(e.what?e.what+': ':'')+esc(e.name)+'</div>' }).join('') + (ev.length>2?'<div class="mreal">+'+(ev.length-2)+' more</div>':'')
+      + mine.map(function(it){ return '<div class="mchip plan" data-id="'+it.id+'" style="'+styleFor(it)+'" title="'+esc(it.title)+'">'+(it.status==='greenlit'?'✓ ':'')+(it.start_date===d||i===0?esc(it.title):'↳ '+esc(it.title))+'</div>' }).join('')
+      + '</div>'
+  }
+  return h + '</div>'
+}
+// ── Dragging: bars and chips move with the pointer; drop to set new dates ──
+function bindDrag(){
+  document.querySelectorAll('.plan').forEach(function(el){ el.onpointerdown = function(ev){ startDrag(ev, el) } })
+}
+function startDrag(ev, el){
+  var it = (S.data.items||[]).find(function(x){ return x.id===el.dataset.id })
+  if(!it || el.dataset.ro==='1'){ openItem(el.dataset.id); return }
+  if(!S.canEdit || ev.button>0){ openItem(it.id); return }
+  ev.preventDefault()
+  var sx = ev.clientX, sy = ev.clientY, moved = false, ghost = null, isBar = el.classList.contains('bar'), origLeft = parseFloat(el.style.left||0)
+  function mv(e){
+    var dx = e.clientX-sx, dy = e.clientY-sy
+    if(!moved && Math.abs(dx)+Math.abs(dy) < 5) return
+    if(!moved){ moved = true
+      if(!isBar){ ghost = el.cloneNode(true); ghost.classList.add('dragging'); ghost.style.position='fixed'; ghost.style.pointerEvents='none'; ghost.style.zIndex=60; document.body.appendChild(ghost) }
+      else el.classList.add('dragging') }
+    if(isBar){ el.style.left = (origLeft+dx)+'px' }
+    else { ghost.style.left = (e.clientX+8)+'px'; ghost.style.top = (e.clientY+8)+'px'
+      document.querySelectorAll('.mcell.droptarget').forEach(function(c){ c.classList.remove('droptarget') })
+      var t = document.elementFromPoint(e.clientX, e.clientY); var cell = t && t.closest && t.closest('.mcell'); if(cell) cell.classList.add('droptarget') }
+  }
+  function up(e){
+    document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up)
+    if(ghost) ghost.remove(); document.querySelectorAll('.mcell.droptarget').forEach(function(c){ c.classList.remove('droptarget') })
+    if(!moved){ openItem(it.id); return }
+    var dur = it.start_date ? days(it.start_date, it.end_date||it.start_date) : 0, newStart = null
+    if(isBar){ var dd = Math.round((e.clientX-sx)/PX_DAY); if(!dd){ render(); return } newStart = addDays(it.start_date, dd) }
+    else {
+      var t = document.elementFromPoint(e.clientX, e.clientY)
+      var cell = t && t.closest && t.closest('.mcell')
+      var tl = t && t.closest && t.closest('.tl-inner')
+      if(cell){ var target = cell.dataset.date
+        newStart = it.start_date && el.classList.contains('mchip') ? addDays(it.start_date, days(cellDragFrom(el, it), target)) : target }
+      else if(tl){ var rect = tl.getBoundingClientRect(); newStart = addDays(rangeFromTo()[0], Math.max(0, Math.floor((e.clientX-rect.left)/PX_DAY))) }
+      if(!newStart){ render(); return }
+    }
+    saveItem(it.id, {start_date: newStart, end_date: addDays(newStart, dur)}, 'Moved to '+fmt(newStart))
+  }
+  document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up)
+}
+function cellDragFrom(el, it){ var cell = el.closest('.mcell'); return cell ? cell.dataset.date : it.start_date }
+async function saveItem(id, patch, msg){
+  var r = await api('/api/planner/items/'+id, 'PUT', patch)
+  if(r.error){ toast(r.error); render(); return null }
+  var i = S.data.items.findIndex(function(x){ return x.id===id }); if(i>=0) S.data.items[i] = r
+  render(); if(msg) toast(msg); return r
+}
+// ── The item panel ──
+var CUR = null
+function openItem(id){
+  var it = id ? (S.data.items||[]).find(function(x){ return x.id===id }) || ((S.compareData||{}).items||[]).find(function(x){ return x.id===id }) : null
+  CUR = it ? JSON.parse(JSON.stringify(it)) : {title:'', kind:'show', status:'idea', start_date:'', end_date:'', window_label:'', space:'', color:'', owner:'', notes:''}
+  var ro = !S.canEdit || (it && it.scenario_id && it.scenario_id!==S.scenario)
+  var dis = ro ? ' disabled' : ''
+  var ov = document.createElement('div'); ov.className='ov'; ov.id='ov'; ov.onclick=function(e){ if(e.target===ov) closeItem() }
+  ov.innerHTML = '<div class="drawer"><div class="row"><h2 style="flex:1">'+(it?esc(it.title):'New idea')+'</h2><button class="btn sm" onclick="closeItem()">Close</button></div>'
+    + '<div class="f"><label>Name</label><input type="text" id="f-title" value="'+esc(CUR.title)+'" placeholder="e.g. Spring musical, Summer camp week 1"'+dis+'/></div>'
+    + '<div class="two"><div class="f"><label>What is it</label><select id="f-kind"'+dis+'>'+Object.keys(KINDS).map(function(k){ return '<option value="'+k+'"'+(CUR.kind===k?' selected':'')+'>'+KINDS[k][0]+'</option>' }).join('')+'</select></div>'
+    + '<div class="f"><label>How sure</label><select id="f-status"'+dis+'>'+Object.keys(STATUS).filter(function(k){ return k!=='greenlit' || CUR.status==='greenlit' }).map(function(k){ return '<option value="'+k+'"'+(CUR.status===k?' selected':'')+'>'+STATUS[k]+'</option>' }).join('')+'</select></div></div>'
+    + '<div class="two"><div class="f"><label>From</label><input type="date" id="f-start" value="'+(CUR.start_date||'')+'"'+dis+'/></div><div class="f"><label>Through</label><input type="date" id="f-end" value="'+(CUR.end_date||'')+'"'+dis+'/></div></div>'
+    + '<div class="f"><label>Rough timing (if no dates yet)</label><input type="text" id="f-window" value="'+esc(CUR.window_label||'')+'" placeholder="e.g. Spring, March, after the holiday show"'+dis+'/></div>'
+    + '<div class="two"><div class="f"><label>Where</label><input type="text" id="f-space" value="'+esc(CUR.space||'')+'" placeholder="Studio, Garden Theatre…"'+dis+'/></div><div class="f"><label>Who’s leading it</label><input type="text" id="f-owner" value="'+esc(CUR.owner||'')+'"'+dis+'/></div></div>'
+    + '<div class="f"><label>Color</label><div class="swatches" id="f-color">'+SWATCH.map(function(c){ return '<button type="button" data-c="'+c+'" class="'+((CUR.color||'')===c?'on':'')+'" style="background:'+(c||'repeating-linear-gradient(135deg,#fff,#fff 4px,#ddd 4px,#ddd 8px)')+'" title="'+(c?c:'Use the type’s color')+'"'+dis+' onclick="pickColor(this)"></button>' }).join('')+'</div></div>'
+    + '<div class="f"><label>Notes</label><textarea id="f-notes" rows="5"'+dis+'>'+esc(CUR.notes||'')+'</textarea></div>'
+    + (ro ? '' : '<div class="row" style="margin-top:14px"><button class="btn primary" onclick="saveCur()">'+(it?'Save':'Add to the plan')+'</button>'+(it?'<span style="flex:1"></span><button class="btn sm" style="color:#b91c1c" onclick="deleteCur()">Delete</button>':'')+'</div>')
+    + (it ? greenlightBox(it, ro) + '<div class="box"><strong>Comments</strong><div id="cmts" class="muted" style="margin-top:6px">Loading…</div>'
+        + (ro?'':'<div class="row" style="margin-top:8px"><input type="text" id="cmt-in" placeholder="Add a comment…" style="flex:1" onkeydown="if(event.key===\'Enter\')addComment()"/><button class="btn sm" onclick="addComment()">Post</button></div>')+'</div>' : '')
+    + '</div>'
+  document.body.appendChild(ov)
+  if(it) loadComments(it.id)
+}
+function greenlightBox(it, ro){
+  if(it.status==='greenlit') return '<div class="box"><strong>✓ Greenlit</strong><div class="muted" style="margin-top:4px">Created as a '+(it.greenlit_kind==='program'?'program/class':esc(it.greenlit_kind||''))+(it.greenlit_by?' by '+esc(it.greenlit_by):'')+(it.greenlit_at?' on '+fmt(it.greenlit_at.slice(0,10)):'')+'. Finish setting it up in <a href="/" target="_blank">RoleCall</a>.</div></div>'
+  if(ro) return ''
+  var def = {show:'production', 'class':'program'}[it.kind] || 'event'
+  return '<div class="box"><strong>Greenlight it</strong><div class="muted" style="margin:4px 0 8px;font-size:13px">Makes it real in RoleCall using these details. A production is created as Upcoming; a program or class as a Draft (not open for registration until you finish it); an event goes on the calendar for these dates.</div>'
+    + '<div class="row"><select id="gl-as"><option value="production"'+(def==='production'?' selected':'')+'>Create a production</option><option value="program"'+(def==='program'?' selected':'')+'>Create a program / class</option><option value="event"'+(def==='event'?' selected':'')+'>Create an event</option></select>'
+    + '<button class="btn primary" onclick="greenlight()">Greenlight</button></div></div>'
+}
+function pickColor(b){ document.querySelectorAll('#f-color button').forEach(function(x){ x.classList.remove('on') }); b.classList.add('on'); CUR.color = b.dataset.c }
+function closeItem(){ var o=$('ov'); if(o) o.remove(); CUR=null }
+function formVals(){
+  return {title:$('f-title').value.trim(), kind:$('f-kind').value, status:$('f-status').value, start_date:$('f-start').value||null, end_date:$('f-end').value||$('f-start').value||null,
+    window_label:$('f-window').value, space:$('f-space').value, owner:$('f-owner').value, color:CUR.color||'', notes:$('f-notes').value, scenario_id:S.scenario}
+}
+async function saveCur(){
+  var v = formVals(); if(!v.title){ toast('Give it a name'); return }
+  var r = CUR.id ? await api('/api/planner/items/'+CUR.id,'PUT',v) : await api('/api/planner/items','POST',v)
+  if(r.error){ toast(r.error); return }
+  closeItem(); toast(CUR&&CUR.id?'Saved':'Added to the plan'); load()
+}
+async function deleteCur(){
+  if(!confirm('Delete “'+CUR.title+'” from the plan? (To keep a record, set How sure to Dropped instead.)')) return
+  var r = await api('/api/planner/items/'+CUR.id,'DELETE'); if(r.error){ toast(r.error); return }
+  closeItem(); load()
+}
+async function loadComments(id){
+  var rows = await api('/api/planner/items/'+id+'/comments'), el = $('cmts'); if(!el) return
+  el.innerHTML = Array.isArray(rows)&&rows.length ? rows.map(function(c){ return '<div class="cmt"><div class="who">'+esc(c.author)+' · '+esc(c.created_at)+'</div><div style="color:var(--ink);white-space:pre-wrap">'+esc(c.body)+'</div></div>' }).join('') : 'No comments yet.'
+}
+async function addComment(){
+  var i = $('cmt-in'), b = i.value.trim(); if(!b) return
+  var r = await api('/api/planner/items/'+CUR.id+'/comments','POST',{body:b}); if(r.error){ toast(r.error); return }
+  i.value=''; loadComments(CUR.id); var it = S.data.items.find(function(x){ return x.id===CUR.id }); if(it){ it.comments=(it.comments||0)+1; render() }
+}
+async function greenlight(){
+  var as = $('gl-as').value, label = {production:'a production', program:'a program / class', event:'an event'}[as]
+  if(!confirm('Create '+label+' called “'+CUR.title+'” in RoleCall now?')) return
+  var r = await api('/api/planner/items/'+CUR.id+'/greenlight','POST',{as:as})
+  if(r.studio_closed && r.can_override && confirm(r.error+'\n\nCreate it anyway?')) r = await api('/api/planner/items/'+CUR.id+'/greenlight','POST',{as:as, override_closure:true})
+  if(r.error){ toast(r.error); return }
+  closeItem(); toast('Greenlit: created '+label); load()
+}
+// ── Versions (Plan A / Plan B) ──
+function openVersions(){
+  var sc = S.data.scenarios, cur = sc.find(function(s){ return s.id===S.scenario }) || {}
+  var ov = document.createElement('div'); ov.className='ov'; ov.id='ov'; ov.onclick=function(e){ if(e.target===ov) ov.remove() }
+  ov.innerHTML = '<div class="drawer"><div class="row"><h2 style="flex:1">Versions of the plan</h2><button class="btn sm" onclick="$(\'ov\').remove()">Close</button></div>'
+    + '<p class="muted">Try different seasons side by side: copy the plan you’re looking at, move things around in the copy, and compare. The main version is the one everyone sees first.</p>'
+    + sc.map(function(s){ return '<div class="box" style="margin-top:8px"><div class="row"><strong style="flex:1">'+esc(s.name)+(s.is_primary?' <span class="muted">(main)</span>':'')+'</strong><span class="muted">'+s.items+' item'+(s.items==1?'':'s')+'</span></div>'
+        + '<div class="row" style="margin-top:8px">'+(s.id!==S.scenario?'<button class="btn sm" onclick="S.scenario=\''+s.id+'\';$(\'ov\').remove();load()">Open</button>':'<span class="muted" style="font-size:12px">Open now</span>')
+        + (s.id!==S.scenario?'<button class="btn sm" onclick="S.compare=\''+s.id+'\';S.view=\'timeline\';$(\'ov\').remove();load()">Compare with this one</button>':'')
+        + (S.canEdit?'<button class="btn sm" onclick="renameVersion(\''+s.id+'\')">Rename</button>'+(s.is_primary?'':'<button class="btn sm" onclick="mainVersion(\''+s.id+'\')">Make main</button><button class="btn sm" style="color:#b91c1c" onclick="deleteVersion(\''+s.id+'\')">Delete</button>'):'')+'</div></div>' }).join('')
+    + (S.canEdit?'<div class="row" style="margin-top:14px"><button class="btn primary" onclick="newVersion(true)">Copy “'+esc(cur.name||'this plan')+'”</button><button class="btn" onclick="newVersion(false)">Start a blank version</button></div>':'')
+    + (S.compare?'<div style="margin-top:12px"><button class="btn sm" onclick="S.compare=\'\';$(\'ov\').remove();load()">Stop comparing</button></div>':'')
+    + '</div>'
+  document.body.appendChild(ov)
+}
+async function newVersion(copy){
+  var name = prompt('Name for the new version', copy ? 'Plan B' : 'New version'); if(!name) return
+  var r = await api('/api/planner/scenarios','POST',{name:name, copy_from: copy ? S.scenario : null}); if(r.error){ toast(r.error); return }
+  $('ov').remove(); S.compare = copy ? S.scenario : ''; S.scenario = r.id; toast(copy?'Copied. Comparing with the original below.':'New version started'); load()
+}
+async function renameVersion(id){ var s=S.data.scenarios.find(function(x){return x.id===id}); var n=prompt('Rename', s.name); if(!n) return; await api('/api/planner/scenarios/'+id,'PUT',{name:n}); $('ov').remove(); load() }
+async function mainVersion(id){ await api('/api/planner/scenarios/'+id,'PUT',{is_primary:true}); $('ov').remove(); toast('That’s the main version now'); load() }
+async function deleteVersion(id){ if(!confirm('Delete this version of the plan?')) return; var r=await api('/api/planner/scenarios/'+id,'DELETE'); if(r.error){ toast(r.error); return } if(S.compare===id) S.compare=''; if(S.scenario===id) S.scenario=''; $('ov').remove(); load() }
+window.addEventListener('resize', function(){ clearTimeout(window._rz); window._rz = setTimeout(function(){ if(S.data && S.view==='timeline') render() }, 200) });
+// start
+(function(){ var t=new Date(); S.start=new Date(t.getFullYear(), t.getMonth(), 1); S.month=new Date(t.getFullYear(), t.getMonth(), 1); legend(); load() })()
+</script></body></html>
+"""
 
 
 # ─────────────────────────────────────────────

@@ -3923,6 +3923,12 @@ def init_db():
             greenlit_kind TEXT, greenlit_id TEXT, greenlit_at TIMESTAMP, greenlit_by TEXT,
             created_by TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())""",
         "CREATE INDEX IF NOT EXISTS ix_plan_items_scenario ON plan_items(scenario_id)",
+        # Draft schedules on plan items (rehearsals, performances, class meetings)
+        """CREATE TABLE IF NOT EXISTS plan_schedule (
+            id TEXT PRIMARY KEY, item_id TEXT NOT NULL, name TEXT NOT NULL, event_type_id TEXT, date DATE NOT NULL,
+            start_time TEXT DEFAULT '', end_time TEXT DEFAULT '', location TEXT DEFAULT '', notes TEXT DEFAULT '',
+            created_at TIMESTAMP DEFAULT NOW())""",
+        "CREATE INDEX IF NOT EXISTS ix_plan_schedule_item ON plan_schedule(item_id)",
         """CREATE TABLE IF NOT EXISTS plan_comments (
             id TEXT PRIMARY KEY, item_id TEXT NOT NULL, author TEXT DEFAULT '', body TEXT NOT NULL, created_at TIMESTAMP DEFAULT NOW())""",
         # Several ELICs per production / program (added to each of their events)
@@ -5874,8 +5880,12 @@ def planner_data():
         scenarios = fetchall(conn, '''SELECT id, name, notes, is_primary, created_by, created_at,
                 (SELECT COUNT(*) FROM plan_items i WHERE i.scenario_id=s.id AND i.status <> 'dropped') AS items
             FROM plan_scenarios s WHERE COALESCE(archived,FALSE)=FALSE ORDER BY is_primary DESC, created_at''') or []
-        items = fetchall(conn, '''SELECT i.*, (SELECT COUNT(*) FROM plan_comments c WHERE c.item_id=i.id) AS comments
+        items = fetchall(conn, '''SELECT i.*, (SELECT COUNT(*) FROM plan_comments c WHERE c.item_id=i.id) AS comments,
+                (SELECT COUNT(*) FROM plan_schedule ps WHERE ps.item_id=i.id) AS schedule_count
             FROM plan_items i WHERE i.scenario_id=%s ORDER BY i.start_date NULLS LAST, i.sort, i.created_at''', (sid,)) or []
+        sched = fetchall(conn, '''SELECT ps.id, ps.item_id, ps.name, ps.date, ps.start_time, ps.end_time FROM plan_schedule ps
+            JOIN plan_items i ON i.id=ps.item_id WHERE i.scenario_id=%s AND ps.date >= %s AND ps.date <= %s
+            ORDER BY ps.date, ps.start_time''', (sid, start, end)) or []
         # Real things already on the calendar, drawn faintly behind the plan
         events = fetchall(conn, '''SELECT e.id, e.name, e.event_date, e.end_date, e.location, e.production_id, e.program_id,
                 COALESCE(p.name,'') AS production, COALESCE(yp.name,'') AS program
@@ -5900,6 +5910,8 @@ def planner_data():
     return jsonify({
         'scenario_id': sid, 'from': start, 'to': end, 'scenarios': scenarios,
         'items': [_plan_item_out(i) for i in items],
+        'schedule': [{'id': x['id'], 'item_id': x['item_id'], 'name': x['name'], 'date': str(x['date'])[:10],
+                      'start_time': x.get('start_time') or '', 'end_time': x.get('end_time') or ''} for x in sched],
         'real': {
             'events': [{'id': e['id'], 'name': e['name'], 'date': d10(e['event_date']), 'end': d10(e.get('end_date')),
                         'what': e['production'] or e['program'] or '', 'offsite': not _event_is_onsite(e)} for e in events],
@@ -5928,11 +5940,15 @@ def planner_scenario_create():
         if d.get('copy_from'):
             # A copy of another version to try changes in (comments stay with the original)
             for it in fetchall(conn, "SELECT * FROM plan_items WHERE scenario_id=%s AND status <> 'greenlit'", (d['copy_from'],)) or []:
+                nid = str(uuid.uuid4())
                 execute(conn, '''INSERT INTO plan_items (id, scenario_id, title, kind, start_date, end_date, window_label, space, color,
                         status, owner, notes, sort, created_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
-                    (str(uuid.uuid4()), sid, it['title'], it['kind'], it['start_date'], it['end_date'], it.get('window_label') or '',
+                    (nid, sid, it['title'], it['kind'], it['start_date'], it['end_date'], it.get('window_label') or '',
                      it.get('space') or '', it.get('color') or '', it['status'], it.get('owner') or '', it.get('notes') or '',
                      it.get('sort') or 0, session.get('name') or ''))
+                execute(conn, '''INSERT INTO plan_schedule (id, item_id, name, event_type_id, date, start_time, end_time, location, notes)
+                    SELECT md5(random()::text || clock_timestamp()::text), %s, name, event_type_id, date, start_time, end_time, location, notes
+                    FROM plan_schedule WHERE item_id=%s''', (nid, it['id']))
         conn.commit()
     finally:
         conn.close()
@@ -6002,7 +6018,7 @@ def planner_item_create():
             (iid, sid, v['title'], v['kind'], v['status'], v['start_date'], v['end_date'], v['window_label'], v['space'],
              v['color'], v['owner'], v['notes'], session.get('name') or ''))
         conn.commit()
-        row = fetchone(conn, 'SELECT *, 0 AS comments FROM plan_items WHERE id=%s', (iid,))
+        row = fetchone(conn, 'SELECT *, 0 AS comments, 0 AS schedule_count FROM plan_items WHERE id=%s', (iid,))
     finally:
         conn.close()
     return jsonify(_plan_item_out(row))
@@ -6016,6 +6032,7 @@ def planner_item_update(iid):
     try:
         if request.method == 'DELETE':
             execute(conn, 'DELETE FROM plan_comments WHERE item_id=%s', (iid,))
+            execute(conn, 'DELETE FROM plan_schedule WHERE item_id=%s', (iid,))
             execute(conn, 'DELETE FROM plan_items WHERE id=%s', (iid,))
             conn.commit()
             return jsonify({'ok': True})
@@ -6030,12 +6047,18 @@ def planner_item_update(iid):
             return jsonify({'error': 'Give it a name.'}), 400
         if cur.get('status') == 'greenlit' and v['status'] != 'greenlit' and cur.get('greenlit_id'):
             v['status'] = 'greenlit'   # stays linked to the real thing it became
+        old_start = str(cur['start_date'])[:10] if cur.get('start_date') else None
+        if old_start and v['start_date'] and v['start_date'] != old_start and d.get('shift_schedule', True):
+            import datetime as _d
+            delta = (_d.date.fromisoformat(v['start_date']) - _d.date.fromisoformat(old_start)).days
+            execute(conn, 'UPDATE plan_schedule SET date = date + %s WHERE item_id=%s', (delta, iid))
         execute(conn, '''UPDATE plan_items SET title=%s, kind=%s, status=%s, start_date=%s, end_date=%s, window_label=%s,
                 space=%s, color=%s, owner=%s, notes=%s, updated_at=NOW() WHERE id=%s''',
             (v['title'], v['kind'], v['status'], v['start_date'], v['end_date'], v['window_label'], v['space'], v['color'],
              v['owner'], v['notes'], iid))
         conn.commit()
-        row = fetchone(conn, '''SELECT i.*, (SELECT COUNT(*) FROM plan_comments c WHERE c.item_id=i.id) AS comments
+        row = fetchone(conn, '''SELECT i.*, (SELECT COUNT(*) FROM plan_comments c WHERE c.item_id=i.id) AS comments,
+                (SELECT COUNT(*) FROM plan_schedule ps WHERE ps.item_id=i.id) AS schedule_count
             FROM plan_items i WHERE i.id=%s''', (iid,))
     finally:
         conn.close()
@@ -6112,6 +6135,9 @@ def planner_item_greenlight(iid):
     if status >= 400 or (body or {}).get('error'):
         return jsonify(body or {'error': 'Could not create it'}), status if status >= 400 else 400
     new_id = (body or {}).get('id')
+    made, skipped, sched_errors = 0, [], []
+    if as_ in ('production', 'program') and new_id:
+        made, skipped, sched_errors = _plan_greenlight_schedule(None, iid, as_, new_id, d.get('override_closure'))
     conn = get_db()
     try:
         if as_ == 'program' and new_id:
@@ -6121,11 +6147,14 @@ def planner_item_greenlight(iid):
                 updated_at=NOW() WHERE id=%s''', (as_, new_id, session.get('name') or '', iid))
         execute(conn, 'INSERT INTO plan_comments (id, item_id, author, body) VALUES (%s,%s,%s,%s)',
                 (str(uuid.uuid4()), iid, session.get('name') or 'Someone',
-                 f"Greenlit as a {'program/class' if as_ == 'program' else as_}."))
+                 f"Greenlit as a {'program/class' if as_ == 'program' else as_}."
+                 + (f" Created {made} scheduled event{'s' if made != 1 else ''}." if made else '')
+                 + (f" Skipped {len(skipped)} on studio closed days ({', '.join(skipped[:6])}{'…' if len(skipped) > 6 else ''})." if skipped else '')
+                 + (f" Couldn't create {len(sched_errors)}: " + '; '.join(sched_errors[:3]) if sched_errors else '')))
         conn.commit()
     finally:
         conn.close()
-    return jsonify({'ok': True, 'kind': as_, 'id': new_id})
+    return jsonify({'ok': True, 'kind': as_, 'id': new_id, 'events_created': made, 'skipped_closed': skipped, 'schedule_errors': sched_errors})
 
 
 @app.route('/planner')
@@ -6193,6 +6222,125 @@ table{{width:100%;border-collapse:collapse}} td{{padding:5px 6px;border-bottom:1
 
 
 
+# ── Season Planner: draft schedules for shows and classes ──
+# A plan item can carry a draft schedule (rehearsals, tech, performances,
+# class meetings). It moves with the item when the item is dragged, and on
+# Greenlight each date becomes a real event under the new production or
+# program, with its event type, times and place.
+def _plan_sched_rows(conn, iid):
+    rows = fetchall(conn, '''SELECT s.*, COALESCE(t.name,'') AS type_name, COALESCE(t.color,'') AS type_color
+        FROM plan_schedule s LEFT JOIN event_types t ON t.id=s.event_type_id
+        WHERE s.item_id=%s ORDER BY s.date, s.start_time''', (iid,)) or []
+    for r in rows:
+        r['date'] = str(r['date'])[:10]
+    return rows
+
+
+@app.route('/api/planner/items/<iid>/schedule', methods=['GET', 'POST', 'DELETE'])
+def planner_item_schedule(iid):
+    err = _plan_err('view' if request.method == 'GET' else 'edit')
+    if err: return err
+    conn = get_db()
+    try:
+        if request.method == 'DELETE':
+            execute(conn, 'DELETE FROM plan_schedule WHERE item_id=%s', (iid,)); conn.commit()
+        elif request.method == 'POST':
+            import datetime as _d
+            d = request.json or {}
+            base = {'name': (d.get('name') or '').strip()[:120], 'event_type_id': d.get('event_type_id') or None,
+                    'start_time': (d.get('start_time') or '')[:5], 'end_time': (d.get('end_time') or '')[:5],
+                    'location': (d.get('location') or '').strip()[:120], 'notes': (d.get('notes') or '').strip()[:300]}
+            if not base['name']:
+                return jsonify({'error': 'Give it a name, like Rehearsal or Class.'}), 400
+            dates = []
+            if d.get('weekdays'):
+                # Repeating: these weekdays (0=Sun … 6=Sat) between two dates
+                try:
+                    a = _d.date.fromisoformat(d['from'][:10]); b = _d.date.fromisoformat(d['to'][:10])
+                except Exception:
+                    return jsonify({'error': 'Pick the first and last dates.'}), 400
+                if b < a: a, b = b, a
+                if (b - a).days > 400:
+                    return jsonify({'error': 'Keep repeating schedules under about a year.'}), 400
+                wd = {int(x) for x in d['weekdays']}
+                cur = a
+                while cur <= b:
+                    if (cur.weekday() + 1) % 7 in wd:
+                        dates.append(cur.isoformat())
+                    cur += _d.timedelta(days=1)
+            elif d.get('date'):
+                dates = [d['date'][:10]]
+            if not dates:
+                return jsonify({'error': 'No dates matched. Check the days of the week and the date range.'}), 400
+            for dt in dates[:300]:
+                execute(conn, '''INSERT INTO plan_schedule (id, item_id, name, event_type_id, date, start_time, end_time, location, notes)
+                    VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)''', (str(uuid.uuid4()), iid, base['name'], base['event_type_id'], dt,
+                    base['start_time'], base['end_time'], base['location'], base['notes']))
+            conn.commit()
+        return jsonify(_plan_sched_rows(conn, iid))
+    finally:
+        conn.close()
+
+
+@app.route('/api/planner/schedule/<sid>', methods=['PUT', 'DELETE'])
+def planner_schedule_entry(sid):
+    err = _plan_err('edit')
+    if err: return err
+    conn = get_db()
+    try:
+        row = fetchone(conn, 'SELECT item_id FROM plan_schedule WHERE id=%s', (sid,))
+        if not row:
+            return jsonify({'error': 'Not found'}), 404
+        if request.method == 'DELETE':
+            execute(conn, 'DELETE FROM plan_schedule WHERE id=%s', (sid,))
+        else:
+            d = request.json or {}
+            sets, vals = [], []
+            for k, lim in (('name', 120), ('start_time', 5), ('end_time', 5), ('location', 120), ('notes', 300)):
+                if k in d: sets.append(k + '=%s'); vals.append((d.get(k) or '').strip()[:lim])
+            if 'date' in d and d.get('date'): sets.append('date=%s'); vals.append(d['date'][:10])
+            if 'event_type_id' in d: sets.append('event_type_id=%s'); vals.append(d.get('event_type_id') or None)
+            if sets:
+                execute(conn, 'UPDATE plan_schedule SET ' + ', '.join(sets) + ' WHERE id=%s', tuple(vals) + (sid,))
+        conn.commit()
+        return jsonify(_plan_sched_rows(conn, row['item_id']))
+    finally:
+        conn.close()
+
+
+def _plan_greenlight_schedule(conn_unused, item_id, as_, new_id, override):
+    """Create a real event for each draft schedule date. Returns (made, skipped_closed, errors)."""
+    conn = get_db()
+    try:
+        rows = _plan_sched_rows(conn, item_id)
+    finally:
+        conn.close()
+    made, skipped, errors = 0, [], []
+    me = {k: session.get(k) for k in ('user_id', 'role', 'name') if session.get(k) is not None}
+    for r in rows:
+        loc = (r.get('location') or '').strip()
+        payload = {'name': r['name'], 'event_date': r['date'], 'start_time': r.get('start_time') or None,
+                   'end_time': r.get('end_time') or None, 'event_type_id': r.get('event_type_id') or None,
+                   'location': loc if loc and loc.upper() not in ('STUDIO', 'HWTC STUDIO') else 'HWTC',
+                   'description': r.get('notes') or '', 'override_closure': bool(override),
+                   ('production_id' if as_ == 'production' else 'program_id'): new_id}
+        with app.test_request_context('/api/events', method='POST', json=payload):
+            for k, v in me.items():
+                session[k] = v
+            resp = create_event()
+        status = 200
+        if isinstance(resp, tuple):
+            resp, status = resp[0], resp[1]
+        body = resp.get_json() if hasattr(resp, 'get_json') else {}
+        if status < 400 and not (body or {}).get('error'):
+            made += 1
+        elif (body or {}).get('studio_closed'):
+            skipped.append(r['date'])
+        else:
+            errors.append(f"{r['date']}: {(body or {}).get('error') or 'could not create'}")
+    return made, skipped, errors
+
+
 _PLANNER_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Season Planner · RoleCall</title>
@@ -6237,6 +6385,8 @@ select,input[type=text],input[type=date],textarea{padding:7px 10px;border-radius
 .bar{position:absolute;top:4px;height:26px;border-radius:7px;font-size:12px;font-weight:700;padding:5px 8px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;cursor:grab;user-select:none;touch-action:none;border:1.5px solid transparent;min-width:14px}
 .bar.ro{cursor:pointer}
 .bar.dragging,.chip.dragging{opacity:.85;box-shadow:0 6px 18px rgba(0,0,0,.25);z-index:20}
+.sdot{position:absolute;top:31px;width:4px;height:4px;border-radius:50%;opacity:.8}
+.tl-lane{height:38px}
 .bar-label{position:absolute;top:9px;font-size:12px;font-weight:700;white-space:nowrap;pointer-events:none;color:var(--ink)}
 .real-bar{position:absolute;top:6px;height:20px;border-radius:6px;font-size:11px;padding:3px 7px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:transparent;border:1.5px solid var(--real);color:var(--muted)}
 .tick{position:absolute;top:8px;width:4px;border-radius:2px;background:var(--real);opacity:.75}
@@ -6250,6 +6400,7 @@ select,input[type=text],input[type=date],textarea{padding:7px 10px;border-radius
 .mday{font-size:12px;font-weight:700;color:var(--muted)}
 .mtag{font-size:10px;font-weight:800;color:var(--muted)}
 .mreal{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.msched{font-size:10.5px;margin-top:2px;padding-left:5px;border-left:3px solid;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .mchip{display:block;margin-top:3px;padding:2px 6px;border-radius:5px;font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:grab;user-select:none;touch-action:none;border:1.5px solid transparent}
 /* drawer */
 .ov{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:50;display:flex;justify-content:flex-end}
@@ -6303,6 +6454,7 @@ function D(s){ var p=String(s).slice(0,10).split('-'); return new Date(+p[0],+p[
 function iso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') }
 function addDays(s,n){ var d=D(s); d.setDate(d.getDate()+n); return iso(d) }
 function days(a,b){ return Math.round((D(b)-D(a))/864e5) }
+function tm(t){ var m=/^(\d{1,2}):(\d{2})/.exec(t||''); if(!m) return t||''; var h=+m[1]; return (h%12||12)+(m[2]!=='00'?':'+m[2]:'')+(h<12?'am':'pm') }
 function fmt(s,o){ return D(s).toLocaleDateString('en-US',o||{month:'short',day:'numeric'}) }
 function toast(t){ var e=document.createElement('div'); e.className='toast'; e.textContent=t; document.body.appendChild(e); setTimeout(function(){ e.remove() },2600) }
 async function api(u,m,b){ var r=await fetch(u,m?{method:m,headers:{'Content-Type':'application/json'},body:b?JSON.stringify(b):undefined}:{}); if(r.status==401){ location.href='/?next=/planner'; return {} } try{ return await r.json() }catch(e){ return {error:'Unexpected response ('+r.status+')'} } }
@@ -6326,8 +6478,9 @@ function rangeFromTo(){
   var e2=new Date(s2); e2.setDate(e2.getDate()+41); return [iso(s2), iso(e2)]
 }
 async function load(){
-  var r = rangeFromTo()
+  var r = rangeFromTo(), seq = S.seq = (S.seq||0)+1
   var d = await api('/api/planner?'+(S.scenario?'scenario='+encodeURIComponent(S.scenario)+'&':'')+'from='+r[0]+'&to='+r[1])
+  if(seq !== S.seq) return   // a newer request (quick clicks) has taken over
   if(!d || d.error){ $('view').innerHTML = '<p class="muted">'+esc((d&&d.error)||'Could not load the planner')+'</p>'; return }
   S.data = d; S.scenario = d.scenario_id; S.canEdit = d.can_edit
   $('sc').innerHTML = d.scenarios.map(function(s){ return '<option value="'+s.id+'"'+(s.id===d.scenario_id?' selected':'')+'>'+esc(s.name)+(s.is_primary?' (main)':'')+' · '+s.items+'</option>' }).join('')
@@ -6392,6 +6545,8 @@ function timelineHTML(data, editable){
       var narrow = bw < 110
       h += '<div class="tl-lane"><div class="bar plan'+(editable&&S.canEdit?'':' ro')+'" data-id="'+it.id+'" data-ro="'+(editable?'':'1')+'" title="'+esc(it.title)+' · '+when+' · '+STATUS[it.status]+'" style="left:'+bx+'px;width:'+bw+'px;'+styleFor(it)+'">'
         + (narrow ? '' : label) + '</div>'
+        + (data.schedule||[]).filter(function(x){ return x.item_id===it.id && x.date>=start && x.date<=r[1] }).map(function(x){
+            return '<div class="sdot" title="'+esc(x.name+' · '+fmt(x.date)+(x.start_time?' '+tm(x.start_time):''))+'" style="left:'+(xOf(x.date,start)+PX_DAY/2-2)+'px;background:'+color(it)+'"></div>' }).join('')
         + (narrow ? '<div class="bar-label" style="'+(bx+bw > W-200 ? 'right:'+(W-bx+6)+'px' : 'left:'+(bx+bw+6)+'px')+'">'+label+' <span class="muted">· '+when+'</span></div>' : '') + '</div>'
     })
   })
@@ -6427,6 +6582,8 @@ function monthHTML(){
       + (cl?'<div class="mtag">Studio closed'+(cl.reason?' · '+esc(cl.reason):'')+'</div>':'') + (hol&&!cl?'<div class="mtag">Phone closed'+(hol.label?' · '+esc(hol.label):'')+'</div>':'')
       + ev.slice(0,2).map(function(e){ return '<div class="mreal" title="'+esc(e.name)+'">· '+esc(e.what?e.what+': ':'')+esc(e.name)+'</div>' }).join('') + (ev.length>2?'<div class="mreal">+'+(ev.length-2)+' more</div>':'')
       + mine.map(function(it){ return '<div class="mchip plan" data-id="'+it.id+'" style="'+styleFor(it)+'" title="'+esc(it.title)+'">'+(it.status==='greenlit'?'✓ ':'')+(it.start_date===d||i===0?esc(it.title):'↳ '+esc(it.title))+'</div>' }).join('')
+      + (S.data.schedule||[]).filter(function(x){ return x.date===d }).slice(0,3).map(function(x){ var it = items.find(function(y){ return y.id===x.item_id }) || {}
+          return '<div class="msched" style="border-left-color:'+color(it)+'" title="'+esc((it.title||'')+': '+x.name)+'">'+(x.start_time?tm(x.start_time)+' ':'')+esc(x.name)+' <span class="muted">· '+esc(it.title||'')+'</span></div>' }).join('')
       + '</div>'
   }
   return h + '</div>'
@@ -6476,7 +6633,8 @@ async function saveItem(id, patch, msg){
   var r = await api('/api/planner/items/'+id, 'PUT', patch)
   if(r.error){ toast(r.error); render(); return null }
   var i = S.data.items.findIndex(function(x){ return x.id===id }); if(i>=0) S.data.items[i] = r
-  render(); if(msg) toast(msg); return r
+  if(patch.start_date && r.schedule_count){ await load() } else render()
+  if(msg) toast(msg+(patch.start_date && r.schedule_count ? ' (its '+r.schedule_count+' scheduled dates moved too)' : '')); return r
 }
 // ── The item panel ──
 var CUR = null
@@ -6496,17 +6654,62 @@ function openItem(id){
     + '<div class="f"><label>Color</label><div class="swatches" id="f-color">'+SWATCH.map(function(c){ return '<button type="button" data-c="'+c+'" class="'+((CUR.color||'')===c?'on':'')+'" style="background:'+(c||'repeating-linear-gradient(135deg,#fff,#fff 4px,#ddd 4px,#ddd 8px)')+'" title="'+(c?c:'Use the type’s color')+'"'+dis+' onclick="pickColor(this)"></button>' }).join('')+'</div></div>'
     + '<div class="f"><label>Notes</label><textarea id="f-notes" rows="5"'+dis+'>'+esc(CUR.notes||'')+'</textarea></div>'
     + (ro ? '' : '<div class="row" style="margin-top:14px"><button class="btn primary" onclick="saveCur()">'+(it?'Save':'Add to the plan')+'</button>'+(it?'<span style="flex:1"></span><button class="btn sm" style="color:#b91c1c" onclick="deleteCur()">Delete</button>':'')+'</div>')
+    + (it && (it.kind==='show' || it.kind==='class') ? scheduleBox(it, ro) : '')
     + (it ? greenlightBox(it, ro) + '<div class="box"><strong>Comments</strong><div id="cmts" class="muted" style="margin-top:6px">Loading…</div>'
         + (ro?'':'<div class="row" style="margin-top:8px"><input type="text" id="cmt-in" placeholder="Add a comment…" style="flex:1" onkeydown="if(event.key===\'Enter\')addComment()"/><button class="btn sm" onclick="addComment()">Post</button></div>')+'</div>' : '')
     + '</div>'
   document.body.appendChild(ov)
-  if(it) loadComments(it.id)
+  if(it){ loadComments(it.id); if(it.kind==='show'||it.kind==='class') loadSchedule(it.id) }
 }
+// ── Draft schedule (becomes real events when greenlit) ──
+var ETYPES = null
+async function eventTypes(){ if(!ETYPES){ var r = await api('/api/event-types'); ETYPES = Array.isArray(r) ? r : [] } return ETYPES }
+function scheduleBox(it, ro){
+  var def = it.kind==='show' ? 'Rehearsal' : it.title
+  return '<div class="box"><strong>Schedule</strong> <span class="muted" style="font-size:12.5px">· draft, becomes real events when you greenlight</span>'
+    + '<div id="sch-list" class="muted" style="margin-top:6px">Loading…</div>'
+    + (ro ? '' : '<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">'
+      + '<div class="two"><div class="f" style="margin-top:0"><label>What</label><input type="text" id="sch-name" value="'+esc(def)+'"/></div>'
+      + '<div class="f" style="margin-top:0"><label>Event type</label><select id="sch-type"><option value="">(none)</option></select></div></div>'
+      + '<div class="two"><div class="f"><label>Starts</label><input type="time" id="sch-st"/></div><div class="f"><label>Ends</label><input type="time" id="sch-et"/></div></div>'
+      + '<div class="f"><label>Where</label><input type="text" id="sch-loc" placeholder="Studio (default), or another place" value="'+esc(it.space||'')+'"/></div>'
+      + '<div class="f"><label>Repeats on</label><div class="row" id="sch-wd">'+['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(function(x,i){ return '<button type="button" class="btn sm" data-wd="'+i+'" onclick="this.classList.toggle(\'on\')">'+x+'</button>' }).join('')+'</div></div>'
+      + '<div class="two"><div class="f"><label>From</label><input type="date" id="sch-from" value="'+(it.start_date||'')+'"/></div><div class="f"><label>Through</label><input type="date" id="sch-to" value="'+(it.end_date||it.start_date||'')+'"/></div></div>'
+      + '<div class="muted" style="font-size:12px;margin-top:4px">Pick days to repeat weekly between the dates, or leave days unpicked to add just the From date.</div>'
+      + '<div class="row" style="margin-top:8px"><button class="btn primary sm" onclick="addSchedule()">Add to schedule</button><span style="flex:1"></span><button class="btn sm" style="color:#b91c1c" onclick="clearSchedule()">Clear schedule</button></div></div>')
+    + '</div>'
+}
+async function loadSchedule(id){
+  var rows = await api('/api/planner/items/'+id+'/schedule'), el = $('sch-list'); if(!el) return
+  var ts = await eventTypes(), sel = $('sch-type')
+  if(sel && sel.options.length<=1){ sel.innerHTML = '<option value="">(none)</option>'+ts.map(function(t){ return '<option value="'+t.id+'">'+esc(t.name)+'</option>' }).join('')
+    var want = (CUR && CUR.kind==='show') ? /rehears/i : /class|program|workshop/i; var m = ts.find(function(t){ return want.test(t.name) }); if(m) sel.value = m.id }
+  if(!Array.isArray(rows) || !rows.length){ el.innerHTML = 'No dates yet.'; return }
+  var byMonth = {}; rows.forEach(function(r){ var k = r.date.slice(0,7); (byMonth[k]=byMonth[k]||[]).push(r) })
+  el.innerHTML = '<div style="color:var(--ink);font-size:13px;margin-bottom:4px"><b>'+rows.length+'</b> date'+(rows.length===1?'':'s')+'</div>' + Object.keys(byMonth).map(function(k){
+    return '<div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--muted);margin:8px 0 2px">'+D(k+'-01').toLocaleDateString('en-US',{month:'long',year:'numeric'})+'</div>'
+      + byMonth[k].map(function(r){ return '<div class="row" style="padding:3px 0;font-size:13px;color:var(--ink);gap:6px"><span style="width:92px">'+fmt(r.date,{weekday:'short',month:'short',day:'numeric'})+'</span>'
+        + '<span style="width:96px" class="muted">'+(r.start_time?tm(r.start_time)+(r.end_time?'–'+tm(r.end_time):''):'')+'</span><span style="flex:1">'+esc(r.name)+(r.type_name && r.type_name.toLowerCase()!==String(r.name).toLowerCase()?' <span class="muted">· '+esc(r.type_name)+'</span>':'')+(r.location?' <span class="muted">· '+esc(r.location)+'</span>':'')+'</span>'
+        + (S.canEdit?'<button class="btn sm" style="padding:1px 7px" onclick="delSchedule(\''+r.id+'\')" aria-label="Remove">×</button>':'')+'</div>' }).join('') }).join('')
+}
+async function addSchedule(){
+  var wd = Array.from(document.querySelectorAll('#sch-wd .on')).map(function(b){ return +b.dataset.wd })
+  var body = {name:$('sch-name').value, event_type_id:$('sch-type').value, start_time:$('sch-st').value, end_time:$('sch-et').value, location:$('sch-loc').value}
+  if(wd.length){ body.weekdays = wd; body.from = $('sch-from').value; body.to = $('sch-to').value } else body.date = $('sch-from').value
+  if(!body.date && !(body.from && body.to)){ toast('Pick a date'); return }
+  var r = await api('/api/planner/items/'+CUR.id+'/schedule','POST',body)
+  if(r.error){ toast(r.error); return }
+  toast('Added to the schedule'); document.querySelectorAll('#sch-wd .on').forEach(function(b){ b.classList.remove('on') })
+  loadSchedule(CUR.id); refreshQuiet()
+}
+async function delSchedule(sid){ var r = await api('/api/planner/schedule/'+sid,'DELETE'); if(r.error){ toast(r.error); return } loadSchedule(CUR.id); refreshQuiet() }
+async function clearSchedule(){ if(!confirm('Remove every date from this schedule?')) return; await api('/api/planner/items/'+CUR.id+'/schedule','DELETE'); loadSchedule(CUR.id); refreshQuiet() }
+async function refreshQuiet(){ var keep = CUR; var r = rangeFromTo(); var d = await api('/api/planner?scenario='+encodeURIComponent(S.scenario)+'&from='+r[0]+'&to='+r[1]); if(d && !d.error){ S.data = d; var ov = $('ov'); if(ov) ov.style.display='none'; render(); if(ov) ov.style.display='' } CUR = keep }
 function greenlightBox(it, ro){
   if(it.status==='greenlit') return '<div class="box"><strong>✓ Greenlit</strong><div class="muted" style="margin-top:4px">Created as a '+(it.greenlit_kind==='program'?'program/class':esc(it.greenlit_kind||''))+(it.greenlit_by?' by '+esc(it.greenlit_by):'')+(it.greenlit_at?' on '+fmt(it.greenlit_at.slice(0,10)):'')+'. Finish setting it up in <a href="/" target="_blank">RoleCall</a>.</div></div>'
   if(ro) return ''
   var def = {show:'production', 'class':'program'}[it.kind] || 'event'
-  return '<div class="box"><strong>Greenlight it</strong><div class="muted" style="margin:4px 0 8px;font-size:13px">Makes it real in RoleCall using these details. A production is created as Upcoming; a program or class as a Draft (not open for registration until you finish it); an event goes on the calendar for these dates.</div>'
+  return '<div class="box"><strong>Greenlight it</strong><div class="muted" style="margin:4px 0 8px;font-size:13px">Makes it real in RoleCall using these details. A production is created as Upcoming; a program or class as a Draft (not open for registration until you finish it); an event goes on the calendar for these dates.'+(it.schedule_count?' Its <b>'+it.schedule_count+' scheduled dates</b> become events under it (as drafts).':'')+'</div>'
     + '<div class="row"><select id="gl-as"><option value="production"'+(def==='production'?' selected':'')+'>Create a production</option><option value="program"'+(def==='program'?' selected':'')+'>Create a program / class</option><option value="event"'+(def==='event'?' selected':'')+'>Create an event</option></select>'
     + '<button class="btn primary" onclick="greenlight()">Greenlight</button></div></div>'
 }
@@ -6542,7 +6745,7 @@ async function greenlight(){
   var r = await api('/api/planner/items/'+CUR.id+'/greenlight','POST',{as:as})
   if(r.studio_closed && r.can_override && confirm(r.error+'\n\nCreate it anyway?')) r = await api('/api/planner/items/'+CUR.id+'/greenlight','POST',{as:as, override_closure:true})
   if(r.error){ toast(r.error); return }
-  closeItem(); toast('Greenlit: created '+label); load()
+  closeItem(); toast('Greenlit: created '+label+(r.events_created?' and '+r.events_created+' scheduled event'+(r.events_created===1?'':'s'):'')+((r.skipped_closed||[]).length?'. Skipped '+r.skipped_closed.length+' on studio closed days.':'')); load()
 }
 // ── Versions (Plan A / Plan B) ──
 function openVersions(){

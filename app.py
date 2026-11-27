@@ -3923,6 +3923,12 @@ def init_db():
             greenlit_kind TEXT, greenlit_id TEXT, greenlit_at TIMESTAMP, greenlit_by TEXT,
             created_by TEXT DEFAULT '', created_at TIMESTAMP DEFAULT NOW(), updated_at TIMESTAMP DEFAULT NOW())""",
         "CREATE INDEX IF NOT EXISTS ix_plan_items_scenario ON plan_items(scenario_id)",
+        # Season Planner confidentiality agreements and who opened it
+        """CREATE TABLE IF NOT EXISTS plan_agreements (
+            user_id TEXT NOT NULL, version TEXT NOT NULL, typed_name TEXT DEFAULT '', account_name TEXT DEFAULT '',
+            ip TEXT DEFAULT '', user_agent TEXT DEFAULT '', agreed_at TIMESTAMP DEFAULT NOW(), PRIMARY KEY (user_id, version))""",
+        """CREATE TABLE IF NOT EXISTS plan_access_log (
+            id TEXT PRIMARY KEY, user_id TEXT, name TEXT DEFAULT '', ip TEXT DEFAULT '', at TIMESTAMP DEFAULT NOW())""",
         # Draft schedules on plan items (rehearsals, performances, class meetings)
         """CREATE TABLE IF NOT EXISTS plan_schedule (
             id TEXT PRIMARY KEY, item_id TEXT NOT NULL, name TEXT NOT NULL, event_type_id TEXT, date DATE NOT NULL,
@@ -5841,8 +5847,101 @@ PLAN_KINDS = ('show', 'class', 'event', 'rental', 'fundraiser', 'other')
 PLAN_STATUSES = ('idea', 'tentative', 'penciled', 'confirmed', 'greenlit', 'dropped')
 
 
-def _plan_err(level='view'):
-    return require_permission('planning', level)
+# ── Confidentiality: everyone agrees before they can see anything ──
+PLAN_AGREEMENT_VERSION = '2026-11'
+PLAN_AGREEMENT_TEXT = [
+    ('p', 'This planner holds confidential, proprietary information belonging to Horizon West Theater Company: productions, classes, '
+          'workshops, events and ideas that are not public. Much of it is not final. Rights may not be secured, contracts may not be '
+          'signed, and materials may not be ready, so nothing here should be treated as announced.'),
+    ('h', 'By continuing, you agree to:'),
+    ('li', 'Keep everything in the planner confidential and use it only for HWTC planning.'),
+    ('li', 'Not share, forward, post, screenshot, print or talk about what’s in it with anyone outside the people HWTC has given planner '
+           'access, until HWTC announces it publicly.'),
+    ('li', 'Not contact artists, rights holders, venues, partners or vendors about anything here unless you’ve been asked to.'),
+    ('li', 'Tell the HWTC President right away if you think something was shared by mistake.'),
+    ('p', 'This applies while you have access and afterward. HWTC can remove access at any time. Your agreement is recorded with your '
+          'name and the date, and you’ll be asked to agree again once a year.'),
+]
+
+
+def _plan_agreed():
+    try:
+        conn = get_db()
+        r = fetchone(conn, '''SELECT 1 AS x FROM plan_agreements WHERE user_id=%s AND version=%s
+            AND agreed_at > NOW() - INTERVAL '365 days' LIMIT 1''', (session.get('user_id'), PLAN_AGREEMENT_VERSION))
+        conn.close()
+        return bool(r)
+    except Exception:
+        return False
+
+
+def _plan_err(level='view', need_agreement=True):
+    """Season Planner access: the Season Planning permission, plus a signed
+    confidentiality agreement (current version, within the last year)."""
+    err = require_permission('planning', level)
+    if err: return err
+    if need_agreement and not _plan_agreed():
+        return jsonify({'error': 'Please read and agree to the confidentiality agreement first.', 'agreement_required': True,
+                        'agreement': PLAN_AGREEMENT_TEXT, 'version': PLAN_AGREEMENT_VERSION}), 403
+    return None
+
+
+@app.route('/api/planner/agree', methods=['POST'])
+def planner_agree():
+    err = _plan_err('view', need_agreement=False)
+    if err: return err
+    d = request.json or {}
+    typed = (d.get('name') or '').strip()
+    if not d.get('agree') or len(typed) < 2:
+        return jsonify({'error': 'Tick the box and type your full name to agree.'}), 400
+    conn = get_db()
+    try:
+        execute(conn, '''INSERT INTO plan_agreements (user_id, version, typed_name, account_name, ip, user_agent)
+            VALUES (%s,%s,%s,%s,%s,%s)
+            ON CONFLICT (user_id, version) DO UPDATE SET typed_name=EXCLUDED.typed_name, agreed_at=NOW(), ip=EXCLUDED.ip,
+                user_agent=EXCLUDED.user_agent''',
+            (session.get('user_id'), PLAN_AGREEMENT_VERSION, typed[:120], session.get('name') or '',
+             (request.headers.get('X-Forwarded-For') or request.remote_addr or '').split(',')[0].strip()[:60],
+             (request.headers.get('User-Agent') or '')[:300]))
+        conn.commit()
+    finally:
+        conn.close()
+    return jsonify({'ok': True})
+
+
+def _plan_log_view(conn):
+    """One access-log line per person per half hour of use."""
+    try:
+        recent = fetchone(conn, '''SELECT 1 AS x FROM plan_access_log WHERE user_id=%s AND at > NOW() - INTERVAL '30 minutes' LIMIT 1''',
+                          (session.get('user_id'),))
+        if not recent:
+            execute(conn, 'INSERT INTO plan_access_log (id, user_id, name, ip) VALUES (%s,%s,%s,%s)',
+                    (str(uuid.uuid4()), session.get('user_id'), session.get('name') or '',
+                     (request.headers.get('X-Forwarded-For') or request.remote_addr or '').split(',')[0].strip()[:60]))
+            conn.commit()
+    except Exception:
+        conn.rollback()
+
+
+@app.route('/api/planner/access')
+def planner_access_report():
+    """Admins: who has agreed, and who has opened the planner lately."""
+    err = _plan_err('view')
+    if err: return err
+    if session.get('role') != 'admin':
+        return jsonify({'error': 'Admins only'}), 403
+    conn = get_db()
+    try:
+        agreed = fetchall(conn, '''SELECT a.typed_name, a.account_name, a.version, a.agreed_at, u.email FROM plan_agreements a
+            LEFT JOIN users u ON u.id=a.user_id ORDER BY a.agreed_at DESC LIMIT 100''') or []
+        views = fetchall(conn, 'SELECT name, at FROM plan_access_log ORDER BY at DESC LIMIT 60') or []
+    finally:
+        conn.close()
+    for r in agreed: r['agreed_at'] = str(r['agreed_at'])[:16]
+    for r in views: r['at'] = str(r['at'])[:16]
+    return jsonify({'agreements': agreed, 'views': views, 'version': PLAN_AGREEMENT_VERSION})
+
+
 
 
 def _plan_default_scenario(conn):
@@ -5870,6 +5969,7 @@ def planner_data():
     if err: return err
     conn = get_db()
     try:
+        _plan_log_view(conn)
         sid = request.args.get('scenario') or _plan_default_scenario(conn)
         start = (request.args.get('from') or '')[:10] or today_eastern().replace(day=1).isoformat()
         end = (request.args.get('to') or '')[:10]
@@ -6179,10 +6279,12 @@ def planner_page():
     if 'user_id' not in session:
         from flask import redirect
         return redirect('/?next=/planner')
-    if _plan_err() is not None:
+    if _plan_err(need_agreement=False) is not None:
         return ('You don’t have access to the Season Planner. Ask an admin to give you Season Planning access in Settings → Users.', 403)
-    resp = app.response_class(_PLANNER_HTML, mimetype='text/html')
-    resp.headers['Cache-Control'] = 'no-store'
+    resp = app.response_class(_PLANNER_HTML.replace('__VIEWER__', json.dumps(session.get('name') or ''))
+                              .replace('__ISADMIN__', 'true' if session.get('role') == 'admin' else 'false'), mimetype='text/html')
+    resp.headers['Cache-Control'] = 'no-store, private'
+    resp.headers['X-Robots-Tag'] = 'noindex, nofollow'
     return resp
 
 
@@ -6192,12 +6294,16 @@ def planner_print():
     if 'user_id' not in session:
         from flask import redirect
         return redirect('/?next=/planner')
-    err = _plan_err()
-    if err: return err
+    if _plan_err(need_agreement=False) is not None:
+        return ('You don’t have access to the Season Planner.', 403)
+    if not _plan_agreed():
+        from flask import redirect
+        return redirect('/planner')
     from html import escape as E
     import datetime as _d
     conn = get_db()
     try:
+        _plan_log_view(conn)
         sid = request.args.get('scenario') or _plan_default_scenario(conn)
         sc = fetchone(conn, 'SELECT * FROM plan_scenarios WHERE id=%s', (sid,)) or {}
         items = fetchall(conn, "SELECT * FROM plan_items WHERE scenario_id=%s AND status <> 'dropped' ORDER BY start_date NULLS LAST, title", (sid,)) or []
@@ -6232,8 +6338,13 @@ table{{width:100%;border-collapse:collapse}} td{{padding:5px 6px;border-bottom:1
 .s-idea{{color:#6b7280}} .s-tentative{{color:#b45309}} .s-penciled{{color:#1d4ed8}} .s-confirmed{{color:#15803d}} .s-greenlit{{color:#7c3aed}}
 .n{{color:#555;font-size:11.5px;margin-top:2px}} .sp{{color:#666;font-weight:400}}
 .noprint{{margin-bottom:14px}} @media print{{.noprint{{display:none}} body{{margin:12mm}}}}
-</style></head><body><div class="noprint"><button onclick="window.print()">Print</button></div>
-<h1>{E(sc.get('name') or 'Season plan')}</h1><div class="sub">HWTC Season Planner · printed {_d.date.today().strftime('%B %-d, %Y')} · draft, not official</div>
+.conf{{border:2px solid #b91c1c;color:#991b1b;background:#fef2f2;padding:8px 12px;font-weight:700;margin:6px 0 12px;font-size:12px}}
+.wm{{position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.07;font-size:22px;font-weight:800;color:#991b1b;transform:rotate(-24deg);
+   display:flex;flex-wrap:wrap;gap:60px 90px;align-content:center;justify-content:center;-webkit-print-color-adjust:exact;print-color-adjust:exact}}
+</style></head><body><div class="wm">{('<span>CONFIDENTIAL · ' + E(session.get('name') or '') + '</span>') * 40}</div>
+<div class="noprint"><button onclick="window.print()">Print</button></div>
+<div class="conf">CONFIDENTIAL · HWTC internal planning only. Not announced; do not share, post or forward. Printed by {E(session.get('name') or 'someone')} on {_d.date.today().strftime('%B %-d, %Y')}.</div>
+<h1>{E(sc.get('name') or 'Season plan')}</h1><div class="sub">HWTC Season Planner · draft, not official</div>
 {rows or '<p>Nothing planned yet.</p>'}</body></html>'''
     return app.response_class(html, mimetype='text/html')
 
@@ -6403,7 +6514,8 @@ def planner_item_move(iid):
 
 _PLANNER_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Season Planner · RoleCall</title>
+<meta name="robots" content="noindex,nofollow">
+<title>Season Planner · Confidential · RoleCall</title>
 <style>
 :root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--soft:#eef4f6;--hatch:#e5e7eb;--real:#94a3b8;color-scheme:light}
 *{box-sizing:border-box}
@@ -6475,10 +6587,26 @@ select,input[type=text],input[type=date],textarea{padding:7px 10px;border-radius
 .cmt{padding:8px 0;border-top:1px solid var(--line);font-size:13px}.cmt:first-child{border-top:0}
 .cmt .who{font-size:11.5px;color:var(--muted)}
 .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:999px;font-weight:600;z-index:80}
+.conf-strip{background:#991b1b;color:#fff;font-size:12.5px;font-weight:700;padding:6px 18px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.conf-strip b{letter-spacing:.08em}
+.wm{position:fixed;inset:0;pointer-events:none;z-index:25;overflow:hidden;opacity:.045}
+.wm div{position:absolute;inset:-50%;display:flex;flex-wrap:wrap;gap:70px 110px;align-content:center;justify-content:center;transform:rotate(-24deg);
+  font-size:20px;font-weight:800;color:#991b1b;white-space:nowrap}
+body.locked .top, body.locked .wrap, body.locked .wm{filter:blur(8px);pointer-events:none;user-select:none}
+.gate{position:fixed;inset:0;z-index:90;background:rgba(15,23,42,.55);display:flex;align-items:center;justify-content:center;padding:20px}
+.gate-card{background:#fff;color:#1f2933;border-radius:16px;max-width:600px;width:100%;max-height:92vh;overflow:auto;padding:24px 26px;box-shadow:0 20px 60px rgba(0,0,0,.35);border-top:6px solid #991b1b}
+.gate-card h2{margin:0 0 4px;font-size:21px;color:#991b1b}
+.gate-card li{margin:5px 0}
+.shield{position:fixed;inset:0;z-index:95;background:#f5f4f0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:10px;color:#6b7280;font-weight:600}
 .compare-title{font-size:13px;font-weight:800;color:var(--muted);margin:18px 0 6px}
 .muted{color:var(--muted)}
-</style></head><body>
-<div class="top">
+</style></head><body class="locked">
+<div class="wm" id="wm"></div>
+<div class="top" style="padding:0">
+  <div class="conf-strip"><b>CONFIDENTIAL</b><span>HWTC internal planning only. Not public or announced: don’t share, screenshot, print for others, or forward.</span><span style="flex:1"></span>
+    <button class="btn sm" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.5)" onclick="shield(true)" title="Cover the screen (Esc)">Hide screen</button>
+    <button class="btn sm" id="access-btn" style="background:transparent;color:#fff;border-color:rgba(255,255,255,.5);display:none" onclick="openAccess()">Who has access</button></div>
+<div style="padding:12px 18px">
   <div class="row">
     <h1>Season Planner</h1>
     <select id="sc" onchange="S.scenario=this.value;load()" title="Which version of the plan"></select>
@@ -6497,7 +6625,7 @@ select,input[type=text],input[type=date],textarea{padding:7px 10px;border-radius
   <div class="row" id="cmp-row" style="margin-top:8px;display:none"></div>
   <div class="private">Private planning space: only people with Season Planning access can see this. Nothing here is public or official until it’s greenlit.</div>
   <div class="legend" id="legend"></div>
-</div>
+</div></div>
 <div class="wrap">
   <div class="tray" id="tray"></div>
   <div id="view"></div>
@@ -6507,6 +6635,7 @@ select,input[type=text],input[type=date],textarea{padding:7px 10px;border-radius
 var KINDS = {show:['Show','#9d174d'], 'class':['Class / program','#0f766e'], event:['Event','#1d4ed8'], rental:['Rental','#b45309'], fundraiser:['Fundraiser','#7c3aed'], other:['Other','#475569']}
 var STATUS = {idea:'Idea', tentative:'Tentative', penciled:'Penciled in', confirmed:'Confirmed', greenlit:'Greenlit', dropped:'Dropped'}
 var SWATCH = ['','#9d174d','#be123c','#c2410c','#b45309','#15803d','#0f766e','#0369a1','#1d4ed8','#7c3aed','#475569']
+var VIEWER = __VIEWER__, IS_ADMIN = __ISADMIN__
 var S = {scenario:'', data:null, view:'timeline', start:null, month:null, showReal:true, compares:[], compareData:{}, canEdit:false}
 var CMP_COLORS = ['#0f766e','#b45309','#7c3aed','#be123c','#1d4ed8']
 var PX_DAY = 4.2
@@ -6543,6 +6672,8 @@ async function load(){
   var r = rangeFromTo(), seq = S.seq = (S.seq||0)+1
   var d = await api('/api/planner?'+(S.scenario?'scenario='+encodeURIComponent(S.scenario)+'&':'')+'from='+r[0]+'&to='+r[1])
   if(seq !== S.seq) return   // a newer request (quick clicks) has taken over
+  if(d && d.agreement_required){ showGate(d); return }
+  document.body.classList.remove('locked')
   if(!d || d.error){ $('view').innerHTML = '<p class="muted">'+esc((d&&d.error)||'Could not load the planner')+'</p>'; return }
   S.data = d; S.scenario = d.scenario_id; S.canEdit = d.can_edit
   $('sc').innerHTML = d.scenarios.map(function(s){ return '<option value="'+s.id+'"'+(s.id===d.scenario_id?' selected':'')+'>'+esc(s.name)+(s.is_primary?' (main)':'')+' · '+s.items+'</option>' }).join('')
@@ -6964,8 +7095,50 @@ async function renameVersion(id){ var s=S.data.scenarios.find(function(x){return
 async function mainVersion(id){ await api('/api/planner/scenarios/'+id,'PUT',{is_primary:true}); $('ov').remove(); toast('That’s the main version now'); load() }
 async function deleteVersion(id){ if(!confirm('Delete this version of the plan?')) return; var r=await api('/api/planner/scenarios/'+id,'DELETE'); if(r.error){ toast(r.error); return } S.compares = S.compares.filter(function(x){ return x!==id }); if(S.scenario===id) S.scenario=''; $('ov').remove(); load() }
 window.addEventListener('resize', function(){ clearTimeout(window._rz); window._rz = setTimeout(function(){ if(S.data && S.view==='timeline') render() }, 200) });
+// ── Confidentiality: agreement, watermark, quick cover ──
+function showGate(d){
+  document.body.classList.add('locked')
+  if($('gate')) return
+  var g = document.createElement('div'); g.className = 'gate'; g.id = 'gate'
+  g.innerHTML = '<div class="gate-card"><h2>Confidential: HWTC Season Planning</h2><div style="color:#6b7280;font-size:13px;margin-bottom:12px">Please read this before you continue.</div>'
+    + (function(){ var h = '', inList = false
+        ;(d.agreement||[]).forEach(function(b){ if(b[0]==='li'){ if(!inList){ h += '<ul style="padding-left:20px;margin:6px 0">'; inList = true } h += '<li>'+esc(b[1])+'</li>'; return }
+          if(inList){ h += '</ul>'; inList = false } h += b[0]==='h' ? '<div style="font-weight:800;margin-top:12px">'+esc(b[1])+'</div>' : '<p style="margin:8px 0;line-height:1.5">'+esc(b[1])+'</p>' })
+        return h + (inList ? '</ul>' : '') })()
+    + '<label style="display:flex;gap:10px;align-items:flex-start;margin:16px 0 10px;font-weight:600;cursor:pointer"><input type="checkbox" id="g-ok" style="width:20px;height:20px;margin-top:1px"/> I’ve read this and agree to keep the Season Planner confidential.</label>'
+    + '<input type="text" id="g-name" placeholder="Type your full name" style="width:100%;margin-bottom:12px" value=""/>'
+    + '<div class="row"><button class="btn primary" onclick="agree()">Agree and continue</button><a class="btn" href="/" style="text-decoration:none">Back to RoleCall</a></div>'
+    + '<div style="font-size:12px;color:#6b7280;margin-top:10px">Recorded with your name, account and the date (agreement '+esc(d.version||'')+').</div></div>'
+  document.body.appendChild(g)
+}
+async function agree(){
+  if(!$('g-ok').checked){ toast('Tick the box to agree'); return }
+  var n = $('g-name').value.trim(); if(n.length < 2){ toast('Type your full name'); return }
+  var r = await api('/api/planner/agree','POST',{agree:true, name:n}); if(r.error){ toast(r.error); return }
+  $('gate').remove(); toast('Thanks. Recorded.'); load()
+}
+function paintWatermark(){
+  var t = 'CONFIDENTIAL · '+(VIEWER||'')+' · '+new Date().toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})
+  $('wm').innerHTML = '<div>'+new Array(80).join('<span>'+esc(t)+'</span>')+'</div>'
+}
+function shield(on){
+  var s = $('shield')
+  if(on && !s){ s = document.createElement('div'); s.className = 'shield'; s.id = 'shield'; s.innerHTML = '<div style="font-size:18px;color:#1f2933">Screen hidden</div><div>Click anywhere or press any key to show it again.</div>'
+    s.onclick = function(){ shield(false) }; document.body.appendChild(s) }
+  else if(!on && s) s.remove()
+}
+document.addEventListener('keydown', function(e){ if($('shield')){ shield(false); return } if(e.key==='Escape' && !$('ov') && !$('gate')) shield(true) })
+async function openAccess(){
+  var d = await api('/api/planner/access'); if(d.error){ toast(d.error); return }
+  var ov = document.createElement('div'); ov.className='ov'; ov.id='ov'; ov.onclick=function(e){ if(e.target===ov) ov.remove() }
+  ov.innerHTML = '<div class="drawer"><div class="row"><h2 style="flex:1">Who has access</h2><button class="btn sm" onclick="$(\'ov\').remove()">Close</button></div>'
+    + '<p class="muted">Only people with Season Planning access in Settings → Users can open the planner, and each of them has to agree to keep it confidential (once a year). Remove someone’s access there.</p>'
+    + '<div class="box"><strong>Agreements ('+d.agreements.length+')</strong>'+(d.agreements.length?d.agreements.map(function(a){ return '<div class="cmt"><b>'+esc(a.typed_name)+'</b> <span class="muted">('+esc(a.account_name||a.email||'')+')</span><div class="who">Agreed '+esc(a.agreed_at)+' · version '+esc(a.version)+(a.version!==d.version?' (old: will be asked again)':'')+'</div></div>' }).join(''):'<div class="muted">Nobody yet.</div>')+'</div>'
+    + '<div class="box"><strong>Recently opened</strong>'+(d.views.length?d.views.map(function(v){ return '<div class="cmt"><b>'+esc(v.name||'Someone')+'</b> <span class="who">'+esc(v.at)+'</span></div>' }).join(''):'<div class="muted">No visits yet.</div>')+'</div></div>'
+  document.body.appendChild(ov)
+}
 // start
-(function(){ var t=new Date(); S.start=new Date(t.getFullYear(), t.getMonth(), 1); S.month=new Date(t.getFullYear(), t.getMonth(), 1); legend(); load() })()
+(function(){ paintWatermark(); if(IS_ADMIN) $('access-btn').style.display = ''; var t=new Date(); S.start=new Date(t.getFullYear(), t.getMonth(), 1); S.month=new Date(t.getFullYear(), t.getMonth(), 1); legend(); load() })()
 </script></body></html>
 """
 

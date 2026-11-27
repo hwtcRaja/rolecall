@@ -6494,6 +6494,7 @@ select,input[type=text],input[type=date],textarea{padding:7px 10px;border-radius
     <button class="btn primary" id="add-btn" onclick="openItem(null)">+ Add</button>
     <a class="btn sm" href="/" style="text-decoration:none">RoleCall</a>
   </div>
+  <div class="row" id="cmp-row" style="margin-top:8px;display:none"></div>
   <div class="private">Private planning space: only people with Season Planning access can see this. Nothing here is public or official until it’s greenlit.</div>
   <div class="legend" id="legend"></div>
 </div>
@@ -6506,7 +6507,8 @@ select,input[type=text],input[type=date],textarea{padding:7px 10px;border-radius
 var KINDS = {show:['Show','#9d174d'], 'class':['Class / program','#0f766e'], event:['Event','#1d4ed8'], rental:['Rental','#b45309'], fundraiser:['Fundraiser','#7c3aed'], other:['Other','#475569']}
 var STATUS = {idea:'Idea', tentative:'Tentative', penciled:'Penciled in', confirmed:'Confirmed', greenlit:'Greenlit', dropped:'Dropped'}
 var SWATCH = ['','#9d174d','#be123c','#c2410c','#b45309','#15803d','#0f766e','#0369a1','#1d4ed8','#7c3aed','#475569']
-var S = {scenario:'', data:null, view:'timeline', start:null, month:null, showReal:true, compare:'', compareData:null, canEdit:false}
+var S = {scenario:'', data:null, view:'timeline', start:null, month:null, showReal:true, compares:[], compareData:{}, canEdit:false}
+var CMP_COLORS = ['#0f766e','#b45309','#7c3aed','#be123c','#1d4ed8']
 var PX_DAY = 4.2
 function $(id){ return document.getElementById(id) }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c] }) }
@@ -6545,7 +6547,12 @@ async function load(){
   S.data = d; S.scenario = d.scenario_id; S.canEdit = d.can_edit
   $('sc').innerHTML = d.scenarios.map(function(s){ return '<option value="'+s.id+'"'+(s.id===d.scenario_id?' selected':'')+'>'+esc(s.name)+(s.is_primary?' (main)':'')+' · '+s.items+'</option>' }).join('')
   $('add-btn').style.display = S.canEdit ? '' : 'none'
-  if(S.compare){ S.compareData = await api('/api/planner?scenario='+encodeURIComponent(S.compare)+'&from='+r[0]+'&to='+r[1]) } else S.compareData = null
+  // Versions switched on for comparing (never the one being edited)
+  var ids = d.scenarios.map(function(s){ return s.id })
+  S.compares = S.compares.filter(function(id){ return id !== S.scenario && ids.indexOf(id) >= 0 })
+  var got = await Promise.all(S.compares.map(function(id){ return api('/api/planner?scenario='+encodeURIComponent(id)+'&from='+r[0]+'&to='+r[1]) }))
+  if(seq !== S.seq) return
+  S.compareData = {}; S.compares.forEach(function(id, i){ if(got[i] && !got[i].error) S.compareData[id] = got[i] })
   render()
 }
 function setView(v){ S.view=v; if(v==='month' && !S.month){ var t=new Date(); S.month=new Date(t.getFullYear(),t.getMonth(),1) } load() }
@@ -6559,15 +6566,32 @@ function render(){
   $('v-tl').className = S.view==='timeline'?'on':''; $('v-mo').className = S.view==='month'?'on':''; $('v-li').className = S.view==='list'?'on':''
   $('range-ctl').style.display = S.view==='list' ? 'none' : 'contents'
   $('real-btn').style.display = S.view==='list' ? 'none' : ''
-  if(S.view==='list'){ $('tray').style.display='none'; $('compare').innerHTML=''; $('view').innerHTML = listHTML(); bindDrag(); return }
+  if(S.view==='list'){ renderCompareRow(); $('tray').style.display='none'; $('compare').innerHTML=''; $('view').innerHTML = listHTML(); bindDrag(); return }
   $('tray').style.display=''
   $('real-btn').textContent = 'Real calendar: '+(S.showReal?'on':'off'); $('real-btn').className = 'btn sm'+(S.showReal?' on':'')
   var r = rangeFromTo()
   $('range').textContent = S.view==='timeline' ? fmt(r[0],{month:'short',year:'numeric'})+' – '+fmt(r[1],{month:'short',year:'numeric'}) : new Date(S.month).toLocaleDateString('en-US',{month:'long',year:'numeric'})
   renderTray()
   if(S.view==='timeline') $('view').innerHTML = timelineHTML(S.data, true); else $('view').innerHTML = monthHTML()
-  $('compare').innerHTML = (S.compareData && S.compareData.items && S.view==='timeline') ? '<div class="compare-title">Compared with: '+esc((S.compareData.scenarios.find(function(x){return x.id===S.compare})||{}).name||'')+' (read only)</div>'+timelineHTML(S.compareData, false) : ''
+  renderCompareRow()
+  $('compare').innerHTML = S.view==='timeline' ? S.compares.map(function(id, n){ var cd = S.compareData[id]; if(!cd) return ''
+      var nm = (S.data.scenarios.find(function(x){ return x.id===id })||{}).name || ''
+      return '<div class="compare-title"><span class="sw" style="background:'+CMP_COLORS[n%CMP_COLORS.length]+';width:10px;height:10px;border-radius:3px;margin-right:6px;vertical-align:middle"></span>Compared with: '+esc(nm)+' <span style="font-weight:500">(read only)</span> <a href="#" style="font-weight:600;margin-left:6px" onclick="event.preventDefault();toggleCompare(\''+id+'\')">hide</a></div>'+timelineHTML(cd, false) }).join('') : ''
   bindDrag()
+}
+function renderCompareRow(){
+  var el = $('cmp-row'), others = (S.data.scenarios||[]).filter(function(s){ return s.id !== S.scenario })
+  if(!others.length){ el.style.display = 'none'; return }
+  el.style.display = 'flex'
+  el.innerHTML = '<span class="muted" style="font-size:12.5px;font-weight:700">Compare with:</span>' + others.map(function(s){
+    var n = S.compares.indexOf(s.id), on = n >= 0, c = on ? CMP_COLORS[n%CMP_COLORS.length] : ''
+    return '<button class="btn sm" onclick="toggleCompare(\''+s.id+'\')" style="'+(on?'background:'+c+'1a;border-color:'+c+';color:'+c:'')+'">'+(on?'✓ ':'')+esc(s.name)+(s.is_primary?' (main)':'')+'</button>' }).join('')
+    + (S.compares.length && S.view==='list' ? '<span class="muted" style="font-size:12px">Comparing shows on the Season and Month views.</span>' : '')
+}
+function toggleCompare(id){
+  var i = S.compares.indexOf(id)
+  if(i >= 0) S.compares.splice(i, 1); else S.compares.push(id)
+  load()
 }
 function renderTray(){
   var un = (S.data.items||[]).filter(function(i){ return !i.start_date && i.status!=='dropped' })
@@ -6655,6 +6679,10 @@ function monthHTML(){
       + (cl?'<div class="mtag">Studio closed'+(cl.reason?' · '+esc(cl.reason):'')+'</div>':'') + (hol&&!cl?'<div class="mtag">Phone closed'+(hol.label?' · '+esc(hol.label):'')+'</div>':'')
       + ev.slice(0,2).map(function(e){ return '<div class="mreal" title="'+esc(e.name)+'">· '+esc(e.what?e.what+': ':'')+esc(e.name)+'</div>' }).join('') + (ev.length>2?'<div class="mreal">+'+(ev.length-2)+' more</div>':'')
       + mine.map(function(it){ return '<div class="mchip plan" data-id="'+it.id+'" style="'+styleFor(it)+'" title="'+esc(it.title)+'">'+(it.status==='greenlit'?'✓ ':'')+(it.start_date===d||i===0?esc(it.title):'↳ '+esc(it.title))+'</div>' }).join('')
+      + S.compares.map(function(cid, n){ var cd = S.compareData[cid]; if(!cd) return ''
+          var nm = (S.data.scenarios.find(function(x){ return x.id===cid })||{}).name || ''
+          return (cd.items||[]).filter(function(it){ var e=it.end_date||it.start_date; return it.start_date && it.status!=='dropped' && it.start_date<=d && d<=e && (days(it.start_date,e)<7 || d===it.start_date || dd.getDay()===0 || i===0) })
+            .map(function(it){ return '<div class="mchip plan" data-id="'+it.id+'" data-ro="1" title="'+esc(nm+': '+it.title)+'" style="background:transparent;border:1.5px dashed '+CMP_COLORS[n%CMP_COLORS.length]+';color:'+CMP_COLORS[n%CMP_COLORS.length]+'">'+esc(nm)+': '+esc(it.title)+'</div>' }).join('') }).join('')
       + (S.data.schedule||[]).filter(function(x){ return x.date===d }).slice(0,3).map(function(x){ var it = items.find(function(y){ return y.id===x.item_id }) || {}
           return '<div class="msched" style="border-left-color:'+color(it)+'" title="'+esc((it.title||'')+': '+x.name)+'">'+(x.start_time?tm(x.start_time)+' ':'')+esc(x.name)+' <span class="muted">· '+esc(it.title||'')+'</span></div>' }).join('')
       + '</div>'
@@ -6754,7 +6782,9 @@ async function saveItem(id, patch, msg){
 // ── The item panel ──
 var CUR = null
 function openItem(id){
-  var it = id ? (S.data.items||[]).find(function(x){ return x.id===id }) || ((S.compareData||{}).items||[]).find(function(x){ return x.id===id }) : null
+  var it = null
+  if(id){ it = (S.data.items||[]).find(function(x){ return x.id===id })
+    if(!it) Object.keys(S.compareData||{}).some(function(k){ it = ((S.compareData[k]||{}).items||[]).find(function(x){ return x.id===id }); return !!it }) }
   CUR = it ? JSON.parse(JSON.stringify(it)) : {title:'', kind:'show', status:'idea', start_date:'', end_date:'', window_label:'', space:'', color:'', owner:'', notes:''}
   var ro = !S.canEdit || (it && it.scenario_id && it.scenario_id!==S.scenario)
   var dis = ro ? ' disabled' : ''
@@ -6918,21 +6948,21 @@ function openVersions(){
     + '<p class="muted">Try different seasons side by side: copy the plan you’re looking at, move things around in the copy, and compare. The main version is the one everyone sees first.</p>'
     + sc.map(function(s){ return '<div class="box" style="margin-top:8px"><div class="row"><strong style="flex:1">'+esc(s.name)+(s.is_primary?' <span class="muted">(main)</span>':'')+'</strong><span class="muted">'+s.items+' item'+(s.items==1?'':'s')+'</span></div>'
         + '<div class="row" style="margin-top:8px">'+(s.id!==S.scenario?'<button class="btn sm" onclick="S.scenario=\''+s.id+'\';$(\'ov\').remove();load()">Open</button>':'<span class="muted" style="font-size:12px">Open now</span>')
-        + (s.id!==S.scenario?'<button class="btn sm" onclick="S.compare=\''+s.id+'\';S.view=\'timeline\';$(\'ov\').remove();load()">Compare with this one</button>':'')
+        + (s.id!==S.scenario?'<button class="btn sm" onclick="if(S.compares.indexOf(\''+s.id+'\')<0)S.compares.push(\''+s.id+'\');$(\'ov\').remove();load()">Compare with this one</button>':'')
         + (S.canEdit?'<button class="btn sm" onclick="renameVersion(\''+s.id+'\')">Rename</button>'+(s.is_primary?'':'<button class="btn sm" onclick="mainVersion(\''+s.id+'\')">Make main</button><button class="btn sm" style="color:#b91c1c" onclick="deleteVersion(\''+s.id+'\')">Delete</button>'):'')+'</div></div>' }).join('')
     + (S.canEdit?'<div class="row" style="margin-top:14px"><button class="btn primary" onclick="newVersion(true)">Copy “'+esc(cur.name||'this plan')+'”</button><button class="btn" onclick="newVersion(false)">Start a blank version</button></div>':'')
-    + (S.compare?'<div style="margin-top:12px"><button class="btn sm" onclick="S.compare=\'\';$(\'ov\').remove();load()">Stop comparing</button></div>':'')
+    + (S.compares.length?'<div style="margin-top:12px"><button class="btn sm" onclick="S.compares=[];$(\'ov\').remove();load()">Stop comparing</button></div>':'')
     + '</div>'
   document.body.appendChild(ov)
 }
 async function newVersion(copy){
   var name = prompt('Name for the new version', copy ? 'Plan B' : 'New version'); if(!name) return
   var r = await api('/api/planner/scenarios','POST',{name:name, copy_from: copy ? S.scenario : null}); if(r.error){ toast(r.error); return }
-  $('ov').remove(); S.compare = copy ? S.scenario : ''; S.scenario = r.id; toast(copy?'Copied. Comparing with the original below.':'New version started'); load()
+  $('ov').remove(); S.compares = copy ? [S.scenario] : []; S.scenario = r.id; toast(copy?'Copied. Comparing with the original below.':'New version started'); load()
 }
 async function renameVersion(id){ var s=S.data.scenarios.find(function(x){return x.id===id}); var n=prompt('Rename', s.name); if(!n) return; await api('/api/planner/scenarios/'+id,'PUT',{name:n}); $('ov').remove(); load() }
 async function mainVersion(id){ await api('/api/planner/scenarios/'+id,'PUT',{is_primary:true}); $('ov').remove(); toast('That’s the main version now'); load() }
-async function deleteVersion(id){ if(!confirm('Delete this version of the plan?')) return; var r=await api('/api/planner/scenarios/'+id,'DELETE'); if(r.error){ toast(r.error); return } if(S.compare===id) S.compare=''; if(S.scenario===id) S.scenario=''; $('ov').remove(); load() }
+async function deleteVersion(id){ if(!confirm('Delete this version of the plan?')) return; var r=await api('/api/planner/scenarios/'+id,'DELETE'); if(r.error){ toast(r.error); return } S.compares = S.compares.filter(function(x){ return x!==id }); if(S.scenario===id) S.scenario=''; $('ov').remove(); load() }
 window.addEventListener('resize', function(){ clearTimeout(window._rz); window._rz = setTimeout(function(){ if(S.data && S.view==='timeline') render() }, 200) });
 // start
 (function(){ var t=new Date(); S.start=new Date(t.getFullYear(), t.getMonth(), 1); S.month=new Date(t.getFullYear(), t.getMonth(), 1); legend(); load() })()

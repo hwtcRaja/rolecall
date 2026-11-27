@@ -6198,7 +6198,6 @@ _PLANNER_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <title>Season Planner · RoleCall</title>
 <style>
 :root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--soft:#eef4f6;--hatch:#e5e7eb;--real:#94a3b8;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--soft:#1f2a2f;--hatch:#2c3439;--real:#64748b;color-scheme:dark}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;font-size:14px}
 a{color:var(--brand)}
@@ -17033,7 +17032,10 @@ def get_nav_icons():
     conn = get_db()
     rows = fetchall(conn, 'SELECT key, lucide_name FROM nav_icons')
     conn.close()
-    return jsonify({r['key']: r['lucide_name'] for r in rows})
+    icons = {r['key']: r['lucide_name'] for r in rows}
+    # Newer sidebar items get a sensible icon until an admin picks another
+    icons.setdefault('season-planner', 'calendar-range')
+    return jsonify(icons)
 
 @app.route('/api/nav-icons', methods=['PUT'])
 def save_nav_icons():
@@ -39164,7 +39166,6 @@ _PHONE_HUB_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"
 <title>HWTC Phone</title>
 <style>
 :root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--soft:#eef4f6;--red:#b42318;--green:#166534;--in:#fff;--out:#0d3d4d;--out-ink:#fff;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--soft:#1f2a2f;--red:#f97066;--green:#6ce9a6;--in:#252c30;--out:#2b6676;--out-ink:#fff;color-scheme:dark}}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
 body{padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
@@ -40010,7 +40011,6 @@ def emergency_snapshot_admin_page():
 <title>RC Crash Report</title>
 <style>
 :root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--ok:#166534;--bad:#b42318;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--ok:#6ce9a6;--bad:#f97066;color-scheme:dark}}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 .wrap{max-width:640px;margin:0 auto;padding:24px 16px}
 h1{font-size:22px;color:var(--brand);margin:0 0 4px}.sub{color:var(--muted);font-size:14px;margin-bottom:18px}
@@ -40318,7 +40318,6 @@ _STORAGE_PAGE_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf
 <title>Storage &amp; cleanup</title>
 <style>
 :root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--soft:#eef4f6;--bar:#5aadc2;--ok:#166534;--bad:#b42318;--warn:#854d0e;--warnbg:#fefce8;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--soft:#1f2a2f;--bar:#2b6676;--ok:#6ce9a6;--bad:#f97066;--warn:#fdb022;--warnbg:#2a2412;color-scheme:dark}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 .wrap{max-width:900px;margin:0 auto;padding:24px 16px 48px}
@@ -40714,8 +40713,6 @@ _CAST_FAM_HTML = r"""<!DOCTYPE html><html lang="en"><head><meta charset="utf-8">
 <style>
 :root{--bg:#f5f4f0;--card:#fff;--ink:#1f2933;--muted:#6b7280;--line:#e5e7eb;--brand:#0d3d4d;--brand-ink:#fff;--soft:#eef4f6;
   --here:#166534;--herebg:#dcfce7;--tix:#854d0e;--tixbg:#fef9c3;--none:#b42318;--nonebg:#fee2e2;--maybe:#1e40af;--maybebg:#dbeafe;color-scheme:light}
-@media (prefers-color-scheme:dark){:root{--bg:#111416;--card:#1b2023;--ink:#e8eaed;--muted:#9aa3ab;--line:#2c3439;--brand:#5fb3c7;--brand-ink:#0b1416;--soft:#1f2a2f;
-  --here:#6ce9a6;--herebg:#12301f;--tix:#fdb022;--tixbg:#2e2510;--none:#f97066;--nonebg:#3a1414;--maybe:#93c5fd;--maybebg:#172554;color-scheme:dark}}
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 body{padding:env(safe-area-inset-top,0) 0 env(safe-area-inset-bottom,0)}
